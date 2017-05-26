@@ -10,6 +10,8 @@ Welcome to Django-sharding's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+   modules/decorators
+
 
 Indices and tables
 ==================
@@ -17,3 +19,4 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
+

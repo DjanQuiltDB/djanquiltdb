@@ -3,8 +3,6 @@ from django.test import TestCase
 
 from users.models import Organization, User, Type
 
-from django.contrib.auth import get_user_model
-
 
 class LoginTestCase(TestCase):
     def setUp(self):
