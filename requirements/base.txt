@@ -7,3 +7,5 @@ python-dateutil
 
 psycopg2
 dj-database-url
+
+sphinx
