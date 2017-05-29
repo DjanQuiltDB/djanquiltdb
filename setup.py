@@ -1,7 +1,6 @@
 import os
 from setuptools import setup
-from django_env.sharding import __version__
-
+from django_sharding.sharding import __version__
 
 # allow setup.py to be run from any path
 os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
@@ -9,14 +8,14 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 # Since we distribute a subpackage, find_packages doesn't work for us.
 setup(
-    name="django-sharding",
+    name="django_sharding",
     version='.'.join(str(x) for x in __version__),
     license="BSD",
     description="Library to shard a database on the hierarchy's top level table.",
     author="Patchman B.V.",
     author_email="hello@patchman.co",
     url="https://https://bitbucket.org/patchmanbv/django-sharding",
-    package_dir={'': 'django_env'},
+    package_dir={'': 'django_sharding'},
     packages=['sharding'],
     include_package_data=True,
     install_requires=[

@@ -20,7 +20,7 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath('../django_env/'))
+sys.path.insert(0, os.path.abspath('../django_sharding/'))
 from django.conf import settings
 settings.configure()
 # sys.path.insert(0, os.path.abspath('.'))
@@ -144,7 +144,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'django-sharding', 'Django-sharding Documentation',
+    (master_doc, 'django_sharding', 'Django-sharding Documentation',
      [author], 1)
 ]
 
