@@ -9,7 +9,7 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 # Since we distribute a subpackage, find_packages doesn't work for us.
 setup(
     name="django_sharding",
-    version='.'.join(str(x) for x in __version__),
+    version=__version__,
     license="BSD",
     description="Library to shard a database on the hierarchy's top level table.",
     author="Patchman B.V.",
