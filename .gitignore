@@ -69,7 +69,7 @@ coverage.xml
 docs/_build/
 
 # Secrets file
-config/secrets.json
+/django_sharding/secrets.json
 
 # All extra minified files
 *.min.min.js
