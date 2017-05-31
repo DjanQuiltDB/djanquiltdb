@@ -1,0 +1,12 @@
+packaging
+pip-tools
+
+Django>=1.8.18, <1.9
+pytz
+python-dateutil
+django-braces
+
+psycopg2
+dj-database-url
+
+sphinx
