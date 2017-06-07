@@ -53,6 +53,17 @@ The sharding application requires you to create custom ``Shard`` and ``Node``, w
         class Meta:
             app_label = 'myapp'
 
+Make migrations
+~~~~~~~~~~~~~~~
+
+``./manage makemigrations``::
+
+    Migrations for 'myapp':
+      0001_initial.py:
+        - Create model Node
+        - Create model Shard
+
+
 Configuration settings
 ~~~~~~~~~~~~~~~~~~~~~~
 
