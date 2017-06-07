@@ -36,6 +36,7 @@ INSTALLED_APPS = (
     'django.contrib.staticfiles',
     'sharding',
     'users',
+    'shardingtest',
 )
 
 MIDDLEWARE_CLASSES = (
@@ -111,3 +112,8 @@ USE_L10N = True
 USE_TZ = True
 
 STATIC_URL = '/static/'
+
+SHARDING = {
+    'SHARD_CLASS': 'shardingtest.models.Shard',
+    'NODE_CLASS': 'shardingtest.models.Node',
+}
