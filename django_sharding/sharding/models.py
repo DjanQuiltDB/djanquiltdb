@@ -1,4 +1,14 @@
+from django.conf import settings
 from django.db import models
+from django.utils.module_loading import import_string
+
+
+def get_shard_class():
+    return import_string(settings.SHARDING['SHARD_CLASS'])
+
+
+def get_node_class():
+    return import_string(settings.SHARDING['NODE_CLASS'])
 
 
 class BaseShard(models.Model):
