@@ -37,6 +37,7 @@ INSTALLED_APPS = (
     'sharding',
     'users',
     'shardingtest',
+    'utils'
 )
 
 MIDDLEWARE_CLASSES = (
@@ -97,6 +98,8 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+
+TEST_RUNNER = 'utils.test.PortalRunner'
 
 # Internationalization
 # https://docs.djangoproject.com/en/1.11/topics/i18n/
