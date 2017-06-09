@@ -13,4 +13,3 @@ class Shard(BaseShard):
 
     class Meta:
         app_label = 'shardingtest'
-
