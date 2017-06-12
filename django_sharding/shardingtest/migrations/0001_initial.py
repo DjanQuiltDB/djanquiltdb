@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.AutoField(verbose_name='ID', primary_key=True, auto_created=True, serialize=False)),
                 ('alias', models.CharField(max_length=128, db_index=True)),
-                ('db_name', models.CharField(max_length=64)),
+                ('schema_name', models.CharField(max_length=64)),
                 ('node', models.ForeignKey(to='shardingtest.Node', on_delete=django.db.models.deletion.PROTECT)),
             ],
         ),

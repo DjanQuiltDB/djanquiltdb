@@ -2,6 +2,8 @@ from django.conf import settings
 from django.db import models
 from django.utils.module_loading import import_string
 
+from sharding.utils import use_shard, create_schema
+
 
 def get_shard_class():
     """ Helper function to get implemented Shard class """
@@ -16,11 +18,16 @@ def get_node_class():
 class BaseShard(models.Model):
     """ Base class for Shard models """
     alias = models.CharField(max_length=128, db_index=True)
-    db_name = models.CharField(max_length=64)  # PostgreSQL default max limit = 63 chars
+    schema_name = models.CharField(max_length=64)  # PostgreSQL default max limit = 63 chars
 
     class Meta:
         app_label = 'sharding'
         abstract = True
+
+    def save(self, **kwargs):
+        create_schema(self.schema_name)
+        with use_shard(self.schema_name):
+            super().save(**kwargs)
 
 
 class BaseNode(models.Model):

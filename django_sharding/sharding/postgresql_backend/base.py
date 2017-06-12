@@ -1,0 +1,87 @@
+"""Taken from https://github.com/bernardopires/django-tenant-schemas/blob/master/tenant_schemas/postgresql_backend/base.py"""
+
+from django.db.backends.postgresql_psycopg2.base import DatabaseWrapper as BaseDatabaseWrapper
+from django.db.utils import DatabaseError, IntegrityError
+from psycopg2 import InternalError
+
+
+class DatabaseWrapper(BaseDatabaseWrapper):
+    """
+    Adds the capability to manipulate the search_path using set_tenant and set_schema_name
+    """
+    include_public_schema = True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.set_schema_to_public()
+
+    def close(self):
+        self.search_path_set = False
+        super().close()
+
+    def rollback(self):
+        super().rollback()
+        # Django's rollback clears the search path so we have to set it again the next time.
+        self.search_path_set = False
+
+    def set_schema(self, schema_name):
+        """
+        Main API method to current database schema,
+        but it does not actually modify the db connection.
+        """
+        self.schema_name = schema_name
+        self.search_path_set = False
+
+    def set_schema_to_public(self):
+        """
+        Instructs to stay in the common 'public' schema.
+        """
+        self.schema_name = None
+        self.search_path_set = False
+
+    def get_schema(self):
+        return self.schema_name
+
+    def get_ps_schema(self, shard_name):
+        cursor = super()._cursor()
+        cursor.execute("SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = '{}');"
+                       .format(shard_name))
+        if cursor.fetchall()[0][0]:
+            return shard_name
+        else:
+            return None
+
+    def _cursor(self):
+        """Database cursor to write whatever we want.
+
+        Typically used for migrations, this function will check
+        to see if SCHEMA_NAME is set or not. If it is, then it
+        will create it if it doesn't yet exist. Finally, it will
+        point to that schema.
+        """
+        cursor = super()._cursor()
+        if self.search_path_set:
+            return cursor
+
+        if self.schema_name:
+            # confirm that the schema exists.
+            if not self.get_ps_schema(self.schema_name):
+                raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
+
+        # Since all schemas contain all tables for now, we disable the public schema to test content separation.
+        # search_paths = [self.schema_name, 'public'] if self.schema_name else ['public']
+        search_paths = [self.schema_name] if self.schema_name else ['public']
+
+        # In the event that an error already happened in this transaction and we are going
+        # to rollback we should just ignore database error when setting the search_path
+        # if the next instruction is not a rollback it will just fail also, so
+        # we do not have to worry that it's not the good one
+        try:
+            cursor.execute('SET search_path = {0}'.format(','.join(search_paths)))
+        except (DatabaseError, InternalError):
+            self.search_path_set = False
+        else:
+            self.search_path_set = True
+
+        return cursor
