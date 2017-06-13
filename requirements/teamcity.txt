@@ -1,0 +1,7 @@
+-r base.txt
+
+coverage
+
+# inspection libraries
+https://bitbucket.org/patchmanbv/flake8/downloads/flake8-3.3.0.tar.gz#egg=flake8-3.3.0
+https://bitbucket.org/patchmanbv/bandit/downloads/bandit-1.4.1.dev8.tar.gz#egg=bandit-1.4.1.dev8
