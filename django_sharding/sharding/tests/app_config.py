@@ -7,6 +7,7 @@ from django.db import models
 # Dummy Models used for the test_incompatible_models_settings test.
 class DummyNode(models.Model):
     class Meta:
+        abstract = True  # prevent automatic importing of this class
         app_label = 'sharding'
 
 
@@ -14,6 +15,7 @@ class DummyShard(models.Model):
     node = models.ForeignKey(DummyNode, on_delete=models.PROTECT)
 
     class Meta:
+        abstract = True  # prevent automatic importing of this class
         app_label = 'sharding'
 
 
@@ -68,8 +70,8 @@ class ShardingSettingsTestCase(SimpleTestCase):
         """
         sharding_app = apps.get_app_config(app_label='sharding')
 
-        with override_settings(SHARDING={'SHARD_CLASS': 'django_sharding.sharding.tests.app_config.DummyShard',
-                                         'NODE_CLASS': 'django_sharding.sharding.tests.app_config.DummyNode'}):
+        with override_settings(SHARDING={'SHARD_CLASS': 'sharding.tests.app_config.DummyShard',
+                                         'NODE_CLASS': 'sharding.tests.app_config.DummyNode'}):
             with self.assertRaises(ImproperlyConfigured):
                 sharding_app.ready()
 

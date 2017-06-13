@@ -15,8 +15,7 @@ class ShardingConfig(AppConfig):
             raise ImproperlyConfigured('Missing or incorrect type of a setting SHARDING.')
 
         # Validate shard and node class settings
-        setting_model_class_base = (('SHARD_CLASS', BaseShard),
-                                    ('NODE_CLASS', BaseNode),)
+        setting_model_class_base = (('SHARD_CLASS', BaseShard), ('NODE_CLASS', BaseNode), )
         for setting_name, base_class in setting_model_class_base:
             if setting_name not in settings.SHARDING:
                 raise ImproperlyConfigured(

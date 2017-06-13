@@ -99,7 +99,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-TEST_RUNNER = 'utils.test.PortalRunner'
+TEST_RUNNER = 'utils.test.WildcardDiscoverRunner'
 
 # Internationalization
 # https://docs.djangoproject.com/en/1.11/topics/i18n/
