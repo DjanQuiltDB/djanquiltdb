@@ -7,7 +7,6 @@ from django.db import models
 # Dummy Models used for the test_incompatible_models_settings test.
 class DummyNode(models.Model):
     class Meta:
-        abstract = True  # prevent automatic importing of this class
         app_label = 'sharding'
 
 
@@ -15,7 +14,6 @@ class DummyShard(models.Model):
     node = models.ForeignKey(DummyNode, on_delete=models.PROTECT)
 
     class Meta:
-        abstract = True  # prevent automatic importing of this class
         app_label = 'sharding'
 
 
