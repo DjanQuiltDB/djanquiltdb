@@ -36,6 +36,8 @@ INSTALLED_APPS = (
     'django.contrib.staticfiles',
     'sharding',
     'users',
+    'shardingtest',
+    'utils'
 )
 
 MIDDLEWARE_CLASSES = (
@@ -97,6 +99,8 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+TEST_RUNNER = 'utils.test.WildcardDiscoverRunner'
+
 # Internationalization
 # https://docs.djangoproject.com/en/1.11/topics/i18n/
 
@@ -111,3 +115,8 @@ USE_L10N = True
 USE_TZ = True
 
 STATIC_URL = '/static/'
+
+SHARDING = {
+    'SHARD_CLASS': 'shardingtest.models.Shard',
+    'NODE_CLASS': 'shardingtest.models.Node',
+}

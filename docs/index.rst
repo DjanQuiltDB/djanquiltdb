@@ -10,6 +10,8 @@ Welcome to Django-sharding's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+   modules/installation
+   modules/models
    modules/decorators
 
 
