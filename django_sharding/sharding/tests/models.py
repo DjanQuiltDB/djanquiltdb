@@ -2,8 +2,8 @@ from unittest import mock
 
 from django.test import TestCase, SimpleTestCase, override_settings
 
-from sharding.models import get_node_class, get_shard_class, BaseShard
-from sharding.tests.app_config import DummyNode, DummyShard
+from sharding.models import get_shard_class, BaseShard
+from sharding.tests.app_config import DummyShard
 
 
 class GetShardTestCase(SimpleTestCase):
@@ -15,17 +15,9 @@ class GetShardTestCase(SimpleTestCase):
         """
         self.assertEqual(get_shard_class(), DummyShard)
 
-    @override_settings(SHARDING={'NODE_CLASS': 'sharding.tests.app_config.DummyNode'})
-    def test_get_node(self):
-        """
-        Case: get node class.
-        Expected: Class reference of classname given in the settings.
-        """
-        self.assertEqual(get_node_class(), DummyNode)
-
 
 class BaseShardTestCase(TestCase):
-    @mock.patch('sharding.models.create_schema')
+    @mock.patch('sharding.models.create_schema_on_node')
     @mock.patch('sharding.models.models.Model.save')
     def test_save(self, mock_save, mock_create_schema):
         """

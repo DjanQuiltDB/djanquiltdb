@@ -1,4 +1,16 @@
-"""Taken from https://github.com/bernardopires/django-tenant-schemas/blob/master/tenant_schemas/postgresql_backend/base.py"""
+"""
+    Taken, changed and adopted from:
+        https://github.com/bernardopires/django-tenant-schemas/blob/master/tenant_schemas/postgresql_backend/base.py
+    Credits goes to bernardopires
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.
+    """
 
 from django.db.backends.postgresql_psycopg2.base import DatabaseWrapper as BaseDatabaseWrapper
 from django.db.utils import DatabaseError, IntegrityError
@@ -7,8 +19,9 @@ from psycopg2 import InternalError
 
 class DatabaseWrapper(BaseDatabaseWrapper):
     """
-    Adds the capability to manipulate the search_path using set_tenant and set_schema_name
+    Adds the capability to manipulate the search_path using set_schema and set_schema_to_public
     """
+
     include_public_schema = True
 
     def __init__(self, *args, **kwargs):
@@ -85,3 +98,6 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             self.search_path_set = True
 
         return cursor
+
+    def _start_transaction_under_autocommit(self):
+        pass

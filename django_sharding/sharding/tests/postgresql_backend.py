@@ -3,7 +3,7 @@ from unittest import mock
 from django.db import connection
 from django.test import TestCase
 
-from sharding.utils import create_schema
+from sharding.utils import create_schema_on_node
 
 
 class PostgresBackendTestCase(TestCase):
@@ -64,7 +64,6 @@ class PostgresBackendTestCase(TestCase):
         Expected: Returned the schema name
         """
         connection.set_schema('test_schema')
-        connection.get_schema()
         self.assertEqual(connection.get_schema(), 'test_schema')
 
     def test_get_ps_schema_with_existing_schema(self):
@@ -72,7 +71,7 @@ class PostgresBackendTestCase(TestCase):
         Case: Call connection.set_ps_schema with an existing schema name.
         Expected: Receive string 'test_schema'.
         """
-        create_schema('test_schema')
+        create_schema_on_node('test_schema', 'default', migrate=False)  # no need to migrate for this test
         self.assertEqual(connection.get_ps_schema('test_schema'), 'test_schema')
 
     def test_get_ps_schema_with_unexisting_schema(self):
@@ -80,5 +79,4 @@ class PostgresBackendTestCase(TestCase):
         Case: Call connection.set_ps_schema with an unexisting schema name.
         Expected: Receive None.
         """
-        self.assertEqual(connection.get_ps_schema('test_schema'), None)
-
+        self.assertIsNone(connection.get_ps_schema('test_schema'))
