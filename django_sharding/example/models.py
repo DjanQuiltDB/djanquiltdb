@@ -2,11 +2,11 @@ from django.contrib.auth.models import AbstractBaseUser, UserManager
 from django.db import models
 from django.utils import timezone
 
-from sharding.decorators import shard, mirror
+from sharding.decorators import defining_shard_model, mirrored_model, sharded_model
 
 
 # mirrored table
-@mirror()
+@mirrored_model()
 class Type(models.Model):
     name = models.CharField('name', max_length=100)
 
@@ -15,17 +15,19 @@ class Type(models.Model):
 
 
 # lead sharded table
-@shard()
+@sharded_model()
+# @defining_shard_model()
 class Organization(models.Model):
     name = models.CharField('name', max_length=100)
     created_at = models.DateTimeField('created at', default=timezone.now)
+    shard = models.ForeignKey('shardingtest.Shard', verbose_name='shard')
 
     class Meta:
         app_label = 'example'
 
 
 # child sharded table
-@shard()
+@sharded_model()
 class User(AbstractBaseUser):
     def get_full_name(self):
         return self.name
@@ -35,7 +37,7 @@ class User(AbstractBaseUser):
 
     name = models.CharField('name', max_length=100)
     email = models.EmailField('email address', unique=True)
-    created_at = models.DateTimeField('date joine', default=timezone.now)
+    created_at = models.DateTimeField('date joined', default=timezone.now)
     organization = models.ForeignKey('Organization', verbose_name='organization')
     type = models.ForeignKey('Type', verbose_name='type')
 

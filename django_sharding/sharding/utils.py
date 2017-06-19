@@ -22,6 +22,12 @@ from django.utils.module_loading import import_string
 THREAD_LOCAL = threading.local()
 
 
+class ShardingMode:
+    MIRRORED = 'M'
+    DEFINING = 'D'
+    SHARDED = 'S'
+
+
 class DynamicDbRouter(object):
     # A router that decides what db to read from based on a variable local to the current thread.
 

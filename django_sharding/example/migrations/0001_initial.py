@@ -9,6 +9,7 @@ import django.utils.timezone
 class Migration(migrations.Migration):
 
     dependencies = [
+        ('shardingtest', '0001_initial'),
     ]
 
     operations = [
@@ -50,5 +51,10 @@ class Migration(migrations.Migration):
             model_name='user',
             name='type',
             field=models.ForeignKey(to='example.Type', verbose_name='type'),
+        ),
+        migrations.AddField(
+            model_name='organization',
+            name='shard',
+            field=models.ForeignKey(to='shardingtest.Shard', verbose_name='shard'),
         ),
     ]
