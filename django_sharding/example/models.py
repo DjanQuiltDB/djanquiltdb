@@ -11,7 +11,7 @@ class Type(models.Model):
     name = models.CharField('name', max_length=100)
 
     class Meta:
-        app_label = 'users'
+        app_label = 'example'
 
 
 # lead sharded table
@@ -21,7 +21,7 @@ class Organization(models.Model):
     created_at = models.DateTimeField('created at', default=timezone.now)
 
     class Meta:
-        app_label = 'users'
+        app_label = 'example'
 
 
 # child sharded table
@@ -44,7 +44,7 @@ class User(AbstractBaseUser):
     objects = UserManager()
 
     class Meta:
-        app_label = 'users'
+        app_label = 'example'
 
     def __str__(self):
         return self.name

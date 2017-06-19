@@ -1,6 +1,6 @@
 from django.test import TestCase
 
-from users.models import Organization, Type, User
+from example.models import Organization, Type, User
 from shardingtest.models import Shard
 from sharding.utils import use_shard
 
@@ -14,25 +14,25 @@ class ShardingTestCase(TestCase):
         self.shard2 = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default')
 
         # default shard
-        self.type1 = Type.objects.create(name="Leader")
-        self.type2 = Type.objects.create(name="Admiral")
+        self.type1 = Type.objects.create(name='Leader')
+        self.type2 = Type.objects.create(name='Admiral')
 
         with use_shard(self.shard1):
-            self.org1 = Organization.objects.create(name="The Empire")
-            self.user1 = User.objects.create(name="Sheev Palpatine", email="s.palpatine@sith.sw",
+            self.org1 = Organization.objects.create(name='The Empire')
+            self.user1 = User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw',
                                              organization=self.org1, type=self.type1)
 
         with use_shard(self.shard2):
-            self.org2 = Organization.objects.create(name="The Rebel Alliance")
-            self.user2 = User.objects.create(name="Mon Mothma", email="m.mothma@alliance.sw", organization=self.org2,
+            self.org2 = Organization.objects.create(name='The Rebel Alliance')
+            self.user2 = User.objects.create(name='Mon Mothma', email='m.mothma@alliance.sw', organization=self.org2,
                                              type=self.type1)
-            self.user3 = User.objects.create(name="Ackbar", email="itsatrap@alliance.sw", organization=self.org2,
+            self.user3 = User.objects.create(name='Ackbar', email='itsatrap@alliance.sw', organization=self.org2,
                                              type=self.type2)
 
     def test_schema_separation(self):
         """
-        Case: Make organization and users on both shards.
-        Expected: Shard 1 not to contian the data of shard 2, and vice versa.
+        Case: Make organization and example on both shards.
+        Expected: Shard 1 not to contain the data of shard 2, and vice versa.
         """
         with use_shard(self.shard1):
             self.assertCountEqual(Organization.objects.values_list('name', flat=True), ['The Empire'])

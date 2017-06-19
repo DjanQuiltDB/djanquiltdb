@@ -68,7 +68,7 @@ class PostgresBackendTestCase(TestCase):
 
     def test_get_ps_schema_with_existing_schema(self):
         """
-        Case: Call connection.set_ps_schema with an existing schema name.
+        Case: Call connection.get_ps_schema with an existing schema name.
         Expected: Receive string 'test_schema'.
         """
         create_schema_on_node('test_schema', 'default', migrate=False)  # no need to migrate for this test
@@ -76,7 +76,7 @@ class PostgresBackendTestCase(TestCase):
 
     def test_get_ps_schema_with_unexisting_schema(self):
         """
-        Case: Call connection.set_ps_schema with an unexisting schema name.
+        Case: Call connection.get_ps_schema with an nonexisting schema name.
         Expected: Receive None.
         """
         self.assertIsNone(connection.get_ps_schema('test_schema'))

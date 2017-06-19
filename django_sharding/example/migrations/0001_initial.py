@@ -44,11 +44,11 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='user',
             name='organization',
-            field=models.ForeignKey(to='users.Organization', verbose_name='organization'),
+            field=models.ForeignKey(to='example.Organization', verbose_name='organization'),
         ),
         migrations.AddField(
             model_name='user',
             name='type',
-            field=models.ForeignKey(to='users.Type', verbose_name='type'),
+            field=models.ForeignKey(to='example.Type', verbose_name='type'),
         ),
     ]

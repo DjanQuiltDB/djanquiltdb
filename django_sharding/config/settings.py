@@ -35,7 +35,7 @@ INSTALLED_APPS = (
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'sharding',
-    'users',
+    'example',
     'shardingtest',
     'utils'
 )
@@ -80,7 +80,7 @@ DATABASE_ROUTERS = ['sharding.utils.DynamicDbRouter']
 # https://docs.djangoproject.com/en/1.11/ref/settings/#auth-password-validators
 
 # Settings of the auth backend
-AUTH_USER_MODEL = 'users.User'
+AUTH_USER_MODEL = 'example.User'
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = '/'
 

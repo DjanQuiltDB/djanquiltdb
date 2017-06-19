@@ -19,9 +19,7 @@ class UseShardTestCase(TestCase):
     @classmethod
     def setUpTestData(cls):  # only runs once for the entire TestCase
         cls.shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default')
-        cls.other_shard = Shard.objects.create(alias='other_shard',
-                                                schema_name='other_schema',
-                                                node_name='other')
+        cls.other_shard = Shard.objects.create(alias='other_shard', schema_name='other_schema', node_name='other')
 
     @mock.patch("sharding.utils._set_schema")
     def test_use_shard(self, mock_set_schema):
@@ -126,7 +124,7 @@ class CreateSchemaTestCase(TestCase):
         self.assertFalse(_connection.get_ps_schema('test_schema'))
         create_schema_on_node('test_schema', 'other', migrate=True)
         self.assertTrue(_connection.get_ps_schema('test_schema'))
-        mock_command.assert_called_once_with('migrate', database='other')
+        mock_command.assert_called_once_with('migrate', database='other', interactive=False)
 
 
 class UseConnectionTestCase(TestCase):

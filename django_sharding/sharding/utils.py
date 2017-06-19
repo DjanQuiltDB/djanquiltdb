@@ -78,7 +78,6 @@ class use_shard:
             self.schema_name = schema_name
             self.node = node_name
 
-
         if self.node not in connections:
             raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(self.node))
 
@@ -99,7 +98,7 @@ class use_shard:
         if not THREAD_LOCAL.DB_OVERRIDE or THREAD_LOCAL.DB_OVERRIDE == [self.node]:
             THREAD_LOCAL.DB_OVERRIDE = None
         else:
-            THREAD_LOCAL.DB_OVERRIDE.pop()  # remove last entree, which is self.node
+            THREAD_LOCAL.DB_OVERRIDE.pop()  # remove last entry, which is self.node
 
     def __call__(self, querying_func):
         @wraps(querying_func)
@@ -119,9 +118,9 @@ def create_schema_on_node(schema_name, node_name, migrate=True):
     if node_name not in connections:
         raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(node_name))
     cursor = connections[node_name].cursor()
-    cursor.execute("CREATE SCHEMA IF NOT EXISTS {};".format(schema_name))
+    cursor.execute('CREATE SCHEMA IF NOT EXISTS "{}";'.format(schema_name))  # params cannot be used for schema names
 
     if migrate:
         with use_shard(node_name=node_name, schema_name=schema_name):
             # The following will create table headers for all models, not just the sharded ones!
-            call_command('migrate', database=node_name)  # ensure we migrate using our connection
+            call_command('migrate', database=node_name, interactive=False)  # ensure we migrate using our connection

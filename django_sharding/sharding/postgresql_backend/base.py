@@ -58,14 +58,12 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def get_ps_schema(self, shard_name):
         cursor = super()._cursor()
-        cursor.execute("SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = '{}');"
-                       .format(shard_name))
+        cursor.execute('SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = %s);',
+                       [shard_name])
         if cursor.fetchall()[0][0]:
             return shard_name
-        else:
-            return None
 
-    def _cursor(self):
+    def _cursor(self, name=None):
         """Database cursor to write whatever we want.
 
         Typically used for migrations, this function will check
@@ -73,7 +71,12 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         will create it if it doesn't yet exist. Finally, it will
         point to that schema.
         """
-        cursor = super()._cursor()
+        if name:
+            # Only supported and required by Django 1.11 (server-side cursor)
+            cursor = super(DatabaseWrapper, self)._cursor(name=name)
+        else:
+            cursor = super(DatabaseWrapper, self)._cursor()
+
         if self.search_path_set:
             return cursor
 
@@ -91,7 +94,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # if the next instruction is not a rollback it will just fail also, so
         # we do not have to worry that it's not the good one
         try:
-            cursor.execute('SET search_path = {0}'.format(','.join(search_paths)))
+            cursor.execute('SET search_path = %s', [','.join(search_paths)])
         except (DatabaseError, InternalError):
             self.search_path_set = False
         else:
