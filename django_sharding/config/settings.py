@@ -35,7 +35,7 @@ INSTALLED_APPS = (
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'sharding',
-    'users',
+    'example',
     'shardingtest',
     'utils'
 )
@@ -71,13 +71,16 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 
 
-DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'))}
+DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine='sharding.postgresql_backend'),
+             'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='sharding.postgresql_backend')}
+
+DATABASE_ROUTERS = ['sharding.utils.DynamicDbRouter']
 
 # Password validation
 # https://docs.djangoproject.com/en/1.11/ref/settings/#auth-password-validators
 
 # Settings of the auth backend
-AUTH_USER_MODEL = 'users.User'
+AUTH_USER_MODEL = 'example.User'
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = '/'
 
@@ -118,5 +121,4 @@ STATIC_URL = '/static/'
 
 SHARDING = {
     'SHARD_CLASS': 'shardingtest.models.Shard',
-    'NODE_CLASS': 'shardingtest.models.Node',
 }

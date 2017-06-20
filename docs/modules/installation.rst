@@ -32,24 +32,17 @@ Add ``sharding`` to your ``INSTALLED_APPS`` in settings.py::
 Creating models
 ~~~~~~~~~~~~~~~
 
-The sharding application requires you to create custom ``Shard`` and ``Node``, which inherit form the base models.
+The sharding application requires you to create custom ``Shard`` model, which inherit form the base model.
 
 
 ``myapp/models.py`` ::
 
     from django.db import models
 
-    from sharding.models import BaseShard, BaseNode
-
-
-    class Node(BaseNode):
-        class Meta:
-            app_label = 'myapp'
+    from sharding.models import BaseShard
 
 
     class Shard(BaseShard):
-        node = models.ForeignKey(Node, on_delete=models.PROTECT)
-
         class Meta:
             app_label = 'myapp'
 
@@ -60,18 +53,21 @@ Make migrations
 
     Migrations for 'myapp':
       0001_initial.py:
-        - Create model Node
         - Create model Shard
 
 
 Configuration settings
 ~~~~~~~~~~~~~~~~~~~~~~
 
-You must set ``SHARDING`` Django settings variable with the dot path to the ``shard`` and ``node`` classes in your
+You must set ``SHARDING`` Django settings variable with the dot path to the ``shard`` classes in your
 project settings e.g.::
 
     SHARDING = {
-        'NODE_CLASS': 'myapp.models.Node',
         'SHARD_CLASS': 'myapp.models.Shard',
     }
+
+Additionally Django-sharding uses a router to send each database transaction to the correct node.
+So set ``sharding.utils.DynamicDbRouter`` as the database_router in the settings. e.g.::
+
+    DATABASE_ROUTERS = ['sharding.utils.DynamicDbRouter']
 

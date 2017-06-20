@@ -10,12 +10,18 @@ from sharding.decorators import shard, mirror
 class Type(models.Model):
     name = models.CharField('name', max_length=100)
 
+    class Meta:
+        app_label = 'example'
+
 
 # lead sharded table
 @shard()
 class Organization(models.Model):
     name = models.CharField('name', max_length=100)
     created_at = models.DateTimeField('created at', default=timezone.now)
+
+    class Meta:
+        app_label = 'example'
 
 
 # child sharded table
@@ -36,6 +42,9 @@ class User(AbstractBaseUser):
     USERNAME_FIELD = 'email'
 
     objects = UserManager()
+
+    class Meta:
+        app_label = 'example'
 
     def __str__(self):
         return self.name

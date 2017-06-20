@@ -1,7 +1,7 @@
 from django.core.urlresolvers import reverse
 from django.test import TestCase
 
-from users.models import Organization, User, Type
+from example.models import Organization, User, Type
 
 
 class LoginTestCase(TestCase):
