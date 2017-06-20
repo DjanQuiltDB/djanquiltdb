@@ -89,12 +89,19 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # search_paths = [self.schema_name, 'public'] if self.schema_name else ['public']
         search_paths = [self.schema_name] if self.schema_name else ['public']
 
+        if name:
+            # Named cursor can only be used once
+            cursor_for_search_path = self.connection.cursor()
+        else:
+            # Reuse
+            cursor_for_search_path = cursor
+
         # In the event that an error already happened in this transaction and we are going
         # to rollback we should just ignore database error when setting the search_path
         # if the next instruction is not a rollback it will just fail also, so
         # we do not have to worry that it's not the good one
         try:
-            cursor.execute('SET search_path = %s', [','.join(search_paths)])
+            cursor_for_search_path.execute('SET search_path = %s', [','.join(search_paths)])
         except (DatabaseError, InternalError):
             self.search_path_set = False
         else:
