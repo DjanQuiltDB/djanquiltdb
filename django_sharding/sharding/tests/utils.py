@@ -1,7 +1,7 @@
 from unittest import mock
 
 from django.db import connection, connections
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema
@@ -76,6 +76,20 @@ class UseShardTestCase(TestCase):
 
         self.assertIsNone(THREAD_LOCAL.DB_OVERRIDE)
         mock_set_schema.assert_has_call(mock.call(None))
+
+    @mock.patch("sharding.utils._set_schema")
+    def test_use_shard_invalid_node_name(self, mock_set_schema):
+        """
+        Case: Call use_shard with a valid shard object referring to a non-default node
+        Expected: Connection and schema to be changed
+        """
+        with self.assertRaises(ValueError):
+            with use_shard(node_name='Batman', schema_name='Bat_cave'):
+                pass
+
+        self.assertFalse(mock_set_schema.called)
+        if hasattr(THREAD_LOCAL, 'DB_OVERRIDE') and THREAD_LOCAL.DB_OVERRIDE is not None:
+            self.fail('THREAD_LOCAL.DB_OVERRIDE should be None or not exist.')
 
 
 class CreateSchemaTestCase(TestCase):
@@ -169,8 +183,8 @@ class SetSchemaTestCase(TestCase):
 
     def test_set_schema_without_connection(self):
         """
-        Case: Call utils._set_schema with a schema name, but no connection
-        Excepted: The 'default' connection's search_path set, other connection untouched
+        Case: Call utils._set_schema with a node_name that does not occur in the settings
+        Excepted: An error raised.
         """
         shard = Shard.objects.create(alias='test_shard', schema_name='schema_on_default', node_name='default')
         _connection = connections['default']
@@ -181,7 +195,7 @@ class SetSchemaTestCase(TestCase):
         self.assertIsNone(connections['other'].schema_name)  # untouched connection
 
 
-class DynamicDbRouterTestCase(TestCase):
+class DynamicDbRouterTestCase(SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.addCleanup(self.clean_up)
@@ -244,16 +258,16 @@ class DynamicDbRouterTestCase(TestCase):
         """
         self.assertTrue(self.router.allow_relation())
 
-    def allow_syncdb(self):
+    def test_allow_syncdb(self):
         """
         Case: Call allow_syncdb
         Expected: None
         """
         self.assertIsNone(self.router.allow_syncdb())
 
-    def allow_migrate(self):
+    def test_allow_migrate(self):
         """
         Case: Call allow_migrate
-        Expected: None
+        Expected: True
         """
-        self.assertIsNone(self.router.allow_relation())
+        self.assertIsNone(self.router.allow_migrate())
