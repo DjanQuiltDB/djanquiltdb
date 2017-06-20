@@ -11,8 +11,10 @@ Welcome to Django-sharding's documentation!
    :caption: Contents:
 
    modules/installation
+   modules/structure
    modules/models
    modules/decorators
+   modules/utils
 
 
 Indices and tables
