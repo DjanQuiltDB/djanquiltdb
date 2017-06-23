@@ -159,14 +159,14 @@ def create_schema_on_node(schema_name, node_name, migrate=True):
 
     :note: This will be called automatically when you make a Shard model object and save it.
 
-   :param str schema_name: Provide the name of the schema to be made.
-   :param str node_name: Provide the name of the database connection to be used. If empty it will use the current.
-   :param bool migrate True: Use `False` to disable automatic migration of all sharded models.
+    :param str schema_name: Provide the name of the schema to be made.
+    :param str node_name: Provide the name of the database connection to be used. If empty it will use the current.
+    :param bool migrate True: Use `False` to disable automatic migration of all sharded models.
 
-   :returns: None
+    :returns: None
 
-   :Example:
-   .. code-block:: python
+    :Example:
+    .. code-block:: python
 
         from sharding.utils import create_schema_on_node. use_shard
 
@@ -183,10 +183,32 @@ def create_schema_on_node(schema_name, node_name, migrate=True):
 
     if node_name not in connections:
         raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(node_name))
-    cursor = connections[node_name].cursor()
-    cursor.execute('CREATE SCHEMA IF NOT EXISTS "{}";'.format(schema_name))  # params cannot be used for schema names
+    connections[node_name].create_schema(schema_name)
+    # cursor = connections[node_name].cursor()
+    # print("making schema:", schema_name)
+    # cursor.execute('CREATE SCHEMA IF NOT EXISTS "{}";'.format(schema_name))  # params cannot be used for schema names
 
     if migrate:
-        with use_shard(node_name=node_name, schema_name=schema_name):
+        connections[node_name].migrate_schema(schema_name)
+        # connections[node_name].migrate_schema(schema_name)
+        # with use_shard(node_name=node_name, schema_name=schema_name):
             # The following will create table headers for all models, not just the sharded ones!
-            call_command('migrate', database=node_name, interactive=False)  # ensure we migrate using our connection
+            # call_command('migrate', database=node_name, interactive=False)  # ensure we migrate using our connection
+
+
+def create_template_schema(node_name, schema_name='template'):
+    if node_name not in connections:
+        raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(node_name))
+    connections[node_name].create_schema(schema_name)
+    migrate_schema(node_name, schema_name)
+
+
+def migrate_schema(node_name, schema_name):
+    if node_name not in connections:
+        raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(node_name))
+    if not connections[node_name].get_ps_schema(schema_name):
+        raise ValueError("Schema '{}' does not exist on node '{}'.".format(schema_name, node_name))
+
+    # The following will create table headers for all models, not just the sharded ones!
+    with use_shard(node_name=node_name, schema_name=schema_name):
+        call_command('migrate', database=node_name, interactive=False)  # ensure we migrate using our connection

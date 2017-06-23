@@ -2,8 +2,10 @@ from unittest import mock
 
 from django.db import connection
 from django.test import TestCase
+from psycopg2 import InternalError
 
-from sharding.utils import create_schema_on_node
+from sharding.utils import create_schema_on_node, create_template_schema
+from sharding.postgresql_backend.base import clone_function
 
 
 class PostgresBackendTestCase(TestCase):
@@ -13,8 +15,10 @@ class PostgresBackendTestCase(TestCase):
 
     def clean_up(self):
         # drop test_schema if it is created to make the state clean for the next test
+        connection.set_schema_to_public()
         if connection.get_ps_schema('test_schema'):
-            connection.cursor().execute("DROP SCHEMA {};".format('test_schema'))
+            connection.cursor().execute("DROP SCHEMA \"test_schema\" CASCADE;")
+        connection.clone_function_set = False
 
     @mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.close')
     def test_close(self, mock_close):
@@ -80,3 +84,60 @@ class PostgresBackendTestCase(TestCase):
         Expected: Receive None.
         """
         self.assertIsNone(connection.get_ps_schema('test_schema'))
+
+    def test_set_clone_function(self):
+        """
+        Case: Call connection.set_clone_function
+        Expected: The clone_schema function to be defined on our pSQL connection
+        """
+        cursor = connection.cursor()
+        connection.set_clone_function(cursor)
+        try:
+            # this will error if the function does not exists.
+            cursor.execute("SELECT pg_get_functiondef('clone_schema(text, text)'::regprocedure);")
+            self.assertTrue(cursor.fetchall()[0][0])
+        except InternalError:
+            # we need to rollback in case of a pSQL error, since we are in a transaction.
+            cursor.execute("ROLLBACK;")
+            self.fail("PostgreSQL internal error")
+
+    def test_clone_schema(self):
+        """
+        Case: Call connection.migrate_schema
+        Expected: The given schema to have correct table headers.
+        """
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+
+        cursor = connection.cursor()
+        connection.clone_schema('template', 'test_schema')
+        cursor.execute("SELECT pg_get_functiondef('clone_schema(text, text)'::regprocedure);")
+        self.assertTrue(cursor.fetchall()[0][0])
+
+        cursor = connection.cursor()
+        cursor.execute("SELECT * FROM pg_catalog.pg_tables WHERE schemaname = 'template';")
+        template_tables = [table[1] for table in cursor.fetchall()]
+        cursor.execute("SELECT * FROM pg_catalog.pg_tables WHERE schemaname = 'test_schema';")
+        new_schema_tables = [table[1] for table in cursor.fetchall()]
+
+        self.assertEqual(template_tables, new_schema_tables)
+
+    def test_clone_schema_wo_template(self):
+        """
+        Case: Call connection.migrate_schema with missing template schema
+        Expected: An error to be raised
+        """
+        connection.create_schema('test_schema')
+
+        with self.assertRaises(ValueError):
+            connection.clone_schema('template', 'test_schema')
+
+    def test_clone_schema_wo_target(self):
+        """
+        Case: Call connection.migrate_schema with missing target schema
+        Expected: An error to be raised
+        """
+        create_template_schema('default', 'template2')
+
+        with self.assertRaises(ValueError):
+            connection.clone_schema('template2', 'test_schema')

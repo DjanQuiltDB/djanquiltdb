@@ -17,6 +17,27 @@ from django.db.utils import DatabaseError, IntegrityError
 from psycopg2 import InternalError
 
 
+clone_function = """
+CREATE OR REPLACE FUNCTION clone_schema(source_schema text, dest_schema text) RETURNS void AS
+$BODY$
+DECLARE 
+  objeto text;
+  buffer text;
+BEGIN
+    FOR objeto IN
+        SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
+    LOOP        
+        buffer := dest_schema || '.' || objeto;
+        EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || source_schema || '.' || objeto || ' INCLUDING CONSTRAINTS INCLUDING INDEXES INCLUDING DEFAULTS)';
+        EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || source_schema || '.' || objeto || ')';
+    END LOOP;
+ 
+END;
+$BODY$
+LANGUAGE plpgsql VOLATILE;
+"""
+
+
 class DatabaseWrapper(BaseDatabaseWrapper):
     """
     Adds the capability to manipulate the search_path using set_schema and set_schema_to_public
@@ -27,6 +48,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
+        self.clone_function_set = False
+        self.schema_name = None
+        self.search_path_set = False
         self.set_schema_to_public()
 
     def close(self):
@@ -56,12 +80,36 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def get_schema(self):
         return self.schema_name
 
-    def get_ps_schema(self, shard_name):
-        cursor = super()._cursor()
+    def get_ps_schema(self, shard_name, _cursor=None):
+        cursor = _cursor or self.cursor()
         cursor.execute('SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = %s);',
                        [shard_name])
         if cursor.fetchall()[0][0]:
             return shard_name
+
+    def create_schema(self, schema_name):
+        cursor = self.cursor()
+        cursor.execute(
+            'CREATE SCHEMA IF NOT EXISTS "{}";'.format(schema_name))  # params cannot be used for schema names
+
+    def clone_schema(self, from_schema, to_schema):
+        cursor = self.cursor()
+        if not self.get_ps_schema(from_schema, cursor):
+            raise ValueError("Schema '{}' does not exist on node '{}'.".format(from_schema, self))
+        if not self.get_ps_schema(to_schema, cursor):
+            raise ValueError("Schema '{}' does not exist on node '{}'.".format(from_schema, self))
+
+        self.set_clone_function()
+
+        cursor.execute("SELECT clone_schema(%s, %s);", [from_schema, to_schema])
+
+    def set_clone_function(self, _cursor=None):
+        # cursor = self.cursor()
+        cursor = _cursor or self.cursor()
+
+        if not self.clone_function_set:
+            cursor.execute(clone_function)
+            self.clone_function_set = True
 
     def _cursor(self, name=None):
         """Database cursor to write whatever we want.
@@ -82,7 +130,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
         if self.schema_name:
             # confirm that the schema exists.
-            if not self.get_ps_schema(self.schema_name):
+            if not self.get_ps_schema(self.schema_name, cursor):
                 raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
 
         # Since all schemas contain all tables for now, we disable the public schema to test content separation.

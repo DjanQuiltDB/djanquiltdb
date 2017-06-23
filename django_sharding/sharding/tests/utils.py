@@ -283,3 +283,51 @@ class DynamicDbRouterTestCase(SimpleTestCase):
         Expected: True
         """
         self.assertIsNone(self.router.allow_migrate())
+
+
+class CloneSchemaTestCase(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self.clean_up)
+
+        # self.router = DynamicDbRouter()
+
+    def clean_up(self):
+        pass
+        # THREAD_LOCAL.DB_OVERRIDE = None
+
+    def le_test(self):
+        print("start")
+        create_schema_on_node('new', 'default', False)
+        create_schema_on_node('newer', 'default', False)
+
+        thing = """
+CREATE OR REPLACE FUNCTION clone_schema(source_schema text, dest_schema text) RETURNS void AS
+$BODY$
+DECLARE 
+  objeto text;
+  buffer text;
+BEGIN
+    FOR objeto IN
+        SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
+    LOOP        
+        buffer := dest_schema || '.' || objeto;
+        EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || source_schema || '.' || objeto || ' INCLUDING CONSTRAINTS INCLUDING INDEXES INCLUDING DEFAULTS)';
+        EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || source_schema || '.' || objeto || ')';
+    END LOOP;
+ 
+END;
+$BODY$
+LANGUAGE plpgsql VOLATILE;
+        """
+
+        cursor = connection.cursor()
+        cursor.execute(thing)
+        cursor.execute("BEGIN; SELECT clone_schema('test', 'new'); COMMIT;")
+        cursor.close()
+        cursor = connection.cursor()
+        cursor.execute("BEGIN; SELECT clone_schema('test', 'newer'); COMMIT;")
+
+        print(connection.get_ps_schema('new'))
+        print(connection.get_ps_schema('newer'))
+        print("done")
