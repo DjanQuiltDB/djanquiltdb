@@ -107,6 +107,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         else:
             self.search_path_set = True
 
+        if name:
+            cursor_for_search_path.close()
+
         return cursor
 
     def _start_transaction_under_autocommit(self):
