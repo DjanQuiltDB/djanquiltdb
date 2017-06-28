@@ -1,10 +1,12 @@
+import re
 from unittest import mock
 
+from django.conf import settings
 from django.db import connection, connections
 from django.test import SimpleTestCase, TestCase
 
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
-    _use_connection, _set_schema
+    _use_connection, _set_schema, create_template_schema, migrate_schema
 from shardingtest.models import Shard
 
 
@@ -19,7 +21,7 @@ def test_model():
     return configure
 
 
-class UseShardTestCase(TestCase):
+class ShardingTestCase(SimpleTestCase):
     def setUp(self):
         super().setUp()
         self.addCleanup(self.clean_up)
@@ -27,11 +29,34 @@ class UseShardTestCase(TestCase):
     def clean_up(self):
         THREAD_LOCAL.DB_OVERRIDE = None
 
+        template_name = getattr(settings.SHARDING, 'TEMPLATE_NAME', 'template')
+        for con in connections:
+            connections[con].clone_function_set = False
+            connections[con].set_schema_to_public()
+
+            # remove all schemas made in tests.
+            for schema in connections[con].get_all_pg_schemas():
+                schema = schema[0]
+                if schema.startswith('test') or schema == template_name:
+                    connections[con].cursor().execute("DROP SCHEMA \"{}\" CASCADE;".format(schema))
+
+
+class UseShardTestCase(ShardingTestCase):
+    def setUp(self):
+        pass  # prevent ShardingTestCase addCleanup
+
     @classmethod
     def setUpClass(cls):  # only runs once for the entire TestCase
         super().setUpClass()
+        create_template_schema('default')
+        create_template_schema('other')
         cls.shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default')
-        cls.other_shard = Shard.objects.create(alias='other_shard', schema_name='other_schema', node_name='other')
+        cls.other_shard = Shard.objects.create(alias='test_other_shard', schema_name='test_other_schema',
+                                               node_name='other')
+
+    @classmethod
+    def tearDownClass(cls):  # run when TestCase is done
+        super().clean_up(cls)  # we only want to clean stuff up at the end of the TestCase
 
     @mock.patch("sharding.utils._set_schema")
     def test_use_shard(self, mock_set_schema):
@@ -51,7 +76,7 @@ class UseShardTestCase(TestCase):
         """
         with use_shard(self.other_shard) as env:
             self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['other'])
-            mock_set_schema.assert_called_once_with('other_schema', env.connection)
+            mock_set_schema.assert_called_once_with('test_other_schema', env.connection)
 
     @mock.patch("sharding.utils.connection.set_schema")
     def test_use_shard_with_invalid_argument(self, mock_set_schema):
@@ -83,7 +108,7 @@ class UseShardTestCase(TestCase):
 
             with use_shard(self.other_shard):
                 connection2 = env.connection
-                mock_set_schema.assert_has_call(mock.call('other_schema', connection2))
+                mock_set_schema.assert_has_call(mock.call('test_other_schema', connection2))
                 self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['default', 'other'])
 
         self.assertIsNone(THREAD_LOCAL.DB_OVERRIDE)
@@ -104,21 +129,12 @@ class UseShardTestCase(TestCase):
             self.fail('THREAD_LOCAL.DB_OVERRIDE should be None or not exist.')
 
 
-class CreateSchemaTestCase(TestCase):
-    def setUp(self):
-        super().setUp()
-        self.addCleanup(self.clean_up)
-
-    def clean_up(self):
-        # drop schemas if they is created to make the state clean for the next test
-        if connections['other'].get_ps_schema('test_schema'):
-            connections['other'].cursor().execute("DROP SCHEMA {};".format('test_schema'))
-
-    @mock.patch('sharding.utils.call_command')
-    def test_create_schema_no_migration(self, mock_command):
+class CreateSchemaTestCase(ShardingTestCase):
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
+    def test_create_schema_no_migration(self, mock_connection):
         """
         Case: Call create_schema_on_node with a name and node (no migration)
-        Expected: A new PostgreSQL schema is made, no migration called
+        Expected: A new PostgreSQL schema is made, no clone_schema called
         """
         _connection = connections['other']
         # first: check if schema does not exist yet.
@@ -128,39 +144,32 @@ class CreateSchemaTestCase(TestCase):
 
         # check if it exists now
         self.assertTrue(_connection.get_ps_schema('test_schema'))
-        self.assertFalse(mock_command.called)
+        self.assertFalse(mock_connection.called)
 
-    @mock.patch('sharding.utils.call_command')
-    def test_create_schema_on_nonexisting_node(self, mock_command):
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
+    def test_create_schema_on_nonexisting_node(self, mock_connection):
         """
         Case: Call create_schema_on_node with an nonexisting node (no migration)
         Expected: A new PostgreSQL schema is made
         """
         with self.assertRaises(ValueError):
             create_schema_on_node('test_schema', 'phaaap', False)
-        self.assertFalse(mock_command.called)
+        self.assertFalse(mock_connection.called)
 
-    @mock.patch('sharding.utils.call_command')
-    def test_create_schema_migration(self, mock_command):
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
+    def test_create_schema_migration(self, mock_connection):
         """
         Case: Call create_schema_on_node with migration
-        Expected: A new PostgreSQL schema is made and the migration is called
+        Expected: A new PostgreSQL schema is made and the clone_schema is called
         """
         _connection = connections['other']
         self.assertFalse(_connection.get_ps_schema('test_schema'))
         create_schema_on_node('test_schema', 'other', migrate=True)
         self.assertTrue(_connection.get_ps_schema('test_schema'))
-        mock_command.assert_called_once_with('migrate', database='other', interactive=False)
+        mock_connection.assert_called_once_with('template', 'test_schema')
 
 
-class UseConnectionTestCase(TestCase):
-    def setUp(self):
-        super().setUp()
-        self.addCleanup(self.clean_up)
-
-    def clean_up(self):
-        THREAD_LOCAL.DB_OVERRIDE = None
-
+class UseConnectionTestCase(ShardingTestCase):
     def test_use_connection(self):
         self.assertEqual(_use_connection('other'), connections['other'])
         self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['other'])
@@ -171,25 +180,22 @@ class UseConnectionTestCase(TestCase):
         self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['other', 'default'])
 
 
-class SetSchemaTestCase(TestCase):
+class SetSchemaTestCase(ShardingTestCase):
     def setUp(self):
+        create_template_schema('default')
+        create_template_schema('other')
         super().setUp()
-        self.addCleanup(self.clean_up)
-
-    def clean_up(self):
-        connections['default'].set_schema_to_public()
-        connections['other'].set_schema_to_public()
 
     def test_set_schema_with_connection(self):
         """
         Case: Call utils._set_schema with a schema name and connection
         Excepted: The 'other' connection's search_path set, other connection untouched
         """
-        shard = Shard.objects.create(alias='test_shard', schema_name='schema_on_other', node_name='other')
+        shard = Shard.objects.create(alias='test_shard', schema_name='test_schema_on_other', node_name='other')
         _connection = connections['other']
         _set_schema(shard.schema_name, _connection)
 
-        self.assertEqual(_connection.schema_name, 'schema_on_other')
+        self.assertEqual(_connection.schema_name, 'test_schema_on_other')
         self.assertFalse(_connection.search_path_set)
         self.assertIsNone(connections['default'].schema_name)  # untouched connection
 
@@ -207,15 +213,11 @@ class SetSchemaTestCase(TestCase):
         self.assertIsNone(connections['other'].schema_name)  # untouched connection
 
 
-class DynamicDbRouterTestCase(SimpleTestCase):
+class DynamicDbRouterTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
-        self.addCleanup(self.clean_up)
 
         self.router = DynamicDbRouter()
-
-    def clean_up(self):
-        THREAD_LOCAL.DB_OVERRIDE = None
 
     def test_db_for_read_while_not_set(self):
         """
@@ -285,49 +287,35 @@ class DynamicDbRouterTestCase(SimpleTestCase):
         self.assertIsNone(self.router.allow_migrate())
 
 
-class CloneSchemaTestCase(SimpleTestCase):
-    def setUp(self):
-        super().setUp()
-        self.addCleanup(self.clean_up)
+class CreateTemplateSchemaTestCase(ShardingTestCase):
 
-        # self.router = DynamicDbRouter()
-
-    def clean_up(self):
-        pass
-        # THREAD_LOCAL.DB_OVERRIDE = None
-
-    def le_test(self):
-        print("start")
-        create_schema_on_node('new', 'default', False)
-        create_schema_on_node('newer', 'default', False)
-
-        thing = """
-CREATE OR REPLACE FUNCTION clone_schema(source_schema text, dest_schema text) RETURNS void AS
-$BODY$
-DECLARE 
-  objeto text;
-  buffer text;
-BEGIN
-    FOR objeto IN
-        SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
-    LOOP        
-        buffer := dest_schema || '.' || objeto;
-        EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || source_schema || '.' || objeto || ' INCLUDING CONSTRAINTS INCLUDING INDEXES INCLUDING DEFAULTS)';
-        EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || source_schema || '.' || objeto || ')';
-    END LOOP;
- 
-END;
-$BODY$
-LANGUAGE plpgsql VOLATILE;
+    def test_create_template_schema(self):
         """
+        Case: call utils.migrate_schema() to migrate the sharded models to the template schema
+        Expected: The newly made schema to have to correct table headers.
+        :return:
+        """
+        create_template_schema('default')  # this also calls the migration
 
         cursor = connection.cursor()
-        cursor.execute(thing)
-        cursor.execute("BEGIN; SELECT clone_schema('test', 'new'); COMMIT;")
-        cursor.close()
-        cursor = connection.cursor()
-        cursor.execute("BEGIN; SELECT clone_schema('test', 'newer'); COMMIT;")
+        cursor.execute("SELECT * FROM pg_catalog.pg_tables WHERE schemaname = 'template';")
+        template_tables = [table[1] for table in cursor.fetchall()]
+        # Filter test models]
+        template_tables = [table for table in template_tables if not re.search(r'_[t|T]est', table)]
+        self.assertEqual(template_tables, ['example_organization', 'example_type', 'example_user'])
 
-        print(connection.get_ps_schema('new'))
-        print(connection.get_ps_schema('newer'))
-        print("done")
+    def test_create_template_schema_invalid_node(self):
+        """
+        Case: call utils.migrate_schema() with an nonexisting connection
+        Expected: ValueError raised
+        """
+        with self.assertRaises(ValueError):
+            migrate_schema('no_connection', 'test_schema')  # this also calls the migration
+
+    def test_create_template_schema_invalid_schema_name(self):
+        """
+        Case: call utils.migrate_schema() with an nonexisting schema_name
+        Expected: ValueError raised
+        """
+        with self.assertRaises(ValueError):
+            migrate_schema('default', 'test_schema')  # this also calls the migration

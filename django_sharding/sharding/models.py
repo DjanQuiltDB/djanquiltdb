@@ -21,7 +21,7 @@ class BaseShard(models.Model):
         abstract = True
 
     def save(self, **kwargs):
-        create_schema_on_node(schema_name=self.schema_name, node_name=self.node_name)
+        create_schema_on_node(schema_name=self.schema_name, node_name=self.node_name, migrate=True)
         super().save(**kwargs)  # save to default database
 
     def clean(self):

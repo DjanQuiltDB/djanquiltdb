@@ -1,25 +1,13 @@
 from unittest import mock
 
 from django.db import connection
-from django.test import TestCase
 from psycopg2 import InternalError
 
 from sharding.utils import create_schema_on_node, create_template_schema
-from sharding.postgresql_backend.base import clone_function
+from sharding.tests.utils import ShardingTestCase
 
 
-class PostgresBackendTestCase(TestCase):
-    def setUp(self):
-        super().setUp()
-        self.addCleanup(self.clean_up)
-
-    def clean_up(self):
-        # drop test_schema if it is created to make the state clean for the next test
-        connection.set_schema_to_public()
-        if connection.get_ps_schema('test_schema'):
-            connection.cursor().execute("DROP SCHEMA \"test_schema\" CASCADE;")
-        connection.clone_function_set = False
-
+class PostgresBackendTestCase(ShardingTestCase):
     @mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.close')
     def test_close(self, mock_close):
         """
@@ -120,7 +108,7 @@ class PostgresBackendTestCase(TestCase):
         cursor.execute("SELECT * FROM pg_catalog.pg_tables WHERE schemaname = 'test_schema';")
         new_schema_tables = [table[1] for table in cursor.fetchall()]
 
-        self.assertEqual(template_tables, new_schema_tables)
+        self.assertCountEqual(template_tables, new_schema_tables)
 
     def test_clone_schema_wo_template(self):
         """
@@ -137,7 +125,7 @@ class PostgresBackendTestCase(TestCase):
         Case: Call connection.migrate_schema with missing target schema
         Expected: An error to be raised
         """
-        create_template_schema('default', 'template2')
+        create_template_schema('default')
 
         with self.assertRaises(ValueError):
             connection.clone_schema('template2', 'test_schema')

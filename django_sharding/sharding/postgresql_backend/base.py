@@ -87,6 +87,11 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         if cursor.fetchall()[0][0]:
             return shard_name
 
+    def get_all_pg_schemas(self, _cursor=None):
+        cursor = _cursor or self.cursor()
+        cursor.execute('SELECT schema_name FROM information_schema.schemata;')
+        return cursor.fetchall()
+
     def create_schema(self, schema_name):
         cursor = self.cursor()
         cursor.execute(
@@ -110,6 +115,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         if not self.clone_function_set:
             cursor.execute(clone_function)
             self.clone_function_set = True
+        else:
+            cursor.execute("SELECT pg_get_functiondef('clone_schema(text, text)'::regprocedure);")
 
     def _cursor(self, name=None):
         """Database cursor to write whatever we want.

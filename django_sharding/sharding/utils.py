@@ -15,9 +15,11 @@ import threading
 from django.core.management import call_command
 from functools import wraps
 
+from django.apps import apps
 from django.conf import settings
-from django.db import connections, connection
+from django.db import connections, connection, router, ConnectionRouter
 from django.utils.module_loading import import_string
+from django.core.management.commands.migrate import Command as MigrateCommand
 
 THREAD_LOCAL = threading.local()
 
@@ -54,10 +56,16 @@ class DynamicDbRouter(object):
 
     def allow_migrate(self, *args, **kwargs):
         model = kwargs.pop('model', False)
+
         if getattr(model, 'test_model', False):
             return False
-        return None
 
+        # Only migrate if we do a migration for the sharded models. They do not belong in the non-sharded database.
+        sharded_migrate = getattr(THREAD_LOCAL, 'SHARDED_MIGRATE', None)
+        if sharded_migrate:
+            return getattr(model, 'sharding_mode', False) in [ShardingMode.MIRRORED, ShardingMode.SHARDED]
+
+        return None
 
 def _use_connection(node):
     if not hasattr(THREAD_LOCAL, 'DB_OVERRIDE') or not THREAD_LOCAL.DB_OVERRIDE:
@@ -184,31 +192,76 @@ def create_schema_on_node(schema_name, node_name, migrate=True):
     if node_name not in connections:
         raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(node_name))
     connections[node_name].create_schema(schema_name)
-    # cursor = connections[node_name].cursor()
-    # print("making schema:", schema_name)
-    # cursor.execute('CREATE SCHEMA IF NOT EXISTS "{}";'.format(schema_name))  # params cannot be used for schema names
 
     if migrate:
-        connections[node_name].migrate_schema(schema_name)
-        # connections[node_name].migrate_schema(schema_name)
-        # with use_shard(node_name=node_name, schema_name=schema_name):
-            # The following will create table headers for all models, not just the sharded ones!
-            # call_command('migrate', database=node_name, interactive=False)  # ensure we migrate using our connection
+        template_name = getattr(settings.SHARDING, 'TEMPLATE_NAME', 'template')
+        connections[node_name].clone_schema(template_name, schema_name)
 
 
-def create_template_schema(node_name, schema_name='template'):
+def create_template_schema(node_name='default'):
+    """
+    Each node needs to have a template schema. This is cloned for each new shard on the node.
+    This function creates a new schema on a given node that is named 'template', or what you have set under
+    settings.SHARDING.TEMPLATE_NAME.
+    It then migrates only the sharded tables to this schema, by calling sharding.utils.migrate_schema.
+
+    Since this only needs to happen once on each node, you can just run it in the shell.
+
+    :param str node_name: Provide the name of the database connection to be used. If empty it will use the current.
+
+    :returns: None
+
+    :Example:
+    .. code-block:: python
+
+        from sharding.utils import create_template_schema
+        create_template_schema(node_name='default')
+
+    """
+    schema_name = getattr(settings.SHARDING, 'TEMPLATE_NAME', 'template')
     if node_name not in connections:
         raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(node_name))
-    connections[node_name].create_schema(schema_name)
+
+    connections[node_name].create_schema(schema_name)  # if it already exists, it's no problem
     migrate_schema(node_name, schema_name)
 
 
 def migrate_schema(node_name, schema_name):
+    """
+    It then migrates only the sharded tables to the given schema.
+    This actually performs a migration, it does not clone the template schema.
+
+    :note: Normally, you would not need to ever call this. It is used by create_template_schema.
+
+    :param str node_name: Provide the name of the database connection to be used. If empty it will use the current.
+    :param str schema_name: Provide the name of the schema to be made.
+
+    :returns: None
+
+    :Example:
+    .. code-block:: python
+
+        from django.db import connection
+
+        from sharding.utils import migrate_schema
+
+        connection.create_schema('North')
+        migrate_schema(node_name='default', schema_name='North')
+
+    """
     if node_name not in connections:
         raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(node_name))
     if not connections[node_name].get_ps_schema(schema_name):
         raise ValueError("Schema '{}' does not exist on node '{}'.".format(schema_name, node_name))
 
-    # The following will create table headers for all models, not just the sharded ones!
+    con = connections[node_name]
     with use_shard(node_name=node_name, schema_name=schema_name):
-        call_command('migrate', database=node_name, interactive=False)  # ensure we migrate using our connection
+        THREAD_LOCAL.SHARDED_MIGRATE = True  # tell the router that we are doing a sharded models migration
+        c = MigrateCommand()
+        c.verbosity = 0
+        c.interactive = False
+        c.load_initial_data = False
+
+        app_labels = [app_config.label for app_config in apps.get_app_configs()]
+        c.sync_apps(con, app_labels)  # we use the django native migration call for this.
+        THREAD_LOCAL.SHARDED_MIGRATE = False
