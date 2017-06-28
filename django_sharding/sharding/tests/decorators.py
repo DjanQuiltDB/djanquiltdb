@@ -82,7 +82,7 @@ class DefiningShardModelDecoratorTestCase(TestCase):
 
     def test_defining_shard_model_invalid_shard_relation(self):
         """
-        Case: Use defining_shard_model on a model that has a shard field that does not relate to the shardin model.
+        Case: Use defining_shard_model on a model that has a shard field that does not relate to the sharding model.
         Expected: ImproperlyConfigured to be raised.
         """
         with self.assertRaises(ImproperlyConfigured):

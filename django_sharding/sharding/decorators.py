@@ -40,21 +40,20 @@ def defining_shard_model():
             raise ImproperlyConfigured(
                 '{} model is missing a foreignkey field named "shard". The defining_sharded_model requires this.'
                 .format(cls.__name__))
+        elif not isinstance(shard_field, models.ForeignKey):
+            raise ImproperlyConfigured(
+                'The shard field of model {} is not a Foreignkey to the shard model. '
+                'The defining_sharded_model requires this.'
+                .format(cls.__name__))
         else:
-            if not isinstance(shard_field, models.ForeignKey):
+            related_to = shard_field.rel.to if type(shard_field.rel.to) is str else \
+                shard_field.rel.to.__module__.replace('.models', '') + '.' + shard_field.rel.to.__name__
+            if related_to != settings.SHARDING['SHARD_CLASS'].replace('.models', ''):
                 raise ImproperlyConfigured(
-                    'The shard field of model {} is not a Foreignkey to the shard model. '
+                    'The shard field of model {} is points to \'{}\' instead of \'{}\'. '
                     'The defining_sharded_model requires this.'
-                    .format(cls.__name__))
-            else:
-                related_to = shard_field.rel.to if type(shard_field.rel.to) is str else \
-                    shard_field.rel.to.__module__.replace('.models', '') + '.' + shard_field.rel.to.__name__
-                if related_to != settings.SHARDING['SHARD_CLASS'].replace('.models', ''):
-                    raise ImproperlyConfigured(
-                        'The shard field of model {} is points to \'{}\' instead of \'{}\'. '
-                        'The defining_sharded_model requires this.'
-                        .format(cls.__name__, related_to,
-                                settings.SHARDING['SHARD_CLASS'].replace('.models', '')))
+                    .format(cls.__name__, related_to,
+                            settings.SHARDING['SHARD_CLASS'].replace('.models', '')))
 
         # set global counter to detect multiple usages of this decorator, which is not allowed.
         global defining_shard_models
