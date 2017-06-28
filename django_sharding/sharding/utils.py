@@ -47,9 +47,15 @@ class DynamicDbRouter(object):
         return True
 
     def allow_syncdb(self, *args, **kwargs):
+        model = kwargs.pop('model', False)
+        if getattr(model, 'test_model', False):
+            return False
         return None
 
     def allow_migrate(self, *args, **kwargs):
+        model = kwargs.pop('model', False)
+        if getattr(model, 'test_model', False):
+            return False
         return None
 
 

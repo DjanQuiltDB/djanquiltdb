@@ -3,7 +3,9 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase, override_settings
 from django.db import models
 
+from sharding.tests.utils import test_model
 
+@test_model()
 class DummyShard(models.Model):
 
     class Meta:

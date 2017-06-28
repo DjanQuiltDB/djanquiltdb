@@ -52,9 +52,4 @@ class Migration(migrations.Migration):
             name='type',
             field=models.ForeignKey(to='example.Type', verbose_name='type'),
         ),
-        migrations.AddField(
-            model_name='organization',
-            name='shard',
-            field=models.ForeignKey(to='shardingtest.Shard', verbose_name='shard'),
-        ),
     ]

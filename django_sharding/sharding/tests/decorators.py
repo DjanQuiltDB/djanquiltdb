@@ -2,8 +2,9 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 from django.test import TestCase
 
-from sharding.utils import ShardingMode
 from sharding.decorators import sharded_model, defining_shard_model, mirrored_model, _reset_defining_shard_models
+from sharding.tests.utils import test_model
+from sharding.utils import ShardingMode
 
 
 class ShardedModelDecoratorTestCase(TestCase):
@@ -14,6 +15,7 @@ class ShardedModelDecoratorTestCase(TestCase):
         """
 
         @sharded_model()
+        @test_model()
         class ShardedDummyModel(models.Model):
             class Meta:
                 app_label = 'sharding'
@@ -29,6 +31,7 @@ class MirroredModelDecoratorTestCase(TestCase):
         """
 
         @mirrored_model()
+        @test_model()
         class MirroredDummyModel(models.Model):
             class Meta:
                 app_label = 'sharding'
@@ -47,6 +50,7 @@ class DefiningShardModelDecoratorTestCase(TestCase):
         Expected: 'D' to be returned.
         """
         @defining_shard_model()
+        @test_model()
         class DefiningDummyModel1(models.Model):
             shard = models.ForeignKey('shardingtest.Shard', verbose_name='shard')
 
@@ -61,6 +65,7 @@ class DefiningShardModelDecoratorTestCase(TestCase):
         Expected: ImproperlyConfigured to be raised.
         """
         with self.assertRaises(ImproperlyConfigured):
+            @test_model()
             @defining_shard_model()
             class DefiningDummyModel2(models.Model):
 
@@ -74,6 +79,7 @@ class DefiningShardModelDecoratorTestCase(TestCase):
         """
         with self.assertRaises(ImproperlyConfigured):
             @defining_shard_model()
+            @test_model()
             class DefiningDummyModel3(models.Model):
                 shard = models.CharField('name', max_length=100)
 
@@ -87,6 +93,7 @@ class DefiningShardModelDecoratorTestCase(TestCase):
         """
         with self.assertRaises(ImproperlyConfigured):
             @defining_shard_model()
+            @test_model()
             class DefiningDummyModel4(models.Model):
                 shard = models.ForeignKey('Stars', verbose_name='shard')
 
@@ -99,6 +106,7 @@ class DefiningShardModelDecoratorTestCase(TestCase):
         Expected: ImproperlyConfigured to be raised.
         """
         @defining_shard_model()  # first time goes without error.
+        @test_model()
         class DefiningDummyModel5(models.Model):
             shard = models.ForeignKey('shardingtest.Shard', verbose_name='shard')
 
@@ -107,6 +115,7 @@ class DefiningShardModelDecoratorTestCase(TestCase):
 
         with self.assertRaises(ImproperlyConfigured):
             @defining_shard_model()
+            @test_model()
             class DefiningDummyModel6(models.Model):
                 shard = models.ForeignKey('shardingtest.Shard', verbose_name='shard')
 

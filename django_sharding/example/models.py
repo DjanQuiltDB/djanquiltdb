@@ -16,11 +16,9 @@ class Type(models.Model):
 
 # lead sharded table
 @sharded_model()
-# @defining_shard_model()
 class Organization(models.Model):
     name = models.CharField('name', max_length=100)
     created_at = models.DateTimeField('created at', default=timezone.now)
-    shard = models.ForeignKey('shardingtest.Shard', verbose_name='shard')
 
     class Meta:
         app_label = 'example'
