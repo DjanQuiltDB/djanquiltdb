@@ -8,6 +8,17 @@ from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, TH
 from shardingtest.models import Shard
 
 
+def test_model():
+    """
+    A decorator for marking a model to be used for testing and not to be migrated.
+    """
+    def configure(cls):
+        cls.test_model = True
+        return cls
+
+    return configure
+
+
 class UseShardTestCase(TestCase):
     def setUp(self):
         super().setUp()
@@ -17,7 +28,8 @@ class UseShardTestCase(TestCase):
         THREAD_LOCAL.DB_OVERRIDE = None
 
     @classmethod
-    def setUpTestData(cls):  # only runs once for the entire TestCase
+    def setUpClass(cls):  # only runs once for the entire TestCase
+        super().setUpClass()
         cls.shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default')
         cls.other_shard = Shard.objects.create(alias='other_shard', schema_name='other_schema', node_name='other')
 
