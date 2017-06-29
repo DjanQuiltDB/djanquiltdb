@@ -30,6 +30,10 @@ class ShardingMode:
     SHARDED = 'S'
 
 
+def get_template_name():
+    return settings.SHARDING.get('TEMPLATE_NAME', 'template')
+
+
 class DynamicDbRouter(object):
     # A router that decides what db to read from based on a variable local to the current thread.
 
@@ -66,6 +70,12 @@ class DynamicDbRouter(object):
             return getattr(model, 'sharding_mode', False) in [ShardingMode.MIRRORED, ShardingMode.SHARDED]
 
         return None
+
+
+def _node_exists(node_name):
+    if node_name not in connections:
+        raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(node_name))
+
 
 def _use_connection(node):
     if not hasattr(THREAD_LOCAL, 'DB_OVERRIDE') or not THREAD_LOCAL.DB_OVERRIDE:
@@ -188,14 +198,11 @@ def create_schema_on_node(schema_name, node_name, migrate=True):
             User.objects.create(name="John Snow")
 
     """
-
-    if node_name not in connections:
-        raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(node_name))
+    _node_exists(node_name)
     connections[node_name].create_schema(schema_name)
 
     if migrate:
-        template_name = getattr(settings.SHARDING, 'TEMPLATE_NAME', 'template')
-        connections[node_name].clone_schema(template_name, schema_name)
+        connections[node_name].clone_schema(get_template_name(), schema_name)
 
 
 def create_template_schema(node_name='default'):
@@ -218,11 +225,10 @@ def create_template_schema(node_name='default'):
         create_template_schema(node_name='default')
 
     """
-    schema_name = getattr(settings.SHARDING, 'TEMPLATE_NAME', 'template')
-    if node_name not in connections:
-        raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(node_name))
+    schema_name = get_template_name()
+    _node_exists(node_name)
 
-    connections[node_name].create_schema(schema_name)  # if it already exists, it's no problem
+    connections[node_name].create_schema(schema_name, is_template=True)  # if it already exists, it's no problem
     migrate_schema(node_name, schema_name)
 
 
@@ -249,8 +255,7 @@ def migrate_schema(node_name, schema_name):
         migrate_schema(node_name='default', schema_name='North')
 
     """
-    if node_name not in connections:
-        raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(node_name))
+    _node_exists(node_name)
     if not connections[node_name].get_ps_schema(schema_name):
         raise ValueError("Schema '{}' does not exist on node '{}'.".format(schema_name, node_name))
 

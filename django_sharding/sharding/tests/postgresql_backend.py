@@ -1,10 +1,86 @@
 from unittest import mock
 
 from django.db import connection
+from django.test import SimpleTestCase, override_settings
 from psycopg2 import InternalError
 
+from sharding.postgresql_backend.base import get_validated_schema_name
 from sharding.utils import create_schema_on_node, create_template_schema
 from sharding.tests.utils import ShardingTestCase
+
+
+class GetValidatedSchemaNameTestCase(SimpleTestCase):
+    def test_valid_name(self):
+        """
+        Case: Call get_validated_schema_name with a valid name.
+        Expected: The same value returned.
+        """
+        self.assertEqual(get_validated_schema_name('valid_name'), 'valid_name')
+
+    def test_non_string(self):
+        """
+        Case: Call get_validated_schema_name with None.
+        Expected: A ValueError raised. (not a string)
+        """
+        with self.assertRaises(ValueError):
+            get_validated_schema_name(None)
+
+    def test_illegal_string(self):
+        """
+        Case: Call get_validated_schema_name with a string of invalid structure.
+        Expected: A ValueError raised.
+        """
+        with self.assertRaises(ValueError):
+            get_validated_schema_name('DROP * FROM')
+
+    @override_settings(SHARDING={'TEMPLATE_NAME': 'template', 'SHARD_CLASS': 'shardingtest.models.Shard'})
+    def test_template_name(self):
+        """
+        Case: Call get_validated_schema_name with the same name as the default template.
+        Expected: A ValueError raised.
+        """
+        with self.assertRaises(ValueError):
+            get_validated_schema_name('template')
+
+    @override_settings(SHARDING={'TEMPLATE_NAME': 'not-template', 'SHARD_CLASS': 'shardingtest.models.Shard'})
+    def test_other_template_name(self):
+        """
+        Case: Call get_validated_schema_name with the same name as the set template.
+        Expected: A ValueError raised.
+        """
+        self.assertEqual(get_validated_schema_name('template'), 'template')
+
+    def test_public(self):
+        """
+        Case: Call get_validated_schema_name with 'public'.
+        Expected: A ValueError raised.
+        """
+        with self.assertRaises(ValueError):
+            get_validated_schema_name('public')
+
+    def test_information_schema(self):
+        """
+        Case: Call get_validated_schema_name with 'information_schema'.
+        Expected: A ValueError raised.
+        """
+        with self.assertRaises(ValueError):
+            get_validated_schema_name('information_schema')
+
+    def test_startswith_pg(self):
+        """
+        Case: Call get_validated_schema_name with a value starting with 'pg_'
+        Expected: A ValueError raised.
+        """
+        with self.assertRaises(ValueError):
+            get_validated_schema_name('pg_12')
+
+    @override_settings(SHARDING={'TEMPLATE_NAME': 'template', 'SHARD_CLASS': 'shardingtest.models.Shard'})
+    def test_is_template(self):
+        """
+        Case: Call get_validated_schema_name with a template name, while is_template set.
+        Expected: A ValueError raised.
+        """
+        self.assertEqual(get_validated_schema_name('template', is_template=True), 'template')
 
 
 class PostgresBackendTestCase(ShardingTestCase):

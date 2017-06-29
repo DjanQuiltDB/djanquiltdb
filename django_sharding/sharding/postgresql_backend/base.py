@@ -12,30 +12,55 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
     """
 
+import re
+
 from django.db.backends.postgresql_psycopg2.base import DatabaseWrapper as BaseDatabaseWrapper
 from django.db.utils import DatabaseError, IntegrityError
-from psycopg2 import InternalError
+from psycopg2 import InternalError, sql
 
+from sharding.utils import get_template_name
 
+# clone function is from the PostgreSQL wiki by Emanuel '3manuek'
 clone_function = """
 CREATE OR REPLACE FUNCTION clone_schema(source_schema text, dest_schema text) RETURNS void AS
 $BODY$
 DECLARE 
-  objeto text;
+  object text;
   buffer text;
 BEGIN
-    FOR objeto IN
+    FOR object IN
         SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
     LOOP        
-        buffer := dest_schema || '.' || objeto;
-        EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || source_schema || '.' || objeto || ' INCLUDING CONSTRAINTS INCLUDING INDEXES INCLUDING DEFAULTS)';
-        EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || source_schema || '.' || objeto || ')';
+        buffer := dest_schema || '.' || object;
+        EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || source_schema || '.' || object || ' INCLUDING CONSTRAINTS INCLUDING INDEXES INCLUDING DEFAULTS)';
+        EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || source_schema || '.' || object || ')';
     END LOOP;
  
 END;
 $BODY$
 LANGUAGE plpgsql VOLATILE;
 """
+
+
+def get_validated_schema_name(schema_name, is_template=False):
+    if not isinstance(schema_name, str):
+        raise ValueError("Schema name '{}' needs to be a string".format(schema_name))
+
+    if not re.match(r'^[A-Za-z][0-9A-Za-z_]*$', schema_name):
+        raise ValueError("Schema name '{}' contains illegal characters and/or does not start with a letter"
+                         .format(schema_name))
+
+    if not is_template and schema_name == get_template_name():
+        raise ValueError("Schema name '{}' cannot be the same as the template name '{}' ".format(schema_name,
+                                                                                                 get_template_name()))
+    if schema_name in ['public', 'information_schema']:
+        raise ValueError("Schema name '{}' is not allowed ".format(schema_name))
+
+    if schema_name.startswith('pg_'):
+        raise ValueError("Schema name '{}' is not allowed to mimic PostgreSQL native schema names "
+                         "(starting with 'pg_')".format(schema_name))
+
+    return sql.Identifier(schema_name).string
 
 
 class DatabaseWrapper(BaseDatabaseWrapper):
@@ -92,7 +117,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         cursor.execute('SELECT schema_name FROM information_schema.schemata;')
         return cursor.fetchall()
 
-    def create_schema(self, schema_name):
+    def create_schema(self, schema_name, is_template=False):
+        schema_name = get_validated_schema_name(schema_name, is_template)
         cursor = self.cursor()
         cursor.execute(
             'CREATE SCHEMA IF NOT EXISTS "{}";'.format(schema_name))  # params cannot be used for schema names
@@ -109,7 +135,6 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         cursor.execute("SELECT clone_schema(%s, %s);", [from_schema, to_schema])
 
     def set_clone_function(self, _cursor=None):
-        # cursor = self.cursor()
         cursor = _cursor or self.cursor()
 
         if not self.clone_function_set:
