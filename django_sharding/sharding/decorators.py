@@ -24,11 +24,42 @@ def mirrored_model():
     return configure
 
 
-def defining_shard_model():
+def shard_mapping_model():
     """
-    A decorator for marking a model as the defining model for sharding.
+    A decorator for marking a model that maps shards and their content.
     This model will hold the foreignkey to the appropriate Shard model.
-    This model will NOT be sharded. It would defeat its purpose if it did.
+
+    :note: This model will NOT be sharded. It would defeat its purpose if it did.
+
+    :Example:
+    .. code-block:: python
+
+        from django.db import models
+        from sharding.decorators import shard_mapping_model, sharded_model
+        from sharding.models import BaseShard
+
+        class Shard(BaseShard):
+            class Meta:
+                app_label = 'example'
+
+        @shard_mapping_model()
+        class ShardMapping(models.Model):
+            # List every organization in this model, so you can easily request in which shard they live.
+            shard = models.ForeignKey('Shard', verbose_name='shard')
+            organization_name = models.CharField('organization name', max_length=100)
+            organization_id = models.PositiveIntegerField(_('organization id'))
+
+            class Meta:
+                app_label = 'example'
+
+        @sharded_model()
+        class Organization(models.Model):
+            name = models.CharField('name', max_length=100)
+            created_at = models.DateTimeField(_('created at'), null=True, blank=True, default=timezone.now)
+
+            class Meta:
+                app_label = 'example'
+
     """
     def configure(cls):
         shard_field = None
@@ -38,12 +69,13 @@ def defining_shard_model():
                 break
         if not shard_field:
             raise ImproperlyConfigured(
-                '{} model is missing a foreignkey field named "shard". The defining_sharded_model requires this.'
+                '{} model is missing a foreignkey field named "shard". '
+                'The @shard_mapping_model decorator requires this.'
                 .format(cls.__name__))
         elif not isinstance(shard_field, models.ForeignKey):
             raise ImproperlyConfigured(
                 'The shard field of model {} is not a Foreignkey to the shard model. '
-                'The defining_sharded_model requires this.'
+                'The @shard_mapping_model decorator requires this.'
                 .format(cls.__name__))
         else:
             related_to = shard_field.rel.to if type(shard_field.rel.to) is str else \
@@ -51,7 +83,7 @@ def defining_shard_model():
             if related_to != settings.SHARDING['SHARD_CLASS'].replace('.models', ''):
                 raise ImproperlyConfigured(
                     'The shard field of model {} is points to \'{}\' instead of \'{}\'. '
-                    'The defining_sharded_model requires this.'
+                    'The @shard_mapping_model decorator requires this.'
                     .format(cls.__name__, related_to,
                             settings.SHARDING['SHARD_CLASS'].replace('.models', '')))
 
@@ -59,7 +91,7 @@ def defining_shard_model():
         global defining_shard_models
         if defining_shard_models:
             raise ImproperlyConfigured(
-                'More than one model uses the @defining_shard_model decorator. This is not allowed.')
+                'More than one model uses the @shard_mapping_model decorator. This is not allowed.')
         else:
             defining_shard_models = True
 
@@ -73,7 +105,27 @@ def defining_shard_model():
 def sharded_model():
     """
     A decorator for marking a model as being sharded.
-    This means this model will be migrated to new shards
+    This means this model will be migrated to new shards, and not appear in the public schema.
+
+    :Example:
+    .. code-block:: python
+
+        from django.db import models
+        from sharding.decorators import sharded_model
+        from sharding.models import BaseShard
+
+        class Shard(BaseShard):
+            class Meta:
+                app_label = 'example'
+
+        @sharded_model()
+        class Organization(models.Model):
+            name = models.CharField('name', max_length=100)
+            created_at = models.DateTimeField(_('created at'), null=True, blank=True, default=timezone.now)
+
+            class Meta:
+                app_label = 'example'
+
     """
     def configure(cls):
         cls.sharding_mode = ShardingMode.SHARDED
