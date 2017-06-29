@@ -4,13 +4,13 @@ from django.db import models
 
 from sharding.utils import ShardingMode
 
-defining_shard_models = False
+shard_mapping_models = False
 
 
-def _reset_defining_shard_models():
+def _reset_shard_mapping_models():
     # for internal testing use only.
-    global defining_shard_models
-    defining_shard_models = False
+    global shard_mapping_models
+    shard_mapping_models = False
 
 
 def mirrored_model():
@@ -88,15 +88,14 @@ def shard_mapping_model():
                             settings.SHARDING['SHARD_CLASS'].replace('.models', '')))
 
         # set global counter to detect multiple usages of this decorator, which is not allowed.
-        global defining_shard_models
-        if defining_shard_models:
+        global shard_mapping_models
+        if shard_mapping_models:
             raise ImproperlyConfigured(
                 'More than one model uses the @shard_mapping_model decorator. This is not allowed.')
         else:
-            defining_shard_models = True
+            shard_mapping_models = True
 
         cls.sharding_mode = ShardingMode.DEFINING
-
         return cls
 
     return configure

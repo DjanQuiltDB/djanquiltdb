@@ -2,7 +2,7 @@ from django.contrib.auth.models import AbstractBaseUser, UserManager
 from django.db import models
 from django.utils import timezone
 
-from sharding.decorators import defining_shard_model, mirrored_model, sharded_model
+from sharding.decorators import mirrored_model, sharded_model
 
 
 # mirrored table
