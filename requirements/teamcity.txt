@@ -1,6 +1,7 @@
 -r base.txt
 
 coverage
+teamcity-messages
 
 # inspection libraries
 https://bitbucket.org/patchmanbv/flake8/downloads/flake8-3.3.0.tar.gz#egg=flake8-3.3.0

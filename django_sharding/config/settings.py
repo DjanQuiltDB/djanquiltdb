@@ -102,7 +102,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-TEST_RUNNER = 'utils.test.WildcardDiscoverRunner'
+TEST_RUNNER = os.environ.get('TEST_RUNNER', 'utils.test.WildcardDiscoverRunner')
 
 # Internationalization
 # https://docs.djangoproject.com/en/1.11/topics/i18n/
