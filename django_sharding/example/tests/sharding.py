@@ -1,13 +1,13 @@
-from django.test import TestCase
-
 from example.models import Organization, Type, User
 from shardingtest.models import Shard
-from sharding.utils import use_shard
+from sharding.utils import use_shard, create_template_schema
+from sharding.tests.utils import ShardingTestCase
 
 
-class ShardingTestCase(TestCase):
+class ShardingExampleTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
+        create_template_schema()
 
         # tables for the 'public' schema (in this case: Type) are not mirrored yet. So stick to default node for now.
         self.shard1 = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default')

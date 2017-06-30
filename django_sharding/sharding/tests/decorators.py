@@ -16,11 +16,11 @@ class ShardedModelDecoratorTestCase(TestCase):
 
         @sharded_model()
         @test_model()
-        class ShardedDummyModel(models.Model):
+        class TestShardedModel(models.Model):
             class Meta:
                 app_label = 'sharding'
 
-        self.assertEqual(ShardedDummyModel.sharding_mode, ShardingMode.SHARDED)
+        self.assertEqual(TestShardedModel.sharding_mode, ShardingMode.SHARDED)
 
 
 class MirroredModelDecoratorTestCase(TestCase):
@@ -32,11 +32,11 @@ class MirroredModelDecoratorTestCase(TestCase):
 
         @mirrored_model()
         @test_model()
-        class MirroredDummyModel(models.Model):
+        class TestMirroredModel(models.Model):
             class Meta:
                 app_label = 'sharding'
 
-        self.assertEqual(MirroredDummyModel.sharding_mode, ShardingMode.MIRRORED)
+        self.assertEqual(TestMirroredModel.sharding_mode, ShardingMode.MIRRORED)
 
 
 class DefiningShardModelDecoratorTestCase(TestCase):

@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                 ('last_login', models.DateTimeField(blank=True, verbose_name='last login', null=True)),
                 ('name', models.CharField(verbose_name='name', max_length=100)),
                 ('email', models.EmailField(unique=True, verbose_name='email address', max_length=254)),
-                ('created_at', models.DateTimeField(default=django.utils.timezone.now, verbose_name='date joine')),
+                ('created_at', models.DateTimeField(default=django.utils.timezone.now, verbose_name='date joined')),
             ],
             managers=[
                 ('objects', django.contrib.auth.models.UserManager()),

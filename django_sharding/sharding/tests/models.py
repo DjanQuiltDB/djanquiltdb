@@ -28,7 +28,7 @@ class BaseShardTestCase(TestCase):
         shard.save()
         self.assertTrue(mock_save.called)
         self.assertTrue(mock_create_schema.called)
-        mock_create_schema.assert_called_with(schema_name='test_schema', node_name="other")
+        mock_create_schema.assert_called_with(schema_name='test_schema', node_name="other", migrate=True)
 
     def test_clean(self):
         """
