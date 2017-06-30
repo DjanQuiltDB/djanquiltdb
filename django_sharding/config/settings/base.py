@@ -11,6 +11,8 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 # Read secrets.json as JSON
 try:
+    # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     with open(os.path.join(BASE_DIR, "secrets.json")) as f:
         secrets_from_file = json.loads(f.read())
 except OSError:
@@ -102,7 +104,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-TEST_RUNNER = os.environ.get('TEST_RUNNER', 'utils.test.WildcardDiscoverRunner')
+TEST_RUNNER = 'utils.test.WildcardDiscoverRunner'
 
 # Internationalization
 # https://docs.djangoproject.com/en/1.11/topics/i18n/
