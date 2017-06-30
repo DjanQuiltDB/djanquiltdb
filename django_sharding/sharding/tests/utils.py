@@ -42,7 +42,7 @@ class ShardingTestCase(SimpleTestCase):
 
 class GetTemplateName(SimpleTestCase):
     @override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard'})
-    def test_get_tempalte_unset(self):
+    def test_get_template_unset(self):
         """
         Case: Call get_template_name when it is not set in the settings.
         Expected: The default template name: 'template'
@@ -50,7 +50,7 @@ class GetTemplateName(SimpleTestCase):
         self.assertEqual(get_template_name(), 'template')
 
     @override_settings(SHARDING={'TEMPLATE_NAME': 'new-template', 'SHARD_CLASS': 'shardingtest.models.Shard'})
-    def test_get_tempalte_set(self):
+    def test_get_template_set(self):
         """
         Case: Call get_template_name while it is set in the settings
         Expected: Set name: 'new-template'
