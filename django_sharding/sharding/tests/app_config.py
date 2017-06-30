@@ -5,6 +5,7 @@ from django.db import models
 
 from sharding.tests.utils import test_model
 
+
 @test_model()
 class DummyShard(models.Model):
 
