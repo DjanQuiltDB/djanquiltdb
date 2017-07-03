@@ -12,12 +12,11 @@
 
 import threading
 
-from django.core.management import call_command
 from functools import wraps
 
 from django.apps import apps
 from django.conf import settings
-from django.db import connections, connection, router, ConnectionRouter
+from django.db import connections, connection
 from django.utils.module_loading import import_string
 from django.core.management.commands.migrate import Command as MigrateCommand
 
@@ -139,7 +138,8 @@ class use_shard:
             self.node_name = node_name
 
         if self.node_name not in connections:
-            raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(self.node_name))
+            raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?"
+                             .format(self.node_name))
 
     def __enter__(self):
         # first: set the connection
@@ -179,7 +179,7 @@ def create_schema_on_node(schema_name, node_name, migrate=True):
 
     :param str schema_name: Provide the name of the schema to be made.
     :param str node_name: Provide the name of the database connection to be used. If empty it will use the current.
-    :param bool migrate True: Use `False` to disable automatic migration of all sharded models.
+    :param bool migrate: Use `False` to disable automatic migration of all sharded models.
 
     :returns: None
 

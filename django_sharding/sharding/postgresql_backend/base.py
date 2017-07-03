@@ -24,18 +24,19 @@ from sharding.utils import get_template_name
 clone_function = """
 CREATE OR REPLACE FUNCTION clone_schema(source_schema text, dest_schema text) RETURNS void AS
 $BODY$
-DECLARE 
+DECLARE
   object text;
   buffer text;
 BEGIN
     FOR object IN
         SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
-    LOOP        
+    LOOP
         buffer := dest_schema || '.' || object;
-        EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || source_schema || '.' || object || ' INCLUDING CONSTRAINTS INCLUDING INDEXES INCLUDING DEFAULTS)';
+        EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || source_schema || '.' || object || ' INCLUDING CONSTRAINTS ' ||
+         'INCLUDING INDEXES INCLUDING DEFAULTS)';
         EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || source_schema || '.' || object || ')';
     END LOOP;
- 
+
 END;
 $BODY$
 LANGUAGE plpgsql VOLATILE;

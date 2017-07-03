@@ -11,6 +11,8 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 # Read secrets.json as JSON
 try:
+    # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
+    BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
     with open(os.path.join(BASE_DIR, "secrets.json")) as f:
         secrets_from_file = json.loads(f.read())
 except OSError:
@@ -22,7 +24,7 @@ get_secret = functools.partial(get_secret, fallback_dict=secrets_from_file)
 SECRET_KEY = get_secret('SECRET_KEY')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = False
 
 ALLOWED_HOSTS = []
 
