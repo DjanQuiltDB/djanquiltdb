@@ -29,7 +29,6 @@ class ShardingMode:
 
 
 class StateException(Exception):
-    # def __init__(self, message, state):
     def __init__(self, message, state, *args, **kwargs):
         super().__init__(message, *args, **kwargs)
         self.state = state
