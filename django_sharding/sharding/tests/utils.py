@@ -2,10 +2,11 @@ import re
 from unittest import mock
 
 from django.db import connection, connections
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
-    _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists
+    _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
+    StateException
 from shardingtest.models import Shard
 
 
@@ -20,7 +21,7 @@ def test_model():
     return configure
 
 
-class ShardingTestCase(SimpleTestCase):
+class ShardingTestCase(TestCase):
     def setUp(self):
         super().setUp()
         self.addCleanup(self.clean_up)
@@ -66,9 +67,12 @@ class UseShardTestCase(ShardingTestCase):
         super().setUpClass()
         create_template_schema('default')
         create_template_schema('other')
-        cls.shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default')
-        cls.other_shard = Shard.objects.create(alias='test_other_shard', schema_name='test_other_schema',
-                                               node_name='other')
+        cls.shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default',
+                                         state=Shard.STATE_ACTIVE)
+        cls.other_shard = Shard.objects.create(alias='other_shard', schema_name='test_other_schema', node_name='other',
+                                               state=Shard.STATE_ACTIVE)
+        cls.inactive_shard = Shard.objects.create(alias='inactive_shard', schema_name='test_inactive_schema',
+                                                  node_name='other', state=Shard.STATE_MAINTENANCE)
 
     @classmethod
     def tearDownClass(cls):  # run when TestCase is done
@@ -103,6 +107,21 @@ class UseShardTestCase(ShardingTestCase):
         with self.assertRaises(ValueError):
             with use_shard('not a Shard object'):
                 pass
+
+        self.assertFalse(mock_set_schema.called)
+        if hasattr(THREAD_LOCAL, 'DB_OVERRIDE') and THREAD_LOCAL.DB_OVERRIDE is not None:
+            self.fail('THREAD_LOCAL.DB_OVERRIDE should be None or not exist.')
+
+    @mock.patch("sharding.utils.connection.set_schema")
+    def test_use_shard_with_inactive_shard(self, mock_set_schema):
+        """
+        Case: Call use_shard with a shard that is not active
+        Expected: A StateException to be raised
+        """
+        with self.assertRaises(StateException) as error:
+            with use_shard(self.inactive_shard):
+                pass
+        self.assertEqual(error.exception.state, Shard.STATE_MAINTENANCE)
 
         self.assertFalse(mock_set_schema.called)
         if hasattr(THREAD_LOCAL, 'DB_OVERRIDE') and THREAD_LOCAL.DB_OVERRIDE is not None:
@@ -245,7 +264,7 @@ class SetSchemaTestCase(ShardingTestCase):
         Case: Call utils._set_schema with a schema name and connection
         Excepted: The 'other' connection's search_path set, other connection untouched
         """
-        shard = Shard.objects.create(alias='test_shard', schema_name='test_schema_on_other', node_name='other')
+        shard = Shard.objects.create(alias='test_shard1', schema_name='test_schema_on_other', node_name='other')
         _connection = connections['other']
         _set_schema(shard.schema_name, _connection)
 
@@ -258,7 +277,7 @@ class SetSchemaTestCase(ShardingTestCase):
         Case: Call utils._set_schema with a node_name that does not occur in the settings
         Excepted: An error raised.
         """
-        shard = Shard.objects.create(alias='test_shard', schema_name='schema_on_default', node_name='default')
+        shard = Shard.objects.create(alias='test_shard2', schema_name='schema_on_default', node_name='default')
         _connection = connections['default']
         _set_schema(shard.schema_name)
 
