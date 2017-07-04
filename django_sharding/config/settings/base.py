@@ -50,6 +50,7 @@ MIDDLEWARE_CLASSES = (
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'sharding.middleware.StateExceptionMiddleware'
 )
 
 ROOT_URLCONF = 'config.urls'
@@ -75,6 +76,10 @@ WSGI_APPLICATION = 'config.wsgi.application'
 
 DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine='sharding.postgresql_backend'),
              'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='sharding.postgresql_backend')}
+
+SHARDING = {
+    'SHARD_CLASS': 'shardingtest.models.Shard',
+}
 
 DATABASE_ROUTERS = ['sharding.utils.DynamicDbRouter']
 
@@ -120,7 +125,3 @@ USE_L10N = True
 USE_TZ = True
 
 STATIC_URL = '/static/'
-
-SHARDING = {
-    'SHARD_CLASS': 'shardingtest.models.Shard',
-}

@@ -5,8 +5,15 @@ from example.models import User
 
 
 class HomeView(LoginRequiredMixin, TemplateView):
-    template_name = 'users/home.html'
+    template_name = 'example/home.html'
 
     def get_context_data(self, **kwargs):
         kwargs['example'] = User.objects.all()
+        return super().get_context_data(**kwargs)
+
+
+class ShardUnavailableView(TemplateView):
+    template_name = 'example/state_exception.html'
+
+    def get_context_data(self, **kwargs):
         return super().get_context_data(**kwargs)

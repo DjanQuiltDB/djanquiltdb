@@ -52,4 +52,12 @@ class Migration(migrations.Migration):
             name='type',
             field=models.ForeignKey(to='example.Type', verbose_name='type'),
         ),
+        migrations.CreateModel(
+            name='OrganizationShards',
+            fields=[
+                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('organization_id', models.PositiveSmallIntegerField()),
+                ('shard', models.ForeignKey(to='shardingtest.Shard')),
+            ],
+        ),
     ]

@@ -95,7 +95,7 @@ class DefiningShardModelDecoratorTestCase(TestCase):
             @shard_mapping_model()
             @test_model()
             class DefiningDummyModel4(models.Model):
-                shard = models.ForeignKey('Stars', verbose_name='shard')
+                shard = models.ForeignKey('Stars', verbose_name='shard')  # NOOA (unresolved reference on purpose)
 
                 class Meta:
                     app_label = 'sharding'

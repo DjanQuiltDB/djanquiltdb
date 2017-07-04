@@ -10,8 +10,10 @@ class ShardingExampleTestCase(ShardingTestCase):
         create_template_schema()
 
         # tables for the 'public' schema (in this case: Type) are not mirrored yet. So stick to default node for now.
-        self.shard1 = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default')
-        self.shard2 = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default')
+        self.shard1 = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                           state=Shard.STATE_ACTIVE)
+        self.shard2 = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default',
+                                           state=Shard.STATE_ACTIVE)
 
         # default shard
         self.type1 = Type.objects.create(name='Leader')

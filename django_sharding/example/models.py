@@ -2,7 +2,14 @@ from django.contrib.auth.models import AbstractBaseUser, UserManager
 from django.db import models
 from django.utils import timezone
 
-from sharding.decorators import mirrored_model, sharded_model
+from sharding.decorators import mirrored_model, sharded_model, shard_mapping_model
+
+
+# mapping table
+@shard_mapping_model()
+class OrganizationShards(models.Model):
+    shard = models.ForeignKey('shardingtest.Shard')
+    organization_id = models.PositiveSmallIntegerField()
 
 
 # mirrored table

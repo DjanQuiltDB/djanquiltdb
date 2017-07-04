@@ -12,13 +12,12 @@
 
 import threading
 
-from functools import wraps
-
 from django.apps import apps
 from django.conf import settings
 from django.db import connections, connection
 from django.utils.module_loading import import_string
 from django.core.management.commands.migrate import Command as MigrateCommand
+from functools import wraps
 
 THREAD_LOCAL = threading.local()
 
@@ -27,6 +26,12 @@ class ShardingMode:
     MIRRORED = 'M'
     DEFINING = 'D'
     SHARDED = 'S'
+
+
+class StateException(Exception):
+    def __init__(self, message, state):
+        super().__init__(message)
+        self.state = state
 
 
 def get_template_name():
@@ -94,6 +99,8 @@ class use_shard:
     """
     use_shard can be used as a decorator and as environment to send all queries in the scope to the correct shard.
 
+    If the shard's state is not STATE_ACTIVE, use_shard will raise a StateException error.
+
     :param object shard: Provide a Shard model object so the environment knows all about where to send the queries.
     :param str node_name: Alternatively, you can provide the name of the database the schema can be found and the name
         of the schema.
@@ -103,8 +110,6 @@ class use_shard:
     :returns: The environment as an object with the following members:
     * **connection:** Reference to the current database connection.
     * **shard:** Reference to the current shard model object.
-    * **schema_name:** Name of the schema as string.
-    * **node_name:** Name of the node as string.
 
     :Example:
     .. code-block:: python
@@ -112,7 +117,7 @@ class use_shard:
         from sharding.utils import use_shard
 
         from config.models import shard
-        from users.models import User
+        from example.models import User
 
 
         shard = Shard.objects.get(alias="North")
@@ -121,7 +126,12 @@ class use_shard:
             User.objects.create(name="John Snow")
     """
 
+    # Both node_name and schema_name are not documented.
+    # They bypass the shard.state check, and are only there to for internal use.
+    # (Situations where the schema is made, but the shard object is not saved yet.)
     def __init__(self, shard=None, node_name=None, schema_name=None):
+        from sharding.models import BaseShard  # prevent untimely import
+
         shard_class_name = settings.SHARDING['SHARD_CLASS']
 
         if shard:
@@ -129,6 +139,8 @@ class use_shard:
                 raise ValueError("Shard value {} ({}) must of type {}".format(shard,
                                                                               type(shard).__name__,
                                                                               shard_class_name))
+            if shard.state != BaseShard.STATE_ACTIVE:
+                raise StateException("Shard {} state is {}".format(shard, shard.state), shard.state)
 
             self.shard = shard
             self.schema_name = shard.schema_name
@@ -188,7 +200,7 @@ def create_schema_on_node(schema_name, node_name, migrate=True):
 
         from sharding.utils import create_schema_on_node. use_shard
 
-        from users.models import User
+        from example.models import User
 
 
         create_schema_on_node(shard_name="North", node_name="default", migrate=True)

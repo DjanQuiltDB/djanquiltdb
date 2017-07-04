@@ -17,7 +17,7 @@ class GetShardTestCase(SimpleTestCase):
 
 
 class BaseShardTestCase(TestCase):
-    @mock.patch('sharding.models.create_schema_on_node')
+    @mock.patch('sharding.utils.create_schema_on_node')
     @mock.patch('sharding.models.models.Model.save')
     def test_save(self, mock_save, mock_create_schema):
         """
