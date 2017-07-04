@@ -14,6 +14,3 @@ class HomeView(LoginRequiredMixin, TemplateView):
 
 class ShardUnavailableView(TemplateView):
     template_name = 'example/state_exception.html'
-
-    def get_context_data(self, **kwargs):
-        return super().get_context_data(**kwargs)

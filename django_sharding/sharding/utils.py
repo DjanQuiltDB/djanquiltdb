@@ -10,6 +10,7 @@
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+from functools import wraps
 import threading
 
 from django.apps import apps
@@ -17,7 +18,6 @@ from django.conf import settings
 from django.db import connections, connection
 from django.utils.module_loading import import_string
 from django.core.management.commands.migrate import Command as MigrateCommand
-from functools import wraps
 
 THREAD_LOCAL = threading.local()
 
@@ -29,8 +29,9 @@ class ShardingMode:
 
 
 class StateException(Exception):
-    def __init__(self, message, state):
-        super().__init__(message)
+    # def __init__(self, message, state):
+    def __init__(self, message, state, *args, **kwargs):
+        super().__init__(message, *args, **kwargs)
         self.state = state
 
 
