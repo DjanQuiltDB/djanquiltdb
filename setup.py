@@ -16,7 +16,7 @@ setup(
     author_email="hello@patchman.co",
     url="https://https://bitbucket.org/patchmanbv/django-sharding",
     package_dir={'': 'django_sharding'},
-    packages=['sharding'],
+    packages=['sharding', 'sharding.postgresql_backend'],
     include_package_data=True,
     install_requires=[
         "django>=1.8",

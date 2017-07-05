@@ -1,13 +1,14 @@
 import re
 from unittest import mock
 
-from django.db import connection, connections
+from django.db import connection, connections, models
 from django.test import SimpleTestCase, TestCase, override_settings
 
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
     StateException
 from shardingtest.models import Shard
+from sharding.decorators import sharded_model, mirrored_model
 
 
 def test_model():
@@ -19,6 +20,29 @@ def test_model():
         return cls
 
     return configure
+
+
+@sharded_model()
+@test_model()
+class DummySharededModel(models.Model):
+
+    class Meta:
+        app_label = 'sharding'
+
+
+@mirrored_model()
+@test_model()
+class DummyMirroredModel(models.Model):
+
+    class Meta:
+        app_label = 'sharding'
+
+
+@test_model()
+class DummyNonSharededModel(models.Model):
+
+    class Meta:
+        app_label = 'sharding'
 
 
 class ShardingTestCase(TestCase):
@@ -338,12 +362,33 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         THREAD_LOCAL.DB_OVERRIDE = ['default', 'test_node']
         self.assertEqual(self.router.db_for_write(model=mock.MagicMock()), 'test_node')
 
-    def test_allow_relation(self):
+    def test_allow_relation_between_non_sharded_models(self):
         """
-        Case: Call allow_relation
-        Expected: Always True
+        Case: Call allow_relation with two models that are not sharded
+        Expected: None, the router does not care about non-sharded models.
         """
-        self.assertTrue(self.router.allow_relation())
+        self.assertIsNone(self.router.allow_relation(DummyNonSharededModel(), DummyNonSharededModel()))
+
+    def test_allow_relation_between_sharded_and_non_sharded_models(self):
+        """
+        Case: Call allow_relation with a sharded and non-sharded model.
+        Expected: False, such relationship is not allowed
+        """
+        self.assertFalse(self.router.allow_relation(DummySharededModel(), DummyNonSharededModel()))
+
+    def test_allow_relation_between_sharded_and_mirrored_models(self):
+        """
+        Case: Call allow_relation with a sharded and mirrored model.
+        Expected: True, mirrored exists in the public schema.
+        """
+        self.assertTrue(self.router.allow_relation(DummySharededModel(), DummyMirroredModel()))
+
+    def test_allow_relation_between_sharded_models(self):
+        """
+        Case: Call allow_relation with a sharded and mirrored model.
+        Expected: True, we don't check if they are on the same shard yet.
+        """
+        self.assertTrue(self.router.allow_relation(DummySharededModel(), DummyMirroredModel()))
 
     def test_allow_syncdb(self):
         """

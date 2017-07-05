@@ -1,4 +1,4 @@
-from example.models import Organization, Type, User
+from example.models import Organization, Type, User, OrganizationShards
 from shardingtest.models import Shard
 from sharding.utils import use_shard, create_template_schema
 from sharding.tests.utils import ShardingTestCase
@@ -30,6 +30,9 @@ class ShardingExampleTestCase(ShardingTestCase):
                                              type=self.type1)
             self.user3 = User.objects.create(name='Ackbar', email='itsatrap@alliance.sw', organization=self.org2,
                                              type=self.type2)
+
+        OrganizationShards.objects.create(organization_id=self.org1.id, shard=self.shard1)
+        OrganizationShards.objects.create(organization_id=self.org2.id, shard=self.shard2)
 
     def test_schema_separation(self):
         """
