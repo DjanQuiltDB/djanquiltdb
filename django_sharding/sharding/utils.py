@@ -43,18 +43,20 @@ class DynamicDbRouter(object):
 
     def db_for_read(self, model, **hints):
         override_list = getattr(THREAD_LOCAL, 'DB_OVERRIDE', None)
-        if override_list is None:
-            return None  # fallback to the default router
-        return override_list[-1]
+        return override_list and override_list[-1]
 
     def db_for_write(self, model, **hints):
         override_list = getattr(THREAD_LOCAL, 'DB_OVERRIDE', None)
-        if override_list is None:
-            return None
-        return override_list[-1]
+        return override_list and override_list[-1]
 
-    def allow_relation(self, *args, **kwargs):
-        return True
+    def allow_relation(self, obj1, obj2, *args, **kwargs):
+        obj1_mode = getattr(obj1, 'sharding_mode', False)
+        obj2_mode = getattr(obj2, 'sharding_mode', False)
+
+        if obj1_mode or obj2_mode:
+            return obj1_mode and obj2_mode  # all is good if they are both sharded
+
+        return None  # We have no opinion about non-sharded models
 
     def allow_syncdb(self, *args, **kwargs):
         model = kwargs.pop('model', False)
@@ -95,7 +97,7 @@ def _set_schema(schema_name, _connection=None):
     _connection.set_schema(schema_name)
 
 
-class use_shard:
+class use_shard(object):
     """
     use_shard can be used as a decorator and as environment to send all queries in the scope to the correct shard.
 
