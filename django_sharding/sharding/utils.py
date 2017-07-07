@@ -184,7 +184,7 @@ class use_shard:
 
 def create_schema_on_node(schema_name, node_name=None, migrate=True):
     """
-    Create a schema of a given node. If no node is given, it will take the node set in SHARDING.NEW_SHARD_NODE settings.
+    Create a schema on a given node. If no node is given, it will take the node set in SHARDING.NEW_SHARD_NODE settings.
     By default it will also call a migration to the newly made schema.
 
     :note: This will be called automatically when you make a Shard model object and save it.

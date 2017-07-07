@@ -247,7 +247,6 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
         with self.assertRaises(ValueError):
             create_schema_on_node('test_schema', None, migrate=True)
 
-        # check if it exists now
         self.assertFalse(_connection.get_ps_schema('test_schema'))
         self.assertFalse(mock_clone_schema.called)
 

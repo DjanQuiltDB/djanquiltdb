@@ -79,5 +79,5 @@ class BaseShardTestCase(TestCase):
         Expected: ValueError to be raised
         """
         with self.assertRaises(ValueError):
-            shard = Shard.objects.create(alias='test_shard', schema_name='test_schema')
+            Shard.objects.create(alias='test_shard', schema_name='test_schema')
         self.assertFalse(mock_create_schema.called)
