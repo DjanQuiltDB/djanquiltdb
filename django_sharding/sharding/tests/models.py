@@ -4,6 +4,7 @@ from django.test import TestCase, SimpleTestCase, override_settings
 
 from sharding.models import get_shard_class, BaseShard
 from sharding.tests.app_config import DummyShard
+from shardingtest.models import Shard
 
 
 class GetShardTestCase(SimpleTestCase):
@@ -21,14 +22,26 @@ class BaseShardTestCase(TestCase):
     @mock.patch('sharding.models.models.Model.save')
     def test_save(self, mock_save, mock_create_schema):
         """
-        Case: Call the save method from the BaseShard model
+        Case: Call the save method from a just created BaseShard model
         Expected: Create_schema and super().mock are called
         """
-        shard = BaseShard(alias='test_shard', schema_name='test_schema', node_name="other")
+        shard = Shard(alias='test_shard', schema_name='test_schema', node_name='other')
         shard.save()
         self.assertTrue(mock_save.called)
         self.assertTrue(mock_create_schema.called)
-        mock_create_schema.assert_called_with(schema_name='test_schema', node_name="other", migrate=True)
+        mock_create_schema.assert_called_with(schema_name='test_schema', node_name='other', migrate=True)
+
+    @mock.patch('sharding.utils.create_schema_on_node')
+    def test_save_while_already_created(self, mock_create_schema):
+        """
+        Case: Call the save method from the BaseShard model which already exists
+        Expected: Create_schema and super().mock are NOT called
+        """
+        shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='other')
+        self.assertTrue(mock_create_schema.called)  # called when created
+        mock_create_schema.reset_mock()
+        shard.save()
+        self.assertFalse(mock_create_schema.called)
 
     def test_clean(self):
         """
@@ -46,3 +59,25 @@ class BaseShardTestCase(TestCase):
         shard = BaseShard(alias='test_shard', schema_name='test_schema', node_name='nonexisting')
         with self.assertRaises(ValueError):
             shard.clean()
+
+    @mock.patch('sharding.utils.create_schema_on_node')
+    @override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard', 'NEW_SHARD_NODE': 'other'})
+    def test_use_settings_node(self, mock_create_schema):
+        """
+        Case: Call the save method without setting a node_name.
+        Expected: Create_schema called with the node_name given in the settings. Also applied to the Shard object.
+        """
+        shard = Shard.objects.create(alias='test_shard', schema_name='test_schema')
+        mock_create_schema.assert_called_with(schema_name='test_schema', node_name='other', migrate=True)
+        self.assertEqual(shard.node_name, 'other')
+
+    @mock.patch('sharding.utils.create_schema_on_node')
+    @override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard'})
+    def test_no_node_and_no_settings_node(self, mock_create_schema):
+        """
+        Case: Call the save method without setting a node_name and without one defined in settings.
+        Expected: ValueError to be raised
+        """
+        with self.assertRaises(ValueError):
+            Shard.objects.create(alias='test_shard', schema_name='test_schema')
+        self.assertFalse(mock_create_schema.called)

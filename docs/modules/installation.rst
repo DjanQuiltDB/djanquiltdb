@@ -5,7 +5,7 @@ Installation
 .. _`install`:
 
 Installing django-sharding
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+--------------------------
 
 If you want to install stable version, you can do so doing::
 
@@ -30,7 +30,7 @@ Add ``sharding`` to your ``INSTALLED_APPS`` in settings.py::
     )
 
 Creating models
-~~~~~~~~~~~~~~~
+---------------
 
 The sharding application requires you to create custom ``Shard`` model, which inherit form the base model.
 
@@ -47,7 +47,7 @@ The sharding application requires you to create custom ``Shard`` model, which in
             app_label = 'myapp'
 
 Make migrations
-~~~~~~~~~~~~~~~
+---------------
 
 ``./manage makemigrations``::
 
@@ -57,15 +57,33 @@ Make migrations
 
 
 Configuration settings
-~~~~~~~~~~~~~~~~~~~~~~
+----------------------
 
-You must set ``SHARDING`` Django settings variable with the dot path to the ``shard`` classes in your
+There are several settings to make for sharding. All of them live in the ``SHARDING`` variable.
+
+SHARD_CLASS
+~~~~~~~~~~~
+You must set ``SHARD_CLASS`` with the dot path to the ``shard`` classes in your
 project settings e.g.::
 
     SHARDING = {
         'SHARD_CLASS': 'myapp.models.Shard',
     }
 
+NEW_SHARD_NODE
+~~~~~~~~~~~~~~
+Optionally you can tell Django-sharding on which node new shards (schemas) will be created. e.g.::
+
+    DATABASES = {'default': name='primary', engine='sharding.postgresql_backend'),
+                 'node_2': name='db_2, engine='sharding.postgresql_backend')}
+
+    SHARDING = {
+        'SHARD_CLASS': 'myapp.models.Shard',
+        'NEW_SHARD_NODE': 'node_2',
+    }
+
+ROUTER
+~~~~~~
 Additionally Django-sharding uses a router to send each database transaction to the correct node.
 So set ``sharding.utils.DynamicDbRouter`` as the database_router in the settings. e.g.::
 

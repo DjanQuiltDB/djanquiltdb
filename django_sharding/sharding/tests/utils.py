@@ -164,7 +164,7 @@ class UseShardTestCase(ShardingTestCase):
             self.fail('THREAD_LOCAL.DB_OVERRIDE should be None or not exist.')
 
 
-class CreateSchemaTestCase(ShardingTestCase):
+class CreateSchemaOnNodeTestCase(ShardingTestCase):
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_no_migration(self, mock_clone_schema):
         """
@@ -215,6 +215,40 @@ class CreateSchemaTestCase(ShardingTestCase):
         create_schema_on_node('test_schema', 'other', migrate=True)
         self.assertTrue(_connection.get_ps_schema('test_schema'))
         mock_clone_schema.assert_called_once_with('other-template', 'test_schema')
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard', 'NEW_SHARD_NODE': 'other'})
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
+    def test_create_schema_without_node_name_with_setting(self, mock_clone_schema):
+        """
+        Case: Call use_shard without a node name, but with NEW_SHARD_NODE setting set.
+        Expected: A new PostgreSQL schema is made and the clone_schema is called
+        """
+        _connection = connections['other']
+        # first: check if schema does not exist yet.
+        self.assertFalse(_connection.get_ps_schema('test_schema'))
+
+        create_schema_on_node('test_schema', None, migrate=True)
+
+        # check if it exists now
+        self.assertTrue(_connection.get_ps_schema('test_schema'))
+        self.assertTrue(mock_clone_schema.called)
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard'})
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
+    def test_create_schema_without_node_name_without_setting(self, mock_clone_schema):
+        """
+        Case: Call use_shard without a node name, and without NEW_SHARD_NODE setting set.
+        Expected: ValueError raised
+        """
+        _connection = connections['other']
+        # first: check if schema does not exist yet.
+        self.assertFalse(_connection.get_ps_schema('test_schema'))
+
+        with self.assertRaises(ValueError):
+            create_schema_on_node('test_schema', None, migrate=True)
+
+        self.assertFalse(_connection.get_ps_schema('test_schema'))
+        self.assertFalse(mock_clone_schema.called)
 
 
 class NodeExistsTestCase(SimpleTestCase):

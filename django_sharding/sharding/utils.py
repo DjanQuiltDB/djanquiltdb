@@ -182,9 +182,9 @@ class use_shard:
         return inner
 
 
-def create_schema_on_node(schema_name, node_name, migrate=True):
+def create_schema_on_node(schema_name, node_name=None, migrate=True):
     """
-    Create a schema of a given node. If no node is given, it will take the current one used.
+    Create a schema on a given node. If no node is given, it will take the node set in SHARDING.NEW_SHARD_NODE settings.
     By default it will also call a migration to the newly made schema.
 
     :note: This will be called automatically when you make a Shard model object and save it.
@@ -210,6 +210,9 @@ def create_schema_on_node(schema_name, node_name, migrate=True):
             User.objects.create(name="John Snow")
 
     """
+    node_name = node_name or settings.SHARDING.get('NEW_SHARD_NODE', None)
+    if not node_name:
+        raise ValueError("No node_name given, or no NEW_SHARD_NODE set in the SHARING settings.")
     _node_exists(node_name)
     connections[node_name].create_schema(schema_name)
 

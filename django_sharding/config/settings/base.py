@@ -79,6 +79,7 @@ DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine
 
 SHARDING = {
     'SHARD_CLASS': 'shardingtest.models.Shard',
+    'NEW_SHARD_NODE': 'other'
 }
 
 DATABASE_ROUTERS = ['sharding.utils.DynamicDbRouter']
