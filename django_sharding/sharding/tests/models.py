@@ -22,7 +22,7 @@ class BaseShardTestCase(TestCase):
     @mock.patch('sharding.models.models.Model.save')
     def test_save(self, mock_save, mock_create_schema):
         """
-        Case: Call the save method from the BaseShard model
+        Case: Call the save method from a just created BaseShard model
         Expected: Create_schema and super().mock are called
         """
         shard = Shard(alias='test_shard', schema_name='test_schema', node_name='other')

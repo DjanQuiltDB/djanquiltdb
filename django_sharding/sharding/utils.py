@@ -168,7 +168,7 @@ class use_shard(object):
         return self
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
-        # reset both the connection and the schema back to the old situation
+        # reset both the connection and the schema back to the old state
         _set_schema(self.old_schema_name, self.connection)
         if not THREAD_LOCAL.DB_OVERRIDE or THREAD_LOCAL.DB_OVERRIDE == [self.node_name]:
             THREAD_LOCAL.DB_OVERRIDE = None
