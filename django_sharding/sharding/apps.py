@@ -30,9 +30,10 @@ class ShardingConfig(AppConfig):
                 'sharding.utils.DynamicDbRouter must be present in the DATABASE_ROUTERS setting.')
 
         if 'SESSION_ENGINE' in dir(settings) and \
-                settings.SESSION_ENGINE == 'django.contrib.sessions.backends.cached_db':
-            if getattr(get_user_model(), 'sharding_mode', False) in [ShardingMode.MIRRORED, ShardingMode.SHARDED]:
-                raise ImproperlyConfigured(
-                    "When the user model is sharded, you cannot use django.contrib.sessions.backends.cached_db "
-                    "to store sessions. It references the user table and won't know where to find it."
-                )
+            settings.SESSION_ENGINE == 'django.contrib.sessions.backends.cached_db' and \
+                getattr(get_user_model(), 'sharding_mode', False) in [ShardingMode.MIRRORED, ShardingMode.SHARDED]:
+
+            raise ImproperlyConfigured(
+                "When the user model is sharded, you cannot use django.contrib.sessions.backends.cached_db "
+                "to store sessions. It references the user table and won't know where to find it."
+            )

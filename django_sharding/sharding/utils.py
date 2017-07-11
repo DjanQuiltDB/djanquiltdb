@@ -10,6 +10,7 @@
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+from enum import Enum
 from functools import wraps
 import threading
 
@@ -22,7 +23,7 @@ from django.core.management.commands.migrate import Command as MigrateCommand
 THREAD_LOCAL = threading.local()
 
 
-class ShardingMode:
+class ShardingMode(Enum):
     MIRRORED = 'M'
     DEFINING = 'D'
     SHARDED = 'S'
@@ -99,17 +100,17 @@ def _set_schema(schema_name, _connection=None):
 
 class use_shard(object):
     """
-    use_shard can be used as a decorator and as environment to send all queries in the scope to the correct shard.
+    use_shard can be used as a decorator and as context manager to send all queries in the scope to the correct shard.
 
     If the shard's state is not STATE_ACTIVE, use_shard will raise a StateException error.
 
-    :param object shard: Provide a Shard model object so the environment knows all about where to send the queries.
+    :param object shard: Provide a Shard model object so the context manager knows all about where to send the queries.
     :param str node_name: Alternatively, you can provide the name of the database the schema can be found and the name
         of the schema.
     :param str schema_name: Alternatively, you can provide the name of the database the schema can be found and the
         name of the schema.
 
-    :returns: The environment as an object with the following members:
+    :returns: The context manager as an object with the following members:
     * **connection:** Reference to the current database connection.
     * **shard:** Reference to the current shard model object.
 

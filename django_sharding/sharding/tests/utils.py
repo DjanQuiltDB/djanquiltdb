@@ -24,7 +24,7 @@ def test_model():
 
 @sharded_model()
 @test_model()
-class DummySharededModel(models.Model):
+class DummyShardedModel(models.Model):
 
     class Meta:
         app_label = 'sharding'
@@ -39,7 +39,7 @@ class DummyMirroredModel(models.Model):
 
 
 @test_model()
-class DummyNonSharededModel(models.Model):
+class DummyNonShardedModel(models.Model):
 
     class Meta:
         app_label = 'sharding'
@@ -367,28 +367,28 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Case: Call allow_relation with two models that are not sharded
         Expected: None, the router does not care about non-sharded models.
         """
-        self.assertIsNone(self.router.allow_relation(DummyNonSharededModel(), DummyNonSharededModel()))
+        self.assertIsNone(self.router.allow_relation(DummyNonShardedModel(), DummyNonShardedModel()))
 
     def test_allow_relation_between_sharded_and_non_sharded_models(self):
         """
         Case: Call allow_relation with a sharded and non-sharded model.
         Expected: False, such relationship is not allowed
         """
-        self.assertFalse(self.router.allow_relation(DummySharededModel(), DummyNonSharededModel()))
+        self.assertFalse(self.router.allow_relation(DummyShardedModel(), DummyNonShardedModel()))
 
     def test_allow_relation_between_sharded_and_mirrored_models(self):
         """
         Case: Call allow_relation with a sharded and mirrored model.
         Expected: True, mirrored exists in the public schema.
         """
-        self.assertTrue(self.router.allow_relation(DummySharededModel(), DummyMirroredModel()))
+        self.assertTrue(self.router.allow_relation(DummyShardedModel(), DummyMirroredModel()))
 
     def test_allow_relation_between_sharded_models(self):
         """
-        Case: Call allow_relation with a sharded and mirrored model.
+        Case: Call allow_relation with two sharded models
         Expected: True, we don't check if they are on the same shard yet.
         """
-        self.assertTrue(self.router.allow_relation(DummySharededModel(), DummyMirroredModel()))
+        self.assertTrue(self.router.allow_relation(DummyShardedModel(), DummyShardedModel()))
 
     def test_allow_syncdb(self):
         """
@@ -402,7 +402,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Case: Call allow_syncdb on a test model
         Expected: None
         """
-        self.assertFalse(self.router.allow_syncdb(model=DummySharededModel))
+        self.assertFalse(self.router.allow_syncdb(model=DummyShardedModel))
 
     def test_allow_migrate(self):
         """
