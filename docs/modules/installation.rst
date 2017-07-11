@@ -100,7 +100,7 @@ To do that set ``STATE_EXCEPTION_VIEW`` in the ``SHARDING`` setting to a view of
     MIDDLEWARE_CLASSES = (
     (...)
     'sharding.middleware.StateExceptionMiddleware'
-)
+    )
 
     SHARDING = {
         'SHARD_CLASS': 'myapp.models.Shard',
