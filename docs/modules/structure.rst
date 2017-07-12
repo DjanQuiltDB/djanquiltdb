@@ -14,6 +14,7 @@ Nodes
 ~~~~~
 
 Nodes are entries in the DATABASES section of the Django settings. The names you give them there are the node names.
+
 .. code-block:: python
 
     DATABASES = {
@@ -30,7 +31,7 @@ Nodes are entries in the DATABASES section of the Django settings. The names you
             'USER': 'mydatabaseuser',
             'PASSWORD': 'mypassword',
             'HOST': '127.0.0.1',
-            'PORT': '5433'  # same server, different pSQL installation},
+            'PORT': '5433'},  # same server, different pSQL installation
         }
     }
 

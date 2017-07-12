@@ -32,33 +32,33 @@ def shard_mapping_model():
     :note: This model will NOT be sharded. It would defeat its purpose if it did.
 
     :Example:
-    .. code-block:: python
+        .. code-block:: python
 
-        from django.db import models
-        from sharding.decorators import shard_mapping_model, sharded_model
-        from sharding.models import BaseShard
+            from django.db import models
+            from sharding.decorators import shard_mapping_model, sharded_model
+            from sharding.models import BaseShard
 
-        class Shard(BaseShard):
-            class Meta:
-                app_label = 'example'
+            class Shard(BaseShard):
+                class Meta:
+                    app_label = 'example'
 
-        @shard_mapping_model()
-        class ShardMapping(models.Model):
-            # List every organization in this model, so you can easily request in which shard they live.
-            shard = models.ForeignKey('Shard', verbose_name='shard')
-            organization_name = models.CharField('organization name', max_length=100)
-            organization_id = models.PositiveIntegerField(_('organization id'))
+            @shard_mapping_model()
+            class ShardMapping(models.Model):
+                # List every organization in this model, so you can easily request in which shard they live.
+                shard = models.ForeignKey('Shard', verbose_name='shard')
+                organization_name = models.CharField('organization name', max_length=100)
+                organization_id = models.PositiveIntegerField(_('organization id'))
 
-            class Meta:
-                app_label = 'example'
+                class Meta:
+                    app_label = 'example'
 
-        @sharded_model()
-        class Organization(models.Model):
-            name = models.CharField('name', max_length=100)
-            created_at = models.DateTimeField(_('created at'), null=True, blank=True, default=timezone.now)
+            @sharded_model()
+            class Organization(models.Model):
+                name = models.CharField('name', max_length=100)
+                created_at = models.DateTimeField(_('created at'), null=True, blank=True, default=timezone.now)
 
-            class Meta:
-                app_label = 'example'
+                class Meta:
+                    app_label = 'example'
 
     """
     def configure(cls):
@@ -107,23 +107,23 @@ def sharded_model():
     This means this model will be migrated to new shards, and not appear in the public schema.
 
     :Example:
-    .. code-block:: python
+        .. code-block:: python
 
-        from django.db import models
-        from sharding.decorators import sharded_model
-        from sharding.models import BaseShard
+            from django.db import models
+            from sharding.decorators import sharded_model
+            from sharding.models import BaseShard
 
-        class Shard(BaseShard):
-            class Meta:
-                app_label = 'example'
+            class Shard(BaseShard):
+                class Meta:
+                    app_label = 'example'
 
-        @sharded_model()
-        class Organization(models.Model):
-            name = models.CharField('name', max_length=100)
-            created_at = models.DateTimeField(_('created at'), null=True, blank=True, default=timezone.now)
+            @sharded_model()
+            class Organization(models.Model):
+                name = models.CharField('name', max_length=100)
+                created_at = models.DateTimeField(_('created at'), null=True, blank=True, default=timezone.now)
 
-            class Meta:
-                app_label = 'example'
+                class Meta:
+                    app_label = 'example'
 
     """
     def configure(cls):

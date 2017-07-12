@@ -111,22 +111,24 @@ class use_shard(object):
         name of the schema.
 
     :returns: The context manager as an object with the following members:
+
     * **connection:** Reference to the current database connection.
     * **shard:** Reference to the current shard model object.
 
     :Example:
-    .. code-block:: python
+        .. code-block:: python
 
-        from sharding.utils import use_shard
+            from sharding.utils import use_shard
 
-        from config.models import shard
-        from example.models import User
+            from config.models import shard
+            from example.models import User
 
 
-        shard = Shard.objects.get(alias="North")
-        with use_shard(shard):
-            # create user on the North shard
-            User.objects.create(name="John Snow")
+            shard = Shard.objects.get(alias="North")
+            with use_shard(shard):
+                # create user on the North shard
+                User.objects.create(name="John Snow")
+
     """
 
     # Both node_name and schema_name are not documented.
@@ -199,18 +201,18 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
     :returns: None
 
     :Example:
-    .. code-block:: python
+        .. code-block:: python
 
-        from sharding.utils import create_schema_on_node. use_shard
+            from sharding.utils import create_schema_on_node. use_shard
 
-        from example.models import User
+            from example.models import User
 
 
-        create_schema_on_node(shard_name="North", node_name="default", migrate=True)
+            create_schema_on_node(shard_name="North", node_name="default", migrate=True)
 
-        with use_shard(node_name="default", schema_name="North"):
-            # create user on the North shard
-            User.objects.create(name="John Snow")
+            with use_shard(node_name="default", schema_name="North"):
+                # create user on the North shard
+                User.objects.create(name="John Snow")
 
     """
     node_name = node_name or settings.SHARDING.get('NEW_SHARD_NODE', None)
@@ -237,10 +239,10 @@ def create_template_schema(node_name='default'):
     :returns: None
 
     :Example:
-    .. code-block:: python
+        .. code-block:: python
 
-        from sharding.utils import create_template_schema
-        create_template_schema(node_name='default')
+            from sharding.utils import create_template_schema
+            create_template_schema(node_name='default')
 
     """
     schema_name = get_template_name()
@@ -263,14 +265,14 @@ def migrate_schema(node_name, schema_name):
     :returns: None
 
     :Example:
-    .. code-block:: python
+        .. code-block:: python
 
-        from django.db import connection
+            from django.db import connection
 
-        from sharding.utils import migrate_schema
+            from sharding.utils import migrate_schema
 
-        connection.create_schema('North')
-        migrate_schema(node_name='default', schema_name='North')
+            connection.create_schema('North')
+            migrate_schema(node_name='default', schema_name='North')
 
     """
     _node_exists(node_name)
