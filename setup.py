@@ -1,5 +1,5 @@
 import os
-from setuptools import setup
+from setuptools import setup, find_packages
 from django_sharding.sharding import __version__
 
 # allow setup.py to be run from any path
@@ -16,7 +16,7 @@ setup(
     author_email="hello@patchman.co",
     url="https://https://bitbucket.org/patchmanbv/django-sharding",
     package_dir={'': 'django_sharding'},
-    packages=['sharding', 'sharding.postgresql_backend'],
+    packages=find_packages('django_sharding', exclude=('example*', 'config*', '*test*')),
     include_package_data=True,
     install_requires=[
         "django>=1.8",

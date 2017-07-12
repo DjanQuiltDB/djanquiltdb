@@ -1,11 +1,11 @@
 from django.apps import apps
 from django.contrib.auth.models import AbstractBaseUser
 from django.core.exceptions import ImproperlyConfigured
-from django.test import SimpleTestCase, override_settings
 from django.db import models
+from django.test import SimpleTestCase, override_settings
 
-from sharding.tests.utils import test_model
 from sharding.decorators import sharded_model
+from sharding.tests.utils import test_model
 
 
 @test_model()
@@ -68,7 +68,7 @@ class ShardingSettingsTestCase(SimpleTestCase):
         """
         sharding_app = apps.get_app_config(app_label='sharding')
 
-        with override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard'}):
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'}):
             sharding_app.ready()  # no error
 
 

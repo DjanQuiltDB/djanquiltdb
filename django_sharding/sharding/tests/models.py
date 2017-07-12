@@ -2,9 +2,9 @@ from unittest import mock
 
 from django.test import TestCase, SimpleTestCase, override_settings
 
+from example.models import Shard
 from sharding.models import get_shard_class, BaseShard
 from sharding.tests.app_config import DummyShard
-from shardingtest.models import Shard
 
 
 class GetShardTestCase(SimpleTestCase):
@@ -61,7 +61,7 @@ class BaseShardTestCase(TestCase):
             shard.clean()
 
     @mock.patch('sharding.utils.create_schema_on_node')
-    @override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard', 'NEW_SHARD_NODE': 'other'})
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'NEW_SHARD_NODE': 'other'})
     def test_use_settings_node(self, mock_create_schema):
         """
         Case: Call the save method without setting a node_name.
@@ -72,7 +72,7 @@ class BaseShardTestCase(TestCase):
         self.assertEqual(shard.node_name, 'other')
 
     @mock.patch('sharding.utils.create_schema_on_node')
-    @override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard'})
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_no_node_and_no_settings_node(self, mock_create_schema):
         """
         Case: Call the save method without setting a node_name and without one defined in settings.

@@ -1,3 +1,3 @@
 from .base import *  # NOQA
 
-TEST_RUNNER = 'utils.test.TeamcityRunner'
+TEST_RUNNER = 'config.utils.test.TeamcityRunner'

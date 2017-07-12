@@ -1,5 +1,4 @@
-from example.models import Organization, Type, User, OrganizationShards
-from shardingtest.models import Shard
+from example.models import Organization, Type, User, OrganizationShards, Shard
 from sharding.utils import use_shard, create_template_schema
 from sharding.tests.utils import ShardingTestCase
 

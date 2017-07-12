@@ -52,7 +52,7 @@ class DefiningShardModelDecoratorTestCase(TestCase):
         @shard_mapping_model()
         @test_model()
         class DefiningDummyModel1(models.Model):
-            shard = models.ForeignKey('shardingtest.Shard', verbose_name='shard')
+            shard = models.ForeignKey('example.Shard', verbose_name='shard')
 
             class Meta:
                 app_label = 'sharding'
@@ -108,7 +108,7 @@ class DefiningShardModelDecoratorTestCase(TestCase):
         @shard_mapping_model()  # first time goes without error.
         @test_model()
         class DefiningDummyModel5(models.Model):
-            shard = models.ForeignKey('shardingtest.Shard', verbose_name='shard')
+            shard = models.ForeignKey('example.Shard', verbose_name='shard')
 
             class Meta:
                 app_label = 'sharding'
@@ -117,7 +117,7 @@ class DefiningShardModelDecoratorTestCase(TestCase):
             @shard_mapping_model()
             @test_model()
             class DefiningDummyModel6(models.Model):
-                shard = models.ForeignKey('shardingtest.Shard', verbose_name='shard')
+                shard = models.ForeignKey('example.Shard', verbose_name='shard')
 
                 class Meta:
                     app_label = 'sharding'

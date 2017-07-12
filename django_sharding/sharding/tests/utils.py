@@ -4,10 +4,10 @@ from unittest import mock
 from django.db import connection, connections, models
 from django.test import SimpleTestCase, TestCase, override_settings
 
+from example.models import Shard
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
     StateException
-from shardingtest.models import Shard
 from sharding.decorators import sharded_model, mirrored_model
 
 
@@ -65,7 +65,7 @@ class ShardingTestCase(TestCase):
 
 
 class GetTemplateName(SimpleTestCase):
-    @override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard'})
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_get_template_unset(self):
         """
         Case: Call get_template_name when it is not set in the settings.
@@ -73,7 +73,7 @@ class GetTemplateName(SimpleTestCase):
         """
         self.assertEqual(get_template_name(), 'template')
 
-    @override_settings(SHARDING={'TEMPLATE_NAME': 'new-template', 'SHARD_CLASS': 'shardingtest.models.Shard'})
+    @override_settings(SHARDING={'TEMPLATE_NAME': 'new-template', 'SHARD_CLASS': 'example.models.Shard'})
     def test_get_template_set(self):
         """
         Case: Call get_template_name while it is set in the settings
@@ -227,7 +227,7 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
         self.assertTrue(_connection.get_ps_schema('test_schema'))
         mock_clone_schema.assert_called_once_with('template', 'test_schema')
 
-    @override_settings(SHARDING={'TEMPLATE_NAME': 'other-template', 'SHARD_CLASS': 'shardingtest.models.Shard'})
+    @override_settings(SHARDING={'TEMPLATE_NAME': 'other-template', 'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_migration_with_different_template_name(self, mock_clone_schema):
         """
@@ -240,7 +240,7 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
         self.assertTrue(_connection.get_ps_schema('test_schema'))
         mock_clone_schema.assert_called_once_with('other-template', 'test_schema')
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard', 'NEW_SHARD_NODE': 'other'})
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'NEW_SHARD_NODE': 'other'})
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_without_node_name_with_setting(self, mock_clone_schema):
         """
@@ -257,7 +257,7 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
         self.assertTrue(_connection.get_ps_schema('test_schema'))
         self.assertTrue(mock_clone_schema.called)
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard'})
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_without_node_name_without_setting(self, mock_clone_schema):
         """
