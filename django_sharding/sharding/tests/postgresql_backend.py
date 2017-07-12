@@ -33,7 +33,7 @@ class GetValidatedSchemaNameTestCase(SimpleTestCase):
         with self.assertRaises(ValueError):
             get_validated_schema_name('DROP * FROM')
 
-    @override_settings(SHARDING={'TEMPLATE_NAME': 'template', 'SHARD_CLASS': 'shardingtest.models.Shard'})
+    @override_settings(SHARDING={'TEMPLATE_NAME': 'template', 'SHARD_CLASS': 'example.models.Shard'})
     def test_template_name(self):
         """
         Case: Call get_validated_schema_name with the same name as the default template.
@@ -42,7 +42,7 @@ class GetValidatedSchemaNameTestCase(SimpleTestCase):
         with self.assertRaises(ValueError):
             get_validated_schema_name('template')
 
-    @override_settings(SHARDING={'TEMPLATE_NAME': 'not-template', 'SHARD_CLASS': 'shardingtest.models.Shard'})
+    @override_settings(SHARDING={'TEMPLATE_NAME': 'not-template', 'SHARD_CLASS': 'example.models.Shard'})
     def test_other_template_name(self):
         """
         Case: Call get_validated_schema_name with the same name as the set template.
@@ -74,7 +74,7 @@ class GetValidatedSchemaNameTestCase(SimpleTestCase):
         with self.assertRaises(ValueError):
             get_validated_schema_name('pg_12')
 
-    @override_settings(SHARDING={'TEMPLATE_NAME': 'template', 'SHARD_CLASS': 'shardingtest.models.Shard'})
+    @override_settings(SHARDING={'TEMPLATE_NAME': 'template', 'SHARD_CLASS': 'example.models.Shard'})
     def test_is_template(self):
         """
         Case: Call get_validated_schema_name with a template name, while is_template set.

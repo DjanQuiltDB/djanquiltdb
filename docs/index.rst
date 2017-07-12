@@ -7,14 +7,15 @@ Welcome to Django-sharding's documentation!
 ===========================================
 
 .. toctree::
-   :maxdepth: 2
-   :caption: Contents:
+    :maxdepth: 2
+    :caption: Contents:
 
-   modules/installation
-   modules/structure
-   modules/models
-   modules/decorators
-   modules/utils
+    modules/installation
+    modules/structure
+    modules/models
+    modules/decorators
+    modules/utils
+    modules/celery
 
 
 Indices and tables

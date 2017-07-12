@@ -3,12 +3,19 @@ from django.db import models
 from django.utils import timezone
 
 from sharding.decorators import mirrored_model, sharded_model, shard_mapping_model
+from sharding.models import BaseShard
+
+
+class Shard(BaseShard):
+
+    class Meta:
+        app_label = 'example'
 
 
 # mapping table
 @shard_mapping_model()
 class OrganizationShards(models.Model):
-    shard = models.ForeignKey('shardingtest.Shard')
+    shard = models.ForeignKey('example.Shard')
     organization_id = models.PositiveSmallIntegerField()
 
 

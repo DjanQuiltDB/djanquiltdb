@@ -1,13 +1,14 @@
 import re
 from unittest import mock
 
-from django.db import connection, connections
+from django.db import connection, connections, models
 from django.test import SimpleTestCase, TestCase, override_settings
 
+from example.models import Shard
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
     StateException
-from shardingtest.models import Shard
+from sharding.decorators import sharded_model, mirrored_model
 
 
 def test_model():
@@ -19,6 +20,29 @@ def test_model():
         return cls
 
     return configure
+
+
+@sharded_model()
+@test_model()
+class DummyShardedModel(models.Model):
+
+    class Meta:
+        app_label = 'sharding'
+
+
+@mirrored_model()
+@test_model()
+class DummyMirroredModel(models.Model):
+
+    class Meta:
+        app_label = 'sharding'
+
+
+@test_model()
+class DummyNonShardedModel(models.Model):
+
+    class Meta:
+        app_label = 'sharding'
 
 
 class ShardingTestCase(TestCase):
@@ -41,7 +65,7 @@ class ShardingTestCase(TestCase):
 
 
 class GetTemplateName(SimpleTestCase):
-    @override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard'})
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_get_template_unset(self):
         """
         Case: Call get_template_name when it is not set in the settings.
@@ -49,7 +73,7 @@ class GetTemplateName(SimpleTestCase):
         """
         self.assertEqual(get_template_name(), 'template')
 
-    @override_settings(SHARDING={'TEMPLATE_NAME': 'new-template', 'SHARD_CLASS': 'shardingtest.models.Shard'})
+    @override_settings(SHARDING={'TEMPLATE_NAME': 'new-template', 'SHARD_CLASS': 'example.models.Shard'})
     def test_get_template_set(self):
         """
         Case: Call get_template_name while it is set in the settings
@@ -203,7 +227,7 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
         self.assertTrue(_connection.get_ps_schema('test_schema'))
         mock_clone_schema.assert_called_once_with('template', 'test_schema')
 
-    @override_settings(SHARDING={'TEMPLATE_NAME': 'other-template', 'SHARD_CLASS': 'shardingtest.models.Shard'})
+    @override_settings(SHARDING={'TEMPLATE_NAME': 'other-template', 'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_migration_with_different_template_name(self, mock_clone_schema):
         """
@@ -216,7 +240,7 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
         self.assertTrue(_connection.get_ps_schema('test_schema'))
         mock_clone_schema.assert_called_once_with('other-template', 'test_schema')
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard', 'NEW_SHARD_NODE': 'other'})
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'NEW_SHARD_NODE': 'other'})
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_without_node_name_with_setting(self, mock_clone_schema):
         """
@@ -233,7 +257,7 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
         self.assertTrue(_connection.get_ps_schema('test_schema'))
         self.assertTrue(mock_clone_schema.called)
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'shardingtest.models.Shard'})
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_without_node_name_without_setting(self, mock_clone_schema):
         """
@@ -372,19 +396,47 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         THREAD_LOCAL.DB_OVERRIDE = ['default', 'test_node']
         self.assertEqual(self.router.db_for_write(model=mock.MagicMock()), 'test_node')
 
-    def test_allow_relation(self):
+    def test_allow_relation_between_non_sharded_models(self):
         """
-        Case: Call allow_relation
-        Expected: Always True
+        Case: Call allow_relation with two models that are not sharded
+        Expected: None, the router does not care about non-sharded models.
         """
-        self.assertTrue(self.router.allow_relation())
+        self.assertIsNone(self.router.allow_relation(DummyNonShardedModel(), DummyNonShardedModel()))
+
+    def test_allow_relation_between_sharded_and_non_sharded_models(self):
+        """
+        Case: Call allow_relation with a sharded and non-sharded model.
+        Expected: False, such relationship is not allowed
+        """
+        self.assertFalse(self.router.allow_relation(DummyShardedModel(), DummyNonShardedModel()))
+
+    def test_allow_relation_between_sharded_and_mirrored_models(self):
+        """
+        Case: Call allow_relation with a sharded and mirrored model.
+        Expected: True, mirrored exists in the public schema.
+        """
+        self.assertTrue(self.router.allow_relation(DummyShardedModel(), DummyMirroredModel()))
+
+    def test_allow_relation_between_sharded_models(self):
+        """
+        Case: Call allow_relation with two sharded models
+        Expected: True, we don't check if they are on the same shard yet.
+        """
+        self.assertTrue(self.router.allow_relation(DummyShardedModel(), DummyShardedModel()))
 
     def test_allow_syncdb(self):
         """
-        Case: Call allow_syncdb
+        Case: Call allow_syncdb on a normal model
         Expected: None
         """
         self.assertIsNone(self.router.allow_syncdb())
+
+    def test_allow_syncdb_on_test_model(self):
+        """
+        Case: Call allow_syncdb on a test model
+        Expected: None
+        """
+        self.assertFalse(self.router.allow_syncdb(model=DummyShardedModel))
 
     def test_allow_migrate(self):
         """

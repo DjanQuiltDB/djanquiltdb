@@ -2,13 +2,13 @@ from django.conf import settings
 from django.conf.urls import url
 from django.http import HttpResponse
 from django.test import SimpleTestCase, override_settings
+from django.test.client import RequestFactory
 from django.views.generic import View
 
+from example.models import Shard
 from sharding.middleware import StateExceptionMiddleware
 from sharding.tests.utils import ShardingTestCase
 from sharding.utils import StateException, use_shard, create_template_schema
-from shardingtest.models import Shard
-from django.test.client import RequestFactory
 
 
 class StateExceptionTestView(View):

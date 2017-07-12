@@ -38,8 +38,6 @@ INSTALLED_APPS = (
     'django.contrib.staticfiles',
     'sharding',
     'example',
-    'shardingtest',
-    'utils'
 )
 
 MIDDLEWARE_CLASSES = (
@@ -50,7 +48,7 @@ MIDDLEWARE_CLASSES = (
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'sharding.middleware.StateExceptionMiddleware'
+    'sharding.middleware.StateExceptionMiddleware',
 )
 
 ROOT_URLCONF = 'config.urls'
@@ -78,7 +76,7 @@ DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine
              'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='sharding.postgresql_backend')}
 
 SHARDING = {
-    'SHARD_CLASS': 'shardingtest.models.Shard',
+    'SHARD_CLASS': 'example.models.Shard',
     'NEW_SHARD_NODE': 'other'
 }
 
@@ -110,7 +108,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-TEST_RUNNER = 'utils.test.WildcardDiscoverRunner'
+TEST_RUNNER = 'config.utils.test.WildcardDiscoverRunner'
 
 # Internationalization
 # https://docs.djangoproject.com/en/1.11/topics/i18n/

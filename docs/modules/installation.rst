@@ -89,3 +89,20 @@ So set ``sharding.utils.DynamicDbRouter`` as the database_router in the settings
 
     DATABASE_ROUTERS = ['sharding.utils.DynamicDbRouter']
 
+
+The ``sharding.middleware.StateExceptionMiddleware`` class allows you to deal with exceptions raised by accessing
+unavailable shards. It is not required, but recommended to add it to the middleware settings.
+
+The middleware raises a 503 error when a shard availability error pops up during view processing.
+You can also tell it to render a specific view instead.
+To do that set ``STATE_EXCEPTION_VIEW`` in the ``SHARDING`` setting to a view of your choice e.g.::
+
+    MIDDLEWARE_CLASSES = (
+    (...)
+    'sharding.middleware.StateExceptionMiddleware'
+    )
+
+    SHARDING = {
+        'SHARD_CLASS': 'myapp.models.Shard',
+        'STATE_EXCEPTION_VIEW': 'myapp.views.unavailableView'
+    }

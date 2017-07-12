@@ -10,6 +10,7 @@
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+from enum import Enum
 from functools import wraps
 import threading
 
@@ -22,7 +23,7 @@ from django.core.management.commands.migrate import Command as MigrateCommand
 THREAD_LOCAL = threading.local()
 
 
-class ShardingMode:
+class ShardingMode(Enum):
     MIRRORED = 'M'
     DEFINING = 'D'
     SHARDED = 'S'
@@ -43,18 +44,20 @@ class DynamicDbRouter(object):
 
     def db_for_read(self, model, **hints):
         override_list = getattr(THREAD_LOCAL, 'DB_OVERRIDE', None)
-        if override_list is None:
-            return None  # fallback to the default router
-        return override_list[-1]
+        return override_list and override_list[-1]
 
     def db_for_write(self, model, **hints):
         override_list = getattr(THREAD_LOCAL, 'DB_OVERRIDE', None)
-        if override_list is None:
-            return None
-        return override_list[-1]
+        return override_list and override_list[-1]
 
-    def allow_relation(self, *args, **kwargs):
-        return True
+    def allow_relation(self, obj1, obj2, *args, **kwargs):
+        obj1_mode = getattr(obj1, 'sharding_mode', False)
+        obj2_mode = getattr(obj2, 'sharding_mode', False)
+
+        if obj1_mode or obj2_mode:
+            return obj1_mode and obj2_mode  # all is good if they are both sharded
+
+        return None  # We have no opinion about non-sharded models
 
     def allow_syncdb(self, *args, **kwargs):
         model = kwargs.pop('model', False)
@@ -95,35 +98,37 @@ def _set_schema(schema_name, _connection=None):
     _connection.set_schema(schema_name)
 
 
-class use_shard:
+class use_shard(object):
     """
-    use_shard can be used as a decorator and as environment to send all queries in the scope to the correct shard.
+    use_shard can be used as a decorator and as context manager to send all queries in the scope to the correct shard.
 
     If the shard's state is not STATE_ACTIVE, use_shard will raise a StateException error.
 
-    :param object shard: Provide a Shard model object so the environment knows all about where to send the queries.
+    :param object shard: Provide a Shard model object so the context manager knows all about where to send the queries.
     :param str node_name: Alternatively, you can provide the name of the database the schema can be found and the name
         of the schema.
     :param str schema_name: Alternatively, you can provide the name of the database the schema can be found and the
         name of the schema.
 
-    :returns: The environment as an object with the following members:
+    :returns: The context manager as an object with the following members:
+
     * **connection:** Reference to the current database connection.
     * **shard:** Reference to the current shard model object.
 
     :Example:
-    .. code-block:: python
+        .. code-block:: python
 
-        from sharding.utils import use_shard
+            from sharding.utils import use_shard
 
-        from config.models import shard
-        from example.models import User
+            from config.models import shard
+            from example.models import User
 
 
-        shard = Shard.objects.get(alias="North")
-        with use_shard(shard):
-            # create user on the North shard
-            User.objects.create(name="John Snow")
+            shard = Shard.objects.get(alias="North")
+            with use_shard(shard):
+                # create user on the North shard
+                User.objects.create(name="John Snow")
+
     """
 
     # Both node_name and schema_name are not documented.
@@ -165,7 +170,7 @@ class use_shard:
         return self
 
     def __exit__(self, exc_type, exc_value, exc_traceback):
-        # reset both the connection and the schema back to the old situation
+        # reset both the connection and the schema back to the old state
         _set_schema(self.old_schema_name, self.connection)
         if not THREAD_LOCAL.DB_OVERRIDE or THREAD_LOCAL.DB_OVERRIDE == [self.node_name]:
             THREAD_LOCAL.DB_OVERRIDE = None
@@ -196,18 +201,18 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
     :returns: None
 
     :Example:
-    .. code-block:: python
+        .. code-block:: python
 
-        from sharding.utils import create_schema_on_node. use_shard
+            from sharding.utils import create_schema_on_node. use_shard
 
-        from example.models import User
+            from example.models import User
 
 
-        create_schema_on_node(shard_name="North", node_name="default", migrate=True)
+            create_schema_on_node(shard_name="North", node_name="default", migrate=True)
 
-        with use_shard(node_name="default", schema_name="North"):
-            # create user on the North shard
-            User.objects.create(name="John Snow")
+            with use_shard(node_name="default", schema_name="North"):
+                # create user on the North shard
+                User.objects.create(name="John Snow")
 
     """
     node_name = node_name or settings.SHARDING.get('NEW_SHARD_NODE', None)
@@ -234,10 +239,10 @@ def create_template_schema(node_name='default'):
     :returns: None
 
     :Example:
-    .. code-block:: python
+        .. code-block:: python
 
-        from sharding.utils import create_template_schema
-        create_template_schema(node_name='default')
+            from sharding.utils import create_template_schema
+            create_template_schema(node_name='default')
 
     """
     schema_name = get_template_name()
@@ -260,14 +265,14 @@ def migrate_schema(node_name, schema_name):
     :returns: None
 
     :Example:
-    .. code-block:: python
+        .. code-block:: python
 
-        from django.db import connection
+            from django.db import connection
 
-        from sharding.utils import migrate_schema
+            from sharding.utils import migrate_schema
 
-        connection.create_schema('North')
-        migrate_schema(node_name='default', schema_name='North')
+            connection.create_schema('North')
+            migrate_schema(node_name='default', schema_name='North')
 
     """
     _node_exists(node_name)
