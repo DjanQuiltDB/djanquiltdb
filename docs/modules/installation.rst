@@ -70,6 +70,35 @@ project settings e.g.::
         'SHARD_CLASS': 'myapp.models.Shard',
     }
 
+MAPPING_MODEL
+~~~~~~~~~~~~~
+When you use a mapping model with the ``@shard_mapping_model`` decorator,
+it is beneficial to add that models name to the settings.
+If you also add the ``MappingQuerySet`` as object manager to that model you can use ``utils.use_shard_for()`` to fetch the wanted shard from mapping table automatically.
+
+.. code-block:: python
+
+    # settings
+    SHARDING = {
+        'SHARD_CLASS': 'myapp.models.Shard',
+        'MAPPING_MODEL': 'myapp.models.MyMappingModel',
+    }
+
+    # myapp.models
+    @shard_mapping_model(mapping_field='organization_id')
+    class OrganizationShards(models.Model):
+        shard = models.ForeignKey('example.Shard')
+        organization_id = models.PositiveSmallIntegerField()
+
+        objects = MappingQuerySet.as_manager()
+
+    # myapp.views
+    from django_sharding.utils import use_shard_for
+
+    with use_shard_for(user.organization_id):
+        # do things on my shard
+
+
 NEW_SHARD_NODE
 ~~~~~~~~~~~~~~
 Optionally you can tell Django-sharding on which node new shards (schemas) will be created. e.g.::

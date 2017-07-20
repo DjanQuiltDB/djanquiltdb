@@ -3,7 +3,7 @@ from django.db import models
 from django.utils import timezone
 
 from sharding.decorators import mirrored_model, sharded_model, shard_mapping_model
-from sharding.models import BaseShard
+from sharding.models import BaseShard, MappingQuerySet
 
 
 class Shard(BaseShard):
@@ -13,10 +13,12 @@ class Shard(BaseShard):
 
 
 # mapping table
-@shard_mapping_model()
+@shard_mapping_model(mapping_field='organization_id')
 class OrganizationShards(models.Model):
     shard = models.ForeignKey('example.Shard')
     organization_id = models.PositiveSmallIntegerField()
+
+    objects = MappingQuerySet.as_manager()
 
 
 # mirrored table

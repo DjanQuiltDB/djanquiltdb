@@ -11,6 +11,8 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 from enum import Enum
+
+from django.core.exceptions import ImproperlyConfigured
 from functools import wraps
 import threading
 
@@ -185,6 +187,53 @@ class use_shard(object):
                 return querying_func(*args, **kwargs)
 
         return inner
+
+
+class use_shard_for(use_shard):
+    """
+    Extends use_shard. You provide the value occurring in the mapping table to easily find the correct shard.
+
+    :note: This only works if you use a model decorated with @shard_mapping_model.
+    See the Installation chapter for more info.
+
+    :param target_value: Value for mapping_field in your mapping table
+
+    :returns: The context manager as an object with the following members:
+
+    * **connection:** Reference to the current database connection.
+    * **shard:** Reference to the current shard model object.
+
+    :Example:
+        .. code-block:: python
+
+            # settings
+            SHARDING = {
+                'SHARD_CLASS': 'myapp.models.Shard',
+                'MAPPING_MODEL': 'myapp.models.MyMappingModel',
+            }
+
+            # myapp.models
+            @shard_mapping_model(mapping_field='organization_id')
+            class OrganizationShards(models.Model):
+                shard = models.ForeignKey('example.Shard')
+                organization_id = models.PositiveSmallIntegerField()
+
+                objects = MappingQuerySet.as_manager()
+
+            # myapp.views
+            from django_sharding.utils import use_shard_for
+
+            with use_shard_for(user.organization.id):
+                # do things on my shard
+
+    """
+    def __init__(self, target_value):
+        if 'MAPPING_MODEL' not in settings.SHARDING:
+            raise ImproperlyConfigured('Missing or incorrect type of a setting SHARDING["{}"].'.format('MAPPING_MODEL'))
+
+        mapping_model = import_string(settings.SHARDING['MAPPING_MODEL'])
+        shard = mapping_model.objects.for_target(target_value).shard
+        super().__init__(shard=shard)
 
 
 def create_schema_on_node(schema_name, node_name=None, migrate=True):
