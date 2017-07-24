@@ -10,14 +10,13 @@
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-from enum import Enum
-
-from django.core.exceptions import ImproperlyConfigured
-from functools import wraps
 import threading
+from enum import Enum
+from functools import wraps
 
 from django.apps import apps
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import connections, connection
 from django.utils.module_loading import import_string
 from django.core.management.commands.migrate import Command as MigrateCommand

@@ -127,7 +127,6 @@ class MappingModelDecoratorTestCase(TestCase):
 
                 class Meta:
                     app_label = 'sharding'
-#
 
     def test_shard_mapping_model_without_argument(self):
         """
