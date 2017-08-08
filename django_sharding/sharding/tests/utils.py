@@ -8,7 +8,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from example.models import Shard, OrganizationShards
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
-    StateException, use_shard_for
+    StateException, use_shard_for, get_shard_for
 from sharding.decorators import sharded_model, mirrored_model
 
 
@@ -204,13 +204,24 @@ class UseShardForTestCase(TestCase):
         with use_shard_for(1):
             mock_set_schema.assert_called_once_with(self.shard1.schema_name, connections[self.shard1.node_name])
 
+
+class GetShardForTestCase(TestCase):
+    def setUp(self):
+        super().setUp()
+
+        with mock.patch('sharding.utils.create_schema_on_node'):
+            self.shard1 = Shard.objects.create(alias='test_sharding', schema_name='test_schema', node_name='default',
+                                               state=Shard.STATE_ACTIVE)
+
+        self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1)
+
+    def test_use_shard_for(self):
+        self.assertEqual(get_shard_for(1), self.shard1)
+
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
-    @mock.patch('sharding.utils._set_schema')
-    def test_use_shard_for_without_setting(self, mock_set_schema):
+    def test_use_shard_for_without_setting(self):
         with self.assertRaises(ImproperlyConfigured):
-            with use_shard_for(1):
-                pass
-        self.assertEqual(mock_set_schema.called, False)
+            self.assertEqual(get_shard_for(1), self.shard1)
 
 
 class CreateSchemaOnNodeTestCase(ShardingTestCase):
