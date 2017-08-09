@@ -24,10 +24,17 @@ def mirrored_model():
     return configure
 
 
-def shard_mapping_model():
+def shard_mapping_model(mapping_field):
     """
     A decorator for marking a model that maps shards and their content.
     This model will hold the foreignkey to the appropriate Shard model.
+
+    Optionally, you can add ``MappingQuerySet`` as the object manager.
+    This adds a few convenient shortcuts as well as the ability to use ``utils.use_shard_for()``,
+    to forgo consulting this table manually each time you want to use a shard.
+
+    :param mapping_field: Name of the primary field used to query the table to find a shard.
+        This is used by the MappingQuerySet object manager.
 
     :note: This model will NOT be sharded. It would defeat its purpose if it did.
 
@@ -42,12 +49,14 @@ def shard_mapping_model():
                 class Meta:
                     app_label = 'example'
 
-            @shard_mapping_model()
+            @shard_mapping_model(mapping_field='organization_id')
             class ShardMapping(models.Model):
                 # List every organization in this model, so you can easily request in which shard they live.
                 shard = models.ForeignKey('Shard', verbose_name='shard')
                 organization_name = models.CharField('organization name', max_length=100)
                 organization_id = models.PositiveIntegerField(_('organization id'))
+
+                objects = MappingQuerySet.as_manager()
 
                 class Meta:
                     app_label = 'example'
@@ -62,30 +71,37 @@ def shard_mapping_model():
 
     """
     def configure(cls):
-        shard_field = None
+        shard_field, id_field = None, None
         for field in cls._meta.fields:
             if field.name == 'shard':
                 shard_field = field
-                break
+            if field.name == mapping_field:
+                id_field = field
         if not shard_field:
             raise ImproperlyConfigured(
-                '{} model is missing a foreignkey field named "shard". '
-                'The @shard_mapping_model decorator requires this.'
+                "{} model is missing a foreignkey field named 'shard'. "
+                "The @shard_mapping_model decorator requires this."
                 .format(cls.__name__))
         elif not isinstance(shard_field, models.ForeignKey):
             raise ImproperlyConfigured(
-                'The shard field of model {} is not a Foreignkey to the shard model. '
-                'The @shard_mapping_model decorator requires this.'
+                "The shard field of model '{}' is not a Foreignkey to the shard model. "
+                "The @shard_mapping_model decorator requires this."
                 .format(cls.__name__))
         else:
             related_to = shard_field.rel.to if type(shard_field.rel.to) is str else \
                 shard_field.rel.to.__module__.replace('.models', '') + '.' + shard_field.rel.to.__name__
             if related_to != settings.SHARDING['SHARD_CLASS'].replace('.models', ''):
                 raise ImproperlyConfigured(
-                    'The shard field of model {} is points to \'{}\' instead of \'{}\'. '
-                    'The @shard_mapping_model decorator requires this.'
+                    "The shard field of model {} is points to '{}' instead of '{}'. "
+                    "The @shard_mapping_model decorator requires this."
                     .format(cls.__name__, related_to,
                             settings.SHARDING['SHARD_CLASS'].replace('.models', '')))
+
+        if not id_field:
+            raise ImproperlyConfigured(
+                "{} model is missing a field named '{}'. "
+                "Yet it is given as the mapping field."
+                .format(cls.__name__, mapping_field))
 
         # set global counter to detect multiple usages of this decorator, which is not allowed.
         global shard_mapping_models
@@ -96,6 +112,7 @@ def shard_mapping_model():
             shard_mapping_models = True
 
         cls.sharding_mode = ShardingMode.DEFINING
+        cls.mapping_field = mapping_field
         return cls
 
     return configure

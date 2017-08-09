@@ -8,6 +8,17 @@ def get_shard_class():
     return import_string(settings.SHARDING['SHARD_CLASS'])
 
 
+class MappingQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(shard__state=BaseShard.STATE_ACTIVE)
+
+    def in_maintenance(self):
+        return self.filter(shard__state=BaseShard.STATE_MAINTENANCE)
+
+    def for_target(self, target_value):
+        return self.get(**{self.model.mapping_field: target_value})
+
+
 class BaseShard(models.Model):
     """ Base class for Shard models """
 

@@ -10,12 +10,13 @@
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+import threading
 from enum import Enum
 from functools import wraps
-import threading
 
 from django.apps import apps
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import connections, connection
 from django.utils.module_loading import import_string
 from django.core.management.commands.migrate import Command as MigrateCommand
@@ -185,6 +186,109 @@ class use_shard(object):
                 return querying_func(*args, **kwargs)
 
         return inner
+
+
+def get_shard_for(target_value):
+    """
+    Helper function to easily retrieve a shard object from the mapping value listed in your shard_mapping_model.
+
+    :note: This only works if you use a model decorated with @shard_mapping_model.
+    See the Installation chapter for more info.
+
+    :param target_value: Value for mapping_field in your mapping table
+
+    :returns: Object from the Shard model.
+
+    :Example:
+        .. code-block:: python
+
+            # settings
+            SHARDING = {
+               'SHARD_CLASS': 'myapp.models.Shard',
+               'MAPPING_MODEL': 'myapp.models.MyMappingModel',
+            }
+
+            # myapp.models
+            from django_sharding.decorators import shard_mapping_model
+            from django_sharding.models import BaseShard
+
+            class Shard(BaseShard):
+                class Meta:
+                    app_label = 'myapp'
+
+            @shard_mapping_model(mapping_field='organization_id')
+            class OrganizationShards(models.Model):
+                shard = models.ForeignKey('example.Shard')
+                organization_id = models.PositiveSmallIntegerField(db_index=True)
+
+                objects = MappingQuerySet.as_manager()
+
+                class Meta:
+                    app_label = 'myapp'
+
+            # myapp.views
+            from django_sharding.utils import get_shard_for
+
+            print (get_shard_for(user.organization.id))  # <class 'myapp.models.Shard'>
+
+       """
+    if 'MAPPING_MODEL' not in settings.SHARDING:
+        raise ImproperlyConfigured('Missing or incorrect type of a setting SHARDING["{}"].'.format('MAPPING_MODEL'))
+
+    mapping_model = import_string(settings.SHARDING['MAPPING_MODEL'])
+    return mapping_model.objects.for_target(target_value).shard
+
+
+class use_shard_for(use_shard):
+    """
+    Extends use_shard. You provide the value occurring in the mapping table to easily find the correct shard.
+
+    :note: This only works if you use a model decorated with @shard_mapping_model.
+    See the Installation chapter for more info.
+
+    :param target_value: Value for mapping_field in your mapping table
+
+    :returns: The context manager as an object with the following members:
+
+    * **connection:** Reference to the current database connection.
+    * **shard:** Reference to the current shard model object.
+
+    :Example:
+        .. code-block:: python
+
+            # settings
+            SHARDING = {
+                'SHARD_CLASS': 'myapp.models.Shard',
+                'MAPPING_MODEL': 'myapp.models.MyMappingModel',
+            }
+
+            # myapp.models
+            from django_sharding.decorators import shard_mapping_model
+            from django_sharding.models import BaseShard
+
+            class Shard(BaseShard):
+                class Meta:
+                    app_label = 'myapp'
+
+            @shard_mapping_model(mapping_field='organization_id')
+            class OrganizationShards(models.Model):
+                shard = models.ForeignKey('example.Shard')
+                organization_id = models.PositiveSmallIntegerField(db_index=True)
+
+                objects = MappingQuerySet.as_manager()
+
+                class Meta:
+                    app_label = 'myapp'
+
+            # myapp.views
+            from django_sharding.utils import use_shard_for
+
+            with use_shard_for(user.organization.id):
+                # do things on my shard
+
+    """
+    def __init__(self, target_value):
+        super().__init__(shard=get_shard_for(target_value))
 
 
 def create_schema_on_node(schema_name, node_name=None, migrate=True):

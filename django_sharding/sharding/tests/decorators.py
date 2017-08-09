@@ -39,7 +39,7 @@ class MirroredModelDecoratorTestCase(TestCase):
         self.assertEqual(TestMirroredModel.sharding_mode, ShardingMode.MIRRORED)
 
 
-class DefiningShardModelDecoratorTestCase(TestCase):
+class MappingModelDecoratorTestCase(TestCase):
     def setUp(self):
         super().setUp()
         _reset_shard_mapping_models()
@@ -49,15 +49,16 @@ class DefiningShardModelDecoratorTestCase(TestCase):
         Case: Check if decorated model has shard_mapping_model set.
         Expected: 'D' to be returned.
         """
-        @shard_mapping_model()
+        @shard_mapping_model('map_field')
         @test_model()
-        class DefiningDummyModel1(models.Model):
+        class MappingDummyModel1(models.Model):
             shard = models.ForeignKey('example.Shard', verbose_name='shard')
+            map_field = models.PositiveSmallIntegerField()
 
             class Meta:
                 app_label = 'sharding'
 
-        self.assertEqual(DefiningDummyModel1.sharding_mode, ShardingMode.DEFINING)
+        self.assertEqual(MappingDummyModel1.sharding_mode, ShardingMode.DEFINING)
 
     def test_shard_mapping_model_no_shard_field(self):
         """
@@ -66,8 +67,9 @@ class DefiningShardModelDecoratorTestCase(TestCase):
         """
         with self.assertRaises(ImproperlyConfigured):
             @test_model()
-            @shard_mapping_model()
-            class DefiningDummyModel2(models.Model):
+            @shard_mapping_model('map_field')
+            class MappingDummyModel2(models.Model):
+                map_field = models.PositiveSmallIntegerField()
 
                 class Meta:
                     app_label = 'sharding'
@@ -78,10 +80,11 @@ class DefiningShardModelDecoratorTestCase(TestCase):
         Expected: ImproperlyConfigured to be raised.
         """
         with self.assertRaises(ImproperlyConfigured):
-            @shard_mapping_model()
+            @shard_mapping_model('map_field')
             @test_model()
-            class DefiningDummyModel3(models.Model):
+            class MappingDummyModel3(models.Model):
                 shard = models.CharField('name', max_length=100)
+                map_field = models.PositiveSmallIntegerField()
 
                 class Meta:
                     app_label = 'sharding'
@@ -92,10 +95,11 @@ class DefiningShardModelDecoratorTestCase(TestCase):
         Expected: ImproperlyConfigured to be raised.
         """
         with self.assertRaises(ImproperlyConfigured):
-            @shard_mapping_model()
+            @shard_mapping_model('map_field')
             @test_model()
-            class DefiningDummyModel4(models.Model):
+            class MappingDummyModel4(models.Model):
                 shard = models.ForeignKey('Stars', verbose_name='shard')  # NOOA (unresolved reference on purpose)
+                map_field = models.PositiveSmallIntegerField()
 
                 class Meta:
                     app_label = 'sharding'
@@ -105,19 +109,52 @@ class DefiningShardModelDecoratorTestCase(TestCase):
         Case: Use shard_mapping_model on two models
         Expected: ImproperlyConfigured to be raised.
         """
-        @shard_mapping_model()  # first time goes without error.
+        @shard_mapping_model('map_field')  # first time goes without error.
         @test_model()
-        class DefiningDummyModel5(models.Model):
+        class MappingDummyModel5(models.Model):
             shard = models.ForeignKey('example.Shard', verbose_name='shard')
+            map_field = models.PositiveSmallIntegerField()
 
             class Meta:
                 app_label = 'sharding'
 
         with self.assertRaises(ImproperlyConfigured):
+            @shard_mapping_model('map_field')
+            @test_model()
+            class MappingDummyModel6(models.Model):
+                shard = models.ForeignKey('example.Shard', verbose_name='shard')
+                map_field = models.PositiveSmallIntegerField()
+
+                class Meta:
+                    app_label = 'sharding'
+
+    def test_shard_mapping_model_without_argument(self):
+        """
+        Case: Use shard_mapping_model without an argument
+        Expected: TypeError to be raised.
+        """
+        with self.assertRaises(TypeError):
             @shard_mapping_model()
             @test_model()
-            class DefiningDummyModel6(models.Model):
+            class MappingDummyModel7(models.Model):
                 shard = models.ForeignKey('example.Shard', verbose_name='shard')
+                map_field = models.PositiveSmallIntegerField()
+
+                class Meta:
+                    app_label = 'sharding'
+#
+
+    def test_shard_mapping_model_with_invalid_argument(self):
+        """
+        Case: Use shard_mapping_model with an argument not pointing to an existing field
+        Expected: ImproperlyConfigured to be raised.
+        """
+        with self.assertRaises(ImproperlyConfigured):
+            @shard_mapping_model('no_field')
+            @test_model()
+            class MappingDummyModel7(models.Model):
+                shard = models.ForeignKey('example.Shard', verbose_name='shard')
+                map_field = models.PositiveSmallIntegerField()
 
                 class Meta:
                     app_label = 'sharding'
