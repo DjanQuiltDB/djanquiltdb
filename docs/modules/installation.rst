@@ -88,7 +88,7 @@ If you also add the ``MappingQuerySet`` as object manager to that model you can 
     @shard_mapping_model(mapping_field='organization_id')
     class OrganizationShards(models.Model):
         shard = models.ForeignKey('example.Shard')
-        organization_id = models.PositiveSmallIntegerField()
+        organization_id = models.PositiveSmallIntegerField(db_index=True)
 
         objects = MappingQuerySet.as_manager()
 

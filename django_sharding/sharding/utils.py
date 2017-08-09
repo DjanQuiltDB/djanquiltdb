@@ -209,27 +209,27 @@ def get_shard_for(target_value):
             }
 
             # myapp.models
-                from django_sharding.decorators import shard_mapping_model
-                from django_sharding.models import BaseShard
+            from django_sharding.decorators import shard_mapping_model
+            from django_sharding.models import BaseShard
 
-                class Shard(BaseShard):
-                    class Meta:
-                        app_label = 'myapp'
+            class Shard(BaseShard):
+                class Meta:
+                    app_label = 'myapp'
 
-                @shard_mapping_model(mapping_field='organization_id')
-                class OrganizationShards(models.Model):
-                    shard = models.ForeignKey('example.Shard')
-                    organization_id = models.PositiveSmallIntegerField()
+            @shard_mapping_model(mapping_field='organization_id')
+            class OrganizationShards(models.Model):
+                shard = models.ForeignKey('example.Shard')
+                organization_id = models.PositiveSmallIntegerField(db_index=True)
 
-                    objects = MappingQuerySet.as_manager()
+                objects = MappingQuerySet.as_manager()
 
-                    class Meta:
-                        app_label = 'myapp'
+                class Meta:
+                    app_label = 'myapp'
 
-               # myapp.views
-               from django_sharding.utils import get_shard_for
+            # myapp.views
+            from django_sharding.utils import get_shard_for
 
-               print (get_shard_for(user.organization.id))  # <class 'myapp.models.Shard'>
+            print (get_shard_for(user.organization.id))  # <class 'myapp.models.Shard'>
 
        """
     if 'MAPPING_MODEL' not in settings.SHARDING:
@@ -263,22 +263,22 @@ class use_shard_for(use_shard):
             }
 
             # myapp.models
-                from django_sharding.decorators import shard_mapping_model
-                from django_sharding.models import BaseShard
+            from django_sharding.decorators import shard_mapping_model
+            from django_sharding.models import BaseShard
 
-                class Shard(BaseShard):
-                    class Meta:
-                        app_label = 'myapp'
+            class Shard(BaseShard):
+                class Meta:
+                    app_label = 'myapp'
 
-                @shard_mapping_model(mapping_field='organization_id')
-                class OrganizationShards(models.Model):
-                    shard = models.ForeignKey('example.Shard')
-                    organization_id = models.PositiveSmallIntegerField()
+            @shard_mapping_model(mapping_field='organization_id')
+            class OrganizationShards(models.Model):
+                shard = models.ForeignKey('example.Shard')
+                organization_id = models.PositiveSmallIntegerField(db_index=True)
 
-                    objects = MappingQuerySet.as_manager()
+                objects = MappingQuerySet.as_manager()
 
-                    class Meta:
-                        app_label = 'myapp'
+                class Meta:
+                    app_label = 'myapp'
 
             # myapp.views
             from django_sharding.utils import use_shard_for
