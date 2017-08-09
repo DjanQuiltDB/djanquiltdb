@@ -1,11 +1,5 @@
 from django.conf import settings
 from django.db import models, connections
-from django.utils.module_loading import import_string
-
-
-def get_shard_class():
-    """ Helper function to get implemented Shard class """
-    return import_string(settings.SHARDING['SHARD_CLASS'])
 
 
 class MappingQuerySet(models.QuerySet):
