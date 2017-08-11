@@ -71,12 +71,14 @@ def shard_mapping_model(mapping_field):
 
     """
     def configure(cls):
-        shard_field, id_field = None, None
+        shard_field, id_field, state_field = None, None, None
         for field in cls._meta.fields:
             if field.name == 'shard':
                 shard_field = field
             if field.name == mapping_field:
                 id_field = field
+            if field.name == 'state':
+                state_field = field
         if not shard_field:
             raise ImproperlyConfigured(
                 "{} model is missing a foreignkey field named 'shard'. "
@@ -102,6 +104,11 @@ def shard_mapping_model(mapping_field):
                 "{} model is missing a field named '{}'. "
                 "Yet it is given as the mapping field."
                 .format(cls.__name__, mapping_field))
+
+        if state_field:
+            if not isinstance(state_field, models.CharField):
+                raise ImproperlyConfigured("The state field of model '{}' is not a CharField.".format(cls.__name__))
+            cls.has_state_field = True
 
         # set global counter to detect multiple usages of this decorator, which is not allowed.
         global shard_mapping_models

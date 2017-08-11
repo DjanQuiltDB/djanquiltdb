@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from sharding.decorators import mirrored_model, sharded_model, shard_mapping_model
 from sharding.models import BaseShard, MappingQuerySet
+from sharding.utils import State, STATES
 
 
 class Shard(BaseShard):
@@ -17,6 +18,7 @@ class Shard(BaseShard):
 class OrganizationShards(models.Model):
     shard = models.ForeignKey('example.Shard')
     organization_id = models.PositiveSmallIntegerField()
+    state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
     objects = MappingQuerySet.as_manager()
 
