@@ -3,7 +3,8 @@ from unittest import mock
 from django.test import TestCase, SimpleTestCase, override_settings
 
 from example.models import Shard
-from sharding.models import get_shard_class, BaseShard
+from sharding.models import BaseShard
+from sharding.utils import get_shard_class
 from sharding.tests.app_config import DummyShard
 
 

@@ -47,6 +47,11 @@ class StateException(Exception):
         self.state = state
 
 
+def get_shard_class():
+    """ Helper function to get implemented Shard class """
+    return import_string(settings.SHARDING['SHARD_CLASS'])
+
+
 def get_template_name():
     return settings.SHARDING.get('TEMPLATE_NAME', 'template')
 
@@ -147,13 +152,13 @@ class use_shard(object):
     # They bypass the shard.state check, and are only there to for internal use.
     # (Situations where the schema is made, but the shard object is not saved yet.)
     def __init__(self, shard=None, node_name=None, schema_name=None):
-        shard_class_name = settings.SHARDING['SHARD_CLASS']
+        shard_class = get_shard_class()
 
         if shard:
-            if not isinstance(shard, import_string(shard_class_name)):
+            if not isinstance(shard, shard_class):
                 raise ValueError("Shard value {} ({}) must of type {}".format(shard,
                                                                               type(shard).__name__,
-                                                                              shard_class_name))
+                                                                              shard_class.__name__))
             if shard.state != State.ACTIVE:
                 raise StateException("Shard {} state is {}".format(shard, shard.state), shard.state)
 
@@ -214,8 +219,8 @@ def get_shard_for(target_value, active_only=False):
 
             # settings
             SHARDING = {
-               'SHARD_CLASS': 'myapp.models.Shard',
-               'MAPPING_MODEL': 'myapp.models.MyMappingModel',
+                'SHARD_CLASS': 'myapp.models.Shard',
+                'MAPPING_MODEL': 'myapp.models.MyMappingModel',
             }
 
             # myapp.models
