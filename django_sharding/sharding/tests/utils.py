@@ -524,8 +524,11 @@ class ForEachShardTestCase(TestCase):
             self.shard1 = Shard.objects.create(alias='test_sharding', schema_name='test_schema', node_name='default',
                                                state=Shard.STATE_ACTIVE)
 
-    def repeatable_function(self, shard, **kwargs):
-        self.shards.append((shard, kwargs) if kwargs else shard)
+    def repeatable_function(self, shard=None, shard_id=None, **kwargs):
+        if shard:
+            self.shards.append((shard, kwargs) if kwargs else shard)
+        else:
+            self.shards.append((shard_id, kwargs) if kwargs else shard_id)
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_for_each_shard(self):
@@ -548,3 +551,16 @@ class ForEachShardTestCase(TestCase):
         self.shards = []
         for_each_shard(self.repeatable_function, kwargs={'organization_id': 1})
         self.assertEqual(self.shards, [(self.shard1, {'organization_id': 1})])
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+
+    def test_for_each_shard_as_id(self):
+        """
+        Case: Call self.repeatable_function for every shard and get
+              shards as ids.
+        Expected: Function is called for every shard and the shard id
+                  is passed as a argument.
+        """
+        self.shards = []
+        for_each_shard(self.repeatable_function, as_id=True)
+        self.assertEqual(self.shards, [self.shard1.id])
