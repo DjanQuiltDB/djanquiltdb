@@ -24,7 +24,7 @@ def mirrored_model():
     return configure
 
 
-def shard_mapping_model(mapping_field):
+def shard_mapping_model(mapping_field):  # noqa: C901
     """
     A decorator for marking a model that maps shards and their content.
     This model will hold the foreignkey to the appropriate Shard model.
