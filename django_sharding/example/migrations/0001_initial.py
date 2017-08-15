@@ -66,6 +66,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('organization_id', models.PositiveSmallIntegerField()),
+                ('state', models.CharField(default='M', choices=[('A', 'Active'), ('M', 'Maintenance')], max_length=1)),
                 ('shard', models.ForeignKey(to='example.Shard')),
             ],
         ),

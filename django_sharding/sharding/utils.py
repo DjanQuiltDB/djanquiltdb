@@ -30,6 +30,17 @@ class ShardingMode(Enum):
     SHARDED = 'S'
 
 
+class State(object):
+    ACTIVE = 'A'
+    MAINTENANCE = 'M'
+
+
+STATES = (
+    (State.ACTIVE, 'Active'),
+    (State.MAINTENANCE, 'Maintenance'),
+)
+
+
 class StateException(Exception):
     def __init__(self, message, state, *args, **kwargs):
         super().__init__(message, *args, **kwargs)
@@ -108,7 +119,7 @@ class use_shard(object):
     """
     use_shard can be used as a decorator and as context manager to send all queries in the scope to the correct shard.
 
-    If the shard's state is not STATE_ACTIVE, use_shard will raise a StateException error.
+    If the shard's state is not State.ACTIVE, use_shard will raise a StateException error.
 
     :param object shard: Provide a Shard model object so the context manager knows all about where to send the queries.
     :param str node_name: Alternatively, you can provide the name of the database the schema can be found and the name
@@ -141,8 +152,6 @@ class use_shard(object):
     # They bypass the shard.state check, and are only there to for internal use.
     # (Situations where the schema is made, but the shard object is not saved yet.)
     def __init__(self, shard=None, node_name=None, schema_name=None):
-        from sharding.models import BaseShard  # prevent untimely import
-
         shard_class = get_shard_class()
 
         if shard:
@@ -150,7 +159,7 @@ class use_shard(object):
                 raise ValueError("Shard value {} ({}) must of type {}".format(shard,
                                                                               type(shard).__name__,
                                                                               shard_class.__name__))
-            if shard.state != BaseShard.STATE_ACTIVE:
+            if shard.state != State.ACTIVE:
                 raise StateException("Shard {} state is {}".format(shard, shard.state), shard.state)
 
             self.shard = shard
@@ -193,7 +202,7 @@ class use_shard(object):
         return inner
 
 
-def get_shard_for(target_value):
+def get_shard_for(target_value, active_only=False):
     """
     Helper function to easily retrieve a shard object from the mapping value listed in your shard_mapping_model.
 
@@ -201,6 +210,7 @@ def get_shard_for(target_value):
     See the Installation chapter for more info.
 
     :param target_value: Value for mapping_field in your mapping table
+    :param active_only: Set to True if you want an error raised if the mapping object's state is not active.
 
     :returns: Object from the Shard model.
 
@@ -216,6 +226,7 @@ def get_shard_for(target_value):
             # myapp.models
             from django_sharding.decorators import shard_mapping_model
             from django_sharding.models import BaseShard
+            from django_sharding.utils import State
 
             class Shard(BaseShard):
                 class Meta:
@@ -225,6 +236,7 @@ def get_shard_for(target_value):
             class OrganizationShards(models.Model):
                 shard = models.ForeignKey('example.Shard')
                 organization_id = models.PositiveSmallIntegerField(db_index=True)
+                state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
                 objects = MappingQuerySet.as_manager()
 
@@ -235,13 +247,19 @@ def get_shard_for(target_value):
             from django_sharding.utils import get_shard_for
 
             print (get_shard_for(user.organization.id))  # <class 'myapp.models.Shard'>
+            print (get_shard_for(user.organization.id, active_only=True))  # StateException if state is not active
 
        """
     if 'MAPPING_MODEL' not in settings.SHARDING:
         raise ImproperlyConfigured('Missing or incorrect type of a setting SHARDING["{}"].'.format('MAPPING_MODEL'))
 
     mapping_model = import_string(settings.SHARDING['MAPPING_MODEL'])
-    return mapping_model.objects.for_target(target_value).shard
+    mapping_object = mapping_model.objects.for_target(target_value)
+    if active_only:
+        if mapping_object.state != State.ACTIVE:
+            raise StateException("Mapping object {} state is {}".format(mapping_object, mapping_object.state),
+                                 mapping_object.state)
+    return mapping_object.shard
 
 
 class use_shard_for(use_shard):
@@ -250,6 +268,8 @@ class use_shard_for(use_shard):
 
     :note: This only works if you use a model decorated with @shard_mapping_model.
     See the Installation chapter for more info.
+
+    :note: If the mapping model has a state, it will raise a StateException if the state is not State.ACTIVE.
 
     :param target_value: Value for mapping_field in your mapping table
 
@@ -270,6 +290,8 @@ class use_shard_for(use_shard):
             # myapp.models
             from django_sharding.decorators import shard_mapping_model
             from django_sharding.models import BaseShard
+            from django_sharding.utils import State
+
 
             class Shard(BaseShard):
                 class Meta:
@@ -279,6 +301,8 @@ class use_shard_for(use_shard):
             class OrganizationShards(models.Model):
                 shard = models.ForeignKey('example.Shard')
                 organization_id = models.PositiveSmallIntegerField(db_index=True)
+                state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
+
 
                 objects = MappingQuerySet.as_manager()
 
@@ -293,7 +317,7 @@ class use_shard_for(use_shard):
 
     """
     def __init__(self, target_value):
-        super().__init__(shard=get_shard_for(target_value))
+        super().__init__(shard=get_shard_for(target_value, active_only=True))
 
 
 def create_schema_on_node(schema_name, node_name=None, migrate=True):

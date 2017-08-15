@@ -1,13 +1,15 @@
 from django.conf import settings
 from django.db import models, connections
 
+from sharding.utils import State, STATES
+
 
 class MappingQuerySet(models.QuerySet):
     def active(self):
-        return self.filter(shard__state=BaseShard.STATE_ACTIVE)
+        return self.filter(shard__state=State.ACTIVE)
 
     def in_maintenance(self):
-        return self.filter(shard__state=BaseShard.STATE_MAINTENANCE)
+        return self.filter(shard__state=State.MAINTENANCE)
 
     def for_target(self, target_value):
         return self.get(**{self.model.mapping_field: target_value})
@@ -15,19 +17,10 @@ class MappingQuerySet(models.QuerySet):
 
 class BaseShard(models.Model):
     """ Base class for Shard models """
-
-    STATE_ACTIVE = 'A'
-    STATE_MAINTENANCE = 'M'
-
-    STATES = (
-        (STATE_ACTIVE, 'Active'),
-        (STATE_MAINTENANCE, 'Maintenance'),
-    )
-
     alias = models.CharField(max_length=128, db_index=True, unique=True)
     schema_name = models.CharField(max_length=64)  # PostgreSQL default max limit = 63 chars
     node_name = models.CharField(max_length=64)
-    state = models.CharField(choices=STATES, max_length=1, default=STATE_MAINTENANCE)
+    state = models.CharField(choices=STATES, max_length=1, default=State.MAINTENANCE)
 
     class Meta:
         app_label = 'sharding'
