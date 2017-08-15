@@ -89,6 +89,7 @@ If you also add the ``MappingQuerySet`` as object manager to that model you can 
     class OrganizationShards(models.Model):
         shard = models.ForeignKey('example.Shard')
         organization_id = models.PositiveSmallIntegerField(db_index=True)
+        state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
         objects = MappingQuerySet.as_manager()
 

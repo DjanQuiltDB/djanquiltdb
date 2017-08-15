@@ -188,6 +188,36 @@ class UseShardTestCase(ShardingTestCase):
         if hasattr(THREAD_LOCAL, 'DB_OVERRIDE') and THREAD_LOCAL.DB_OVERRIDE is not None:
             self.fail('THREAD_LOCAL.DB_OVERRIDE should be None or not exist.')
 
+    @mock.patch('sharding.utils._set_schema')
+    def test_use_shard_with_inactive_schemas(self, mock_set_schema):
+        """
+        Case: Call use_shard with a valid shard object that contains inactive schemas
+        Expected: StateException to be raised
+        """
+        shard = Shard.objects.create(alias='mudville', schema_name='test_schema_muddied', node_name='default',
+                                     state=State.ACTIVE)
+        OrganizationShards.objects.create(organization_id=5, shard=shard, state=State.ACTIVE)
+        OrganizationShards.objects.create(organization_id=6, shard=shard, state=State.MAINTENANCE)
+
+        with self.assertRaises(StateException):
+            with use_shard(shard=shard):
+                pass
+        self.assertFalse(mock_set_schema.called)
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @mock.patch('sharding.utils._set_schema')
+    def test_use_shard_for_inactive_schemas(self, mock_set_schema):
+        """
+        Case: Call use_shard with a valid shard object while no mapping_model exists.
+        Expected: No StateException to be raised.
+        """
+        shard = Shard.objects.create(alias='mudville', schema_name='test_schema_muddied', node_name='default',
+                                     state=State.ACTIVE)
+        OrganizationShards.objects.create(organization_id=5, shard=shard, state=State.ACTIVE)
+        OrganizationShards.objects.create(organization_id=6, shard=shard, state=State.MAINTENANCE)
+        with use_shard(shard) as env:
+            pass
+
 
 class UseShardForTestCase(TestCase):
     def setUp(self):
@@ -204,7 +234,7 @@ class UseShardForTestCase(TestCase):
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard_for(self, mock_set_schema):
         """
-        Case: use use_shard_for with valid arguments
+        Case: use use_shard_for with valid arguments. There are both an active and inactive schemas on the shard.
         Expected: Successful usage of use_shard_for
         """
         with use_shard_for(1):

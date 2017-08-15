@@ -36,6 +36,12 @@ def shard_mapping_model(mapping_field):  # noqa: C901
     :param mapping_field: Name of the primary field used to query the table to find a shard.
         This is used by the MappingQuerySet object manager.
 
+    :note: Some fields are required to use this model:
+
+        * shard: ForeignKey to the Sharding model.
+        * state: Single length char field with utils.States as options.
+        * a field that is listed as the 'mapping_field' as argument to the decorator
+
     :note: This model will NOT be sharded. It would defeat its purpose if it did.
 
     :Example:
@@ -44,6 +50,7 @@ def shard_mapping_model(mapping_field):  # noqa: C901
             from django.db import models
             from sharding.decorators import shard_mapping_model, sharded_model
             from sharding.models import BaseShard
+            from sharding.utils import State
 
             class Shard(BaseShard):
                 class Meta:
@@ -55,6 +62,7 @@ def shard_mapping_model(mapping_field):  # noqa: C901
                 shard = models.ForeignKey('Shard', verbose_name='shard')
                 organization_name = models.CharField('organization name', max_length=100)
                 organization_id = models.PositiveIntegerField(_('organization id'))
+                state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
                 objects = MappingQuerySet.as_manager()
 

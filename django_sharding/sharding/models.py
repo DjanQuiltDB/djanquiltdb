@@ -1,18 +1,22 @@
 from django.conf import settings
 from django.db import models, connections
+from django.db.models import Q
 
 from sharding.utils import State, STATES
 
 
 class MappingQuerySet(models.QuerySet):
     def active(self):
-        return self.filter(shard__state=State.ACTIVE)
+        return self.filter(state=State.ACTIVE, shard__state=State.ACTIVE)
 
     def in_maintenance(self):
-        return self.filter(shard__state=State.MAINTENANCE)
+        return self.filter(Q(state=State.MAINTENANCE) | Q(shard__state=State.MAINTENANCE))
 
     def for_target(self, target_value):
         return self.get(**{self.model.mapping_field: target_value})
+
+    def for_shard(self, shard):
+        return self.filter(shard_id=shard.id)
 
 
 class BaseShard(models.Model):
