@@ -8,7 +8,7 @@ from django.views.generic import View
 from example.models import Shard
 from sharding.middleware import StateExceptionMiddleware
 from sharding.tests.utils import ShardingTestCase
-from sharding.utils import StateException, use_shard, create_template_schema
+from sharding.utils import State, StateException, use_shard, create_template_schema
 
 
 class StateExceptionTestView(View):
@@ -86,7 +86,7 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
 
         create_template_schema('other')
         Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='other',
-                             state=Shard.STATE_MAINTENANCE)
+                             state=State.MAINTENANCE)
 
         with override_settings(SHARDING=sharding_settings):
             # call the view, that uses use_shard on an nonexistent shard. 503 is raised and caught by the middleware.

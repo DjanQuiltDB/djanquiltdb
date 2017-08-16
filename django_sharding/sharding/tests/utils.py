@@ -8,7 +8,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from example.models import Shard, OrganizationShards
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
-    StateException, use_shard_for, get_shard_for, for_each_shard
+    StateException, use_shard_for, get_shard_for, for_each_shard, State
 from sharding.decorators import sharded_model, mirrored_model
 
 
@@ -93,11 +93,11 @@ class UseShardTestCase(ShardingTestCase):
         create_template_schema('default')
         create_template_schema('other')
         cls.shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default',
-                                         state=Shard.STATE_ACTIVE)
+                                         state=State.ACTIVE)
         cls.other_shard = Shard.objects.create(alias='other_shard', schema_name='test_other_schema', node_name='other',
-                                               state=Shard.STATE_ACTIVE)
+                                               state=State.ACTIVE)
         cls.inactive_shard = Shard.objects.create(alias='inactive_shard', schema_name='test_inactive_schema',
-                                                  node_name='other', state=Shard.STATE_MAINTENANCE)
+                                                  node_name='other', state=State.MAINTENANCE)
 
     @classmethod
     def tearDownClass(cls):  # run when TestCase is done
@@ -146,7 +146,7 @@ class UseShardTestCase(ShardingTestCase):
         with self.assertRaises(StateException) as error:
             with use_shard(self.inactive_shard):
                 pass
-        self.assertEqual(error.exception.state, Shard.STATE_MAINTENANCE)
+        self.assertEqual(error.exception.state, State.MAINTENANCE)
 
         self.assertFalse(mock_set_schema.called)
         if hasattr(THREAD_LOCAL, 'DB_OVERRIDE') and THREAD_LOCAL.DB_OVERRIDE is not None:
@@ -195,14 +195,31 @@ class UseShardForTestCase(TestCase):
 
         with mock.patch('sharding.utils.create_schema_on_node'):
             self.shard1 = Shard.objects.create(alias='test_sharding', schema_name='test_schema', node_name='default',
-                                               state=Shard.STATE_ACTIVE)
+                                               state=State.ACTIVE)
 
-        self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1)
+        self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1, state=State.ACTIVE)
+        self.org_shard2 = OrganizationShards.objects.create(organization_id=2, shard=self.shard1,
+                                                            state=State.MAINTENANCE)
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard_for(self, mock_set_schema):
+        """
+        Case: use use_shard_for with valid arguments
+        Expected: Successful usage of use_shard_for
+        """
         with use_shard_for(1):
             mock_set_schema.assert_called_once_with(self.shard1.schema_name, connections[self.shard1.node_name])
+
+    @mock.patch('sharding.utils._set_schema')
+    def test_use_shard_for_inactive_object(self, mock_set_schema):
+        """
+        Case: use use_shard_for with an inactive mapping object
+        Expected: StateException raised
+        """
+        with self.assertRaises(StateException):
+            with use_shard_for(2):
+                pass
+        self.assertFalse(mock_set_schema.called)
 
 
 class GetShardForTestCase(TestCase):
@@ -211,7 +228,7 @@ class GetShardForTestCase(TestCase):
 
         with mock.patch('sharding.utils.create_schema_on_node'):
             self.shard1 = Shard.objects.create(alias='test_sharding', schema_name='test_schema', node_name='default',
-                                               state=Shard.STATE_ACTIVE)
+                                               state=State.ACTIVE)
 
         self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1)
 

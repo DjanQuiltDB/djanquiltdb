@@ -3,6 +3,7 @@ from unittest import mock
 from example.models import Organization, Type, User, OrganizationShards, Shard
 from sharding.utils import use_shard, create_template_schema
 from sharding.tests.utils import ShardingTestCase
+from sharding.utils import State
 
 
 class ShardingExampleTestCase(ShardingTestCase):
@@ -12,9 +13,9 @@ class ShardingExampleTestCase(ShardingTestCase):
 
         # tables for the 'public' schema (in this case: Type) are not mirrored yet. So stick to default node for now.
         self.shard1 = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
-                                           state=Shard.STATE_ACTIVE)
+                                           state=State.ACTIVE)
         self.shard2 = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default',
-                                           state=Shard.STATE_ACTIVE)
+                                           state=State.ACTIVE)
 
         # default shard
         self.type1 = Type.objects.create(name='Leader')
@@ -57,9 +58,9 @@ class MappingQuerySetTestCase(ShardingTestCase):
 
         with mock.patch('sharding.utils.create_schema_on_node'):
             self.shard1 = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
-                                               state=Shard.STATE_ACTIVE)
+                                               state=State.ACTIVE)
             self.shard2 = Shard.objects.create(alias='death_star_MK2', schema_name='empire_schema', node_name='default',
-                                               state=Shard.STATE_MAINTENANCE)
+                                               state=State.MAINTENANCE)
 
         self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1)
         self.org_shard2 = OrganizationShards.objects.create(organization_id=2, shard=self.shard1)

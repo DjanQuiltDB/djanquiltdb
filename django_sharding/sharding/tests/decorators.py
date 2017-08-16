@@ -4,7 +4,7 @@ from django.test import TestCase
 
 from sharding.decorators import sharded_model, shard_mapping_model, mirrored_model, _reset_shard_mapping_models
 from sharding.tests.utils import test_model
-from sharding.utils import ShardingMode
+from sharding.utils import ShardingMode, State, STATES
 
 
 class ShardedModelDecoratorTestCase(TestCase):
@@ -142,7 +142,6 @@ class MappingModelDecoratorTestCase(TestCase):
 
                 class Meta:
                     app_label = 'sharding'
-#
 
     def test_shard_mapping_model_with_invalid_argument(self):
         """
@@ -155,6 +154,37 @@ class MappingModelDecoratorTestCase(TestCase):
             class MappingDummyModel7(models.Model):
                 shard = models.ForeignKey('example.Shard', verbose_name='shard')
                 map_field = models.PositiveSmallIntegerField()
+
+                class Meta:
+                    app_label = 'sharding'
+
+    def test_shard_mapping_model_with_valid_state(self):
+        """
+        Case: Use shard_mapping_model with a valid state field
+        Expected: No error to be raised.
+        """
+        @shard_mapping_model('map_field')
+        @test_model()
+        class MappingDummyModel8(models.Model):
+            shard = models.ForeignKey('example.Shard', verbose_name='shard')
+            map_field = models.PositiveSmallIntegerField()
+            state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
+
+            class Meta:
+                app_label = 'sharding'
+
+    def test_shard_mapping_model_with_invalid_state(self):
+        """
+        Case: Use shard_mapping_model with a invalid state field
+        Expected: ImproperlyConfigured to be raised.
+        """
+        with self.assertRaises(ImproperlyConfigured):
+            @shard_mapping_model('map_field')
+            @test_model()
+            class MappingDummyModel9(models.Model):
+                shard = models.ForeignKey('example.Shard', verbose_name='shard')
+                map_field = models.PositiveSmallIntegerField()
+                state = models.PositiveSmallIntegerField()
 
                 class Meta:
                     app_label = 'sharding'

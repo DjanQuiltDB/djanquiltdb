@@ -1,3 +1,5 @@
+from unittest import mock
+
 from django.apps import apps
 from django.contrib.auth.models import AbstractBaseUser
 from django.core.exceptions import ImproperlyConfigured
@@ -131,3 +133,53 @@ class DataBaseRouterTestCase(SimpleTestCase):
 
         with override_settings(DATABASE_ROUTERS=['sharding.utils.DynamicDbRouter']):
             sharding_app.ready()
+
+
+class SessionEngineTestCase(SimpleTestCase):
+    def test_sharded_user_model_and_cached_db_backend(self):
+        """
+        Case: User model is sharded and use of cached_db session backend
+        Expected: ImproperlyConfigured raised.
+        """
+        @sharded_model()
+        @test_model()
+        class User1(AbstractBaseUser):
+            class Meta:
+                app_label = 'sharding'
+
+        sharding_app = apps.get_app_config(app_label='sharding')
+        with mock.patch('sharding.apps.get_user_model', return_value=User1):
+            with override_settings(SESSION_ENGINE='django.contrib.sessions.backends.cached_db'):
+                with self.assertRaises(ImproperlyConfigured):
+                    sharding_app.ready()
+
+    def test_sharded_user_model_no_cached_db_backend(self):
+        """
+        Case: User model is sharded and no use of cached_db session backend
+        Expected: No ImproperlyConfigured raised.
+        """
+        @sharded_model()
+        @test_model()
+        class User2(AbstractBaseUser):
+            class Meta:
+                app_label = 'sharding'
+
+        sharding_app = apps.get_app_config(app_label='sharding')
+        with mock.patch('sharding.apps.get_user_model', return_value=User2):
+            with override_settings(SESSION_ENGINE='django.contrib.sessions.backends.signed_cookies'):
+                sharding_app.ready()
+
+    def test_user_model__not_sharded_and_cached_db_backend(self):
+        """
+        Case: User model is not sharded and use of cached_db session backend
+        Expected: No ImproperlyConfigured raised.
+        """
+        @test_model()
+        class User3(AbstractBaseUser):
+            class Meta:
+                app_label = 'sharding'
+
+        sharding_app = apps.get_app_config(app_label='sharding')
+        with mock.patch('sharding.apps.get_user_model', return_value=User3):
+            with override_settings(SESSION_ENGINE='django.contrib.sessions.backends.cached_db'):
+                sharding_app.ready()
