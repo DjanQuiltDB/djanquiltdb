@@ -570,7 +570,6 @@ class ForEachShardTestCase(TestCase):
         self.assertEqual(self.shards, [(self.shard1, {'organization_id': 1})])
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
-
     def test_for_each_shard_as_id(self):
         """
         Case: Call self.repeatable_function for every shard and get
