@@ -423,3 +423,34 @@ def migrate_schema(node_name, schema_name):
         app_labels = [app_config.label for app_config in apps.get_app_configs()]
         c.sync_apps(con, app_labels)  # we use the django native migration call for this.
         THREAD_LOCAL.SHARDED_MIGRATE = False
+
+
+def for_each_shard(func, args=(), kwargs={}, as_id=False):
+    """
+    Function to call another function for each shard and pass the shard
+    as a parameter.
+
+    :param func: Function to call for each shard
+    :param kwargs: Keyword arguments to pass to the function to call
+
+    :returns: None
+
+    :Example:
+        .. code-block:: python
+
+            from sharding.utils import for_each_shard
+
+            function sharded_function(shard=None, shard_id=None, prefix=None):
+                shard_id = shard.id if shard else shard_id
+                print('{prefix}{shard_id}'.format(prefix=prefix, shard_id=shard_id))
+
+            for_each_shard(sharded_function)
+            for_each_shard(sharded_function, kwargs={'prefix': 'shard-'})
+            for_each_shard(sharded_function, kwargs={'prefix': 'shard-'}, as_id=True)
+
+    """
+    for shard in get_shard_class().objects.all():
+        if as_id:
+            func(shard_id=shard.id, *args, **kwargs)
+        else:
+            func(shard=shard, *args, **kwargs)

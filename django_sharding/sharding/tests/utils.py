@@ -8,7 +8,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from example.models import Shard, OrganizationShards
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
-    StateException, use_shard_for, get_shard_for, State
+    StateException, use_shard_for, get_shard_for, for_each_shard, State
 from sharding.decorators import sharded_model, mirrored_model
 
 
@@ -531,3 +531,53 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         """
         with self.assertRaises(ValueError):
             migrate_schema('default', 'test_schema')  # this also calls the migration
+
+
+class ForEachShardTestCase(TestCase):
+    def setUp(self):
+        super().setUp()
+
+        with mock.patch('sharding.utils.create_schema_on_node'):
+            self.shard1 = Shard.objects.create(alias='test_sharding', schema_name='test_schema', node_name='default',
+                                               state=Shard.STATE_ACTIVE)
+
+    def repeatable_function(self, shard=None, shard_id=None, **kwargs):
+        if shard:
+            self.shards.append((shard, kwargs) if kwargs else shard)
+        else:
+            self.shards.append((shard_id, kwargs) if kwargs else shard_id)
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    def test_for_each_shard(self):
+        """
+        Case: Call self.repeatable_function for every shard
+        Expected: Function is called for every shard
+        """
+        self.shards = []
+        for_each_shard(self.repeatable_function)
+        self.assertEqual(self.shards, [self.shard1])
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    def test_for_each_shard_with_kwargs(self):
+        """
+        Case: Call self.repeatable_function for every shard and pass
+              keyword arguments to the function.
+        Expected: Function is called for every shard and is called with
+                  the keyword arguments provided.
+        """
+        self.shards = []
+        for_each_shard(self.repeatable_function, kwargs={'organization_id': 1})
+        self.assertEqual(self.shards, [(self.shard1, {'organization_id': 1})])
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+
+    def test_for_each_shard_as_id(self):
+        """
+        Case: Call self.repeatable_function for every shard and get
+              shards as ids.
+        Expected: Function is called for every shard and the shard id
+                  is passed as a argument.
+        """
+        self.shards = []
+        for_each_shard(self.repeatable_function, as_id=True)
+        self.assertEqual(self.shards, [self.shard1.id])
