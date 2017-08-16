@@ -1,3 +1,5 @@
+from unittest import mock
+
 from django.conf import settings
 from django.conf.urls import url
 from django.http import HttpResponse
@@ -6,7 +8,7 @@ from django.test.client import RequestFactory
 from django.views.generic import View
 
 from example.models import Shard
-from sharding.middleware import StateExceptionMiddleware
+from sharding.middleware import StateExceptionMiddleware, BaseUseShardMiddleware
 from sharding.tests.utils import ShardingTestCase
 from sharding.utils import State, StateException, use_shard, create_template_schema
 
@@ -22,6 +24,11 @@ class TestErrorView(View):
         with use_shard(shard):
             return HttpResponse("Error should be raised.")
 
+
+class UseShardMiddleware(BaseUseShardMiddleware):
+    def get_shard_id(self, request):
+        return 1
+    
 
 class StateExceptionMiddlewareTestCase(SimpleTestCase):
     def test_process_exception_with_setting(self):
@@ -92,3 +99,67 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
             # call the view, that uses use_shard on an nonexistent shard. 503 is raised and caught by the middleware.
             response = self.client.get('/')
         self.assertEqual(response.status_code, 503)
+
+
+@mock.patch('sharding.middleware.get_shard_class')
+@mock.patch('sharding.middleware.use_shard')
+class BaseUseShardMiddlewareTestCase(SimpleTestCase):
+    def test_process_view(self, mock_utils_use_shard, mock_utils_get_shard_class):
+        """
+        Case: Call the middleware to process a view.
+        Expected: The context manager returned by `use_shared` is
+                  entered but not exited.
+        """
+        mock_use_shard = mock.Mock()
+        mock_use_shard.__enter__ = mock.Mock()
+
+        mock_utils_use_shard.return_value = mock_use_shard
+
+        UseShardMiddleware().process_view(RequestFactory().get('/'))
+
+        mock_use_shard.__enter__.assert_called_with()
+
+    def test_process_response(self, mock_utils_use_shard, mock_utils_get_shard_class):
+        """
+        Case: Call the middleware to process a response.
+        Expected: The context manager returned by `use_shared` is
+                  exited.
+        """
+        mock_use_shard = mock.Mock()
+        mock_use_shard.__enter__ = mock.Mock()
+        mock_use_shard.__exit__ = mock.Mock()
+
+        mock_utils_use_shard.return_value = mock_use_shard
+
+        request, response = RequestFactory().get('/'), HttpResponse()
+        middleware = UseShardMiddleware()
+
+        middleware.process_view(request)  # required, sets the context manager
+        middleware.process_response(request, response)
+
+        mock_use_shard.__exit__.assert_called_with(None, None, None)
+
+    def test_process_exception(self, mock_utils_use_shard, mock_utils_get_shard_class):
+        """
+        Case: Call the middleware to process an exception.
+        Expected: The context manager returned by `use_shared` is
+                  exited.
+        """
+        mock_use_shard = mock.Mock()
+        mock_use_shard.__enter__ = mock.Mock()
+        mock_use_shard.__exit__ = mock.Mock()
+
+        mock_utils_use_shard.return_value = mock_use_shard
+
+        exc = ValueError('test')
+        request, response = RequestFactory().get('/'), HttpResponse()
+        middleware = UseShardMiddleware()
+
+        middleware.process_view(request)  # required, sets the context manager
+        middleware.process_exception(request, exc)
+
+        mock_use_shard.__exit__.assert_called_with(
+            exc_type=exc.__class__,
+            exc_value=exc,
+            exc_traceback=exc.__traceback__,
+        )
