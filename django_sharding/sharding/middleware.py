@@ -1,4 +1,3 @@
-import django
 from django.conf import settings
 from django.http import HttpResponse
 from django.utils.module_loading import import_string
@@ -50,26 +49,13 @@ class BaseUseShardMiddleware(object):
         return response
 
 
-# With Django 1.10 we can use the "MIDDLEWARE" setting and a new
-# middleware format to write use the context manager without
-# manually calling enter and exit.
-if django.VERSION[:1] >= (1, 10):
-    class BaseUseShardMiddleware(object):
-        def __init__(self, get_response):
-            self.get_response = get_response
-
-        def __call__(self, request):
-            shard_id = self.get_shard_id(request)
-
-            if shard_id:
-                shard = get_shard_class().objects.get(id=shard_id)
-
-                with use_shard(shard):
-                    return self.get_response(request)
-
-            return self.get_response(request)
-
-        def get_shard_id(self, request):
-            raise NotImplementedError(
-                'The `BaseUseShardMiddleware` middleware class requires that `get_shard_id` is implemented.'
-            )
+try:
+    # noinspection PyUnresolvedReferences
+    # https://docs.djangoproject.com/en/1.11/topics/http/middleware/#upgrading-pre-django-1-10-style-middleware
+    from django.utils.deprecation import MiddlewareMixin
+except ImportError:
+    pass
+else:
+    # noinspection PyAbstractClass
+    class BaseUseShardMiddleware(MiddlewareMixin, BaseUseShardMiddleware):  # nosec
+        pass
