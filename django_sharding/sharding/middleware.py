@@ -49,6 +49,7 @@ class BaseUseShardMiddleware(object):
 
         return response
 
+
 # With Django 1.10 we can use the "MIDDLEWARE" setting and a new
 # middleware format to write use the context manager without
 # manually calling enter and exit.

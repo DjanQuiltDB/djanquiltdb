@@ -107,22 +107,24 @@ class BaseUseShardMiddlewareTestCase(SimpleTestCase):
     def test_process_view(self, mock_utils_use_shard, mock_utils_get_shard_class):
         """
         Case: Call the middleware to process a view.
-        Expected: The context manager returned by `use_shared` is
+        Expected: The context manager returned by `use_shard` is
                   entered but not exited.
         """
         mock_use_shard = mock.Mock()
         mock_use_shard.__enter__ = mock.Mock()
+        mock_use_shard.__exit__ = mock.Mock()
 
         mock_utils_use_shard.return_value = mock_use_shard
 
         UseShardMiddleware().process_view(RequestFactory().get('/'))
 
         mock_use_shard.__enter__.assert_called_with()
+        self.assertFalse(mock_use_shard.__exit__.called)  # called by `process_view`
 
     def test_process_response(self, mock_utils_use_shard, mock_utils_get_shard_class):
         """
         Case: Call the middleware to process a response.
-        Expected: The context manager returned by `use_shared` is
+        Expected: The context manager returned by `use_shard` is
                   exited.
         """
         mock_use_shard = mock.Mock()
@@ -137,12 +139,13 @@ class BaseUseShardMiddlewareTestCase(SimpleTestCase):
         middleware.process_view(request)  # required, sets the context manager
         middleware.process_response(request, response)
 
-        mock_use_shard.__exit__.assert_called_with(None, None, None)
+        mock_use_shard.__enter__.assert_called_with()  # called by `process_view`
+        mock_use_shard.__exit__.assert_called_with(None, None, None)  # called by `process_response`
 
     def test_process_exception(self, mock_utils_use_shard, mock_utils_get_shard_class):
         """
         Case: Call the middleware to process an exception.
-        Expected: The context manager returned by `use_shared` is
+        Expected: The context manager returned by `use_shard` is
                   exited.
         """
         mock_use_shard = mock.Mock()
@@ -158,7 +161,8 @@ class BaseUseShardMiddlewareTestCase(SimpleTestCase):
         middleware.process_view(request)  # required, sets the context manager
         middleware.process_exception(request, exc)
 
-        mock_use_shard.__exit__.assert_called_with(
+        mock_use_shard.__enter__.assert_called_with()  # called by `process_view`
+        mock_use_shard.__exit__.assert_called_with(  # called by `process_exception`
             exc_type=exc.__class__,
             exc_value=exc,
             exc_traceback=exc.__traceback__,
