@@ -539,7 +539,7 @@ class ForEachShardTestCase(TestCase):
 
         with mock.patch('sharding.utils.create_schema_on_node'):
             self.shard1 = Shard.objects.create(alias='test_sharding', schema_name='test_schema', node_name='default',
-                                               state=Shard.STATE_ACTIVE)
+                                               state=State.ACTIVE)
 
     def repeatable_function(self, shard=None, shard_id=None, **kwargs):
         if shard:
@@ -570,7 +570,6 @@ class ForEachShardTestCase(TestCase):
         self.assertEqual(self.shards, [(self.shard1, {'organization_id': 1})])
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
-
     def test_for_each_shard_as_id(self):
         """
         Case: Call self.repeatable_function for every shard and get
