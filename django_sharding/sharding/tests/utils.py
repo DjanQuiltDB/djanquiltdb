@@ -189,9 +189,9 @@ class UseShardTestCase(ShardingTestCase):
             self.fail('THREAD_LOCAL.DB_OVERRIDE should be None or not exist.')
 
     @mock.patch('sharding.utils._set_schema')
-    def test_use_shard_with_inactive_schemas(self, mock_set_schema):
+    def test_use_shard_with_inactive_mapping_objects(self, mock_set_schema):
         """
-        Case: Call use_shard with a valid shard object that contains inactive schemas
+        Case: Call use_shard with a valid shard object that contains inactive mapping objects
         Expected: StateException to be raised
         """
         shard = Shard.objects.create(alias='mudville', schema_name='test_schema_muddied', node_name='default',
@@ -215,8 +215,10 @@ class UseShardTestCase(ShardingTestCase):
                                      state=State.ACTIVE)
         OrganizationShards.objects.create(organization_id=5, shard=shard, state=State.ACTIVE)
         OrganizationShards.objects.create(organization_id=6, shard=shard, state=State.MAINTENANCE)
-        with use_shard(shard) as env:
+        with use_shard(shard):
             pass
+
+        self.assertTrue(mock_set_schema.called)
 
 
 class UseShardForTestCase(TestCase):

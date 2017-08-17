@@ -2,7 +2,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.conf import settings
 from django.db import models
 
-from sharding.utils import ShardingMode
+from sharding.utils import ShardingMode, STATES
 
 shard_mapping_models = False
 
@@ -113,10 +113,13 @@ def shard_mapping_model(mapping_field):  # noqa: C901
                 "Yet it is given as the mapping field."
                 .format(cls.__name__, mapping_field))
 
-        if state_field:
-            if not isinstance(state_field, models.CharField):
-                raise ImproperlyConfigured("The state field of model '{}' is not a CharField.".format(cls.__name__))
-            cls.has_state_field = True
+        if not state_field:
+            raise ImproperlyConfigured(
+                "{} model is missing a CharField field named 'state'. "
+                "The @shard_mapping_model decorator requires this.".format(cls.__name__))
+        elif not isinstance(state_field, models.CharField) or state_field.choices != STATES:
+            raise ImproperlyConfigured("The state field of model '{}' is not a CharField with "
+                                       "sharding.utils.STATES as choices".format(cls.__name__))
 
         # set global counter to detect multiple usages of this decorator, which is not allowed.
         global shard_mapping_models

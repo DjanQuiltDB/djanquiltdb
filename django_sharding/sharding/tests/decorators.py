@@ -54,6 +54,7 @@ class MappingModelDecoratorTestCase(TestCase):
         class MappingDummyModel1(models.Model):
             shard = models.ForeignKey('example.Shard', verbose_name='shard')
             map_field = models.PositiveSmallIntegerField()
+            state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
             class Meta:
                 app_label = 'sharding'
@@ -70,6 +71,7 @@ class MappingModelDecoratorTestCase(TestCase):
             @shard_mapping_model('map_field')
             class MappingDummyModel2(models.Model):
                 map_field = models.PositiveSmallIntegerField()
+                state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
                 class Meta:
                     app_label = 'sharding'
@@ -85,6 +87,7 @@ class MappingModelDecoratorTestCase(TestCase):
             class MappingDummyModel3(models.Model):
                 shard = models.CharField('name', max_length=100)
                 map_field = models.PositiveSmallIntegerField()
+                state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
                 class Meta:
                     app_label = 'sharding'
@@ -100,6 +103,7 @@ class MappingModelDecoratorTestCase(TestCase):
             class MappingDummyModel4(models.Model):
                 shard = models.ForeignKey('Stars', verbose_name='shard')  # NOOA (unresolved reference on purpose)
                 map_field = models.PositiveSmallIntegerField()
+                state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
                 class Meta:
                     app_label = 'sharding'
@@ -114,6 +118,7 @@ class MappingModelDecoratorTestCase(TestCase):
         class MappingDummyModel5(models.Model):
             shard = models.ForeignKey('example.Shard', verbose_name='shard')
             map_field = models.PositiveSmallIntegerField()
+            state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
             class Meta:
                 app_label = 'sharding'
@@ -124,6 +129,7 @@ class MappingModelDecoratorTestCase(TestCase):
             class MappingDummyModel6(models.Model):
                 shard = models.ForeignKey('example.Shard', verbose_name='shard')
                 map_field = models.PositiveSmallIntegerField()
+                state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
                 class Meta:
                     app_label = 'sharding'
@@ -139,6 +145,7 @@ class MappingModelDecoratorTestCase(TestCase):
             class MappingDummyModel7(models.Model):
                 shard = models.ForeignKey('example.Shard', verbose_name='shard')
                 map_field = models.PositiveSmallIntegerField()
+                state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
                 class Meta:
                     app_label = 'sharding'
@@ -154,28 +161,14 @@ class MappingModelDecoratorTestCase(TestCase):
             class MappingDummyModel7(models.Model):
                 shard = models.ForeignKey('example.Shard', verbose_name='shard')
                 map_field = models.PositiveSmallIntegerField()
+                state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
                 class Meta:
                     app_label = 'sharding'
 
-    def test_shard_mapping_model_with_valid_state(self):
+    def test_shard_mapping_model_no_state_field(self):
         """
-        Case: Use shard_mapping_model with a valid state field
-        Expected: No error to be raised.
-        """
-        @shard_mapping_model('map_field')
-        @test_model()
-        class MappingDummyModel8(models.Model):
-            shard = models.ForeignKey('example.Shard', verbose_name='shard')
-            map_field = models.PositiveSmallIntegerField()
-            state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
-
-            class Meta:
-                app_label = 'sharding'
-
-    def test_shard_mapping_model_with_invalid_state(self):
-        """
-        Case: Use shard_mapping_model with a invalid state field
+        Case: Use shard_mapping_model on a model that has no state field.
         Expected: ImproperlyConfigured to be raised.
         """
         with self.assertRaises(ImproperlyConfigured):
@@ -184,7 +177,38 @@ class MappingModelDecoratorTestCase(TestCase):
             class MappingDummyModel9(models.Model):
                 shard = models.ForeignKey('example.Shard', verbose_name='shard')
                 map_field = models.PositiveSmallIntegerField()
+
+                class Meta:
+                    app_label = 'sharding'
+
+    def test_shard_mapping_model_with_invalid_state_type(self):
+        """
+        Case: Use shard_mapping_model with a invalid state field TYPE
+        Expected: ImproperlyConfigured to be raised.
+        """
+        with self.assertRaises(ImproperlyConfigured):
+            @shard_mapping_model('map_field')
+            @test_model()
+            class MappingDummyModel10(models.Model):
+                shard = models.ForeignKey('example.Shard', verbose_name='shard')
+                map_field = models.PositiveSmallIntegerField()
                 state = models.PositiveSmallIntegerField()
+
+                class Meta:
+                    app_label = 'sharding'
+
+    def test_shard_mapping_model_with_invalid_state_options(self):
+        """
+        Case: Use shard_mapping_model with a invalid state field OPTIONS
+        Expected: ImproperlyConfigured to be raised.
+        """
+        with self.assertRaises(ImproperlyConfigured):
+            @shard_mapping_model('map_field')
+            @test_model()
+            class MappingDummyModel11(models.Model):
+                shard = models.ForeignKey('example.Shard', verbose_name='shard')
+                map_field = models.PositiveSmallIntegerField()
+                state = models.CharField(choices=(('P', 'Pie'),), max_length=1, default='P')
 
                 class Meta:
                     app_label = 'sharding'

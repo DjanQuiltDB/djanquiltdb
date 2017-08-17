@@ -166,8 +166,8 @@ class use_shard(object):
 
             if active_only_schemas and 'MAPPING_MODEL' in settings.SHARDING:
                 mapping_model = import_string(settings.SHARDING['MAPPING_MODEL'])
-                if mapping_model.objects.for_shard(shard).exclude(state=State.ACTIVE).exists():
-                    raise StateException("Shard {} contains schemas that are in maintenance".format(shard),
+                if mapping_model.objects.for_shard(shard).in_maintenance().exists():
+                    raise StateException("Shard {} contains mapping objects that are in maintenance".format(shard),
                                          State.MAINTENANCE)
 
             self.shard = shard
@@ -332,6 +332,10 @@ class use_shard_for(use_shard):
         super().__init__(shard=get_shard_for(target_value, active_only=True), active_only_schemas=False)
 
 
+def get_new_shard_node():
+    return settings.SHARDING.get('NEW_SHARD_NODE', None)
+
+
 def create_schema_on_node(schema_name, node_name=None, migrate=True):
     """
     Create a schema on a given node. If no node is given, it will take the node set in SHARDING.NEW_SHARD_NODE settings.
@@ -360,7 +364,7 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
                 User.objects.create(name="John Snow")
 
     """
-    node_name = node_name or settings.SHARDING.get('NEW_SHARD_NODE', None)
+    node_name = node_name or get_new_shard_node()
     if not node_name:
         raise ValueError("No node_name given, or no NEW_SHARD_NODE set in the SHARING settings.")
     _node_exists(node_name)
