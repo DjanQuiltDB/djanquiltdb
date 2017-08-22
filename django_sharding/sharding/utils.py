@@ -451,6 +451,6 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
     """
     for shard in get_shard_class().objects.all():
         if as_id:
-            func(shard_id=shard.id, *args, **(kwargs or {}))
+            func(*args, shard_id=shard.id, **(kwargs or {}))
         else:
-            func(shard=shard, *args, **(kwargs or {}))
+            func(*args, shard=shard, **(kwargs or {}))
