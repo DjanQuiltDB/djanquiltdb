@@ -1,4 +1,4 @@
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, FieldDoesNotExist
 from django.conf import settings
 from django.db import models
 
@@ -79,47 +79,44 @@ def shard_mapping_model(mapping_field):  # noqa: C901
 
     """
     def configure(cls):
-        shard_field, id_field, state_field = None, None, None
-        for field in cls._meta.fields:
-            if field.name == 'shard':
-                shard_field = field
-            if field.name == mapping_field:
-                id_field = field
-            if field.name == 'state':
-                state_field = field
-        if not shard_field:
+        try:
+            shard_field = cls._meta.get_field('shard')
+        except FieldDoesNotExist:
             raise ImproperlyConfigured(
                 "{} model is missing a foreignkey field named 'shard'. "
                 "The @shard_mapping_model decorator requires this."
                 .format(cls.__name__))
-        elif not isinstance(shard_field, models.ForeignKey):
-            raise ImproperlyConfigured(
-                "The shard field of model '{}' is not a Foreignkey to the shard model. "
-                "The @shard_mapping_model decorator requires this."
-                .format(cls.__name__))
         else:
+            if not isinstance(shard_field, models.ForeignKey):
+                raise ImproperlyConfigured(
+                    "The shard field of model '{}' is not a Foreignkey to the shard model. "
+                    "The @shard_mapping_model decorator requires this."
+                    .format(cls.__name__))
+
             related_to = shard_field.rel.to if type(shard_field.rel.to) is str else \
                 shard_field.rel.to.__module__.replace('.models', '') + '.' + shard_field.rel.to.__name__
             if related_to != settings.SHARDING['SHARD_CLASS'].replace('.models', ''):
-                raise ImproperlyConfigured(
-                    "The shard field of model {} is points to '{}' instead of '{}'. "
-                    "The @shard_mapping_model decorator requires this."
-                    .format(cls.__name__, related_to,
-                            settings.SHARDING['SHARD_CLASS'].replace('.models', '')))
+                raise ImproperlyConfigured("The shard field of model {} is points to '{}' instead of '{}'. "
+                                           "The @shard_mapping_model decorator requires this."
+                                           .format(cls.__name__, related_to,
+                                                   settings.SHARDING['SHARD_CLASS'].replace('.models', '')))
 
-        if not id_field:
-            raise ImproperlyConfigured(
-                "{} model is missing a field named '{}'. "
-                "Yet it is given as the mapping field."
-                .format(cls.__name__, mapping_field))
+        try:
+            id_field = cls._meta.get_field(mapping_field)
+        except FieldDoesNotExist:
+            raise ImproperlyConfigured("{} model is missing a field named '{}'. Yet it is given as the mapping field."
+                                       .format(cls.__name__, mapping_field))
 
-        if not state_field:
+        try:
+            state_field = cls._meta.get_field('state')
+        except FieldDoesNotExist:
             raise ImproperlyConfigured(
                 "{} model is missing a CharField field named 'state'. "
                 "The @shard_mapping_model decorator requires this.".format(cls.__name__))
-        elif not isinstance(state_field, models.CharField) or state_field.choices != STATES:
-            raise ImproperlyConfigured("The state field of model '{}' is not a CharField with "
-                                       "sharding.utils.STATES as choices".format(cls.__name__))
+        else:
+            if not isinstance(state_field, models.CharField) or state_field.choices != STATES:
+                raise ImproperlyConfigured("The state field of model '{}' is not a CharField with "
+                                           "sharding.utils.STATES as choices".format(cls.__name__))
 
         # set global counter to detect multiple usages of this decorator, which is not allowed.
         global shard_mapping_models
