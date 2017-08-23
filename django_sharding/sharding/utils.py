@@ -425,7 +425,7 @@ def migrate_schema(node_name, schema_name):
         THREAD_LOCAL.SHARDED_MIGRATE = False
 
 
-def for_each_shard(func, args=(), kwargs={}, as_id=False):
+def for_each_shard(func, args=(), kwargs=None, as_id=False):
     """
     Function to call another function for each shard and pass the shard
     as a parameter.
@@ -451,6 +451,6 @@ def for_each_shard(func, args=(), kwargs={}, as_id=False):
     """
     for shard in get_shard_class().objects.all():
         if as_id:
-            func(shard_id=shard.id, *args, **kwargs)
+            func(*args, shard_id=shard.id, **(kwargs or {}))
         else:
-            func(shard=shard, *args, **kwargs)
+            func(*args, shard=shard, **(kwargs or {}))
