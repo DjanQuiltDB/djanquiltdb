@@ -101,10 +101,13 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
         self.assertEqual(response.status_code, 503)
 
 
-@mock.patch('sharding.middleware.get_shard_class')
 @mock.patch('sharding.middleware.use_shard')
 class BaseUseShardMiddlewareTestCase(SimpleTestCase):
-    def test_process_view(self, mock_utils_use_shard, mock_utils_get_shard_class):
+    def setUp(self):
+        self.addCleanup(mock.patch.stopall)
+        mock.patch('sharding.middleware.get_shard_class').start()
+
+    def test_process_view(self, mock_utils_use_shard):
         """
         Case: Call the middleware to process a view.
         Expected: The context manager returned by `use_shard` is
@@ -121,7 +124,7 @@ class BaseUseShardMiddlewareTestCase(SimpleTestCase):
         mock_use_shard.enable.assert_called_with()
         self.assertFalse(mock_use_shard.disable.called)  # called by `process_view`
 
-    def test_process_response(self, mock_utils_use_shard, mock_utils_get_shard_class):
+    def test_process_response(self, mock_utils_use_shard):
         """
         Case: Call the middleware to process a response.
         Expected: The context manager returned by `use_shard` is
@@ -142,7 +145,7 @@ class BaseUseShardMiddlewareTestCase(SimpleTestCase):
         mock_use_shard.enable.assert_called_with()  # called by `process_view`
         mock_use_shard.disable.assert_called_with()  # called by `process_response`
 
-    def test_process_exception(self, mock_utils_use_shard, mock_utils_get_shard_class):
+    def test_process_exception(self, mock_utils_use_shard):
         """
         Case: Call the middleware to process an exception.
         Expected: The context manager returned by `use_shard` is
