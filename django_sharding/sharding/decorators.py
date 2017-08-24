@@ -102,7 +102,7 @@ def shard_mapping_model(mapping_field):  # noqa: C901
                                                    settings.SHARDING['SHARD_CLASS'].replace('.models', '')))
 
         try:
-            id_field = cls._meta.get_field(mapping_field)
+            cls._meta.get_field(mapping_field)
         except FieldDoesNotExist:
             raise ImproperlyConfigured("{} model is missing a field named '{}'. Yet it is given as the mapping field."
                                        .format(cls.__name__, mapping_field))
