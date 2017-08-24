@@ -155,7 +155,7 @@ class BaseUseShardMiddlewareTestCase(SimpleTestCase):
         mock_utils_use_shard.return_value = mock_use_shard
 
         exc = ValueError('test')
-        request, response = RequestFactory().get('/'), HttpResponse()
+        request = RequestFactory().get('/')
         middleware = UseShardMiddleware()
 
         middleware.process_view(request)  # required, sets the context manager
