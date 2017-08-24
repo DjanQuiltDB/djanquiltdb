@@ -505,16 +505,15 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         """
         Case: call utils.migrate_schema() to migrate the sharded models to the template schema
         Expected: The newly made schema to have to correct table headers.
-        :return:
         """
         create_template_schema('default')  # this also calls the migration
 
         cursor = connection.cursor()
         cursor.execute("SELECT * FROM pg_catalog.pg_tables WHERE schemaname = 'template';")
         template_tables = [table[1] for table in cursor.fetchall()]
-        # Filter test models]
+        # Filter test models
         template_tables = [table for table in template_tables if not re.search(r'_[t|T]est', table)]
-        self.assertEqual(template_tables, ['example_organization', 'example_type', 'example_user'])
+        self.assertEqual(sorted(template_tables), ['example_organization', 'example_type', 'example_user'])
 
     def test_create_template_schema_invalid_node(self):
         """

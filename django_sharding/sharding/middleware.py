@@ -32,19 +32,15 @@ class BaseUseShardMiddleware(object):
             shard = get_shard_class().objects.get(id=shard_id)
 
             self.shard_context_manager = use_shard(shard)
-            self.shard_context_manager.__enter__()
+            self.shard_context_manager.enable()
 
     def process_exception(self, request, exception):
         if self.shard_context_manager:
-            self.shard_context_manager.__exit__(
-                exc_type=exception.__class__,
-                exc_value=exception,
-                exc_traceback=exception.__traceback__,
-            )
+            self.shard_context_manager.disable()
 
     def process_response(self, request, response):
         if self.shard_context_manager:
-            self.shard_context_manager.__exit__(None, None, None)
+            self.shard_context_manager.disable()
 
         return response
 
