@@ -28,7 +28,7 @@ class TestErrorView(View):
 class UseShardMiddleware(BaseUseShardMiddleware):
     def get_shard_id(self, request):
         return 1
-    
+
 
 class StateExceptionMiddlewareTestCase(SimpleTestCase):
     def test_process_exception_with_setting(self):
