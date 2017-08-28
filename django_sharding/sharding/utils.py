@@ -174,6 +174,21 @@ class use_shard(object):
                              .format(self.node_name))
 
     def __enter__(self):
+        return self.enable()
+
+    def __exit__(self, exc_type, exc_value, exc_traceback):
+        self.disable()
+
+    def __call__(self, querying_func):
+        @wraps(querying_func)
+        def inner(*args, **kwargs):
+            # Call the function in our context manager
+            with self:
+                return querying_func(*args, **kwargs)
+
+        return inner
+
+    def enable(self):
         # first: set the connection
         self.old_connection_name = connection.settings_dict['NAME']
         self.connection = _use_connection(self.node_name)
@@ -184,22 +199,13 @@ class use_shard(object):
         _set_schema(self.schema_name, self.connection)
         return self
 
-    def __exit__(self, exc_type, exc_value, exc_traceback):
+    def disable(self):
         # reset both the connection and the schema back to the old state
         _set_schema(self.old_schema_name, self.connection)
         if not THREAD_LOCAL.DB_OVERRIDE or THREAD_LOCAL.DB_OVERRIDE == [self.node_name]:
             THREAD_LOCAL.DB_OVERRIDE = None
         else:
             THREAD_LOCAL.DB_OVERRIDE.pop()  # remove last entry, which is self.node
-
-    def __call__(self, querying_func):
-        @wraps(querying_func)
-        def inner(*args, **kwargs):
-            # Call the function in our context manager
-            with self:
-                return querying_func(*args, **kwargs)
-
-        return inner
 
 
 def get_shard_for(target_value, active_only=False):
