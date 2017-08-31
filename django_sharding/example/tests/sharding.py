@@ -62,9 +62,10 @@ class MappingQuerySetTestCase(ShardingTestCase):
             self.shard2 = Shard.objects.create(alias='death_star_MK2', schema_name='empire_schema', node_name='default',
                                                state=State.MAINTENANCE)
 
-        self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1)
-        self.org_shard2 = OrganizationShards.objects.create(organization_id=2, shard=self.shard1)
-        self.org_shard3 = OrganizationShards.objects.create(organization_id=3, shard=self.shard2)
+        self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1, state=State.ACTIVE)
+        self.org_shard2 = OrganizationShards.objects.create(organization_id=2, shard=self.shard1,
+                                                            state=State.MAINTENANCE)
+        self.org_shard3 = OrganizationShards.objects.create(organization_id=3, shard=self.shard2, state=State.ACTIVE)
 
     def test_get_shard_for(self):
         """
@@ -75,8 +76,8 @@ class MappingQuerySetTestCase(ShardingTestCase):
 
     def test_active(self):
         self.assertCountEqual(OrganizationShards.objects.active().all(),
-                              [self.org_shard1, self.org_shard2])
+                              [self.org_shard1])
 
     def test_in_maintenance(self):
         self.assertCountEqual(OrganizationShards.objects.in_maintenance().all(),
-                              [self.org_shard3])
+                              [self.org_shard2, self.org_shard3])
