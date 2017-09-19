@@ -413,7 +413,7 @@ class SetSchemaTestCase(ShardingTestCase):
 
         self.assertEqual(_connection.schema_name, 'test_schema_on_other')
         self.assertFalse(_connection.search_path_set)
-        self.assertIsNone(connections['default'].schema_name)  # untouched connection
+        self.assertNotEqual(connections['default'].schema_name, 'test_schema_on_other')  # untouched connection
 
     def test_set_schema_without_connection(self):
         """
@@ -426,7 +426,7 @@ class SetSchemaTestCase(ShardingTestCase):
 
         self.assertEqual(_connection.schema_name, 'schema_on_default')
         self.assertFalse(_connection.search_path_set)
-        self.assertIsNone(connections['other'].schema_name)  # untouched connection
+        self.assertNotEqual(connections['other'].schema_name, 'test_schema_on_other')  # untouched connection
 
 
 class DynamicDbRouterTestCase(ShardingTestCase):
@@ -525,10 +525,37 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
     def test_allow_migrate(self):
         """
-        Case: Call allow_migrate
-        Expected: True
+        Case: Migrate a combination of unsharded, mirrored and sharded models: namely example.models
+        Expected: unsharded to go to default-public.
+                  mirrored to go to default-public and other-public
+                  sharded to go to default-template, other-template, default-schema1 and other-schema2
         """
-        self.assertIsNone(self.router.allow_migrate())
+        create_template_schema('default')  # also calls for a migration
+
+        default_public_tables = ['django_migrations', 'django_content_type', 'auth_group', 'auth_permission',
+                                 'auth_group_permissions', 'example_shard', 'django_session', 'example_type',
+                                 'example_organizationshards']  # mirrored, mapping and django default tables
+        other_public_tables = ['django_migrations',  'example_type']  # only the mirrored table
+        template_tables = ['example_organization', 'example_user']  # only sharded tables
+
+
+        self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'), default_public_tables)
+        self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='template'), template_tables)
+        self.assertCountEqual(connections['other'].get_all_table_headers(schema_name='public'), other_public_tables)
+
+        create_template_schema('other')
+        self.assertCountEqual(connections['other'].get_all_table_headers(schema_name='template'), template_tables)
+
+        create_schema_on_node('schema1', node_name='default', migrate=False)
+        # schema is created empty (cause we say: 'migrate=False')
+        self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='schema1'), [])
+
+        # obviously, after migration shard schema's have the same tables as the template.
+        migrate_schema('default', 'schema1')
+        self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='schema1'), template_tables)
+
+        create_schema_on_node('schema2', node_name='other', migrate=True)
+        self.assertCountEqual(connections['other'].get_all_table_headers(schema_name='schema2'), template_tables)
 
 
 class CreateTemplateSchemaTestCase(ShardingTestCase):
@@ -545,7 +572,7 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         template_tables = [table[1] for table in cursor.fetchall()]
         # Filter test models
         template_tables = [table for table in template_tables if not re.search(r'_[t|T]est', table)]
-        self.assertEqual(sorted(template_tables), ['example_organization', 'example_type', 'example_user'])
+        self.assertEqual(sorted(template_tables), ['example_organization', 'example_user'])
 
     def test_create_template_schema_invalid_node(self):
         """
