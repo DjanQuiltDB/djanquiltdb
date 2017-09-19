@@ -18,7 +18,6 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.commands.migrate import Command as MigrateCommand
 from django.db import connections, connection
-from django.db.migrations.state import AppConfigStub
 from django.utils.module_loading import import_string
 from functools import wraps
 
@@ -83,9 +82,8 @@ class DynamicDbRouter(object):
             return False
         return None
 
-    def allow_migrate(self, db, app_label, model_name=None, **hints):
-        connection_name = db
-        schema_name = connections[db].get_schema()
+    def allow_migrate(self, connection_name, app_label, model_name=None, **hints):
+        schema_name = connections[connection_name].get_schema()
         model = hints.pop('model', False)
 
         # This is for our test cases.
@@ -97,25 +95,20 @@ class DynamicDbRouter(object):
         app = apps.get_app_config(app_label)
         model = app.get_model(model_name)
 
-        sharded_migrate = getattr(THREAD_LOCAL, 'SHARDED_MIGRATE', None)
         sharding_mode = getattr(model, 'sharding_mode', False)
-        if sharded_migrate or True:  # Sharded and mirrored models don't belong on non-sharding databases.
-            if sharding_mode == ShardingMode.SHARDED:
-                # Sharded models should never reside in the public schema.
-                # Only on templates and the shared schemas.
-                return schema_name != 'public'
-            elif sharding_mode == ShardingMode.MIRRORED:
-                # Mirrored models belong to public schemas and no where else.
-                return schema_name == 'public'
-            elif sharding_mode == ShardingMode.DEFINING:
-                # Defining (mapping) models are migrated the same as non-sharded models. (for now)
-                return connection_name == 'default' and schema_name == 'public'
-            else:
-                # Non-sharded models only belong to the default database.
-                return connection_name == 'default' and schema_name == 'public'
+        if sharding_mode == ShardingMode.SHARDED:
+            # Sharded models should never reside in the public schema.
+            # Only on templates and the shared schemas.
+            return schema_name != 'public'
+        elif sharding_mode == ShardingMode.MIRRORED:
+            # Mirrored models belong to public schemas and no where else.
+            return schema_name == 'public'
+        elif sharding_mode == ShardingMode.DEFINING:
+            # Defining (mapping) models are migrated the same as non-sharded models. (for now)
+            return connection_name == 'default' and schema_name == 'public'
         else:
-            # Only migrate non-sharded models when not in sharded migration mode.
-            return sharding_mode is False and None
+            # Non-sharded models only belong to the default database.
+            return connection_name == 'default' and schema_name == 'public'
 
 
 def _node_exists(node_name):
@@ -458,7 +451,6 @@ def migrate_schema(node_name, schema_name):
 
     con = connections[node_name]
     with use_shard(node_name=node_name, schema_name=schema_name):
-        THREAD_LOCAL.SHARDED_MIGRATE = True  # tell the router that we are doing a sharded models migration
         c = MigrateCommand()
         c.verbosity = 0
         c.interactive = False
@@ -466,7 +458,6 @@ def migrate_schema(node_name, schema_name):
 
         app_labels = [app_config.label for app_config in apps.get_app_configs()]
         c.sync_apps(con, app_labels)  # we use the django native migration call for this.
-        THREAD_LOCAL.SHARDED_MIGRATE = False
 
 
 def for_each_shard(func, args=(), kwargs=None, as_id=False):

@@ -44,7 +44,7 @@ LANGUAGE plpgsql VOLATILE;
 """
 
 
-public_schema_name = 'public'
+PUBLIC_SCHEMA_NAME = 'public'
 
 
 def get_validated_schema_name(schema_name, is_template=False):
@@ -65,7 +65,7 @@ def get_validated_schema_name(schema_name, is_template=False):
         raise ValueError("Schema name '{}' is not allowed to mimic PostgreSQL native schema names "
                          "(starting with 'pg_')".format(schema_name))
 
-    return sql.Identifier(schema_name).string
+    return schema_name
 
 
 class DatabaseWrapper(BaseDatabaseWrapper):
@@ -78,8 +78,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Use a patched version of the DatabaseIntrospection that only returns the table list for the
-        # currently selected schema.
+        # Replace the default introspection with a patched version of
+        # the DatabaseIntrospection that only returns the table list
+        # for the currently selected schema.
         self.introspection = DatabaseSchemaIntrospection(self)
 
         self.clone_function_set = False
@@ -108,7 +109,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         """
         Instructs to stay in the common 'public' schema.
         """
-        self.schema_name = public_schema_name
+        self.schema_name = PUBLIC_SCHEMA_NAME
         self.search_path_set = False
 
     def get_schema(self):
@@ -178,17 +179,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         if self.search_path_set:
             return cursor
 
-        if self.schema_name == public_schema_name:
-            search_paths = [public_schema_name]
-        else:
-            # confirm that the schema exists.
-            if not self.get_ps_schema(self.schema_name, cursor):
-                raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
+        if not self.get_ps_schema(self.schema_name, cursor):
+            raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
 
-            if self.include_public_schema:
-                search_paths = [self.schema_name, public_schema_name]
-            else:
-                search_paths = [self.schema_name]
+        if self.include_public_schema and self.schema_name != PUBLIC_SCHEMA_NAME:
+            search_paths = [self.schema_name, PUBLIC_SCHEMA_NAME]
+        else:
+            search_paths = [self.schema_name]
 
         if name:
             # Named cursor can only be used once
@@ -202,7 +199,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # if the next instruction is not a rollback it will just fail also, so
         # we do not have to worry that it's not the good one
         try:
-            cursor_for_search_path.execute('SET search_path = {}'.format(','.join(search_paths)))
+            cursor_for_search_path.execute('SET search_path = {}'.format(
+                ','.join(sql.Identifier(x).as_string(cursor_for_search_path) for x in search_paths)))
         except (DatabaseError, InternalError):
             self.search_path_set = False
         else:

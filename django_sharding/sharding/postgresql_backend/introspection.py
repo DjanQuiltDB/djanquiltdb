@@ -1,5 +1,5 @@
 """
-Taken from:
+Taken, changed and adopted from:
     https://github.com/bernardopires/django-tenant-schemas/blob/master/tenant_schemas/postgresql_backend/introspection.py
 Credits goes to bernardopires
 
@@ -12,20 +12,9 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 """
 
-from __future__ import unicode_literals
-
-from collections import namedtuple
-
-from django.db.backends.base.introspection import (
-    BaseDatabaseIntrospection, FieldInfo, TableInfo,
-)
+from django.db.backends.base.introspection import BaseDatabaseIntrospection, TableInfo
+from django.db.backends.postgresql_psycopg2.introspection import FieldInfo
 from django.utils.encoding import force_text
-
-fields = FieldInfo._fields
-if 'default' not in fields:
-    fields += ('default',)
-
-FieldInfo = namedtuple('FieldInfo', fields)
 
 
 class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
@@ -209,7 +198,7 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
         """
 
         # As cursor.description does not return reliably the nullable property,
-        # we have to query the information_schema (#7783)
+        # we have to query the information_schema
         cursor.execute(self._get_table_description_query, {
             'schema': self.connection.schema_name,
             'table': table_name
@@ -290,13 +279,13 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
 
         for constraint, columns, kind, used_cols in cursor.fetchall():
             constraints[constraint] = {
-                "columns": columns,
-                "primary_key": kind == "p",
-                "unique": kind in ["p", "u"],
-                "foreign_key": tuple(used_cols.split(".", 1)) if kind == "f" else None,
-                "check": kind == "c",
-                "index": False,
-                "definition": None,
+                'columns': columns,
+                'primary_key': kind == 'p',
+                'unique': kind in ['p', 'u'],
+                'foreign_key': tuple(used_cols.split('.', 1)) if kind == 'f' else None,
+                'check': kind == 'c',
+                'index': False,
+                'definition': None,
             }
 
         # Now get indexes
@@ -308,14 +297,14 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
         for index, columns, unique, primary, orders, type_, definition in cursor.fetchall():
             if index not in constraints:
                 constraints[index] = {
-                    "columns": columns if columns != [None] else [],
-                    "orders": orders if orders != [None] else [],
-                    "primary_key": primary,
-                    "unique": unique,
-                    "foreign_key": None,
-                    "check": False,
-                    "index": True,
-                    "type": type_,
-                    "definition": definition,
+                    'columns': columns if columns != [None] else [],
+                    'orders': orders if orders != [None] else [],
+                    'primary_key': primary,
+                    'unique': unique,
+                    'foreign_key': None,
+                    'check': False,
+                    'index': True,
+                    'type': type_,
+                    'definition': definition,
                 }
         return constraints

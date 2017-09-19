@@ -525,10 +525,12 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
     def test_allow_migrate(self):
         """
-        Case: Migrate a combination of unsharded, mirrored and sharded models: namely example.models
+        Case: Migrate a combination of unsharded, mirrored and
+              sharded models: namely example.models
         Expected: unsharded to go to default-public.
                   mirrored to go to default-public and other-public
-                  sharded to go to default-template, other-template, default-schema1 and other-schema2
+                  sharded to go to default-template, other-template,
+                  default-schema1 and other-schema2
         """
         create_template_schema('default')  # also calls for a migration
 
@@ -538,8 +540,8 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         other_public_tables = ['django_migrations',  'example_type']  # only the mirrored table
         template_tables = ['example_organization', 'example_user']  # only sharded tables
 
-
-        self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'), default_public_tables)
+        self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'),
+                              default_public_tables)
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='template'), template_tables)
         self.assertCountEqual(connections['other'].get_all_table_headers(schema_name='public'), other_public_tables)
 

@@ -16,8 +16,12 @@ class LoginTestCase(TestCase):
             self.user = User.objects.create(name='Bob', organization=self.organization, type=self.type,
                                             email='bob@net.com')
             self.user.set_password('password')
-            self.login_page = reverse("login")
+            self.login_page = reverse('login')
 
     def test_login(self):
+        """
+        Case: Client login
+        Expected: No errors to occur
+        """
         with use_shard(self.shard):
             self.client.login(email=self.user.email, password='password')
