@@ -1,16 +1,16 @@
 """
-    Taken, changed and adopted from:
-        https://github.com/bernardopires/django-tenant-schemas/blob/master/tenant_schemas/postgresql_backend/base.py
-    Credits goes to bernardopires
+Taken, changed and adopted from:
+    https://github.com/bernardopires/django-tenant-schemas/blob/master/tenant_schemas/postgresql_backend/base.py
+Credits goes to bernardopires
 
-    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
-    """
+"""
 
 import re
 
@@ -19,6 +19,7 @@ from django.db.utils import DatabaseError, IntegrityError
 from psycopg2 import InternalError, sql
 
 from sharding.utils import get_template_name
+from sharding.postgresql_backend.introspection import DatabaseSchemaIntrospection
 
 # clone function is from the PostgreSQL wiki by Emanuel '3manuek'
 clone_function = """
@@ -43,6 +44,9 @@ LANGUAGE plpgsql VOLATILE;
 """
 
 
+PUBLIC_SCHEMA_NAME = 'public'
+
+
 def get_validated_schema_name(schema_name, is_template=False):
     if not isinstance(schema_name, str):
         raise ValueError("Schema name '{}' needs to be a string".format(schema_name))
@@ -61,7 +65,7 @@ def get_validated_schema_name(schema_name, is_template=False):
         raise ValueError("Schema name '{}' is not allowed to mimic PostgreSQL native schema names "
                          "(starting with 'pg_')".format(schema_name))
 
-    return sql.Identifier(schema_name).string
+    return schema_name
 
 
 class DatabaseWrapper(BaseDatabaseWrapper):
@@ -73,6 +77,11 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+
+        # Replace the default introspection with a patched version of
+        # the DatabaseIntrospection that only returns the table list
+        # for the currently selected schema.
+        self.introspection = DatabaseSchemaIntrospection(self)
 
         self.clone_function_set = False
         self.schema_name = None
@@ -100,7 +109,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         """
         Instructs to stay in the common 'public' schema.
         """
-        self.schema_name = None
+        self.schema_name = PUBLIC_SCHEMA_NAME
         self.search_path_set = False
 
     def get_schema(self):
@@ -117,6 +126,15 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         cursor = _cursor or self.cursor()
         cursor.execute('SELECT schema_name FROM information_schema.schemata;')
         return cursor.fetchall()
+
+    def get_all_table_headers(self, _cursor=None, schema_name=None):
+        cursor = _cursor or self.cursor()
+        schema = schema_name or self.get_schema()
+        cursor.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema=%s AND table_type='BASE TABLE';",
+            [schema]
+        )
+        return [x[0] for x in cursor.fetchall()]  # we get a list of single tuples
 
     def create_schema(self, schema_name, is_template=False):
         schema_name = get_validated_schema_name(schema_name, is_template)
@@ -161,14 +179,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         if self.search_path_set:
             return cursor
 
-        if self.schema_name:
-            # confirm that the schema exists.
-            if not self.get_ps_schema(self.schema_name, cursor):
-                raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
+        if not self.get_ps_schema(self.schema_name, cursor):
+            raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
 
-        # Since all schemas contain all tables for now, we disable the public schema to test content separation.
-        # search_paths = [self.schema_name, 'public'] if self.schema_name else ['public']
-        search_paths = [self.schema_name] if self.schema_name else ['public']
+        if self.include_public_schema and self.schema_name != PUBLIC_SCHEMA_NAME:
+            search_paths = [self.schema_name, PUBLIC_SCHEMA_NAME]
+        else:
+            search_paths = [self.schema_name]
 
         if name:
             # Named cursor can only be used once
@@ -182,7 +199,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # if the next instruction is not a rollback it will just fail also, so
         # we do not have to worry that it's not the good one
         try:
-            cursor_for_search_path.execute('SET search_path = %s', [','.join(search_paths)])
+            cursor_for_search_path.execute('SET search_path = {}'.format(
+                ','.join(sql.Identifier(x).as_string(cursor_for_search_path) for x in search_paths)))
         except (DatabaseError, InternalError):
             self.search_path_set = False
         else:

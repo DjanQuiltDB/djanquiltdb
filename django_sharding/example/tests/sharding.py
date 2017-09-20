@@ -44,12 +44,10 @@ class ShardingExampleTestCase(ShardingTestCase):
         with use_shard(self.shard1):
             self.assertCountEqual(Organization.objects.values_list('name', flat=True), ['The Empire'])
             self.assertCountEqual(User.objects.values_list('name', flat=True), ['Sheev Palpatine'])
-            self.assertCountEqual(Type.objects.values_list('name', flat=True), [])
 
         with use_shard(self.shard2):
             self.assertCountEqual(Organization.objects.values_list('name', flat=True), ['The Rebel Alliance'])
             self.assertCountEqual(User.objects.values_list('name', flat=True), ['Mon Mothma', 'Ackbar'])
-            self.assertCountEqual(Type.objects.values_list('name', flat=True), [])
 
 
 class MappingQuerySetTestCase(ShardingTestCase):

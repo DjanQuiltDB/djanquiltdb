@@ -123,7 +123,7 @@ class PostgresBackendTestCase(ShardingTestCase):
         connection.set_schema('test_schema')  # First set to something, we can't be sure our starting position is clean
         self.assertEqual(connection.schema_name, 'test_schema')
         connection.set_schema_to_public()
-        self.assertEqual(connection.schema_name, None)
+        self.assertEqual(connection.schema_name, 'public')
         self.assertFalse(connection.search_path_set)
 
     def test_get_schema(self):
