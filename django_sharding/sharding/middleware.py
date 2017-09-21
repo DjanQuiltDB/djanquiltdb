@@ -9,6 +9,9 @@ class StateExceptionMiddleware(object):
     def process_exception(self, request, exception):
         if not isinstance(exception, StateException):
             return None
+        return self.process_state_exception(request, exception)
+
+    def process_state_exception(self, request, exception):
         if settings.SHARDING.get('STATE_EXCEPTION_VIEW', None):  # call custom view
             return import_string(settings.SHARDING['STATE_EXCEPTION_VIEW']).as_view()(request)
         else:  # no view set, return error
@@ -17,7 +20,7 @@ class StateExceptionMiddleware(object):
             return response
 
 
-class BaseUseShardMiddleware(object):
+class BaseUseShardMiddleware(StateExceptionMiddleware):
     shard_context_manager = None
 
     def get_shard_id(self, request):
@@ -29,19 +32,21 @@ class BaseUseShardMiddleware(object):
         shard_id = self.get_shard_id(request)
 
         if shard_id:
-            shard = get_shard_class().objects.get(id=shard_id)
-
-            self.shard_context_manager = use_shard(shard)
-            self.shard_context_manager.enable()
+            try:
+                shard = get_shard_class().objects.get(id=shard_id)
+                self.shard_context_manager = use_shard(shard)
+                self.shard_context_manager.enable()
+            except StateException as exception:
+                return self.process_state_exception(request, exception)
 
     def process_exception(self, request, exception):
         if self.shard_context_manager:
             self.shard_context_manager.disable()
+        return super().process_exception(request, exception)
 
     def process_response(self, request, response):
         if self.shard_context_manager:
             self.shard_context_manager.disable()
-
         return response
 
 

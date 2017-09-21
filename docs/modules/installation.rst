@@ -119,7 +119,8 @@ So set ``sharding.utils.DynamicDbRouter`` as the database_router in the settings
 
     DATABASE_ROUTERS = ['sharding.utils.DynamicDbRouter']
 
-
+STATE_EXCEPTION_MIDDLEWARE
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 The ``sharding.middleware.StateExceptionMiddleware`` class allows you to deal with exceptions raised by accessing
 unavailable shards. It is not required, but recommended to add it to the middleware settings.
 
@@ -136,3 +137,19 @@ To do that set ``STATE_EXCEPTION_VIEW`` in the ``SHARDING`` setting to a view of
         'SHARD_CLASS': 'myapp.models.Shard',
         'STATE_EXCEPTION_VIEW': 'myapp.views.unavailableView'
     }
+
+BASE_USE_SHARD_MIDDLEWARE
+~~~~~~~~~~~~~~~~~~~~~~~~~
+The ``sharding.middleware.BaseUseShardMiddleware`` class extends ``StateExceptionMiddleware`` and adds the option to
+wrap views in a ``use_shard`` context manager. This prevents the need to take note of sharding in each of your views.
+
+How the middleware determine which shard to use is up to you however. To use the `UseShardMiddleware`` you have to
+extend it and fill in the ``get_shard_id()`` function yourself.
+::
+
+    class UseShardMiddleware(BaseUseShardMiddleware):
+    def get_shard_id(self, request):
+        # A common way is to alter the login flow to set the shard_id in the session.
+        return request.session.get('shard_id')
+
+Don't forget you can assign your own view as error page like in ``StateExceptionMiddleware``.
