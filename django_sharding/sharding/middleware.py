@@ -29,15 +29,14 @@ class BaseUseShardMiddleware(StateExceptionMiddleware):
         )
 
     def process_view(self, request, *args, **kwargs):
-        shard_id = self.get_shard_id(request)
-
-        if shard_id:
-            try:
+        try:
+            shard_id = self.get_shard_id(request)
+            if shard_id:
                 shard = get_shard_class().objects.get(id=shard_id)
                 self.shard_context_manager = use_shard(shard)
                 self.shard_context_manager.enable()
-            except StateException as exception:
-                return self.process_state_exception(request, exception)
+        except StateException as exception:
+            return self.process_exception(request, exception)
 
     def process_exception(self, request, exception):
         if self.shard_context_manager:

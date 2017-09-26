@@ -27,7 +27,7 @@ class TestErrorView(View):
 
 class TestNormalView(View):
     def get(self, request):
-        return HttpResponse("Error should be raised.")
+        return HttpResponse("No error should be raised.")
 
 
 class UseShardMiddleware(BaseUseShardMiddleware):
@@ -35,10 +35,11 @@ class UseShardMiddleware(BaseUseShardMiddleware):
         return 1
 
 
-# TestErrorView is not in django's global urls
 class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
+    # TestErrorView is not in django's global urls
     @override_settings(ROOT_URLCONF=[url(r'^$', TestErrorView.as_view(), name='error')])
-    def test_error_in_view(self):
+    @mock.patch('example.middleware.UseShardMiddleware.get_shard_id')
+    def test_error_in_view(self, mock_get_shard_id):
         """
         Case: Request a view that contains use_shard on a inactive shard.
         Expected: 503 status received.
@@ -49,10 +50,9 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
 
         create_template_schema('other')
         shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='other',
-                                    state=State.MAINTENANCE)
+                                     state=State.MAINTENANCE)
 
-        mock_get_shard_id = \
-            mock.patch('example.middleware.UseShardMiddleware.get_shard_id', return_value=shard.id).start()
+        mock_get_shard_id.return_value = shard.id
 
         with override_settings(SHARDING=sharding_settings):
             # Call the view, that uses use_shard on an nonexistent shard.
@@ -61,8 +61,10 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
         self.assertEqual(response.status_code, 503)
         self.assertTrue(mock_get_shard_id.called)
 
+    # TestErrorView is not in django's global urls
     @override_settings(ROOT_URLCONF=[url(r'^$', TestNormalView.as_view(), name='normal')])
-    def test_error_in_use_shard(self):
+    @mock.patch('example.middleware.UseShardMiddleware.get_shard_id')
+    def test_error_in_use_shard(self, mock_get_shard_id):
         """
         Case: Request a view that uses the middleware to get an inactive shard.
         Expected: 503 status received.
@@ -75,8 +77,7 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
         shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='other',
                                      state=State.MAINTENANCE)
 
-        mock_get_shard_id = \
-            mock.patch('example.middleware.UseShardMiddleware.get_shard_id', return_value=shard.id).start()
+        mock_get_shard_id.return_value = shard.id
 
         with override_settings(SHARDING=sharding_settings):
             # Call the view, the BaseUseShardMiddleware will use use_shard on an nonexistent shard.
@@ -88,7 +89,7 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
 
 class StateExceptionMiddlewareTestCase(SimpleTestCase):
     @mock.patch('sharding.middleware.StateExceptionMiddleware.process_state_exception')
-    def test_process_exception_with_StateException(self, mock_process_state_exception):
+    def test_process_exception_with_state_exception(self, mock_process_state_exception):
         """
         Case: Call the process_exception of the StateExceptionMiddleware with a StateException
         Expected: process_state_exception to be called.
@@ -113,7 +114,7 @@ class StateExceptionMiddlewareTestCase(SimpleTestCase):
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'sharding.tests.middleware.StateExceptionTestView'
 
         with override_settings(SHARDING=sharding_settings):
-            response = StateExceptionMiddleware().process_exception(
+            StateExceptionMiddleware().process_exception(
                 RequestFactory().get('/'),
                 ValueError('Generic Error')
             )
