@@ -45,7 +45,7 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
         Expected: 503 status received.
         """
         sharding_settings = settings.SHARDING
-        settings.SHARDING.pop('STATE_EXCEPTION_VIEW', False)
+        sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
         create_template_schema('other')
         shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='other',
@@ -69,7 +69,7 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
         Expected: 503 status received.
         """
         sharding_settings = settings.SHARDING
-        settings.SHARDING.pop('STATE_EXCEPTION_VIEW', False)
+        sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
         create_template_schema('other')
         shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='other',
