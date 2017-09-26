@@ -45,8 +45,7 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
         Expected: 503 status received.
         """
         sharding_settings = settings.SHARDING
-        if sharding_settings.get('STATE_EXCEPTION_VIEW', False):
-            del sharding_settings['STATE_EXCEPTION_VIEW']
+        settings.SHARDING.pop('STATE_EXCEPTION_VIEW', False)
 
         create_template_schema('other')
         shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='other',
@@ -70,8 +69,7 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
         Expected: 503 status received.
         """
         sharding_settings = settings.SHARDING
-        if sharding_settings.get('STATE_EXCEPTION_VIEW', False):
-            del sharding_settings['STATE_EXCEPTION_VIEW']
+        settings.SHARDING.pop('STATE_EXCEPTION_VIEW', False)
 
         create_template_schema('other')
         shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='other',
@@ -98,7 +96,7 @@ class StateExceptionMiddlewareTestCase(SimpleTestCase):
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'sharding.tests.middleware.StateExceptionTestView'
 
         with override_settings(SHARDING=sharding_settings):
-            response = StateExceptionMiddleware().process_exception(
+            StateExceptionMiddleware().process_exception(
                 RequestFactory().get('/'),
                 StateException('Shard is not in available state!', 'M')
             )
