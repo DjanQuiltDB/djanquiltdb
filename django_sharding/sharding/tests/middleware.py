@@ -139,8 +139,7 @@ class StateExceptionMiddlewareTestCase(SimpleTestCase):
         Expected: 503 status received.
         """
         sharding_settings = settings.SHARDING
-        if sharding_settings.get('STATE_EXCEPTION_VIEW', False):
-            del sharding_settings['STATE_EXCEPTION_VIEW']
+        sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
         with override_settings(SHARDING=sharding_settings):
             response = UseShardMiddleware().process_state_exception(
@@ -227,8 +226,7 @@ class BaseUseShardMiddlewareTestCase(SimpleTestCase):
                   Process_state_exception not called.
         """
         sharding_settings = settings.SHARDING
-        if sharding_settings.get('STATE_EXCEPTION_VIEW', False):
-            del sharding_settings['STATE_EXCEPTION_VIEW']
+        sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
         mock_use_shard_context_manager = \
             mock.patch('sharding.tests.middleware.UseShardMiddleware.shard_context_manager').start()
