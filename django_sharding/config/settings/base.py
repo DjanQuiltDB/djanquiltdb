@@ -38,6 +38,7 @@ INSTALLED_APPS = (
     'django.contrib.staticfiles',
     'sharding',
     'example',
+    'migration_tests',
 )
 
 MIDDLEWARE_CLASSES = (

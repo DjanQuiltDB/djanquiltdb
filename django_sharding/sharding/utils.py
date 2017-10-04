@@ -387,7 +387,7 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
     """
     node_name = node_name or get_new_shard_node()
     if not node_name:
-        raise ValueError("No node_name given, or no NEW_SHARD_NODE set in the SHARING settings.")
+        raise ValueError("No node_name given, and no NEW_SHARD_NODE set in the SHARING settings.")
     _node_exists(node_name)
     connections[node_name].create_schema(schema_name)
 
@@ -449,15 +449,26 @@ def migrate_schema(node_name, schema_name):
     if not connections[node_name].get_ps_schema(schema_name):
         raise ValueError("Schema '{}' does not exist on node '{}'.".format(schema_name, node_name))
 
-    con = connections[node_name]
-    with use_shard(node_name=node_name, schema_name=schema_name):
+    with use_shard(node_name=node_name, schema_name=schema_name) as env:
         c = MigrateCommand()
         c.verbosity = 0
         c.interactive = False
         c.load_initial_data = False
 
         app_labels = [app_config.label for app_config in apps.get_app_configs()]
-        c.sync_apps(con, app_labels)  # we use the django native migration call for this.
+        c.sync_apps(env.connection, app_labels)  # we use the django native migration call for this.
+        record_migrated(env.connection)
+
+
+def record_migrated(connection):
+    # Helper function to let the migration system know which migrations have been executed.
+    # Since the sync_apps does not do this.
+    from django.db.migrations.executor import MigrationExecutor
+    executor = MigrationExecutor(connection)
+    for key, migration in executor.loader.disk_migrations.items():
+        executor.recorder.record_applied(*key)
+    executor.loader.applied_migrations = executor.recorder.applied_migrations()
+    executor.loader.build_graph()  # altered history, rebuild state
 
 
 def for_each_shard(func, args=(), kwargs=None, as_id=False):
