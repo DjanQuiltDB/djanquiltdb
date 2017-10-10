@@ -1,18 +1,18 @@
 from unittest import mock
 
 from django.conf import settings
-from django.db import connection
+from django.db import connection, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.recorder import MigrationRecorder
 from django.test import override_settings
 
 from example.models import Shard
+from migration_tests.tests.migration_base import MigrationTestBase
 from sharding.management.commands.migrate_shards import Command as MigrateShards
-from sharding.tests.utils import ShardingTestCase
-from sharding.utils import State, create_template_schema, use_shard
+from sharding.utils import State, use_shard
 
 
-class ShardedMigrationSystemTestCase(ShardingTestCase):
+class ShardedMigrationSystemTestCase(MigrationTestBase):
     available_apps = ['migration_tests']
 
     def setUp(self):
@@ -23,9 +23,6 @@ class ShardedMigrationSystemTestCase(ShardingTestCase):
 
         # Unlike other migrations, these test migrations are NOT applied during the creation of the testcase
         # For they are not known to the runner at that point.
-
-        create_template_schema()
-        create_template_schema('other')
 
         self.databases = MigrateShards().get_all_but_replica_dbs()
 
@@ -124,11 +121,11 @@ class ShardedMigrationSystemTestCase(ShardingTestCase):
             self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
 
 
-@override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
-class ShardedMigrationTestCase(ShardingTestCase):
+class ShardedMigrationTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding']
 
     def setUp(self):
+        super().setUp()
         # prevent ShardingTestCase addCleanup
         self.mock_router = mock.patch('sharding.utils.DynamicDbRouter.allow_migrate').start()
         self.addCleanup(mock.patch.stopall)
@@ -137,9 +134,6 @@ class ShardedMigrationTestCase(ShardingTestCase):
     def setUpClass(cls):
         super().setUpClass()
 
-        create_template_schema()
-        create_template_schema('other')
-
         cls.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
                                         state=State.ACTIVE)
         cls.rose = Shard.objects.create(alias='rose', schema_name='test_rose', node_name='default',
@@ -147,6 +141,7 @@ class ShardedMigrationTestCase(ShardingTestCase):
         cls.maria = Shard.objects.create(alias='maria', schema_name='test_maria', node_name='default',
                                          state=State.ACTIVE)
 
+    @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
     @mock.patch('django.core.management.sql.emit_post_migrate_signal')
     @mock.patch('sharding.management.commands.migrate_shards.Command.check_or_migrate_shard')
     @mock.patch('sharding.management.commands.migrate_shards.Command.check_or_migrate_schema')
@@ -215,6 +210,7 @@ class ShardedMigrationTestCase(ShardingTestCase):
         # test the state, this is the point in execution we can measure it.
         self.assertEqual(self.sina.state, State.MAINTENANCE)
 
+    @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
     @mock.patch('sharding.management.commands.migrate_shards.MigrationExecutor.migrate')
     def test_check_or_migrate_shard(self, mock_migrate):
         """
@@ -226,7 +222,6 @@ class ShardedMigrationTestCase(ShardingTestCase):
 
         self.assertEqual(self.sina.state, State.ACTIVE)
 
-        # node = Node(key=('migration_tests, '0002_second'))
         self.node = (MigrationExecutor(connection).loader.graph.nodes[('migration_tests', '0002_second')], False)
         command = MigrateShards()
         command.verbosity = 0

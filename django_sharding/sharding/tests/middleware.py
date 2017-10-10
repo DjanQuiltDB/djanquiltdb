@@ -2,6 +2,7 @@ from unittest import mock
 
 from django.conf import settings
 from django.conf.urls import url
+from django.db import connections
 from django.http import HttpResponse
 from django.test import SimpleTestCase, override_settings
 from django.test.client import RequestFactory
@@ -70,6 +71,12 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
         """
         sharding_settings = settings.SHARDING
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
+
+
+        for connection_name in connections:
+            con = connections[connection_name]
+            for schema in con.get_all_pg_schemas():
+                print("left with:", schema)
 
         create_template_schema('other')
         shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='other',
@@ -149,7 +156,7 @@ class StateExceptionMiddlewareTestCase(SimpleTestCase):
         self.assertEqual(response.status_code, 503)
 
 
-class BaseUseShardMiddlewareTestCase(SimpleTestCase):
+class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
     def setUp(self):
         self.addCleanup(mock.patch.stopall)
         mock.patch('sharding.middleware.get_shard_class').start()

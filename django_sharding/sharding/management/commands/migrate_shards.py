@@ -1,57 +1,54 @@
-# -*- coding: utf-8 -*-
-from __future__ import unicode_literals
-
-import itertools
-import time
-import traceback
-import warnings
-from collections import OrderedDict
-from django.conf import settings
-from importlib import import_module
-
 from django.apps import apps
-from django.core.management import call_command
-from django.core.management.base import BaseCommand, CommandError
-from django.core.management.color import no_style
-from django.core.management.sql import (
-    custom_sql_for_model, emit_post_migrate_signal, emit_pre_migrate_signal,
-)
-from django.db import DEFAULT_DB_ALIAS, connections, router, transaction, connection
+from django.conf import settings
+from django.core.management.base import CommandError
+from django.core.management.commands.migrate import Command as MigrateCommand
+from django.core.management.sql import emit_post_migrate_signal, emit_pre_migrate_signal
+from django.db import connections, connection
 from django.db.migrations.autodetector import MigrationAutodetector
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import AmbiguityError
 from django.db.migrations.state import ProjectState
-from django.utils.deprecation import RemovedInDjango110Warning
 from django.utils.module_loading import module_has_submodule
-from django.core.management.commands.migrate import Command as MigrateCommand
+from importlib import import_module
 
-from sharding.utils import get_shard_class, use_shard, State, get_template_name, migrate_schema
+from sharding.utils import get_shard_class, use_shard, State, get_template_name
 
 
 class Command(MigrateCommand):
     """
     migrate_shards extends the normal migration command.
-    The main handle function is entirely replaced, but most of it is similar.
+    The main handle function is entirely replaced,
+    but most of it is similar.
+
     Major differences:
         A plan is made for each shard and the longest is executed.
         It is executed per node.
-            And each node is done for every shard and template before moving to the next node.
+            And each node is done for every shard and template
+            before moving to the next node.
         Same for fake and reverse operations.
     """
-    help = "Updates database schema. Manages both apps with migrations and those without."
+    help = 'Updates database schema. Manages both apps with migrations and those without.'
 
     def add_arguments(self, parser):
+        # Add additional arguments on top of what the
+        # native Migration command already accepted.
         super(Command, self).add_arguments(parser)
+        # Since we can now target multiple databased
+        # change the default to 'all'
+        # and the options to databases allowed.
         parser._option_string_actions['--database'].default = 'all'
         parser._option_string_actions['--database'].help = \
             'Nominates a database to synchronize. Defaults to all databases.'
         parser._option_string_actions['--database'].choices = ['all'] + self.get_all_but_replica_dbs()
 
+        parser.add_argument('--shard', '-s', action='store', dest='shard',
+                            help='Nominates a single shard or schema to synchronize.'
+                                 'When empty all shards will be migrated.'
+                                 'Format a shard like: <database>|<shard alias, \'public\' of template name>. '
+                                 'e.g., `default|public`, `some_node|template` or `other_node|shard1`.')
+
     def get_all_but_replica_dbs(self):
-        return list(filter(
-            lambda db: not settings.DATABASES[db].get('PRIMARY', None),
-            settings.DATABASES.keys()
-        ))
+        return [name for name, db in settings.DATABASES.items() if not db.get('PRIMARY')]
 
     def handle(self, *args, **options):
         self.verbosity = options.get('verbosity', 0)
@@ -59,15 +56,15 @@ class Command(MigrateCommand):
         self.show_traceback = options.get('traceback')
         self.load_initial_data = options.get('load_initial_data')
         self.database_options = options.get('database')
+        self.target_shard = options.get('shard')
 
-        # Import the 'management' module within each installed app, to register
-        # dispatcher events.
+        # Import the 'management' module within each installed app,
+        # to register dispatcher events.
         for app_config in apps.get_app_configs():
-            if module_has_submodule(app_config.module, "management"):
+            if module_has_submodule(app_config.module, 'management'):
                 import_module('.management', app_config.name)
 
         # Get the database we're operating from
-        #
         if not self.database_options or self.database_options == 'all':
             databases = self.get_all_but_replica_dbs()
         elif self.database_options not in self.get_all_but_replica_dbs():
@@ -75,7 +72,28 @@ class Command(MigrateCommand):
         else:
             databases = [self.database_options]
 
-        if options.get("list", False):
+        # Process shard option
+        schema_name = None
+        database = None
+        if self.target_shard:
+            database, shard_name = self.target_shard.split('|')
+            if database in databases:
+                databases = [database]
+            else:
+                raise ValueError('You must migrate an existing non-primary DB.')
+
+            if shard_name in ['public', get_template_name()]:
+                schema_name = shard_name
+            else:
+                if get_shard_class().objects.filter(alias=shard_name).exists():
+                    shard = get_shard_class().objects.get(alias=shard_name)
+                    schema_name = shard.schema_name
+                    if not shard.node_name == database:
+                        raise ValueError('Shard {} does not belong to database {}.'.format(shard.alias, database))
+                else:
+                    raise ValueError('Shard {} does is not known.'.format(shard_name))
+
+        if options.get('list', False):
             self.stderr.write(
                 "The 'migrate --list' command is not supported in django_sharding. Use 'showmigrations' instead.")
 
@@ -84,8 +102,9 @@ class Command(MigrateCommand):
 
         executor = MigrationExecutor(connection)
 
-        # Before anything else, see if there's conflicting apps and drop out
-        # hard if there are any
+        # Before anything else,
+        # see if there's conflicting apps and drop out hard
+        # if there are any.
         conflicts = executor.loader.detect_conflicts()
         if conflicts:
             name_str = "; ".join(
@@ -98,7 +117,6 @@ class Command(MigrateCommand):
             )
 
         # If they supplied command line arguments, work out what they mean.
-        target_app_labels_only = True
         if options.get('app_label') and options.get('migration_name'):
             app_label, migration_name = options['app_label'], options['migration_name']
             if app_label not in executor.loader.migrated_apps:
@@ -106,7 +124,7 @@ class Command(MigrateCommand):
                     "App '%s' does not have migrations (you cannot selectively "
                     "sync unmigrated apps)" % app_label
                 )
-            if migration_name == "zero":
+            if migration_name == 'zero':
                 targets = [(app_label, None)]
             else:
                 try:
@@ -121,7 +139,6 @@ class Command(MigrateCommand):
                     raise CommandError("Cannot find a migration matching '%s' from app '%s'." % (
                         migration_name, app_label))
                 targets = [(app_label, migration.name)]
-            target_app_labels_only = False
         elif options.get('app_label'):
             app_label = options['app_label']
             if app_label not in executor.loader.migrated_apps:
@@ -153,12 +170,12 @@ class Command(MigrateCommand):
         emit_pre_migrate_signal([], self.verbosity, self.interactive, connection.alias)
 
         if self.verbosity >= 1:
-            self.stdout.write(self.style.MIGRATE_HEADING("Running migrations:"))
+            self.stdout.write(self.style.MIGRATE_HEADING('Running migrations:'))
 
         if not plan:
             executor.check_replacements()
             if self.verbosity >= 1:
-                self.stdout.write("  No migrations to apply.")
+                self.stdout.write('  No migrations to apply.')
                 # If there's changes that aren't in migrations yet, tell them how to fix it.
                 autodetector = MigrationAutodetector(
                     executor.loader.project_state(),
@@ -176,17 +193,23 @@ class Command(MigrateCommand):
                         "apply them."
                     ))
         else:
-            fake = options.get("fake")
-            fake_initial = options.get("fake_initial")
-            for node in plan:
-                # migrate all public schemas and templates
-                for db in databases:
-                    self.check_or_migrate_schema(db, 'public', node, fake, fake_initial)
-                    self.check_or_migrate_schema(db, template_name, node, fake, fake_initial)
+            fake = options.get('fake')
+            fake_initial = options.get('fake_initial')
 
-                # migrate all shards
-                for shard in get_shard_class().objects.filter(node_name__in=databases):
-                    self.check_or_migrate_shard(shard, node, fake, fake_initial)
+            if schema_name:  # if we have a targeted shard, just migrate that shard
+                with use_shard(node_name=database, schema_name=schema_name) as env:
+                    shard_executor = MigrationExecutor(env.connection)
+                    shard_executor.migrate(targets=None, plan=plan, fake=fake, fake_initial=fake_initial)
+            else:  # we have multiple shards to migrate. Do the breath-first.
+                for node in plan:
+                    # migrate all public schemas and templates
+                    for db in databases:
+                        self.check_or_migrate_schema(db, 'public', node, fake, fake_initial)
+                        self.check_or_migrate_schema(db, template_name, node, fake, fake_initial)
+
+                    # migrate all shards
+                    for shard in get_shard_class().objects.filter(node_name__in=databases):
+                        self.check_or_migrate_shard(shard, node, fake, fake_initial)
 
         emit_post_migrate_signal([], self.verbosity, self.interactive, connection.alias)
 
@@ -199,17 +222,21 @@ class Command(MigrateCommand):
         with use_shard(node_name=node_name, schema_name=schema_name) as env:
             executor = MigrationExecutor(env.connection, self.migration_progress_callback)
             migration, backwards = plan_node
+
+            # if the node is applied and we're going backwards,
+            # or the node is not applied yet and we're going forwards.
             if (not (migration.app_label, migration.name) in executor.loader.applied_migrations) == backwards:
                 if self.verbosity >= 2:
                     if backwards:
-                        "    {}|{} does not have {} applied yet.\n".format(node_name, schema_name, migration)
+                        '    {}|{} does not have {} applied yet.\n'.format(node_name, schema_name, migration)
                     else:
-                        "    {}|{} has {} already applied.\n".format(node_name, schema_name, migration)
+                        self.stdout.write(
+                            '    {}|{} has {} already applied.\n'.format(node_name, schema_name, migration))
 
             else:
                 if self.verbosity >= 1:
                     self.stdout.write(
-                        "    {} {} to default|public\n".format('Unapplying' if fake else 'Applying', migration)
+                        '    {} {} to default|public\n'.format('Unapplying' if fake else 'Applying', migration)
                     )
                 executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
 
@@ -217,12 +244,17 @@ class Command(MigrateCommand):
         with use_shard(shard) as env:
             shard_executor = MigrationExecutor(env.connection)
             migration, backwards = plan_node
+
+            # if the node is applied and we're going backwards,
+            # or the node is not applied yet and we're going forwards.
             if (not (migration.app_label, migration.name) in shard_executor.loader.applied_migrations) == backwards:
                 if self.verbosity >= 2:
                     if backwards:
-                        "    {}|{} does not have {} applied yet.\n".format(migration, shard.node_name, shard.alias)
+                        self.stdout.write(
+                            '    {}|{} does not have {} applied yet.\n'.format(migration, shard.node_name, shard.alias))
                     else:
-                        "    {}|{} has {} already applied.\n".format(migration, shard.node_name, shard.alias)
+                        self.stdout.write(
+                            '    {}|{} has {} already applied.\n'.format(migration, shard.node_name, shard.alias))
 
             else:
                 previous_state = shard.state

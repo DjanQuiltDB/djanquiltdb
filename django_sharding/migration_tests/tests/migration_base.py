@@ -2,13 +2,15 @@
 
 import os
 
-from django.db import connection
+from django.db import connection, connections
 from django.db.migrations.recorder import MigrationRecorder
-from django.test import TransactionTestCase
 from django.utils._os import upath
 
+from sharding.tests.utils import ShardingTestCase
+from sharding.utils import create_template_schema
 
-class MigrationTestBase(TransactionTestCase):
+
+class MigrationTestBase(ShardingTestCase):
     """
     Contains an extended set of asserts for testing migrations and schema operations.
     """
@@ -16,10 +18,28 @@ class MigrationTestBase(TransactionTestCase):
     available_apps = ["migration_tests", "sharding"]
     test_dir = os.path.abspath(os.path.dirname(upath(__file__)))
 
+    def setUp(self):
+        pass  # prevent the addCleanup from ShardingTestCase
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        create_template_schema()  # the template won't have any migration applied to it initially
+        create_template_schema('other')  # the template won't have any migration applied to it initially
+
     def tearDown(self):
         # Reset applied-migrations state.
-        recorder = MigrationRecorder(connection)
-        recorder.migration_qs.filter(app='migration_tests').delete()
+        for connection_name in connections:
+            con = connections[connection_name]
+            recorder = MigrationRecorder(con)
+            recorder.migration_qs.all().delete()
+        super().tearDown()
+
+
+    @classmethod
+    def tearDownClass(cls):  # run when TestCase is done
+        super().clean_up(cls)  # we only want to clean stuff up at the end of the TestCase
+        super().tearDownClass()
 
     def get_table_description(self, table):
         with connection.cursor() as cursor:

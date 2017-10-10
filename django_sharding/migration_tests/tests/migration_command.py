@@ -8,7 +8,6 @@ from django.db import connection, DatabaseError
 from django.db.migrations.recorder import MigrationRecorder
 from django.test import override_settings
 
-from sharding.utils import create_template_schema
 from .migration_base import MigrationTestBase
 
 
@@ -17,11 +16,6 @@ class MigrateTests(MigrationTestBase):
     """
     Tests running the migrate command.
     """
-
-    @classmethod
-    def setUpClass(cls):
-        create_template_schema()  # the template won't have any migration applied to it initially
-        create_template_schema('other')  # the template won't have any migration applied to it initially
 
     @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
     def test_migrate(self, mock_router):
@@ -113,6 +107,7 @@ class MigrateTests(MigrationTestBase):
 
         self.assertTrue(mock_router.called)
 
+
     @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations_conflict"})
     def test_migrate_conflict_exit(self, mock_router):
         """
@@ -153,7 +148,7 @@ class MigrateTests(MigrationTestBase):
         recorder.record_applied("migration_tests", "0001_initial")
         recorder.record_applied("migration_tests", "0002_second")
         out = six.StringIO()
-        call_command("migrate_shards", "migration_tests", verbosity=0)
+        call_command("migrate_shards", "migration_tests", shard="default|public", verbosity=0)
         call_command("showmigrations", "migration_tests", stdout=out, no_color=True)
         self.assertEqual(
             'migration_tests\n'

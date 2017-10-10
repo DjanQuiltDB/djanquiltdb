@@ -14,6 +14,7 @@ import threading
 from enum import Enum
 
 from django.apps import apps
+from django.db.migrations.executor import MigrationExecutor
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.commands.migrate import Command as MigrateCommand
@@ -387,7 +388,7 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
     """
     node_name = node_name or get_new_shard_node()
     if not node_name:
-        raise ValueError("No node_name given, and no NEW_SHARD_NODE set in the SHARING settings.")
+        raise ValueError("Neither a node_name given, nor a NEW_SHARD_NODE set in the SHARING settings.")
     _node_exists(node_name)
     connections[node_name].create_schema(schema_name)
 
@@ -461,9 +462,10 @@ def migrate_schema(node_name, schema_name):
 
 
 def record_migrated(connection):
-    # Helper function to let the migration system know which migrations have been executed.
-    # Since the sync_apps does not do this.
-    from django.db.migrations.executor import MigrationExecutor
+    """
+    Helper function to let the migration system know which migrations
+    have been executed. Since the sync_apps does not do this.
+    """
     executor = MigrationExecutor(connection)
     for key, migration in executor.loader.disk_migrations.items():
         executor.recorder.record_applied(*key)
