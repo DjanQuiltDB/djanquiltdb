@@ -546,9 +546,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'),
                               default_public_tables)
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='template'), template_tables)
-        # self.assertCountEqual(connections['other'].get_all_table_headers(schema_name='public'), other_public_tables)
-        #TODO(SHARDING-13): migrations from migration_tests/test_migrations litter the other|public schema.
-        self.assertNotIn('example_organizationshards', connections['other'].get_all_table_headers(schema_name='public'))
+        self.assertCountEqual(connections['other'].get_all_table_headers(schema_name='public'), other_public_tables)
 
         create_template_schema('other')
         self.assertCountEqual(connections['other'].get_all_table_headers(schema_name='template'), template_tables)

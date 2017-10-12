@@ -35,7 +35,6 @@ class MigrationTestBase(ShardingTestCase):
             recorder.migration_qs.all().delete()
         super().tearDown()
 
-
     @classmethod
     def tearDownClass(cls):  # run when TestCase is done
         super().clean_up(cls)  # we only want to clean stuff up at the end of the TestCase

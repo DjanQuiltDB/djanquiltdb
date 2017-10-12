@@ -1,7 +1,7 @@
 from unittest import mock
 
 from django.conf import settings
-from django.db import connection, connections
+from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.recorder import MigrationRecorder
 from django.test import override_settings
@@ -91,7 +91,7 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
             self.assertTrue(('migration_tests', '0002_second') in applied_migration_tests)
             self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
 
-        MigrateShards().handle(database='all', verbosity=2)
+        MigrateShards().handle(database='all', verbosity=0)
 
         # all shards and the template now are fully migrated
         for db in self.databases:
@@ -119,6 +119,36 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
             self.assertTrue(('migration_tests', '0003_third') in applied_migration_tests)
             self.assertTrue(('migration_tests', '0002_second') in applied_migration_tests)
             self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
+
+        # rollback
+        MigrateShards().handle(app_label='migration_tests', migration_name='zero', database='all', verbosity=0)
+
+        # all shards and the template now are back so square 0
+        for db in self.databases:
+            with use_shard(node_name=db, schema_name='template') as env:
+                recorder = MigrationRecorder(env.connection)
+                applied_migration_tests = recorder.applied_migrations()
+                self.assertFalse(('migration_tests', '0003_third') in applied_migration_tests)
+                self.assertFalse(('migration_tests', '0002_second') in applied_migration_tests)
+                self.assertFalse(('migration_tests', '0001_initial') in applied_migration_tests)
+        with use_shard(self.sina) as env:
+            recorder = MigrationRecorder(env.connection)
+            applied_migration_tests = recorder.applied_migrations()
+            self.assertFalse(('migration_tests', '0003_third') in applied_migration_tests)
+            self.assertFalse(('migration_tests', '0002_second') in applied_migration_tests)
+            self.assertFalse(('migration_tests', '0001_initial') in applied_migration_tests)
+        with use_shard(self.rose) as env:
+            recorder = MigrationRecorder(env.connection)
+            applied_migration_tests = recorder.applied_migrations()
+            self.assertFalse(('migration_tests', '0003_third') in applied_migration_tests)
+            self.assertFalse(('migration_tests', '0002_second') in applied_migration_tests)
+            self.assertFalse(('migration_tests', '0001_initial') in applied_migration_tests)
+        with use_shard(self.maria) as env:
+            recorder = MigrationRecorder(env.connection)
+            applied_migration_tests = recorder.applied_migrations()
+            self.assertFalse(('migration_tests', '0003_third') in applied_migration_tests)
+            self.assertFalse(('migration_tests', '0002_second') in applied_migration_tests)
+            self.assertFalse(('migration_tests', '0001_initial') in applied_migration_tests)
 
 
 class ShardedMigrationTestCase(MigrationTestBase):

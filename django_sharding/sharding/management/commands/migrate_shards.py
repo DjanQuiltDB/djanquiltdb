@@ -55,8 +55,6 @@ class Command(MigrateCommand):
         self.interactive = options.get('interactive')
         self.show_traceback = options.get('traceback')
         self.load_initial_data = options.get('load_initial_data')
-        self.database_options = options.get('database')
-        self.target_shard = options.get('shard')
 
         # Import the 'management' module within each installed app,
         # to register dispatcher events.
@@ -64,34 +62,8 @@ class Command(MigrateCommand):
             if module_has_submodule(app_config.module, 'management'):
                 import_module('.management', app_config.name)
 
-        # Get the database we're operating from
-        if not self.database_options or self.database_options == 'all':
-            databases = self.get_all_but_replica_dbs()
-        elif self.database_options not in self.get_all_but_replica_dbs():
-            raise ValueError('You must migrate an existing non-primary DB.')
-        else:
-            databases = [self.database_options]
-
-        # Process shard option
-        schema_name = None
-        database = None
-        if self.target_shard:
-            database, shard_name = self.target_shard.split('|')
-            if database in databases:
-                databases = [database]
-            else:
-                raise ValueError('You must migrate an existing non-primary DB.')
-
-            if shard_name in ['public', get_template_name()]:
-                schema_name = shard_name
-            else:
-                if get_shard_class().objects.filter(alias=shard_name).exists():
-                    shard = get_shard_class().objects.get(alias=shard_name)
-                    schema_name = shard.schema_name
-                    if not shard.node_name == database:
-                        raise ValueError('Shard {} does not belong to database {}.'.format(shard.alias, database))
-                else:
-                    raise ValueError('Shard {} does is not known.'.format(shard_name))
+        databases, database, schema_name = self.get_database_and_schema_from_options(options)
+        template_name = get_template_name()
 
         if options.get('list', False):
             self.stderr.write(
@@ -117,6 +89,62 @@ class Command(MigrateCommand):
             )
 
         # If they supplied command line arguments, work out what they mean.
+        targets = self.get_targets_from_options(executor, options)
+
+        # Work out from which node we need to migrate
+        plan = self.get_plan(executor, targets, databases)
+
+        # Execute the plan
+        emit_pre_migrate_signal([], self.verbosity, self.interactive, connection.alias)
+
+        if self.verbosity >= 1:
+            self.stdout.write(self.style.MIGRATE_HEADING('Running migrations:'))
+
+        if not plan:
+            executor.check_replacements()
+            if self.verbosity >= 1:
+                self.check_for_changes(executor)
+        else:
+            self.perform_migration(plan, database, schema_name, databases,
+                                   fake=options.get('fake'), fake_initial=options.get('fake_initial'))
+
+        emit_post_migrate_signal([], self.verbosity, self.interactive, connection.alias)
+
+    def get_database_and_schema_from_options(self, options):
+        database_options = options.get('database')
+        target_shard = options.get('shard')
+
+        # Get the database we're operating from
+        if not database_options or database_options == 'all':
+            databases = self.get_all_but_replica_dbs()
+        elif database_options not in self.get_all_but_replica_dbs():
+            raise ValueError('You must migrate an existing non-primary DB.')
+        else:
+            databases = [database_options]
+
+        # Process shard option
+        schema_name = None
+        database = None
+        if target_shard:
+            database, shard_name = target_shard.split('|')
+            if database in databases:
+                databases = [database]
+            else:
+                raise ValueError('You must migrate an existing non-primary DB.')
+
+            if shard_name in ['public', get_template_name()]:
+                schema_name = shard_name
+            else:
+                if get_shard_class().objects.filter(alias=shard_name).exists():
+                    shard = get_shard_class().objects.get(alias=shard_name)
+                    schema_name = shard.schema_name
+                    if not shard.node_name == database:
+                        raise ValueError('Shard {} does not belong to database {}.'.format(shard.alias, database))
+                else:
+                    raise ValueError('Shard {} does is not known.'.format(shard_name))
+        return databases, database, schema_name
+
+    def get_targets_from_options(self, executor, options):
         if options.get('app_label') and options.get('migration_name'):
             app_label, migration_name = options['app_label'], options['migration_name']
             if app_label not in executor.loader.migrated_apps:
@@ -150,7 +178,9 @@ class Command(MigrateCommand):
         else:
             targets = executor.loader.graph.leaf_nodes()
 
-        # Work out from which node we need to migrate
+        return targets
+
+    def get_plan(self, executor, targets, databases):
         plan = executor.migration_plan(targets)  # for default|public
         template_name = get_template_name()
         for shard in get_shard_class().objects.filter(node_name__in=databases):
@@ -165,58 +195,48 @@ class Command(MigrateCommand):
             template_plan = self.get_plan_for_shard(db, template_name, targets)
             if len(template_plan) > len(plan):
                 plan = template_plan
-
-        # Execute the plan
-        emit_pre_migrate_signal([], self.verbosity, self.interactive, connection.alias)
-
-        if self.verbosity >= 1:
-            self.stdout.write(self.style.MIGRATE_HEADING('Running migrations:'))
-
-        if not plan:
-            executor.check_replacements()
-            if self.verbosity >= 1:
-                self.stdout.write('  No migrations to apply.')
-                # If there's changes that aren't in migrations yet, tell them how to fix it.
-                autodetector = MigrationAutodetector(
-                    executor.loader.project_state(),
-                    ProjectState.from_apps(apps),
-                )
-                changes = autodetector.changes(graph=executor.loader.graph)
-                if changes:
-                    self.stdout.write(self.style.NOTICE(
-                        "  Your models have changes that are not yet reflected "
-                        "in a migration, and so won't be applied."
-                    ))
-                    self.stdout.write(self.style.NOTICE(
-                        "  Run 'manage.py makemigrations' to make new "
-                        "migrations, and then re-run 'manage.py migrate' to "
-                        "apply them."
-                    ))
-        else:
-            fake = options.get('fake')
-            fake_initial = options.get('fake_initial')
-
-            if schema_name:  # if we have a targeted shard, just migrate that shard
-                with use_shard(node_name=database, schema_name=schema_name) as env:
-                    shard_executor = MigrationExecutor(env.connection)
-                    shard_executor.migrate(targets=None, plan=plan, fake=fake, fake_initial=fake_initial)
-            else:  # we have multiple shards to migrate. Do the breath-first.
-                for node in plan:
-                    # migrate all public schemas and templates
-                    for db in databases:
-                        self.check_or_migrate_schema(db, 'public', node, fake, fake_initial)
-                        self.check_or_migrate_schema(db, template_name, node, fake, fake_initial)
-
-                    # migrate all shards
-                    for shard in get_shard_class().objects.filter(node_name__in=databases):
-                        self.check_or_migrate_shard(shard, node, fake, fake_initial)
-
-        emit_post_migrate_signal([], self.verbosity, self.interactive, connection.alias)
+        return plan
 
     def get_plan_for_shard(self, node_name, schema_name, targets):
         with use_shard(node_name=node_name, schema_name=schema_name) as env:
             shard_executor = MigrationExecutor(env.connection, self.migration_progress_callback)
             return shard_executor.migration_plan(targets)
+
+    def check_for_changes(self, executor):
+        self.stdout.write('  No migrations to apply.')
+        # If there's changes that aren't in migrations yet, tell them how to fix it.
+        autodetector = MigrationAutodetector(
+            executor.loader.project_state(),
+            ProjectState.from_apps(apps),
+        )
+        changes = autodetector.changes(graph=executor.loader.graph)
+        if changes:
+            self.stdout.write(self.style.NOTICE(
+                "  Your models have changes that are not yet reflected "
+                "in a migration, and so won't be applied."
+            ))
+            self.stdout.write(self.style.NOTICE(
+                "  Run 'manage.py makemigrations' to make new "
+                "migrations, and then re-run 'manage.py migrate' to "
+                "apply them."
+            ))
+
+    def perform_migration(self, plan, database, schema_name, databases, fake, fake_initial):
+        template_name = get_template_name()
+        if schema_name:  # if we have a targeted shard, just migrate that shard
+            with use_shard(node_name=database, schema_name=schema_name) as env:
+                shard_executor = MigrationExecutor(env.connection)
+                shard_executor.migrate(targets=None, plan=plan, fake=fake, fake_initial=fake_initial)
+        else:  # we have multiple shards to migrate. Do the breath-first.
+            for node in plan:
+                # migrate all public schemas and templates
+                for db in databases:
+                    self.check_or_migrate_schema(db, 'public', node, fake, fake_initial)
+                    self.check_or_migrate_schema(db, template_name, node, fake, fake_initial)
+
+                # migrate all shards
+                for shard in get_shard_class().objects.filter(node_name__in=databases):
+                    self.check_or_migrate_shard(shard, node, fake, fake_initial)
 
     def check_or_migrate_schema(self, node_name, schema_name, plan_node, fake, fake_initial):
         with use_shard(node_name=node_name, schema_name=schema_name) as env:
