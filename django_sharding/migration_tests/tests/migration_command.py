@@ -107,7 +107,6 @@ class MigrateTests(MigrationTestBase):
 
         self.assertTrue(mock_router.called)
 
-
     @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations_conflict"})
     def test_migrate_conflict_exit(self, mock_router):
         """

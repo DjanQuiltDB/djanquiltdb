@@ -72,7 +72,6 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
         sharding_settings = settings.SHARDING
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
-
         for connection_name in connections:
             con = connections[connection_name]
             for schema in con.get_all_pg_schemas():

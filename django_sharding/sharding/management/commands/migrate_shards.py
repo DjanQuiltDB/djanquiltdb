@@ -63,7 +63,6 @@ class Command(MigrateCommand):
                 import_module('.management', app_config.name)
 
         databases, database, schema_name = self.get_database_and_schema_from_options(options)
-        template_name = get_template_name()
 
         if options.get('list', False):
             self.stderr.write(
