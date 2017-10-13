@@ -1,4 +1,5 @@
 # Taken from the Django source: https://github.com/django/django/blob/stable/1.8.x/tests/migrations/test_base.py
+from unittest import mock
 
 import os
 
@@ -19,7 +20,9 @@ class MigrationTestBase(ShardingTestCase):
     test_dir = os.path.abspath(os.path.dirname(upath(__file__)))
 
     def setUp(self):
-        pass  # prevent the addCleanup from ShardingTestCase
+        # prevent the addCleanup from ShardingTestCase by not calling super().setUp()
+        self.mock_router = mock.patch('sharding.utils.DynamicDbRouter.allow_migrate').start()
+        self.addCleanup(mock.patch.stopall)
 
     @classmethod
     def setUpClass(cls):

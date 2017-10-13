@@ -11,7 +11,7 @@ from django.db.migrations.state import ProjectState
 from django.utils.module_loading import module_has_submodule
 from importlib import import_module
 
-from sharding.utils import get_shard_class, use_shard, State, get_template_name
+from sharding.utils import get_shard_class, use_shard, get_template_name
 
 
 class Command(MigrateCommand):
@@ -62,7 +62,7 @@ class Command(MigrateCommand):
             if module_has_submodule(app_config.module, 'management'):
                 import_module('.management', app_config.name)
 
-        databases, database, schema_name = self.get_database_and_schema_from_options(options)
+        databases, schema_name = self.get_database_and_schema_from_options(options)
 
         if options.get('list', False):
             self.stderr.write(
@@ -91,7 +91,7 @@ class Command(MigrateCommand):
         targets = self.get_targets_from_options(executor, options)
 
         # Work out from which node we need to migrate
-        plan = self.get_plan(executor, targets, databases)
+        plan = self.get_plan(targets, databases)
 
         # Execute the plan
         emit_pre_migrate_signal([], self.verbosity, self.interactive, connection.alias)
@@ -104,7 +104,7 @@ class Command(MigrateCommand):
             if self.verbosity >= 1:
                 self.check_for_changes(executor)
         else:
-            self.perform_migration(plan, database, schema_name, databases,
+            self.perform_migration(plan, databases, schema_name,
                                    fake=options.get('fake'), fake_initial=options.get('fake_initial'))
 
         emit_post_migrate_signal([], self.verbosity, self.interactive, connection.alias)
@@ -117,19 +117,18 @@ class Command(MigrateCommand):
         if not database_options or database_options == 'all':
             databases = self.get_all_but_replica_dbs()
         elif database_options not in self.get_all_but_replica_dbs():
-            raise ValueError('You must migrate an existing non-primary DB.')
+            raise CommandError('You must migrate an existing non-primary DB.')
         else:
             databases = [database_options]
 
         # Process shard option
         schema_name = None
-        database = None
         if target_shard:
             database, shard_name = target_shard.split('|')
             if database in databases:
                 databases = [database]
             else:
-                raise ValueError('You must migrate an existing non-primary DB.')
+                raise CommandError('You must migrate an existing non-primary DB.')
 
             if shard_name in ['public', get_template_name()]:
                 schema_name = shard_name
@@ -138,10 +137,10 @@ class Command(MigrateCommand):
                     shard = get_shard_class().objects.get(alias=shard_name)
                     schema_name = shard.schema_name
                     if not shard.node_name == database:
-                        raise ValueError('Shard {} does not belong to database {}.'.format(shard.alias, database))
+                        raise CommandError('Shard {} does not belong to database {}.'.format(shard.alias, database))
                 else:
-                    raise ValueError('Shard {} does is not known.'.format(shard_name))
-        return databases, database, schema_name
+                    raise CommandError('Shard {} does is not known.'.format(shard_name))
+        return databases, schema_name
 
     def get_targets_from_options(self, executor, options):
         if options.get('app_label') and options.get('migration_name'):
@@ -152,35 +151,35 @@ class Command(MigrateCommand):
                     "sync unmigrated apps)" % app_label
                 )
             if migration_name == 'zero':
-                targets = [(app_label, None)]
-            else:
-                try:
-                    migration = executor.loader.get_migration_by_prefix(app_label, migration_name)
-                except AmbiguityError:
-                    raise CommandError(
-                        "More than one migration matches '%s' in app '%s'. "
-                        "Please be more specific." %
-                        (migration_name, app_label)
-                    )
-                except KeyError:
-                    raise CommandError("Cannot find a migration matching '%s' from app '%s'." % (
-                        migration_name, app_label))
-                targets = [(app_label, migration.name)]
-        elif options.get('app_label'):
+                return [(app_label, None)]
+
+            try:
+                migration = executor.loader.get_migration_by_prefix(app_label, migration_name)
+            except AmbiguityError:
+                raise CommandError(
+                    "More than one migration matches '%s' in app '%s'. "
+                    "Please be more specific." %
+                    (migration_name, app_label)
+                )
+            except KeyError:
+                raise CommandError("Cannot find a migration matching '%s' from app '%s'." % (
+                    migration_name, app_label))
+            return [(app_label, migration.name)]
+
+        if options.get('app_label'):
             app_label = options['app_label']
             if app_label not in executor.loader.migrated_apps:
                 raise CommandError(
                     "App '%s' does not have migrations (you cannot selectively "
                     "sync unmigrated apps)" % app_label
                 )
-            targets = [key for key in executor.loader.graph.leaf_nodes() if key[0] == app_label]
-        else:
-            targets = executor.loader.graph.leaf_nodes()
+            return [key for key in executor.loader.graph.leaf_nodes() if key[0] == app_label]
 
-        return targets
+        # nothing is given. just return all end nodes
+        return executor.loader.graph.leaf_nodes()
 
-    def get_plan(self, executor, targets, databases):
-        plan = executor.migration_plan(targets)  # for default|public
+    def get_plan(self, targets, databases):
+        plan = []
         template_name = get_template_name()
         for shard in get_shard_class().objects.filter(node_name__in=databases):
             shard_plan = self.get_plan_for_shard(shard.node_name, shard.schema_name, targets)
@@ -220,13 +219,14 @@ class Command(MigrateCommand):
                 "apply them."
             ))
 
-    def perform_migration(self, plan, database, schema_name, databases, fake, fake_initial):
+    def perform_migration(self, plan, databases, schema_name, fake, fake_initial):
         template_name = get_template_name()
         if schema_name:  # if we have a targeted shard, just migrate that shard
-            with use_shard(node_name=database, schema_name=schema_name) as env:
+            # If we get a schema_name we assume databases has only one entry
+            with use_shard(node_name=databases[0], schema_name=schema_name) as env:
                 shard_executor = MigrationExecutor(env.connection)
                 shard_executor.migrate(targets=None, plan=plan, fake=fake, fake_initial=fake_initial)
-        else:  # we have multiple shards to migrate. Do the breath-first.
+        else:  # we have multiple shards to migrate. Do the breath-first
             for node in plan:
                 # migrate all public schemas and templates
                 for db in databases:
@@ -247,15 +247,16 @@ class Command(MigrateCommand):
             if (not (migration.app_label, migration.name) in executor.loader.applied_migrations) == backwards:
                 if self.verbosity >= 2:
                     if backwards:
-                        '    {}|{} does not have {} applied yet.\n'.format(node_name, schema_name, migration)
+                        self.stdout.write(
+                            '    {}|{} does not have {} applied yet.\n'.format(node_name, schema_name, migration))
                     else:
                         self.stdout.write(
                             '    {}|{} has {} already applied.\n'.format(node_name, schema_name, migration))
 
             else:
-                if self.verbosity >= 1:
+                if self.verbosity >= 2:
                     self.stdout.write(
-                        '    {} {} to default|public\n'.format('Unapplying' if fake else 'Applying', migration)
+                        '    {} {} to default|public\n'.format('Unapplying' if backwards else 'Applying', migration)
                     )
                 executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
 
@@ -270,17 +271,15 @@ class Command(MigrateCommand):
                 if self.verbosity >= 2:
                     if backwards:
                         self.stdout.write(
-                            '    {}|{} does not have {} applied yet.\n'.format(migration, shard.node_name, shard.alias))
+                            '    {}|{} does not have {} applied yet.\n'.format(shard.node_name, shard.alias, migration))
                     else:
                         self.stdout.write(
-                            '    {}|{} has {} already applied.\n'.format(migration, shard.node_name, shard.alias))
+                            '    {}|{} has {} already applied.\n'.format(shard.node_name, shard.alias, migration))
 
             else:
-                previous_state = shard.state
-                shard.state = State.MAINTENANCE
-                shard.save(update_fields=['state'])
-
+                if self.verbosity >= 2:
+                    self.stdout.write(
+                        '    {} {} to {}|{}\n'.format('Unapplying' if backwards else 'Applying', migration,
+                                                      shard.node_name, shard.alias)
+                    )
                 shard_executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
-
-                shard.state = previous_state
-                shard.save(update_fields=['state'])
