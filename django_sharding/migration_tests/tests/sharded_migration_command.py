@@ -55,7 +55,7 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
 
             # We keep Maria fully migrated (to 0003)
             self.maria = Shard.objects.create(alias='maria', schema_name='test_maria', node_name='default',
-                                              state=State.ACTIVE)
+                                              state=State.MAINTENANCE)
 
     @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
     def test_forward_migration_as_a_whole(self):
@@ -86,7 +86,7 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
             self.assertFalse(('migration_tests', '0003_third') in applied_migration_tests)
             self.assertTrue(('migration_tests', '0002_second') in applied_migration_tests)
             self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
-        with use_shard(self.maria) as env:
+        with use_shard(self.maria, active_only_schemas=False) as env:
             recorder = MigrationRecorder(env.connection)
             applied_migration_tests = recorder.applied_migrations()
             self.assertTrue(('migration_tests', '0003_third') in applied_migration_tests)
@@ -115,7 +115,7 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
             self.assertTrue(('migration_tests', '0003_third') in applied_migration_tests)
             self.assertTrue(('migration_tests', '0002_second') in applied_migration_tests)
             self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
-        with use_shard(self.maria) as env:
+        with use_shard(self.maria, active_only_schemas=False) as env:
             recorder = MigrationRecorder(env.connection)
             applied_migration_tests = recorder.applied_migrations()
             self.assertTrue(('migration_tests', '0003_third') in applied_migration_tests)
@@ -145,25 +145,15 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
             self.assertFalse(('migration_tests', '0003_third') in applied_migration_tests)
             self.assertFalse(('migration_tests', '0002_second') in applied_migration_tests)
             self.assertFalse(('migration_tests', '0001_initial') in applied_migration_tests)
-        with use_shard(self.maria) as env:
+        with use_shard(self.maria, active_only_schemas=False) as env:
             recorder = MigrationRecorder(env.connection)
             applied_migration_tests = recorder.applied_migrations()
             self.assertFalse(('migration_tests', '0003_third') in applied_migration_tests)
             self.assertFalse(('migration_tests', '0002_second') in applied_migration_tests)
             self.assertFalse(('migration_tests', '0001_initial') in applied_migration_tests)
 
-    @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
-    def test_migration_on_shard_in_maintenance(self):
-        """
-        Case: call migrate_shards.handle for a shard that is in maintenance
-        Expected: The shard migrated as normal
-        """
-        self.sina.state = State.MAINTENANCE
-        self.sina.save()
-        MigrateShards().handle(app_label='migration_tests', verbosity=0)
 
-
-class OldMigrationTestCase(MigrationTestBase):
+class OriginalMigrationTestCase(MigrationTestBase):
     # Taken from the Django source: https://github.com/django/django/blob/stable/1.8.x/tests/migrations/test_commands.py
     @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
     def test_migrate(self):
