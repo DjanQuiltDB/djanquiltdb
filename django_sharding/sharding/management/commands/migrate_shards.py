@@ -261,7 +261,7 @@ class Command(MigrateCommand):
                 executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
 
     def check_or_migrate_shard(self, shard, plan_node, fake, fake_initial):
-        with use_shard(shard) as env:
+        with use_shard(shard, active_only_schemas=False) as env:
             shard_executor = MigrationExecutor(env.connection)
             migration, backwards = plan_node
 

@@ -171,13 +171,12 @@ class use_shard(object):
     # (Situations where the schema is made, but the shard object is not saved yet.)
     def __init__(self, shard=None, node_name=None, schema_name=None, active_only_schemas=True):
         shard_class = get_shard_class()
-
         if shard:
             if not isinstance(shard, shard_class):
                 raise ValueError("Shard value {} ({}) must of type {}".format(shard,
                                                                               type(shard).__name__,
                                                                               shard_class.__name__))
-            if shard.state != State.ACTIVE:
+            if active_only_schemas and shard.state != State.ACTIVE:
                 raise StateException("Shard {} state is {}".format(shard, shard.state), shard.state)
 
             if active_only_schemas and 'MAPPING_MODEL' in settings.SHARDING:

@@ -152,6 +152,16 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
             self.assertFalse(('migration_tests', '0002_second') in applied_migration_tests)
             self.assertFalse(('migration_tests', '0001_initial') in applied_migration_tests)
 
+    @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
+    def test_migration_on_shard_in_maintenance(self):
+        """
+        Case: call migrate_shards.handle for a shard that is in maintenance
+        Expected: The shard migrated as normal
+        """
+        self.sina.state = State.MAINTENANCE
+        self.sina.save()
+        MigrateShards().handle(app_label='migration_tests', verbosity=0)
+
 
 class OldMigrationTestCase(MigrationTestBase):
     # Taken from the Django source: https://github.com/django/django/blob/stable/1.8.x/tests/migrations/test_commands.py

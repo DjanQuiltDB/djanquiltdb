@@ -156,6 +156,17 @@ class UseShardTestCase(ShardingTestCase):
             self.fail('THREAD_LOCAL.DB_OVERRIDE should be None or not exist.')
 
     @mock.patch("sharding.utils._set_schema")
+    def test_use_shard_with_inactive_shard_with_state_test_disabled(self, mock_set_schema):
+        """
+        Case: Call use_shard with a shard that is not active, but active_only_schemas is False
+        Expected: No StateException to be raised
+        """
+        with use_shard(self.inactive_shard, active_only_schemas=False):
+            pass
+
+        self.assertTrue(mock_set_schema.called)
+
+    @mock.patch("sharding.utils._set_schema")
     def test_use_shard_inception(self, mock_set_schema):
         """
         Case: Call use_shard within a use_shard enviorment
