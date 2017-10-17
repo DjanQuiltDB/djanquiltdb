@@ -28,7 +28,7 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
 
         self.databases = MigrateShards().get_all_but_replica_dbs()
 
-        with override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"}):
+        with override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'}):
             # default|template migrates fully
             # therefore the shards created after this will be fully migrated as well.
             for db in self.databases:
@@ -57,7 +57,7 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
             self.maria = Shard.objects.create(alias='maria', schema_name='test_maria', node_name='default',
                                               state=State.MAINTENANCE)
 
-    @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
+    @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
     def test_forward_migration_as_a_whole(self):
         """
         Case: Call MultiSchemaMigration.migrate() with shard in several states of migration.
@@ -155,36 +155,36 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
 
 class OriginalMigrationTestCase(MigrationTestBase):
     # Taken from the Django source: https://github.com/django/django/blob/stable/1.8.x/tests/migrations/test_commands.py
-    @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
+    @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
     def test_migrate(self):
         """
         Case: Tests basic usage of the migrate command.
         Expected: Tables only to exist when they should
         """
         # Make sure no tables are created
-        self.assertTableNotExists("migration_tests_author")
-        self.assertTableNotExists("migration_tests_tribble")
-        self.assertTableNotExists("migration_tests_book")
+        self.assertTableNotExists('migration_tests_author')
+        self.assertTableNotExists('migration_tests_tribble')
+        self.assertTableNotExists('migration_tests_book')
         # Run the migrations to 0001 only
-        call_command("migrate_shards", "migration_tests", "0001", verbosity=0)
+        call_command('migrate_shards', 'migration_tests', '0001', verbosity=0)
         # Make sure the right tables exist
-        self.assertTableExists("migration_tests_author")
-        self.assertTableExists("migration_tests_tribble")
-        self.assertTableNotExists("migration_tests_book")
+        self.assertTableExists('migration_tests_author')
+        self.assertTableExists('migration_tests_tribble')
+        self.assertTableNotExists('migration_tests_book')
         # Run migrations all the way
-        call_command("migrate_shards", verbosity=0)
+        call_command('migrate_shards', verbosity=0)
         # Make sure the right tables exist
-        self.assertTableExists("migration_tests_author")
-        self.assertTableNotExists("migration_tests_tribble")
-        self.assertTableExists("migration_tests_book")
+        self.assertTableExists('migration_tests_author')
+        self.assertTableNotExists('migration_tests_tribble')
+        self.assertTableExists('migration_tests_book')
         # Unmigrate everything
-        call_command("migrate_shards", "migration_tests", "zero", verbosity=0)
+        call_command('migrate_shards', 'migration_tests', 'zero', verbosity=0)
         # Make sure it's all gone
-        self.assertTableNotExists("migration_tests_author")
-        self.assertTableNotExists("migration_tests_tribble")
-        self.assertTableNotExists("migration_tests_book")
+        self.assertTableNotExists('migration_tests_author')
+        self.assertTableNotExists('migration_tests_tribble')
+        self.assertTableNotExists('migration_tests_book')
 
-    @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
+    @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
     def test_migrate_fake_initial(self):
         """
         Case: #24184 - Tests that --fake-initial only works if all tables created in
@@ -192,69 +192,68 @@ class OriginalMigrationTestCase(MigrationTestBase):
         Expected: Tables only to exist when they should
         """
         # Make sure no tables are created
-        self.assertTableNotExists("migration_tests_author")
-        self.assertTableNotExists("migration_tests_tribble")
+        self.assertTableNotExists('migration_tests_author')
+        self.assertTableNotExists('migration_tests_tribble')
         # Run the migrations to 0001 only
-        call_command("migrate_shards", "migration_tests", "0001", verbosity=0)
+        call_command('migrate_shards', 'migration_tests', '0001', verbosity=0)
         # Make sure the right tables exist
-        self.assertTableExists("migration_tests_author")
-        self.assertTableExists("migration_tests_tribble")
+        self.assertTableExists('migration_tests_author')
+        self.assertTableExists('migration_tests_tribble')
         # Fake a roll-back
-        call_command("migrate_shards", "migration_tests", "zero", fake=True, verbosity=0)
+        call_command('migrate_shards', 'migration_tests', 'zero', fake=True, verbosity=0)
         # Make sure the tables still exist
-        self.assertTableExists("migration_tests_author")
-        self.assertTableExists("migration_tests_tribble")
+        self.assertTableExists('migration_tests_author')
+        self.assertTableExists('migration_tests_tribble')
         # Try to run initial migration
         with self.assertRaises(DatabaseError):
-            call_command("migrate_shards", "migration_tests", "0001", verbosity=0)
+            call_command('migrate_shards', 'migration_tests', '0001', verbosity=0)
         # Run initial migration with an explicit --fake-initial
         out = six.StringIO()
         with mock.patch('django.core.management.color.supports_color', lambda *args: False):
-            call_command("migrate_shards", "migration_tests", "0001", fake_initial=True, stdout=out, verbosity=1)
-            # call_command("migrate", "migration_tests", "0001", fake_initial=True, stdout=out, verbosity=1)
+            call_command('migrate_shards', 'migration_tests', '0001', fake_initial=True, stdout=out, verbosity=1)
         self.assertIn(
-            "migration_tests.0001_initial... faked",
+            'migration_tests.0001_initial... faked',
             out.getvalue().lower()
         )
         # Run migrations all the way
-        call_command("migrate_shards", verbosity=0)
+        call_command('migrate_shards', verbosity=0)
         # Make sure the right tables exist
-        self.assertTableExists("migration_tests_author")
-        self.assertTableNotExists("migration_tests_tribble")
-        self.assertTableExists("migration_tests_book")
+        self.assertTableExists('migration_tests_author')
+        self.assertTableNotExists('migration_tests_tribble')
+        self.assertTableExists('migration_tests_book')
         # Fake a roll-back
-        call_command("migrate_shards", "migration_tests", "zero", fake=True, verbosity=0)
+        call_command('migrate_shards', 'migration_tests', 'zero', fake=True, verbosity=0)
         # Make sure the tables still exist
-        self.assertTableExists("migration_tests_author")
-        self.assertTableNotExists("migration_tests_tribble")
-        self.assertTableExists("migration_tests_book")
+        self.assertTableExists('migration_tests_author')
+        self.assertTableNotExists('migration_tests_tribble')
+        self.assertTableExists('migration_tests_book')
         # Try to run initial migration
         with self.assertRaises(DatabaseError):
-            call_command("migrate_shards", "migration_tests", verbosity=0)
+            call_command('migrate_shards', 'migration_tests', verbosity=0)
         # Run initial migration with an explicit --fake-initial
         with self.assertRaises(DatabaseError):
-            # Fails because "migration_tests_tribble" does not exist but needs to in
+            # Fails because 'migration_tests_tribble' does not exist but needs to in
             # order to make --fake-initial work.
-            call_command("migrate_shards", "migration_tests", fake_initial=True, verbosity=0)
+            call_command('migrate_shards', 'migration_tests', fake_initial=True, verbosity=0)
         # Fake a apply
-        call_command("migrate_shards", "migration_tests", fake=True, verbosity=0)
+        call_command('migrate_shards', 'migration_tests', fake=True, verbosity=0)
         # Unmigrate everything
-        call_command("migrate_shards", "migration_tests", "zero", verbosity=0)
+        call_command('migrate_shards', 'migration_tests', 'zero', verbosity=0)
         # Make sure it's all gone
-        self.assertTableNotExists("migration_tests_author")
-        self.assertTableNotExists("migration_tests_tribble")
-        self.assertTableNotExists("migration_tests_book")
+        self.assertTableNotExists('migration_tests_author')
+        self.assertTableNotExists('migration_tests_tribble')
+        self.assertTableNotExists('migration_tests_book')
 
-    @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations_conflict"})
+    @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_conflict'})
     def test_migrate_conflict_exit(self):
         """
         Case: Call migrate_shards with a conflicting migration set
         Expected: Makes sure that migrate exits if it detects a conflict.
         """
-        with self.assertRaisesMessage(CommandError, "Conflicting migrations detected"):
-            call_command("migrate_shards", "migration_tests")
+        with self.assertRaisesMessage(CommandError, 'Conflicting migrations detected'):
+            call_command('migrate_shards', 'migration_tests')
 
-    @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations_squashed"})
+    @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_squashed'})
     def test_migrate_record_replaced(self):
         """
         Case: Call migrate_shards with a squashed migration set
@@ -262,39 +261,39 @@ class OriginalMigrationTestCase(MigrationTestBase):
         """
         recorder = MigrationRecorder(connection)
         out = six.StringIO()
-        call_command("migrate_shards", "migration_tests", verbosity=0)
-        call_command("showmigrations", "migration_tests", stdout=out, no_color=True)
+        call_command('migrate_shards', 'migration_tests', verbosity=0)
+        call_command('showmigrations', 'migration_tests', stdout=out, no_color=True)
         self.assertEqual(
             'migration_tests\n'
             ' [x] 0001_squashed_0002 (2 squashed migrations)\n',
             out.getvalue().lower()
         )
         applied_migration_tests = recorder.applied_migrations()
-        self.assertIn(("migration_tests", "0001_initial"), applied_migration_tests)
-        self.assertIn(("migration_tests", "0002_second"), applied_migration_tests)
-        self.assertIn(("migration_tests", "0001_squashed_0002"), applied_migration_tests)
+        self.assertIn(('migration_tests', '0001_initial'), applied_migration_tests)
+        self.assertIn(('migration_tests', '0002_second'), applied_migration_tests)
+        self.assertIn(('migration_tests', '0001_squashed_0002'), applied_migration_tests)
         # Rollback changes
-        call_command("migrate_shards", "migration_tests", "zero", verbosity=0)
+        call_command('migrate_shards', 'migration_tests', 'zero', verbosity=0)
 
-    @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations_squashed"})
+    @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_squashed'})
     def test_migrate_record_squashed(self):
         """
         Case: Call migrate_shards with a squashed migration set, when all original migrations have been run before.
         Expected: Should not migrate anything, all squashed migrations has been run
         """
         recorder = MigrationRecorder(connection)
-        recorder.record_applied("migration_tests", "0001_initial")
-        recorder.record_applied("migration_tests", "0002_second")
+        recorder.record_applied('migration_tests', '0001_initial')
+        recorder.record_applied('migration_tests', '0002_second')
         out = six.StringIO()
-        call_command("migrate_shards", "migration_tests", shard="default|public", verbosity=0)
-        call_command("showmigrations", "migration_tests", stdout=out, no_color=True)
+        call_command('migrate_shards', 'migration_tests', shard='default|public', verbosity=0)
+        call_command('showmigrations', 'migration_tests', stdout=out, no_color=True)
         self.assertEqual(
             'migration_tests\n'
             ' [x] 0001_squashed_0002 (2 squashed migrations)\n',
             out.getvalue().lower()
         )
         self.assertIn(
-            ("migration_tests", "0001_squashed_0002"),
+            ('migration_tests', '0001_squashed_0002'),
             recorder.applied_migrations()
         )
         # No changes were actually applied so there is nothing to rollback
@@ -314,7 +313,7 @@ class ShardedMigrationHandleTestCase(MigrationTestBase):
         cls.maria = Shard.objects.create(alias='maria', schema_name='test_maria', node_name='default',
                                          state=State.ACTIVE)
 
-    @override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
+    @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
     @mock.patch('django.core.management.sql.emit_post_migrate_signal')
     @mock.patch('sharding.management.commands.migrate_shards.Command.perform_migration')
     @mock.patch('django.core.management.sql.emit_pre_migrate_signal')
@@ -456,7 +455,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
 
         with self.assertRaises(CommandError) as error:
             MigrateShards().get_database_and_schema_from_options(options={'database': 'other', 'shard': 'other|paul'})
-        self.assertEqual(error.exception.args[0], 'Shard paul does is not known.')
+        self.assertEqual(error.exception.args[0], 'Shard paul is not known.')
 
     @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_but_replica_dbs')
     def test_with_shard_and_wrong_db(self, mock_get_all_dbs):
@@ -494,11 +493,11 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
 
         with self.assertRaises(CommandError) as error:
             MigrateShards().get_database_and_schema_from_options(options={'shard': 'other|george'})
-        self.assertEqual(error.exception.args[0], 'Shard george does is not known.')
+        self.assertEqual(error.exception.args[0], 'Shard george is not known.')
         self.assertTrue(mock_get_all_dbs.called)
 
 
-@override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
+@override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
 class ShardedMigrationGetTargetsTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding', 'example']
 
@@ -594,7 +593,7 @@ class ShardedMigrationGetTargetsTestCase(MigrationTestBase):
                          "App 'Hans' does not have migrations (you cannot selectively sync unmigrated apps)")
 
 
-@override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
+@override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
 class ShardedMigrationGetPlanTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding', 'example']
 
@@ -639,17 +638,17 @@ class ShardedMigrationGetPlanTestCase(MigrationTestBase):
 
         # Migrate the public schema's fully
         with use_shard(node_name='default', schema_name='public'):
-            call_command("migrate", "migration_tests", database='default', verbosity=0)
+            call_command('migrate', 'migration_tests', database='default', verbosity=0)
         with use_shard(node_name='other', schema_name='public'):
-            call_command("migrate", "migration_tests", database='other', verbosity=0)
+            call_command('migrate', 'migration_tests', database='other', verbosity=0)
 
         # Migrate rose a bit
         with use_shard(node_name='default', schema_name='test_rose'):
-            call_command("migrate", "migration_tests", '0001', verbosity=0)
+            call_command('migrate', 'migration_tests', '0001', verbosity=0)
 
         # Migrate maria a bit further
         with use_shard(node_name='default', schema_name='test_maria'):
-            call_command("migrate", "migration_tests", '0002', verbosity=0)
+            call_command('migrate', 'migration_tests', '0002', verbosity=0)
 
         # rose is the furthest behind. So we should get her migration path
         self.assertEqual(MigrateShards().get_plan(self.targets, self.databases),
@@ -657,12 +656,12 @@ class ShardedMigrationGetPlanTestCase(MigrationTestBase):
 
         # rollback (Cleanup for other tests. Shards are automatically removed.)
         with use_shard(node_name='default', schema_name='public'):
-            call_command("migrate", "migration_tests", 'zero', database='default', verbosity=0)
+            call_command('migrate', 'migration_tests', 'zero', database='default', verbosity=0)
         with use_shard(node_name='other', schema_name='public'):
-            call_command("migrate", "migration_tests", 'zero', database='other', verbosity=0)
+            call_command('migrate', 'migration_tests', 'zero', database='other', verbosity=0)
 
 
-@override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
+@override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
 class ShardedMigrationGetPlanForShardTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding', 'example']
 
@@ -696,7 +695,7 @@ class ShardedMigrationGetPlanForShardTestCase(MigrationTestBase):
         self.assertEqual(mock_use_shard_exit.call_count, 1)
 
 
-@override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
+@override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
 class ShardedMigrationPerformMigrationTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding', 'example']
 
@@ -759,7 +758,7 @@ class ShardedMigrationPerformMigrationTestCase(MigrationTestBase):
             mock_check_or_migrate_schema.assert_any_call(migrate_shards, 'other', template_name, node, False, False)
 
 
-@override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
+@override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
 class ShardedMigrationCheckOrMigrateSchemaTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding', 'example']
 
@@ -802,10 +801,6 @@ class ShardedMigrationCheckOrMigrateSchemaTestCase(MigrationTestBase):
         Case: Call check_or_migrate_schema with a schema that not yet migrated
         Expected: Migrate to be called
         """
-        # migrate default|public fully
-        # with use_shard(node_name='other', schema_name='public'):
-        #     call_command("migrate", "migration_tests", database='other', verbosity=0)
-
         self.migrateShards.stdout.write = mock.Mock()
         mock_executor.return_value.loader = mock.Mock()
         mock_executor.return_value.loader.applied_migrations = []
@@ -873,7 +868,7 @@ class ShardedMigrationCheckOrMigrateSchemaTestCase(MigrationTestBase):
         self.assertFalse(mock_executor.return_value.migrate.called)
 
 
-@override_settings(MIGRATION_MODULES={"migration_tests": "migration_tests.test_migrations"})
+@override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
 class ShardedMigrationCheckOrMigrateShardTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding', 'example']
 
@@ -913,10 +908,6 @@ class ShardedMigrationCheckOrMigrateShardTestCase(MigrationTestBase):
         Case: Call check_or_migrate_shard with a schema that not yet migrated
         Expected: Migrate to be called
         """
-        # migrate default|public fully
-        # with use_shard(node_name='other', schema_name='public'):
-        #     call_command("migrate", "migration_tests", database='other', verbosity=0)
-
         self.migrateShards.stdout.write = mock.Mock()
         mock_executor.return_value.loader = mock.Mock()
         mock_executor.return_value.loader.applied_migrations = []

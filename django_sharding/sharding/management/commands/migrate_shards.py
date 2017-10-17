@@ -139,7 +139,7 @@ class Command(MigrateCommand):
                     if not shard.node_name == database:
                         raise CommandError('Shard {} does not belong to database {}.'.format(shard.alias, database))
                 else:
-                    raise CommandError('Shard {} does is not known.'.format(shard_name))
+                    raise CommandError('Shard {} is not known.'.format(shard_name))
         return databases, schema_name
 
     def get_targets_from_options(self, executor, options):
@@ -244,7 +244,7 @@ class Command(MigrateCommand):
 
             # if the node is applied and we're going backwards,
             # or the node is not applied yet and we're going forwards.
-            if (not (migration.app_label, migration.name) in executor.loader.applied_migrations) == backwards:
+            if ((migration.app_label, migration.name) not in executor.loader.applied_migrations) == backwards:
                 if self.verbosity >= 2:
                     if backwards:
                         self.stdout.write(
