@@ -281,7 +281,7 @@ class Command(MigrateCommand):
 
             # if the node is applied and we're going backwards,
             # or the node is not applied yet and we're going forwards.
-            if (not (migration.app_label, migration.name) in shard_executor.loader.applied_migrations) == backwards:
+            if ((migration.app_label, migration.name) not in shard_executor.loader.applied_migrations) == backwards:
                 if self.verbosity >= 2:
                     if backwards:
                         self.stdout.write(
