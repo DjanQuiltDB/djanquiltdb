@@ -39,7 +39,7 @@ class Command(MigrateCommand):
         parser._option_string_actions['--database'].default = 'all'
         parser._option_string_actions['--database'].help = \
             'Nominates a database to synchronize. Defaults to all databases.'
-        parser._option_string_actions['--database'].choices = ['all'] + self.get_all_but_replica_dbs()
+        parser._option_string_actions['--database'].choices = ['all'] + self.get_all_databases()
 
         parser.add_argument('--shard', '-s', action='store', dest='shard',
                             help='Nominates a single shard or schema to synchronize.'
@@ -47,8 +47,8 @@ class Command(MigrateCommand):
                                  'Format a shard like: <database>|<shard alias, \'public\' of template name>. '
                                  'e.g., `default|public`, `some_node|template` or `other_node|shard1`.')
 
-    def get_all_but_replica_dbs(self):
-        return [name for name, db in settings.DATABASES.items() if not db.get('PRIMARY')]
+    def get_all_databases(self):
+        return [name for name, db in settings.DATABASES.items()]
 
     def handle(self, *args, **options):
         self.verbosity = options.get('verbosity', 0)
@@ -73,9 +73,7 @@ class Command(MigrateCommand):
 
         executor = MigrationExecutor(connection)
 
-        # Before anything else,
-        # see if there's conflicting apps and drop out hard
-        # if there are any.
+        # Before anything else, drop out hard if there are conflicting apps.
         conflicts = executor.loader.detect_conflicts()
         if conflicts:
             name_str = "; ".join(
@@ -115,8 +113,8 @@ class Command(MigrateCommand):
 
         # Get the database we're operating from
         if not database_options or database_options == 'all':
-            databases = self.get_all_but_replica_dbs()
-        elif database_options not in self.get_all_but_replica_dbs():
+            databases = self.get_all_databases()
+        elif database_options not in self.get_all_databases():
             raise CommandError('You must migrate an existing non-primary DB.')
         else:
             databases = [database_options]
@@ -227,15 +225,23 @@ class Command(MigrateCommand):
                 shard_executor = MigrationExecutor(env.connection)
                 shard_executor.migrate(targets=None, plan=plan, fake=fake, fake_initial=fake_initial)
         else:  # we have multiple shards to migrate. Do the breath-first
+            stop = False
             for node in plan:
                 # migrate all public schemas and templates
                 for db in databases:
-                    self.check_or_migrate_schema(db, 'public', node, fake, fake_initial)
-                    self.check_or_migrate_schema(db, template_name, node, fake, fake_initial)
+                    stop |= self.check_or_migrate_schema(db, 'public', node, fake, fake_initial)
+                    stop |= self.check_or_migrate_schema(db, template_name, node, fake, fake_initial)
 
                 # migrate all shards
                 for shard in get_shard_class().objects.filter(node_name__in=databases):
-                    self.check_or_migrate_shard(shard, node, fake, fake_initial)
+                    stop |= self.check_or_migrate_shard(shard, node, fake, fake_initial)
+
+                # if one or more migrations failed, don't move to the next.
+                if stop:
+                    self.stdout.write(self.style.ERROR(
+                        'Migration stopped due to errors after completing {}.'.format(node[0])
+                    ))
+                    break
 
     def check_or_migrate_schema(self, node_name, schema_name, plan_node, fake, fake_initial):
         with use_shard(node_name=node_name, schema_name=schema_name) as env:
@@ -258,7 +264,15 @@ class Command(MigrateCommand):
                     self.stdout.write(
                         '    {} {} to default|public\n'.format('Unapplying' if backwards else 'Applying', migration)
                     )
-                executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
+                try:
+                    executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
+                except Exception as exception:  # When an error occurs, continue this migration for other shards.
+                    self.stderr.write(
+                        '    {}|{}: {} - {}: {}'.format(node_name, schema_name, migration, type(exception).__name__,
+                                                       exception)
+                    )
+                    return True  # rapport failure
+        return False  # note migration went without troubles
 
     def check_or_migrate_shard(self, shard, plan_node, fake, fake_initial):
         with use_shard(shard, active_only_schemas=False) as env:
@@ -282,4 +296,12 @@ class Command(MigrateCommand):
                         '    {} {} to {}|{}\n'.format('Unapplying' if backwards else 'Applying', migration,
                                                       shard.node_name, shard.alias)
                     )
-                shard_executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
+                try:
+                    shard_executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
+                except Exception as exception:  # When an error occurs, continue this migration for other shards.
+                    self.stderr.write(
+                        '    {}|{}: {} - {}: {}'.format(shard.node_name, shard.alias, migration,
+                                                       type(exception).__name__, exception)
+                    )
+                    return True  # rapport failure
+        return False  # note migration went without troubles

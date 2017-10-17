@@ -2,7 +2,7 @@ from unittest import mock
 
 from django.conf import settings
 from django.core.management import CommandError, call_command
-from django.db import connection, DatabaseError
+from django.db import connection, DatabaseError, ProgrammingError
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.recorder import MigrationRecorder
 from django.test import override_settings
@@ -12,6 +12,8 @@ from example.models import Shard
 from migration_tests.tests.migration_base import MigrationTestBase
 from sharding.management.commands.migrate_shards import Command as MigrateShards
 from sharding.utils import State, use_shard, get_template_name
+
+from django.db.migrations.migration import Migration
 
 
 class ShardedMigrationSystemTestCase(MigrationTestBase):
@@ -26,7 +28,7 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
         # Unlike other migrations, these test migrations are NOT applied during the creation of the testcase
         # For they are not known to the runner at that point.
 
-        self.databases = MigrateShards().get_all_but_replica_dbs()
+        self.databases = MigrateShards().get_all_databases()
 
         with override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'}):
             # default|template migrates fully
@@ -95,7 +97,7 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
 
         MigrateShards().handle(database='all', verbosity=0)
 
-        # all shards and the template now are fully migrated
+        # all shards, templates and publics are now fully migrated
         for db in self.databases:
             with use_shard(node_name=db, schema_name='template') as env:
                 recorder = MigrationRecorder(env.connection)
@@ -125,7 +127,7 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
         # rollback
         MigrateShards().handle(app_label='migration_tests', migration_name='zero', database='all', verbosity=0)
 
-        # all shards and the template now are back so square 0
+        # all shards, templates and publics are now back so square 0
         for db in self.databases:
             with use_shard(node_name=db, schema_name='template') as env:
                 recorder = MigrationRecorder(env.connection)
@@ -199,16 +201,18 @@ class OriginalMigrationTestCase(MigrationTestBase):
         # Make sure the right tables exist
         self.assertTableExists('migration_tests_author')
         self.assertTableExists('migration_tests_tribble')
+
         # Fake a roll-back
         call_command('migrate_shards', 'migration_tests', 'zero', fake=True, verbosity=0)
         # Make sure the tables still exist
         self.assertTableExists('migration_tests_author')
         self.assertTableExists('migration_tests_tribble')
+
         # Try to run initial migration
-        with self.assertRaises(DatabaseError):
-            call_command('migrate_shards', 'migration_tests', '0001', verbosity=0)
-        # Run initial migration with an explicit --fake-initial
         out = six.StringIO()
+        call_command('migrate_shards', 'migration_tests', '0001', verbosity=0, stderr=out)
+        self.assertIn('relation "migration_tests_author" already exists', out.getvalue().lower())
+        # Run initial migration with an explicit --fake-initial
         with mock.patch('django.core.management.color.supports_color', lambda *args: False):
             call_command('migrate_shards', 'migration_tests', '0001', fake_initial=True, stdout=out, verbosity=1)
         self.assertIn(
@@ -221,20 +225,26 @@ class OriginalMigrationTestCase(MigrationTestBase):
         self.assertTableExists('migration_tests_author')
         self.assertTableNotExists('migration_tests_tribble')
         self.assertTableExists('migration_tests_book')
+
         # Fake a roll-back
         call_command('migrate_shards', 'migration_tests', 'zero', fake=True, verbosity=0)
         # Make sure the tables still exist
         self.assertTableExists('migration_tests_author')
         self.assertTableNotExists('migration_tests_tribble')
         self.assertTableExists('migration_tests_book')
+
         # Try to run initial migration
-        with self.assertRaises(DatabaseError):
-            call_command('migrate_shards', 'migration_tests', verbosity=0)
+        out = six.StringIO()
+        call_command('migrate_shards', 'migration_tests', stderr=out, verbosity=0)
+        self.assertIn('relation "migration_tests_author" already exists', out.getvalue().lower())
+
         # Run initial migration with an explicit --fake-initial
-        with self.assertRaises(DatabaseError):
-            # Fails because 'migration_tests_tribble' does not exist but needs to in
-            # order to make --fake-initial work.
-            call_command('migrate_shards', 'migration_tests', fake_initial=True, verbosity=0)
+        # Fails because 'migration_tests_tribble' does not exist but needs to,
+        # in order to make --fake-initial work.
+        out = six.StringIO()
+        call_command('migrate_shards', 'migration_tests', fake_initial=True, stderr=out, verbosity=0)
+        self.assertIn('relation "migration_tests_author" already exists', out.getvalue().lower())
+
         # Fake a apply
         call_command('migrate_shards', 'migration_tests', fake=True, verbosity=0)
         # Unmigrate everything
@@ -299,6 +309,17 @@ class OriginalMigrationTestCase(MigrationTestBase):
         # No changes were actually applied so there is nothing to rollback
 
 
+original_apply_migration = Migration.apply
+
+
+def fake_apply_migration(self, project_state, schema_editor, collect_sql=False):
+    # Raise exception for one specific migration. Apply all the others normally.
+    if self.name == '0002_second' and schema_editor.connection.schema_name == 'test_sina':
+        raise ProgrammingError('table "migration_test_hometown" does not exist')
+
+    original_apply_migration(self, project_state, schema_editor, collect_sql)
+
+
 class ShardedMigrationHandleTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding', 'example']
 
@@ -312,6 +333,7 @@ class ShardedMigrationHandleTestCase(MigrationTestBase):
                                         state=State.ACTIVE)
         cls.maria = Shard.objects.create(alias='maria', schema_name='test_maria', node_name='default',
                                          state=State.ACTIVE)
+        cls.databases = MigrateShards().get_all_databases()
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
     @mock.patch('django.core.management.sql.emit_post_migrate_signal')
@@ -352,6 +374,62 @@ class ShardedMigrationHandleTestCase(MigrationTestBase):
         mock_perform_migration.assert_called_once()
         mock_emit_post_migrate_signal.assert_called_once()
 
+    @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
+    def test_failure_during_migration(self):
+        """
+        Case: Call MigrateShards().handle and trigger an error during one of the migrations
+        Expected: That migration_node to be completed and than report the error.
+        """
+
+        patcher = mock.patch('django.db.migrations.migration.Migration.apply',
+                             side_effect=fake_apply_migration, autospec=True)
+        mock_apply_migration = patcher.start()
+
+        stderr = six.StringIO()
+        stdout = six.StringIO()
+        migrate_shards = MigrateShards()
+        migrate_shards.stderr = stderr
+        migrate_shards.stdout = stdout
+
+        migrate_shards.handle(app_label='migration_tests', database='all', verbosity=0)
+
+        self.assertIn('default|sina: migration_tests.0002_second - programmingerror: table "migration_test_hometown" '
+                      'does not exist', stderr.getvalue().lower())
+        self.assertIn('migration stopped due to errors after completing migration_tests.0002_second.',
+                      stdout.getvalue().lower())
+        self.assertEquals(mock_apply_migration.call_count, 14)  # 2 migrates for 3 shards, 2 publics and 2 templates.
+        patcher.stop()
+
+        # all shards, templates and publics are migrated to 0002 (except sina):
+        for db in self.databases:
+            with use_shard(node_name=db, schema_name='template') as env:
+                recorder = MigrationRecorder(env.connection)
+                applied_migration_tests = recorder.applied_migrations()
+                self.assertFalse(('migration_tests', '0003_third') in applied_migration_tests)
+                self.assertTrue(('migration_tests', '0002_second') in applied_migration_tests)
+                self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
+        with use_shard(self.sina) as env:
+            recorder = MigrationRecorder(env.connection)
+            applied_migration_tests = recorder.applied_migrations()
+            self.assertFalse(('migration_tests', '0003_third') in applied_migration_tests)
+            self.assertFalse(('migration_tests', '0002_second') in applied_migration_tests)  # this one gave the error
+            self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
+        with use_shard(self.rose) as env:
+            recorder = MigrationRecorder(env.connection)
+            applied_migration_tests = recorder.applied_migrations()
+            self.assertFalse(('migration_tests', '0003_third') in applied_migration_tests)
+            self.assertTrue(('migration_tests', '0002_second') in applied_migration_tests)
+            self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
+        with use_shard(self.maria, active_only_schemas=False) as env:
+            recorder = MigrationRecorder(env.connection)
+            applied_migration_tests = recorder.applied_migrations()
+            self.assertFalse(('migration_tests', '0003_third') in applied_migration_tests)
+            self.assertTrue(('migration_tests', '0002_second') in applied_migration_tests)
+            self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
+
+        # rollback
+        MigrateShards().handle(app_label='migration_tests', migration_name='zero', database='all', verbosity=0)
+
 
 class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding', 'example']
@@ -363,7 +441,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         cls.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
                                         state=State.ACTIVE)
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_but_replica_dbs')
+    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
     def test_without_special_options(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options without special options.
@@ -372,10 +450,10 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         databases, schema_name = MigrateShards().get_database_and_schema_from_options(options={})
 
         self.assertTrue(mock_get_all_dbs.called)
-        self.assertEqual(databases, MigrateShards().get_all_but_replica_dbs())
+        self.assertEqual(databases, MigrateShards().get_all_databases())
         self.assertIsNone(schema_name)
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_but_replica_dbs')
+    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
     def test_with_shard_option(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a targeted shard.
@@ -389,7 +467,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         self.assertEqual(databases, ['default'])
         self.assertEqual(schema_name, 'template')
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_but_replica_dbs')
+    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
     def test_with_database_option(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a targeted database.
@@ -402,7 +480,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         self.assertEqual(databases, ['other'])
         self.assertIsNone(schema_name)
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_but_replica_dbs')
+    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
     def test_with_invalid_db_option(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a targeted database.
@@ -415,7 +493,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         self.assertEqual(error.exception.args[0], 'You must migrate an existing non-primary DB.')
         self.assertTrue(mock_get_all_dbs.called)
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_but_replica_dbs')
+    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
     def test_with_database_and_shard_option(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a targeted database and template_shard.
@@ -430,7 +508,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         self.assertEqual(databases, ['other'])
         self.assertEqual(schema_name, 'public')
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_but_replica_dbs')
+    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
     def test_with_database_and_shard_option2(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a targeted database and shard.
@@ -445,7 +523,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         self.assertEqual(databases, ['default'])
         self.assertEqual(schema_name, 'test_sina')
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_but_replica_dbs')
+    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
     def test_with_unexisting_shard(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a targeted database and non-existing shard.
@@ -457,7 +535,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
             MigrateShards().get_database_and_schema_from_options(options={'database': 'other', 'shard': 'other|paul'})
         self.assertEqual(error.exception.args[0], 'Shard paul is not known.')
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_but_replica_dbs')
+    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
     def test_with_shard_and_wrong_db(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a shard target and wrong database.
@@ -469,7 +547,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
             MigrateShards().get_database_and_schema_from_options(options={'database': 'other', 'shard': 'other|sina'})
         self.assertEqual(error.exception.args[0], 'Shard sina does not belong to database other.')
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_but_replica_dbs')
+    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
     def test_with_invalid_db_and_shard_options(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with invalid targeted database and shard.
@@ -483,7 +561,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         self.assertEqual(error.exception.args[0], 'You must migrate an existing non-primary DB.')
         self.assertTrue(mock_get_all_dbs.called)
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_but_replica_dbs')
+    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
     def test_with_invalid_shard_option(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with invalid shard.
@@ -735,8 +813,10 @@ class ShardedMigrationPerformMigrationTestCase(MigrationTestBase):
                                                                    fake=False, fake_initial=False)
         self.assertEqual(mock_use_shard_exit.call_count, 1)
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.check_or_migrate_schema', autospec=True)
-    @mock.patch('sharding.management.commands.migrate_shards.Command.check_or_migrate_shard', autospec=True)
+    @mock.patch('sharding.management.commands.migrate_shards.Command.check_or_migrate_schema', return_value=False,
+                autospec=True)
+    @mock.patch('sharding.management.commands.migrate_shards.Command.check_or_migrate_shard', return_value=False,
+                autospec=True)
     def test_on_all_shards(self, mock_check_or_migrate_shard, mock_check_or_migrate_schema):
         """
         Case: Call perform_migration without a target schema
@@ -779,8 +859,6 @@ class ShardedMigrationCheckOrMigrateSchemaTestCase(MigrationTestBase):
         cls.plan = MigrateShards().get_plan_for_shard(cls.rose.node_name, cls.rose.schema_name, cls.targets)
         cls.migrateShards = MigrateShards()
         cls.migrateShards.verbosity = 2
-        cls.out = six.StringIO()
-        # cls.migrateShards.stdout = cls.out
 
     @mock.patch('sharding.utils.use_shard.__exit__', autospec=True)
     @mock.patch('sharding.utils.use_shard.__enter__', autospec=True)
@@ -887,7 +965,6 @@ class ShardedMigrationCheckOrMigrateShardTestCase(MigrationTestBase):
         cls.plan = MigrateShards().get_plan_for_shard(cls.rose.node_name, cls.rose.schema_name, cls.targets)
         cls.migrateShards = MigrateShards()
         cls.migrateShards.verbosity = 2
-        cls.out = six.StringIO()
 
     @mock.patch('sharding.utils.use_shard.__exit__', autospec=True)
     @mock.patch('sharding.utils.use_shard.__enter__', autospec=True)
