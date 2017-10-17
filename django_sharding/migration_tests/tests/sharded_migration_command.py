@@ -2,8 +2,9 @@ from unittest import mock
 
 from django.conf import settings
 from django.core.management import CommandError, call_command
-from django.db import connection, DatabaseError, ProgrammingError
+from django.db import connection, ProgrammingError
 from django.db.migrations.executor import MigrationExecutor
+from django.db.migrations.migration import Migration
 from django.db.migrations.recorder import MigrationRecorder
 from django.test import override_settings
 from django.utils import six
@@ -12,8 +13,6 @@ from example.models import Shard
 from migration_tests.tests.migration_base import MigrationTestBase
 from sharding.management.commands.migrate_shards import Command as MigrateShards
 from sharding.utils import State, use_shard, get_template_name
-
-from django.db.migrations.migration import Migration
 
 
 class ShardedMigrationSystemTestCase(MigrationTestBase):

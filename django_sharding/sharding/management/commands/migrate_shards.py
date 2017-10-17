@@ -269,7 +269,7 @@ class Command(MigrateCommand):
                 except Exception as exception:  # When an error occurs, continue this migration for other shards.
                     self.stderr.write(
                         '    {}|{}: {} - {}: {}'.format(node_name, schema_name, migration, type(exception).__name__,
-                                                       exception)
+                                                        exception)
                     )
                     return True  # rapport failure
         return False  # note migration went without troubles
@@ -301,7 +301,7 @@ class Command(MigrateCommand):
                 except Exception as exception:  # When an error occurs, continue this migration for other shards.
                     self.stderr.write(
                         '    {}|{}: {} - {}: {}'.format(shard.node_name, shard.alias, migration,
-                                                       type(exception).__name__, exception)
+                                                        type(exception).__name__, exception)
                     )
                     return True  # rapport failure
         return False  # note migration went without troubles
