@@ -387,7 +387,7 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
     """
     node_name = node_name or get_new_shard_node()
     if not node_name:
-        raise ValueError("Neither a node_name given, nor a NEW_SHARD_NODE set in the SHARING settings.")
+        raise ValueError('Neither a node_name given, nor a NEW_SHARD_NODE set in the SHARING settings.')
     _node_exists(node_name)
     connections[node_name].create_schema(schema_name)
 
