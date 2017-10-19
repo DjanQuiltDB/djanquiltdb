@@ -106,7 +106,7 @@ class UseShardTestCase(ShardingTestCase):
     def tearDownClass(cls):  # run when TestCase is done
         super().clean_up(cls)  # we only want to clean stuff up at the end of the TestCase
 
-    @mock.patch("sharding.utils._set_schema")
+    @mock.patch('sharding.utils._set_schema')
     def test_use_shard(self, mock_set_schema):
         """
         Case: Call use_shard with a valid shard object
@@ -116,7 +116,7 @@ class UseShardTestCase(ShardingTestCase):
             self.assertEqual(connection.settings_dict['NAME'], 'test_sharding')
             mock_set_schema.assert_called_once_with('test_schema', env.connection)
 
-    @mock.patch("sharding.utils._set_schema")
+    @mock.patch('sharding.utils._set_schema')
     def test_use_shard_on_other_node(self, mock_set_schema):
         """
         Case: Call use_shard with a valid shard object referring to a non-default node
@@ -155,7 +155,7 @@ class UseShardTestCase(ShardingTestCase):
         if hasattr(THREAD_LOCAL, 'DB_OVERRIDE') and THREAD_LOCAL.DB_OVERRIDE is not None:
             self.fail('THREAD_LOCAL.DB_OVERRIDE should be None or not exist.')
 
-    @mock.patch("sharding.utils._set_schema")
+    @mock.patch('sharding.utils._set_schema')
     def test_use_shard_with_inactive_shard_with_state_test_disabled(self, mock_set_schema):
         """
         Case: Call use_shard with a shard that is not active, but active_only_schemas is False
@@ -166,7 +166,7 @@ class UseShardTestCase(ShardingTestCase):
 
         self.assertTrue(mock_set_schema.called)
 
-    @mock.patch("sharding.utils._set_schema")
+    @mock.patch('sharding.utils._set_schema')
     def test_use_shard_inception(self, mock_set_schema):
         """
         Case: Call use_shard within a use_shard enviorment
@@ -188,7 +188,7 @@ class UseShardTestCase(ShardingTestCase):
         self.assertIsNone(THREAD_LOCAL.DB_OVERRIDE)
         mock_set_schema.assert_has_call(mock.call(None))
 
-    @mock.patch("sharding.utils._set_schema")
+    @mock.patch('sharding.utils._set_schema')
     def test_use_shard_invalid_node_name(self, mock_set_schema):
         """
         Case: Call use_shard with a valid shard object referring to a non-default node

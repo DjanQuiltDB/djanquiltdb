@@ -81,8 +81,8 @@ class Command(MigrateCommand):
                 for app, names in conflicts.items()
             )
             raise CommandError(
-                "Conflicting migrations detected (%s).\nTo fix them run "
-                "'python manage.py makemigrations --merge'" % name_str
+                "Conflicting migrations detected ({}).\nTo fix them run "
+                "'python manage.py makemigrations --merge'".format(name_str)
             )
 
         # If they supplied command line arguments, work out what they mean.
@@ -145,8 +145,8 @@ class Command(MigrateCommand):
             app_label, migration_name = options['app_label'], options['migration_name']
             if app_label not in executor.loader.migrated_apps:
                 raise CommandError(
-                    "App '%s' does not have migrations (you cannot selectively "
-                    "sync unmigrated apps)" % app_label
+                    "App '{}' does not have migrations (you cannot selectively "
+                    "sync unmigrated apps)".format(app_label)
                 )
             if migration_name == 'zero':
                 return [(app_label, None)]
@@ -155,21 +155,20 @@ class Command(MigrateCommand):
                 migration = executor.loader.get_migration_by_prefix(app_label, migration_name)
             except AmbiguityError:
                 raise CommandError(
-                    "More than one migration matches '%s' in app '%s'. "
-                    "Please be more specific." %
-                    (migration_name, app_label)
+                    "More than one migration matches '{}' in app '{}'. "
+                    "Please be more specific.".format(migration_name, app_label)
                 )
             except KeyError:
-                raise CommandError("Cannot find a migration matching '%s' from app '%s'." % (
-                    migration_name, app_label))
+                raise CommandError("Cannot find a migration matching '{}' from app '{}'.".format(migration_name,
+                                                                                                 app_label))
             return [(app_label, migration.name)]
 
         if options.get('app_label'):
             app_label = options['app_label']
             if app_label not in executor.loader.migrated_apps:
                 raise CommandError(
-                    "App '%s' does not have migrations (you cannot selectively "
-                    "sync unmigrated apps)" % app_label
+                    "App '{}' does not have migrations (you cannot selectively "
+                    "sync unmigrated apps)".format(app_label)
                 )
             return [key for key in executor.loader.graph.leaf_nodes() if key[0] == app_label]
 
@@ -296,12 +295,4 @@ class Command(MigrateCommand):
                         '    {} {} to {}|{}\n'.format('Unapplying' if backwards else 'Applying', migration,
                                                       shard.node_name, shard.alias)
                     )
-                try:
-                    shard_executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
-                except Exception as exception:  # When an error occurs, continue this migration for other shards.
-                    self.stderr.write(
-                        '    {}|{}: {} - {}: {}'.format(shard.node_name, shard.alias, migration,
-                                                        type(exception).__name__, exception)
-                    )
-                    return True  # rapport failure
-        return False  # note migration went without troubles
+                shard_executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)

@@ -72,11 +72,6 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
         sharding_settings = settings.SHARDING
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
-        for connection_name in connections:
-            con = connections[connection_name]
-            for schema in con.get_all_pg_schemas():
-                print("left with:", schema)
-
         create_template_schema('other')
         shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='other',
                                      state=State.MAINTENANCE)

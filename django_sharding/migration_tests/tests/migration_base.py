@@ -16,7 +16,7 @@ class MigrationTestBase(ShardingTestCase):
     Contains an extended set of asserts for testing migrations and schema operations.
     """
 
-    available_apps = ["migration_tests", "sharding"]
+    available_apps = ['migration_tests', 'sharding']
     test_dir = os.path.abspath(os.path.dirname(upath(__file__)))
 
     def setUp(self):
@@ -72,7 +72,7 @@ class MigrationTestBase(ShardingTestCase):
             self.assertEqual(
                 value,
                 any(
-                    c["index"]
+                    c['index']
                     for c in connection.introspection.get_constraints(cursor, table).values()
                     if c['columns'] == list(columns)
                 ),
@@ -86,7 +86,7 @@ class MigrationTestBase(ShardingTestCase):
             self.assertEqual(
                 value,
                 any(
-                    c["foreign_key"] == to
+                    c['foreign_key'] == to
                     for c in connection.introspection.get_constraints(cursor, table).values()
                     if c['columns'] == list(columns)
                 ),
