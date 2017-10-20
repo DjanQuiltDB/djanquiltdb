@@ -390,7 +390,7 @@ class ShardedMigrationHandleTestCase(MigrationTestBase):
         migrate_shards.stderr = stderr
         migrate_shards.stdout = stdout
 
-        migrate_shards.handle(app_label='migration_tests', database='all', verbosity=0)
+        migrate_shards.handle(app_label='migration_tests', database='all', fake=False, fake_initial=False, verbosity=0)
 
         self.assertIn('default|sina: migration_tests.0002_second - programmingerror: table "migration_test_hometown" '
                       'does not exist', stderr.getvalue().lower())

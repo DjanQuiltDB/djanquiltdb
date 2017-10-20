@@ -1,3 +1,5 @@
+from importlib import import_module
+
 from django.apps import apps
 from django.conf import settings
 from django.core.management.base import CommandError
@@ -9,7 +11,6 @@ from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import AmbiguityError
 from django.db.migrations.state import ProjectState
 from django.utils.module_loading import module_has_submodule
-from importlib import import_module
 
 from sharding.utils import get_shard_class, use_shard, get_template_name
 
@@ -32,7 +33,8 @@ class Command(MigrateCommand):
     def add_arguments(self, parser):
         # Add additional arguments on top of what the
         # native Migration command already accepted.
-        super(Command, self).add_arguments(parser)
+        super().add_arguments(parser)
+
         # Since we can now target multiple databased
         # change the default to 'all'
         # and the options to databases allowed.
@@ -76,8 +78,8 @@ class Command(MigrateCommand):
         # Before anything else, drop out hard if there are conflicting apps.
         conflicts = executor.loader.detect_conflicts()
         if conflicts:
-            name_str = "; ".join(
-                "%s in %s" % (", ".join(names), app)
+            name_str = '; '.join(
+                '{} in {}'.format(', '.join(names), app)
                 for app, names in conflicts.items()
             )
             raise CommandError(
@@ -270,8 +272,8 @@ class Command(MigrateCommand):
                         '    {}|{}: {} - {}: {}'.format(node_name, schema_name, migration, type(exception).__name__,
                                                         exception)
                     )
-                    return True  # rapport failure
-        return False  # note migration went without troubles
+                    return True  # report failure
+        return False  # report migration went without troubles
 
     def check_or_migrate_shard(self, shard, plan_node, fake, fake_initial):
         with use_shard(shard, active_only_schemas=False) as env:
@@ -295,4 +297,12 @@ class Command(MigrateCommand):
                         '    {} {} to {}|{}\n'.format('Unapplying' if backwards else 'Applying', migration,
                                                       shard.node_name, shard.alias)
                     )
-                shard_executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
+                try:
+                    shard_executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
+                except Exception as exception:  # When an error occurs, continue this migration for other shards.
+                    self.stderr.write(
+                        '    {}|{}: {} - {}: {}'.format(shard.node_name, shard.alias, migration,
+                                                        type(exception).__name__, exception)
+                    )
+                    return True  # report failure
+        return False  # report migration went without troubles
