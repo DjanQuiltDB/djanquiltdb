@@ -2,7 +2,6 @@ from unittest import mock
 
 from django.conf import settings
 from django.conf.urls import url
-from django.db import connections
 from django.http import HttpResponse
 from django.test import SimpleTestCase, override_settings
 from django.test.client import RequestFactory
