@@ -149,7 +149,7 @@ class StateExceptionMiddlewareTestCase(SimpleTestCase):
         self.assertEqual(response.status_code, 503)
 
 
-class BaseUseShardMiddlewareTestCase(SimpleTestCase):
+class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
     def setUp(self):
         self.addCleanup(mock.patch.stopall)
         mock.patch('sharding.middleware.get_shard_class').start()

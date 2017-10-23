@@ -47,6 +47,8 @@ class DummyNonShardedModel(models.Model):
 
 
 class ShardingTestCase(TestCase):
+    available_apps = ['sharding', 'example']
+
     def setUp(self):
         super().setUp()
         self.addCleanup(self.clean_up)
@@ -54,15 +56,16 @@ class ShardingTestCase(TestCase):
     def clean_up(self):
         THREAD_LOCAL.DB_OVERRIDE = None
 
-        for con in connections:
-            connections[con].clone_function_set = False
-            connections[con].set_schema_to_public()
+        for connection_name in connections:
+            con = connections[connection_name]
+            con.clone_function_set = False
+            con.set_schema_to_public()
 
             # remove all schemas made in tests.
-            for schema in connections[con].get_all_pg_schemas():
+            for schema in con.get_all_pg_schemas():
                 schema = schema[0]
                 if schema.startswith('test') or schema == get_template_name():
-                    connections[con].cursor().execute('DROP SCHEMA "{}" CASCADE;'.format(schema))
+                    con.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format(schema))
 
 
 class GetTemplateName(SimpleTestCase):
@@ -103,7 +106,7 @@ class UseShardTestCase(ShardingTestCase):
     def tearDownClass(cls):  # run when TestCase is done
         super().clean_up(cls)  # we only want to clean stuff up at the end of the TestCase
 
-    @mock.patch("sharding.utils._set_schema")
+    @mock.patch('sharding.utils._set_schema')
     def test_use_shard(self, mock_set_schema):
         """
         Case: Call use_shard with a valid shard object
@@ -113,7 +116,7 @@ class UseShardTestCase(ShardingTestCase):
             self.assertEqual(connection.settings_dict['NAME'], 'test_sharding')
             mock_set_schema.assert_called_once_with('test_schema', env.connection)
 
-    @mock.patch("sharding.utils._set_schema")
+    @mock.patch('sharding.utils._set_schema')
     def test_use_shard_on_other_node(self, mock_set_schema):
         """
         Case: Call use_shard with a valid shard object referring to a non-default node
@@ -152,7 +155,18 @@ class UseShardTestCase(ShardingTestCase):
         if hasattr(THREAD_LOCAL, 'DB_OVERRIDE') and THREAD_LOCAL.DB_OVERRIDE is not None:
             self.fail('THREAD_LOCAL.DB_OVERRIDE should be None or not exist.')
 
-    @mock.patch("sharding.utils._set_schema")
+    @mock.patch('sharding.utils._set_schema')
+    def test_use_shard_with_inactive_shard_with_state_test_disabled(self, mock_set_schema):
+        """
+        Case: Call use_shard with a shard that is not active, but active_only_schemas is False
+        Expected: No StateException to be raised
+        """
+        with use_shard(self.inactive_shard, active_only_schemas=False):
+            pass
+
+        self.assertTrue(mock_set_schema.called)
+
+    @mock.patch('sharding.utils._set_schema')
     def test_use_shard_inception(self, mock_set_schema):
         """
         Case: Call use_shard within a use_shard enviorment
@@ -174,7 +188,7 @@ class UseShardTestCase(ShardingTestCase):
         self.assertIsNone(THREAD_LOCAL.DB_OVERRIDE)
         mock_set_schema.assert_has_call(mock.call(None))
 
-    @mock.patch("sharding.utils._set_schema")
+    @mock.patch('sharding.utils._set_schema')
     def test_use_shard_invalid_node_name(self, mock_set_schema):
         """
         Case: Call use_shard with a valid shard object referring to a non-default node
@@ -194,7 +208,7 @@ class UseShardTestCase(ShardingTestCase):
         Case: Call use_shard with a valid shard object that contains inactive mapping objects
         Expected: StateException to be raised
         """
-        shard = Shard.objects.create(alias='mudville', schema_name='test_schema_muddied', node_name='default',
+        shard = Shard.objects.create(alias='halls_of_justice', schema_name='test_halls_of_justice', node_name='default',
                                      state=State.ACTIVE)
         OrganizationShards.objects.create(organization_id=5, shard=shard, state=State.ACTIVE)
         OrganizationShards.objects.create(organization_id=6, shard=shard, state=State.MAINTENANCE)
@@ -538,7 +552,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
                                  'auth_group_permissions', 'example_shard', 'django_session', 'example_type',
                                  'example_organizationshards']  # mirrored, mapping and django default tables
         other_public_tables = ['django_migrations',  'example_type']  # only the mirrored table
-        template_tables = ['example_organization', 'example_user']  # only sharded tables
+        template_tables = ['django_migrations', 'example_organization', 'example_user']  # only sharded tables
 
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'),
                               default_public_tables)
@@ -574,7 +588,7 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         template_tables = [table[1] for table in cursor.fetchall()]
         # Filter test models
         template_tables = [table for table in template_tables if not re.search(r'_[t|T]est', table)]
-        self.assertEqual(sorted(template_tables), ['example_organization', 'example_user'])
+        self.assertEqual(sorted(template_tables), ['django_migrations', 'example_organization', 'example_user'])
 
     def test_create_template_schema_invalid_node(self):
         """
