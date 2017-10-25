@@ -501,3 +501,33 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
             func(*args, shard_id=shard.id, **(kwargs or {}))
         else:
             func(*args, shard=shard, **(kwargs or {}))
+
+
+def get_all_databases():
+    return [name for name, db in settings.DATABASES.items()]
+
+
+def for_each_node(func, args=(), kwargs=None, as_id=False):
+    """
+    Function to call another function for each node and pass the node_name
+    as a parameter.
+
+    :param func: Function to call for each node
+    :param kwargs: Keyword arguments to pass to the function to call
+
+    :returns: None
+
+    :Example:
+        .. code-block:: python
+
+            from sharding.utils import for_each_node
+
+            function sharded_function(node_name=None, prefix=None):
+                print('{prefix}{node_name}'.format(prefix=prefix, node_name=node_name))
+
+            for_each_node(sharded_function)
+            for_each_node(sharded_function, kwargs={'prefix': 'node-'})
+
+    """
+    for node_name in get_all_databases():
+        func(*args, node_name=node_name, **(kwargs or {}))

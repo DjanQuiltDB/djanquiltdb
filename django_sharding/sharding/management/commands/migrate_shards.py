@@ -12,7 +12,7 @@ from django.db.migrations.loader import AmbiguityError
 from django.db.migrations.state import ProjectState
 from django.utils.module_loading import module_has_submodule
 
-from sharding.utils import get_shard_class, use_shard, get_template_name
+from sharding.utils import get_shard_class, use_shard, get_template_name, get_all_databases
 
 
 class Command(MigrateCommand):
@@ -41,16 +41,13 @@ class Command(MigrateCommand):
         parser._option_string_actions['--database'].default = 'all'
         parser._option_string_actions['--database'].help = \
             'Nominates a database to synchronize. Defaults to all databases.'
-        parser._option_string_actions['--database'].choices = ['all'] + self.get_all_databases()
+        parser._option_string_actions['--database'].choices = ['all'] + get_all_databases()
 
         parser.add_argument('--shard', '-s', action='store', dest='shard',
                             help='Nominates a single shard or schema to synchronize.'
                                  'When empty all shards will be migrated.'
                                  'Format a shard like: <database>|<shard alias, \'public\' of template name>. '
                                  'e.g., `default|public`, `some_node|template` or `other_node|shard1`.')
-
-    def get_all_databases(self):
-        return [name for name, db in settings.DATABASES.items()]
 
     def handle(self, *args, **options):
         self.verbosity = options.get('verbosity', 0)
@@ -115,8 +112,8 @@ class Command(MigrateCommand):
 
         # Get the database we're operating from
         if not database_options or database_options == 'all':
-            databases = self.get_all_databases()
-        elif database_options not in self.get_all_databases():
+            databases = get_all_databases()
+        elif database_options not in get_all_databases():
             raise CommandError('You must migrate an existing non-primary DB.')
         else:
             databases = [database_options]

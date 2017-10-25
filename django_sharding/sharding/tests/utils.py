@@ -8,7 +8,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from example.models import Shard, OrganizationShards
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
-    StateException, use_shard_for, get_shard_for, for_each_shard, State
+    StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node
 from sharding.decorators import sharded_model, mirrored_model
 
 
@@ -654,3 +654,31 @@ class ForEachShardTestCase(TestCase):
         self.shards = []
         for_each_shard(self.repeatable_function, as_id=True)
         self.assertEqual(self.shards, [self.shard1.id])
+
+
+@mock.patch('sharding.utils.get_all_databases', return_value=['default', 'other'])
+class ForEachNodeTestCase(TestCase):
+    def repeatable_function(self, node_name=None, **kwargs):
+        self.nodes.append((node_name, kwargs))
+
+    def test_for_each_node(self, mock_get_all_databases):
+        """
+        Case: Call self.repeatable_function for every node
+        Expected: Function is called for every node
+        """
+        self.nodes = []
+        for_each_node(self.repeatable_function)
+        self.assertCountEqual(self.nodes, [('default', {}), ('other', {})])
+        self.assertTrue(mock_get_all_databases.called)
+
+    def test_for_each_node_with_kwargs(self, mock_get_all_databases):
+        """
+        Case: Call self.repeatable_function for every node and pass
+              keyword arguments to the function.
+        Expected: Function is called for every node and is called with
+                  the keyword arguments provided.
+        """
+        self.nodes = []
+        for_each_node(self.repeatable_function, kwargs={'organization_id': 1})
+        self.assertCountEqual(self.nodes, [('default', {'organization_id': 1}), ('other', {'organization_id': 1})])
+        self.assertTrue(mock_get_all_databases.called)
