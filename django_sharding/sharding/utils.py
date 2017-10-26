@@ -13,12 +13,14 @@
 import threading
 from enum import Enum
 
+import functools
 from django.apps import apps
 from django.db.migrations.executor import MigrationExecutor
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.commands.migrate import Command as MigrateCommand
 from django.db import connections, connection
+from django.db.transaction import Atomic
 from django.utils.module_loading import import_string
 from functools import wraps
 
@@ -531,3 +533,58 @@ def for_each_node(func, args=(), kwargs=None, as_id=False):
     """
     for node_name in get_all_databases():
         func(*args, node_name=node_name, **(kwargs or {}))
+
+
+class transaction_for_every_node(Atomic):
+    """
+    Context manager to start a transaction for each node and close them afterwards.
+    Used by write_to_every_node.
+
+    :returns: None
+    """
+    def __init__(self, safepoint=True):
+        # we don't support the 'using' argument of transaction.Atomic
+        self.databases = get_all_databases()
+        self.savepoint = safepoint
+
+    def __enter__(self):
+        for database in self.databases:
+            self.using = database
+            super().__enter__()  # will grab the connection corresponding to the database set in self.using
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        for database in reversed(self.databases):
+            self.using = database
+            # will grab the connection corresponding to the database set in self.using
+            super().__exit__(exc_type, exc_value, traceback)
+
+
+def write_to_every_node(schema_name='public'):
+    """
+    Decorator to execute wrapped function for every node.
+    Runs inside a transaction_for_every_node to keep all nodes in sync.
+
+    :param str schema_name: The name of the schema used. 'public' by default.
+
+    :returns: The name of the node in use.
+
+    :Example:
+        .. code-block:: python
+
+            from sharding.utils import write_to_every_node
+
+            @write_to_every_node('public')
+            def my_function(node_name):
+                # Create an object on each node's public schema
+                Type.objects.create(name='test_type')
+
+    """
+    def decorate(func):
+        @functools.wraps(func)
+        def decorator(*args, **kwargs):
+            with transaction_for_every_node():
+                for database in get_all_databases():
+                    with use_shard(node_name=database, schema_name=schema_name):
+                        func(database)
+        return decorator
+    return decorate

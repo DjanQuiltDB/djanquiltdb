@@ -12,7 +12,7 @@ from django.utils import six
 from example.models import Shard
 from migration_tests.tests.migration_base import MigrationTestBase
 from sharding.management.commands.migrate_shards import Command as MigrateShards
-from sharding.utils import State, use_shard, get_template_name
+from sharding.utils import State, use_shard, get_template_name, get_all_databases
 
 
 class ShardedMigrationSystemTestCase(MigrationTestBase):
@@ -27,7 +27,7 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
         # Unlike other migrations, these test migrations are NOT applied during the creation of the testcase
         # For they are not known to the runner at that point.
 
-        self.databases = MigrateShards().get_all_databases()
+        self.databases = get_all_databases()
 
         with override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'}):
             # default|template migrates fully
@@ -332,7 +332,7 @@ class ShardedMigrationHandleTestCase(MigrationTestBase):
                                         state=State.ACTIVE)
         cls.maria = Shard.objects.create(alias='maria', schema_name='test_maria', node_name='default',
                                          state=State.ACTIVE)
-        cls.databases = MigrateShards().get_all_databases()
+        cls.databases = get_all_databases()
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
     @mock.patch('django.core.management.sql.emit_post_migrate_signal')
@@ -440,19 +440,17 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         cls.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
                                         state=State.ACTIVE)
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
-    def test_without_special_options(self, mock_get_all_dbs):
+    def test_without_special_options(self):
         """
         Case: Call get_database_and_schema_from_options without special options.
         Expected: Normal list of databases and no database and schema_name returned.
         """
         databases, schema_name = MigrateShards().get_database_and_schema_from_options(options={})
 
-        self.assertTrue(mock_get_all_dbs.called)
-        self.assertEqual(databases, MigrateShards().get_all_databases())
+        self.assertEqual(databases, get_all_databases())
         self.assertIsNone(schema_name)
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
+    @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
     def test_with_shard_option(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a targeted shard.
@@ -466,7 +464,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         self.assertEqual(databases, ['default'])
         self.assertEqual(schema_name, 'template')
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
+    @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
     def test_with_database_option(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a targeted database.
@@ -479,7 +477,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         self.assertEqual(databases, ['other'])
         self.assertIsNone(schema_name)
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
+    @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
     def test_with_invalid_db_option(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a targeted database.
@@ -492,7 +490,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         self.assertEqual(error.exception.args[0], 'You must migrate an existing non-primary DB.')
         self.assertTrue(mock_get_all_dbs.called)
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
+    @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
     def test_with_database_and_shard_option(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a targeted database and template_shard.
@@ -507,7 +505,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         self.assertEqual(databases, ['other'])
         self.assertEqual(schema_name, 'public')
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
+    @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
     def test_with_database_and_shard_option2(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a targeted database and shard.
@@ -522,7 +520,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         self.assertEqual(databases, ['default'])
         self.assertEqual(schema_name, 'test_sina')
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
+    @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
     def test_with_unexisting_shard(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a targeted database and non-existing shard.
@@ -534,7 +532,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
             MigrateShards().get_database_and_schema_from_options(options={'database': 'other', 'shard': 'other|paul'})
         self.assertEqual(error.exception.args[0], 'Shard paul is not known.')
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
+    @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
     def test_with_shard_and_wrong_db(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with a shard target and wrong database.
@@ -546,7 +544,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
             MigrateShards().get_database_and_schema_from_options(options={'database': 'other', 'shard': 'other|sina'})
         self.assertEqual(error.exception.args[0], 'Shard sina does not belong to database other.')
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
+    @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
     def test_with_invalid_db_and_shard_options(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with invalid targeted database and shard.
@@ -560,7 +558,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         self.assertEqual(error.exception.args[0], 'You must migrate an existing non-primary DB.')
         self.assertTrue(mock_get_all_dbs.called)
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_all_databases')
+    @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
     def test_with_invalid_shard_option(self, mock_get_all_dbs):
         """
         Case: Call get_database_and_schema_from_options with invalid shard.

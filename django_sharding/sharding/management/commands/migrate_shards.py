@@ -1,7 +1,6 @@
 from importlib import import_module
 
 from django.apps import apps
-from django.conf import settings
 from django.core.management.base import CommandError
 from django.core.management.commands.migrate import Command as MigrateCommand
 from django.core.management.sql import emit_post_migrate_signal, emit_pre_migrate_signal

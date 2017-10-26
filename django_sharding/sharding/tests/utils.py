@@ -2,13 +2,14 @@ import re
 from unittest import mock
 
 from django.core.exceptions import ImproperlyConfigured
-from django.db import connection, connections, models
-from django.test import SimpleTestCase, TestCase, override_settings
+from django.db import connection, connections, models, ProgrammingError, InterfaceError
+from django.test import SimpleTestCase, TestCase, override_settings, TransactionTestCase
 
-from example.models import Shard, OrganizationShards
+from example.models import Shard, OrganizationShards, Type
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
-    StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node
+    StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, write_to_every_node, \
+    transaction_for_every_node
 from sharding.decorators import sharded_model, mirrored_model
 
 
@@ -56,8 +57,7 @@ class ShardingTestCase(TestCase):
     def clean_up(self):
         THREAD_LOCAL.DB_OVERRIDE = None
 
-        for connection_name in connections:
-            con = connections[connection_name]
+        for con in connections.all():
             con.clone_function_set = False
             con.set_schema_to_public()
 
@@ -657,7 +657,7 @@ class ForEachShardTestCase(TestCase):
 
 
 @mock.patch('sharding.utils.get_all_databases', return_value=['default', 'other'])
-class ForEachNodeTestCase(TestCase):
+class ForEachNodeTestCase(SimpleTestCase):
     def repeatable_function(self, node_name=None, **kwargs):
         self.nodes.append((node_name, kwargs))
 
@@ -682,3 +682,142 @@ class ForEachNodeTestCase(TestCase):
         for_each_node(self.repeatable_function, kwargs={'organization_id': 1})
         self.assertCountEqual(self.nodes, [('default', {'organization_id': 1}), ('other', {'organization_id': 1})])
         self.assertTrue(mock_get_all_databases.called)
+
+
+class WriteToEveryNodeSystemTestCase(TransactionTestCase):
+    def _post_teardown(self):
+        # No need to revert stuff. In fact, it breaks the connections
+        pass
+
+    def test_write_to_all_nodes(self):
+        """
+        Case: Use the @write_to_every_node on a simple write function.
+        Expected: Every Database has been written to.
+        Note: This is system test keeping write_to_every_node and transaction_for_every_node as a black box.
+        """
+        with use_shard(node_name='default', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 0)
+        with use_shard(node_name='other', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 0)
+
+        @write_to_every_node(schema_name='public')
+        def write_func(database):
+            Type.objects.create(name='test_type')
+
+        write_func()
+
+        with use_shard(node_name='default', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 1)
+            self.assertEqual(Type.objects.first().name, 'test_type')
+        with use_shard(node_name='other', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 1)
+            self.assertEqual(Type.objects.first().name, 'test_type')
+
+
+class TransactionForEveryNodeTestCase(SimpleTestCase):
+    @mock.patch('sharding.utils.Atomic.__init__')
+    @mock.patch('sharding.utils.Atomic.__enter__', autospec=True)
+    @mock.patch('sharding.utils.Atomic.__exit__', autospec=True)
+    @mock.patch('sharding.utils.get_all_databases', return_value=['sina', 'rose', 'maria'])
+    def test_parent_calls(self, mock_get_all_databases, mock_exit, mock_enter, mock_init):
+        """
+        Case: Use @transaction_for_every_node.
+        Expected: The parent context manager classes to be called with the correct self.using set.
+        """
+        enter_connections = []
+        exit_connections = []
+
+        def fake_enter(self):
+            enter_connections.append(self.using)
+
+        def fake_exit(self, exc_type, exc_value, traceback):
+            exit_connections.append(self.using)
+
+        mock_enter.side_effect = fake_enter
+        mock_exit.side_effect = fake_exit
+
+        with transaction_for_every_node():
+            pass
+
+        self.assertFalse(mock_init.called)
+        self.assertEqual(mock_enter.call_count, 3)
+        self.assertEqual(mock_exit.call_count, 3)
+        self.assertCountEqual(enter_connections, ['sina', 'rose', 'maria'])
+        self.assertCountEqual(exit_connections, ['sina', 'rose', 'maria'])
+        self.assertTrue(mock_get_all_databases.called)
+
+
+class TransactionForEveryNodeTransactionTestCase(TransactionTestCase):
+    def _post_teardown(self):
+        # No need to revert stuff. In fact, it breaks the connections
+        pass
+
+    def test_with_failure_during_write(self):
+        """
+        Case: Use @transaction_for_every_node and fail when writing.
+        Expected: All transactions to be rolled back.
+        """
+        with use_shard(node_name='default', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 0)
+        with use_shard(node_name='other', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 0)
+
+        with self.assertRaises(ProgrammingError):
+            with transaction_for_every_node():
+                with use_shard(node_name='default', schema_name='public'):
+                    Type.objects.create(name='test_type')  # this is to be rolled back
+                with use_shard(node_name='other', schema_name='public'):
+                    raise ProgrammingError('table "Type" does not exist')
+
+        with use_shard(node_name='default', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 0)
+        with use_shard(node_name='other', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 0)
+
+    def test_with_closing_connection_during_write(self):
+        """
+        Case: Use @transaction_for_every_node and close connection when writing.
+        Expected: All transactions to be rolled back.
+        """
+        with use_shard(node_name='default', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 0)
+        with use_shard(node_name='other', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 0)
+
+        with self.assertRaises(InterfaceError):
+            with transaction_for_every_node():
+                with use_shard(node_name='default', schema_name='public'):
+                    Type.objects.create(name='test_type')  # this is to be rolled back
+                with use_shard(node_name='other', schema_name='public') as shard:
+                    shard.connection.close()
+                    Type.objects.create(name='test_type')  # this gives a 'connection already closed' exception
+
+        with use_shard(node_name='default', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 0)
+        with use_shard(node_name='other', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 0)
+
+
+class WriteToEveryNodeTestCase(SimpleTestCase):
+    @mock.patch('sharding.utils.transaction_for_every_node')
+    @mock.patch('sharding.utils.use_shard')
+    @mock.patch('sharding.utils.get_all_databases', return_value=['sina', 'rose', 'maria'])
+    def test_write_to_every_node(self, mock_get_all_databases, mock_use_shard, mock_transaction):
+        """
+        Case: Use the @write_to_every_node.
+        Expected: transaction_for_every_node, use_shard and the decoreated function to be called.
+        """
+        use_schemas = []
+
+        @write_to_every_node(schema_name='some_schema')
+        def test_function(database):
+            use_schemas.append(database)
+
+        test_function()
+
+        mock_use_shard.assert_any_call(node_name='sina', schema_name='some_schema')
+        mock_use_shard.assert_any_call(node_name='rose', schema_name='some_schema')
+        mock_use_shard.assert_any_call(node_name='maria', schema_name='some_schema')
+        self.assertEqual(mock_transaction.call_count, 1)
+        self.assertEqual(mock_get_all_databases.call_count, 1)
+        self.assertCountEqual(use_schemas, ['sina', 'rose', 'maria'])
