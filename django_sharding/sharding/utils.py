@@ -509,7 +509,7 @@ def get_all_databases():
     return [name for name, db in settings.DATABASES.items()]
 
 
-def for_each_node(func, args=(), kwargs=None, as_id=False):
+def for_each_node(func, args=(), kwargs=None):
     """
     Function to call another function for each node and pass the node_name
     as a parameter.
@@ -542,10 +542,10 @@ class transaction_for_every_node(Atomic):
 
     :returns: None
     """
-    def __init__(self, safepoint=True):
+    def __init__(self, savepoint=True):
         # we don't support the 'using' argument of transaction.Atomic
         self.databases = get_all_databases()
-        self.savepoint = safepoint
+        self.savepoint = savepoint
 
     def __enter__(self):
         for database in self.databases:
@@ -583,8 +583,8 @@ def write_to_every_node(schema_name='public'):
         @functools.wraps(func)
         def decorator(*args, **kwargs):
             with transaction_for_every_node():
-                for database in get_all_databases():
-                    with use_shard(node_name=database, schema_name=schema_name):
-                        func(database)
+                for node_name in get_all_databases():
+                    with use_shard(node_name=node_name, schema_name=schema_name):
+                        func(node_name, *args, **kwargs)
         return decorator
     return decorate

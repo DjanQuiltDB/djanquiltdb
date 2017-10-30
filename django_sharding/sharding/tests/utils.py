@@ -804,16 +804,17 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
     @mock.patch('sharding.utils.get_all_databases', return_value=['sina', 'rose', 'maria'])
     def test_write_to_every_node(self, mock_get_all_databases, mock_use_shard, mock_transaction):
         """
-        Case: Use the @write_to_every_node.
-        Expected: transaction_for_every_node, use_shard and the decoreated function to be called.
+        Case: Use the @write_to_every_node, and call the decorated function with an argument.
+        Expected: transaction_for_every_node, use_shard and the decorated function to be called.
         """
         use_schemas = []
 
         @write_to_every_node(schema_name='some_schema')
-        def test_function(database):
+        def test_function(database, test_argument):
             use_schemas.append(database)
+            self.assertEqual(test_argument, 'Sunstone')
 
-        test_function()
+        test_function('Sunstone')
 
         mock_use_shard.assert_any_call(node_name='sina', schema_name='some_schema')
         mock_use_shard.assert_any_call(node_name='rose', schema_name='some_schema')
