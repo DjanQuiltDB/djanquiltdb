@@ -582,9 +582,13 @@ def write_to_every_node(schema_name='public'):
     def decorate(func):
         @functools.wraps(func)
         def decorator(*args, **kwargs):
+            return_values = {}
+
             with transaction_for_every_node():
                 for node_name in get_all_databases():
                     with use_shard(node_name=node_name, schema_name=schema_name):
-                        func(*args, node_name=node_name, **kwargs)
+                        return_values[node_name] = func(*args, node_name=node_name, **kwargs)
+
+            return return_values
         return decorator
     return decorate
