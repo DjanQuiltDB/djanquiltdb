@@ -701,7 +701,7 @@ class WriteToEveryNodeSystemTestCase(TransactionTestCase):
             self.assertEqual(Type.objects.count(), 0)
 
         @write_to_every_node(schema_name='public')
-        def write_func(database):
+        def write_func(node_name):
             Type.objects.create(name='test_type')
 
         write_func()
@@ -810,8 +810,8 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
         use_schemas = []
 
         @write_to_every_node(schema_name='some_schema')
-        def test_function(database, test_argument):
-            use_schemas.append(database)
+        def test_function(test_argument, node_name):
+            use_schemas.append(node_name)
             self.assertEqual(test_argument, 'Sunstone')
 
         test_function('Sunstone')

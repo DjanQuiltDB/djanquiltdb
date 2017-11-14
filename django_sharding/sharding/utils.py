@@ -585,6 +585,6 @@ def write_to_every_node(schema_name='public'):
             with transaction_for_every_node():
                 for node_name in get_all_databases():
                     with use_shard(node_name=node_name, schema_name=schema_name):
-                        func(node_name, *args, **kwargs)
+                        func(*args, node_name=node_name, **kwargs)
         return decorator
     return decorate
