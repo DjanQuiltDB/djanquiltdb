@@ -822,3 +822,28 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
         self.assertEqual(mock_transaction.call_count, 1)
         self.assertEqual(mock_get_all_databases.call_count, 1)
         self.assertCountEqual(use_schemas, ['sina', 'rose', 'maria'])
+
+    @mock.patch('sharding.utils.transaction_for_every_node')
+    @mock.patch('sharding.utils.use_shard')
+    @mock.patch('sharding.utils.get_all_databases', return_value=['sina', 'rose', 'maria'])
+    def test_write_to_every_node_return_value(self, mock_get_all_databases, mock_use_shard, mock_transaction):
+        """
+        Case: Use the @write_to_every_node, and call the decorated function with an argument.
+        Expected: The function gives back a dict with the node_name as keys and the return value as their values
+        """
+        @write_to_every_node(schema_name='some_schema')
+        def test_function(test_argument, node_name):
+            return (test_argument, node_name)
+
+        return_value = test_function('Firestone')
+
+        mock_use_shard.assert_any_call(node_name='sina', schema_name='some_schema')
+        mock_use_shard.assert_any_call(node_name='rose', schema_name='some_schema')
+        mock_use_shard.assert_any_call(node_name='maria', schema_name='some_schema')
+        self.assertEqual(mock_transaction.call_count, 1)
+        self.assertEqual(mock_get_all_databases.call_count, 1)
+        self.assertEqual({
+            'sina': ('Firestone', 'sina'),
+            'rose': ('Firestone', 'rose'),
+            'maria': ('Firestone', 'maria'),
+        }, return_value)
