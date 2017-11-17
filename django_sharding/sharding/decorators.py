@@ -1,10 +1,22 @@
+import functools
+import inspect
+
 from django.core.exceptions import ImproperlyConfigured, FieldDoesNotExist
 from django.conf import settings
 from django.db import models
 
-from sharding.utils import ShardingMode, STATES
+from sharding.utils import ShardingMode, STATES, transaction_for_every_node, get_all_databases, use_shard
 
 shard_mapping_models = False
+
+
+def _add_decorator_reference(wrapped, decorator, args=(), kwargs=None):
+    """
+    Function that allows us to identify the decorator that was used and
+    the args and kwargs used to call the decorator.
+    """
+    wrapped.__decorator__ = decorator, inspect.signature(decorator).bind(*args, **(kwargs or {}))
+    return wrapped
 
 
 def _reset_shard_mapping_models():
@@ -163,3 +175,38 @@ def sharded_model():
         return cls
 
     return configure
+
+
+def write_to_every_node(schema_name='public'):
+    """
+    Decorator to execute wrapped function for every node.
+    Runs inside a transaction_for_every_node to keep all nodes in sync.
+
+    :param str schema_name: The name of the schema used. 'public' by default.
+
+    :returns: The name of the node in use.
+
+    :Example:
+        .. code-block:: python
+
+            from sharding.utils import write_to_every_node
+
+            @write_to_every_node('public')
+            def my_function(node_name):
+                # Create an object on each node's public schema
+                Type.objects.create(name='test_type')
+
+    """
+    def decorate(func):
+        @functools.wraps(func)
+        def decorator(*args, **kwargs):
+            return_values = {}
+
+            with transaction_for_every_node():
+                for node_name in get_all_databases():
+                    with use_shard(node_name=node_name, schema_name=schema_name):
+                        return_values[node_name] = func(*args, node_name=node_name, **kwargs)
+
+            return return_values
+        return _add_decorator_reference(decorator, decorator=write_to_every_node, kwargs={'schema_name': schema_name})
+    return decorate

@@ -13,7 +13,6 @@
 import threading
 from enum import Enum
 
-import functools
 from django.apps import apps
 from django.db.migrations.executor import MigrationExecutor
 from django.conf import settings
@@ -557,38 +556,3 @@ class transaction_for_every_node(Atomic):
             self.using = database
             # will grab the connection corresponding to the database set in self.using
             super().__exit__(exc_type, exc_value, traceback)
-
-
-def write_to_every_node(schema_name='public'):
-    """
-    Decorator to execute wrapped function for every node.
-    Runs inside a transaction_for_every_node to keep all nodes in sync.
-
-    :param str schema_name: The name of the schema used. 'public' by default.
-
-    :returns: The name of the node in use.
-
-    :Example:
-        .. code-block:: python
-
-            from sharding.utils import write_to_every_node
-
-            @write_to_every_node('public')
-            def my_function(node_name):
-                # Create an object on each node's public schema
-                Type.objects.create(name='test_type')
-
-    """
-    def decorate(func):
-        @functools.wraps(func)
-        def decorator(*args, **kwargs):
-            return_values = {}
-
-            with transaction_for_every_node():
-                for node_name in get_all_databases():
-                    with use_shard(node_name=node_name, schema_name=schema_name):
-                        return_values[node_name] = func(*args, node_name=node_name, **kwargs)
-
-            return return_values
-        return decorator
-    return decorate

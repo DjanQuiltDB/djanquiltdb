@@ -8,9 +8,8 @@ from django.test import SimpleTestCase, TestCase, override_settings, Transaction
 from example.models import Shard, OrganizationShards, Type
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
-    StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, write_to_every_node, \
-    transaction_for_every_node
-from sharding.decorators import sharded_model, mirrored_model
+    StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node
+from sharding.decorators import sharded_model, mirrored_model, write_to_every_node
 
 
 def test_model():
@@ -799,9 +798,9 @@ class TransactionForEveryNodeTransactionTestCase(TransactionTestCase):
 
 
 class WriteToEveryNodeTestCase(SimpleTestCase):
-    @mock.patch('sharding.utils.transaction_for_every_node')
-    @mock.patch('sharding.utils.use_shard')
-    @mock.patch('sharding.utils.get_all_databases', return_value=['sina', 'rose', 'maria'])
+    @mock.patch('sharding.decorators.transaction_for_every_node')
+    @mock.patch('sharding.decorators.use_shard')
+    @mock.patch('sharding.decorators.get_all_databases', return_value=['sina', 'rose', 'maria'])
     def test_write_to_every_node(self, mock_get_all_databases, mock_use_shard, mock_transaction):
         """
         Case: Use the @write_to_every_node, and call the decorated function with an argument.
@@ -823,9 +822,9 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
         self.assertEqual(mock_get_all_databases.call_count, 1)
         self.assertCountEqual(use_schemas, ['sina', 'rose', 'maria'])
 
-    @mock.patch('sharding.utils.transaction_for_every_node')
-    @mock.patch('sharding.utils.use_shard')
-    @mock.patch('sharding.utils.get_all_databases', return_value=['sina', 'rose', 'maria'])
+    @mock.patch('sharding.decorators.transaction_for_every_node')
+    @mock.patch('sharding.decorators.use_shard')
+    @mock.patch('sharding.decorators.get_all_databases', return_value=['sina', 'rose', 'maria'])
     def test_write_to_every_node_return_value(self, mock_get_all_databases, mock_use_shard, mock_transaction):
         """
         Case: Use the @write_to_every_node, and call the decorated function with an argument.
