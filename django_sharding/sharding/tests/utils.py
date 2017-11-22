@@ -1,3 +1,4 @@
+import inspect
 import re
 from unittest import mock
 
@@ -846,3 +847,20 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
             'rose': ('Firestone', 'rose'),
             'maria': ('Firestone', 'maria'),
         }, return_value)
+
+    def test_decorated_with(self):
+        """
+        Case: Check if the function is decorator with a specific decorator
+        Expected: The function is decorated and called with the expected argument
+        """
+        @write_to_every_node(schema_name='some_schema')
+        def test_function(test_argument, node_name):
+            pass
+
+        expected_bound_arguments = inspect.signature(write_to_every_node).bind('some_schema')
+
+        decorator, bound_arguments = test_function.__decorator__
+
+        self.assertEqual(decorator, write_to_every_node)
+        self.assertEqual(bound_arguments.args, expected_bound_arguments.args)
+        self.assertEqual(bound_arguments.kwargs, expected_bound_arguments.kwargs)
