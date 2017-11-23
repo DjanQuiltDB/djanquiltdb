@@ -1,3 +1,4 @@
+import inspect
 import re
 from unittest import mock
 
@@ -8,9 +9,8 @@ from django.test import SimpleTestCase, TestCase, override_settings, Transaction
 from example.models import Shard, OrganizationShards, Type
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
-    StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, write_to_every_node, \
-    transaction_for_every_node
-from sharding.decorators import sharded_model, mirrored_model
+    StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node
+from sharding.decorators import sharded_model, mirrored_model, write_to_every_node
 
 
 def test_model():
@@ -701,7 +701,7 @@ class WriteToEveryNodeSystemTestCase(TransactionTestCase):
             self.assertEqual(Type.objects.count(), 0)
 
         @write_to_every_node(schema_name='public')
-        def write_func(database):
+        def write_func(node_name):
             Type.objects.create(name='test_type')
 
         write_func()
@@ -799,9 +799,9 @@ class TransactionForEveryNodeTransactionTestCase(TransactionTestCase):
 
 
 class WriteToEveryNodeTestCase(SimpleTestCase):
-    @mock.patch('sharding.utils.transaction_for_every_node')
-    @mock.patch('sharding.utils.use_shard')
-    @mock.patch('sharding.utils.get_all_databases', return_value=['sina', 'rose', 'maria'])
+    @mock.patch('sharding.decorators.transaction_for_every_node')
+    @mock.patch('sharding.decorators.use_shard')
+    @mock.patch('sharding.decorators.get_all_databases', return_value=['sina', 'rose', 'maria'])
     def test_write_to_every_node(self, mock_get_all_databases, mock_use_shard, mock_transaction):
         """
         Case: Use the @write_to_every_node, and call the decorated function with an argument.
@@ -810,8 +810,8 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
         use_schemas = []
 
         @write_to_every_node(schema_name='some_schema')
-        def test_function(database, test_argument):
-            use_schemas.append(database)
+        def test_function(test_argument, node_name):
+            use_schemas.append(node_name)
             self.assertEqual(test_argument, 'Sunstone')
 
         test_function('Sunstone')
@@ -822,3 +822,45 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
         self.assertEqual(mock_transaction.call_count, 1)
         self.assertEqual(mock_get_all_databases.call_count, 1)
         self.assertCountEqual(use_schemas, ['sina', 'rose', 'maria'])
+
+    @mock.patch('sharding.decorators.transaction_for_every_node')
+    @mock.patch('sharding.decorators.use_shard')
+    @mock.patch('sharding.decorators.get_all_databases', return_value=['sina', 'rose', 'maria'])
+    def test_write_to_every_node_return_value(self, mock_get_all_databases, mock_use_shard, mock_transaction):
+        """
+        Case: Use the @write_to_every_node, and call the decorated function with an argument.
+        Expected: The function gives back a dict with the node_name as keys and the return value as their values
+        """
+        @write_to_every_node(schema_name='some_schema')
+        def test_function(test_argument, node_name):
+            return (test_argument, node_name)
+
+        return_value = test_function('Firestone')
+
+        mock_use_shard.assert_any_call(node_name='sina', schema_name='some_schema')
+        mock_use_shard.assert_any_call(node_name='rose', schema_name='some_schema')
+        mock_use_shard.assert_any_call(node_name='maria', schema_name='some_schema')
+        self.assertEqual(mock_transaction.call_count, 1)
+        self.assertEqual(mock_get_all_databases.call_count, 1)
+        self.assertEqual({
+            'sina': ('Firestone', 'sina'),
+            'rose': ('Firestone', 'rose'),
+            'maria': ('Firestone', 'maria'),
+        }, return_value)
+
+    def test_decorated_with(self):
+        """
+        Case: Check if the function is decorator with a specific decorator
+        Expected: The function is decorated and called with the expected argument
+        """
+        @write_to_every_node(schema_name='some_schema')
+        def test_function(test_argument, node_name):
+            pass
+
+        expected_bound_arguments = inspect.signature(write_to_every_node).bind('some_schema')
+
+        decorator, bound_arguments = test_function.__decorator__
+
+        self.assertEqual(decorator, write_to_every_node)
+        self.assertEqual(bound_arguments.args, expected_bound_arguments.args)
+        self.assertEqual(bound_arguments.kwargs, expected_bound_arguments.kwargs)
