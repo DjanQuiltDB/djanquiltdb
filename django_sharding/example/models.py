@@ -23,10 +23,18 @@ class OrganizationShards(models.Model):
     objects = MappingQuerySet.as_manager()
 
 
-# mirrored table
+@mirrored_model()
+class SuperType(models.Model):
+    name = models.CharField('name', max_length=100)
+
+    class Meta:
+        app_label = 'example'
+
+
 @mirrored_model()
 class Type(models.Model):
     name = models.CharField('name', max_length=100)
+    super = models.ForeignKey('SuperType', on_delete=models.DO_NOTHING, verbose_name='super', null=True)
 
     class Meta:
         app_label = 'example'
@@ -55,7 +63,7 @@ class User(AbstractBaseUser):
     email = models.EmailField('email address', unique=True)
     created_at = models.DateTimeField('date joined', default=timezone.now)
     organization = models.ForeignKey('Organization', verbose_name='organization')
-    type = models.ForeignKey('Type', verbose_name='type')
+    type = models.ForeignKey('Type', on_delete=models.DO_NOTHING, verbose_name='type', null=True)
 
     USERNAME_FIELD = 'email'
 

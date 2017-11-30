@@ -1,12 +1,13 @@
 import inspect
 import re
 from unittest import mock
+import threading
 
 from django.core.exceptions import ImproperlyConfigured
-from django.db import connection, connections, models, ProgrammingError, InterfaceError
+from django.db import connection, connections, models, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings, TransactionTestCase
 
-from example.models import Shard, OrganizationShards, Type
+from example.models import Shard, OrganizationShards, Type, SuperType
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
     StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node
@@ -548,10 +549,11 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         """
         create_template_schema('default')  # also calls for a migration
 
+        # mirrored, mapping and django default tables
         default_public_tables = ['django_migrations', 'django_content_type', 'auth_group', 'auth_permission',
                                  'auth_group_permissions', 'example_shard', 'django_session', 'example_type',
-                                 'example_organizationshards']  # mirrored, mapping and django default tables
-        other_public_tables = ['django_migrations',  'example_type']  # only the mirrored table
+                                 'example_supertype', 'example_organizationshards']
+        other_public_tables = ['django_migrations',  'example_type', 'example_supertype']  # only the mirrored table
         template_tables = ['django_migrations', 'example_organization', 'example_user']  # only sharded tables
 
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'),
@@ -685,6 +687,15 @@ class ForEachNodeTestCase(SimpleTestCase):
 
 
 class WriteToEveryNodeSystemTestCase(TransactionTestCase):
+    def cleanup(self):
+        for_each_node(self.cleanup_shard)
+
+    def cleanup_shard(self, node_name):
+        Type.objects.all().delete()
+
+    def setUp(self):
+        self.addCleanup(self.cleanup)
+
     def _post_teardown(self):
         # No need to revert stuff. In fact, it breaks the connections
         pass
@@ -709,9 +720,25 @@ class WriteToEveryNodeSystemTestCase(TransactionTestCase):
         with use_shard(node_name='default', schema_name='public'):
             self.assertEqual(Type.objects.count(), 1)
             self.assertEqual(Type.objects.first().name, 'test_type')
+
         with use_shard(node_name='other', schema_name='public'):
             self.assertEqual(Type.objects.count(), 1)
             self.assertEqual(Type.objects.first().name, 'test_type')
+
+    @mock.patch('sharding.decorators.transaction_for_every_node')
+    def test_write_to_all_nodes_locking(self, mock_transaction_for_every_node):
+        """
+        Case: Use the @write_to_every_node with locking argument given.
+        Expected: transaction_for_every_node to be called with the locking arguments.
+        """
+
+        @write_to_every_node(schema_name='public', lock_models=[(Type, 'SHARE')])
+        def dummy_func(node_name):
+            pass
+
+        dummy_func()
+
+        mock_transaction_for_every_node.assert_called_once_with(lock_models=[(Type, 'SHARE')])
 
 
 class TransactionForEveryNodeTestCase(SimpleTestCase):
@@ -748,6 +775,16 @@ class TransactionForEveryNodeTestCase(SimpleTestCase):
 
 
 class TransactionForEveryNodeTransactionTestCase(TransactionTestCase):
+    def cleanup(self):
+        for_each_node(self.cleanup_shard)
+
+    def cleanup_shard(self, node_name):
+        Type.objects.all().delete()
+
+    def setUp(self):
+        self.addCleanup(self.cleanup)
+        self.addCleanup(mock.patch.stopall)
+
     def _post_teardown(self):
         # No need to revert stuff. In fact, it breaks the connections
         pass
@@ -796,6 +833,63 @@ class TransactionForEveryNodeTransactionTestCase(TransactionTestCase):
             self.assertEqual(Type.objects.count(), 0)
         with use_shard(node_name='other', schema_name='public'):
             self.assertEqual(Type.objects.count(), 0)
+
+    def test_table_lock_execution(self):
+        """
+        Case: use @transaction_for_every_node with lock_models given
+        Expected: SQL command to lock the models is executed
+        """
+
+        # mocking a cursor.execute is a bit of a faff
+        mock_connections = mock.patch('sharding.utils.connections').start()
+        mock_connection = mock_connections.__getitem__ = mock.Mock()
+        mock_cursor = mock_connection.return_value.cursor = mock.Mock()
+        mock_execute = mock_cursor.return_value.execute = mock.Mock()
+
+        with transaction_for_every_node(lock_models=[(Type, 'ROW SHARE'), (SuperType, 'SHARE')]):
+            pass
+
+        self.assertTrue(mock_execute.called)
+        self.assertEqual(mock_execute.call_count, 4)  # we test with two databases and 2 tables
+        mock_execute.assert_any_call('LOCK TABLE {} IN {} MODE'.format('example_type', 'ROW SHARE'))
+        mock_execute.assert_any_call('LOCK TABLE {} IN {} MODE'.format('example_supertype', 'SHARE'))
+
+    def test_with_table_lock(self):
+        """
+        Case: use @transaction_for_every_node with lock_models given
+        Expected: The models to be locked and other writes outside the transaction to be blocked
+        """
+
+        def conflicting_transaction():
+            """
+            Create a new tranassction, independant on those made in `transaction_for_every_node`
+            Try to claim a exclusive on the table locked by `transaction_for_every_node`.
+            Close connection so not to interfere with the rest of the TestCase.
+            """
+            with transaction.atomic():
+                con = connections['default']
+                with self.assertRaises(OperationalError):
+                    con.cursor().execute(
+                        'LOCK TABLE "example_type" IN ACCESS EXCLUSIVE MODE NOWAIT'
+                    )
+                    Type.objects.create(name='test_type')
+                con.close()
+
+        with transaction_for_every_node(lock_models=[(Type, 'ACCESS EXCLUSIVE')]):
+            with use_shard(node_name='default', schema_name='public'):
+                # Don't create an object before calling the other thread.
+                # A write will lock the table too, and will only be released when the transaction is committed.
+                # So this will always make the test succeed,
+                # even if transaction_for_every_node does not lock anything.
+
+                t1 = threading.Thread(target=conflicting_transaction)
+                t1.start()
+                t1.join()
+
+                Type.objects.create(name='test_type')
+
+        with use_shard(node_name='default', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 1)
 
 
 class WriteToEveryNodeTestCase(SimpleTestCase):

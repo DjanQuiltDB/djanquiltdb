@@ -177,7 +177,7 @@ def sharded_model():
     return configure
 
 
-def write_to_every_node(schema_name='public'):
+def write_to_every_node(schema_name='public', lock_models=[]):
     """
     Decorator to execute wrapped function for every node.
     Runs inside a transaction_for_every_node to keep all nodes in sync.
@@ -202,7 +202,7 @@ def write_to_every_node(schema_name='public'):
         def decorator(*args, **kwargs):
             return_values = {}
 
-            with transaction_for_every_node():
+            with transaction_for_every_node(lock_models=lock_models):
                 for node_name in get_all_databases():
                     with use_shard(node_name=node_name, schema_name=schema_name):
                         return_values[node_name] = func(*args, node_name=node_name, **kwargs)

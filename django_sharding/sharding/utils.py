@@ -541,15 +541,21 @@ class transaction_for_every_node(Atomic):
 
     :returns: None
     """
-    def __init__(self, savepoint=True):
+    def __init__(self, savepoint=True, lock_models=[]):
         # we don't support the 'using' argument of transaction.Atomic
         self.databases = get_all_databases()
         self.savepoint = savepoint
+        self.lock_models = lock_models
 
     def __enter__(self):
         for database in self.databases:
             self.using = database
             super().__enter__()  # will grab the connection corresponding to the database set in self.using
+
+            for model, mode in self.lock_models:
+                connection = connections[self.using]
+                cursor = connection.cursor()
+                cursor.execute('LOCK TABLE {} IN {} MODE'.format(model._meta.db_table, mode))
 
     def __exit__(self, exc_type, exc_value, traceback):
         for database in reversed(self.databases):
