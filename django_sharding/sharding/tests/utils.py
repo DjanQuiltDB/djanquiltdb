@@ -732,13 +732,13 @@ class WriteToEveryNodeSystemTestCase(TransactionTestCase):
         Expected: transaction_for_every_node to be called with the locking arguments.
         """
 
-        @write_to_every_node(schema_name='public', lock_models=[(Type, 'SHARE')])
+        @write_to_every_node(schema_name='public', lock_models=((Type, 'SHARE'),))
         def dummy_func(node_name):
             pass
 
         dummy_func()
 
-        mock_transaction_for_every_node.assert_called_once_with(lock_models=[(Type, 'SHARE')])
+        mock_transaction_for_every_node.assert_called_once_with(lock_models=((Type, 'SHARE'),))
 
 
 class TransactionForEveryNodeTestCase(SimpleTestCase):
@@ -846,10 +846,9 @@ class TransactionForEveryNodeTransactionTestCase(TransactionTestCase):
         mock_cursor = mock_connection.return_value.cursor = mock.Mock()
         mock_execute = mock_cursor.return_value.execute = mock.Mock()
 
-        with transaction_for_every_node(lock_models=[(Type, 'ROW SHARE'), (SuperType, 'SHARE')]):
+        with transaction_for_every_node(lock_models=((Type, 'ROW SHARE'), (SuperType, 'SHARE'))):
             pass
 
-        self.assertTrue(mock_execute.called)
         self.assertEqual(mock_execute.call_count, 4)  # we test with two databases and 2 tables
         mock_execute.assert_any_call('LOCK TABLE {} IN {} MODE'.format('example_type', 'ROW SHARE'))
         mock_execute.assert_any_call('LOCK TABLE {} IN {} MODE'.format('example_supertype', 'SHARE'))
@@ -875,7 +874,7 @@ class TransactionForEveryNodeTransactionTestCase(TransactionTestCase):
                     Type.objects.create(name='test_type')
                 con.close()
 
-        with transaction_for_every_node(lock_models=[(Type, 'ACCESS EXCLUSIVE')]):
+        with transaction_for_every_node(lock_models=((Type, 'ACCESS EXCLUSIVE'),)):
             with use_shard(node_name='default', schema_name='public'):
                 # Don't create an object before calling the other thread.
                 # A write will lock the table too, and will only be released when the transaction is committed.

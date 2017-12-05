@@ -177,7 +177,7 @@ def sharded_model():
     return configure
 
 
-def write_to_every_node(schema_name='public', lock_models=[]):
+def write_to_every_node(schema_name='public', lock_models=()):
     """
     Decorator to execute wrapped function for every node.
     Runs inside a transaction_for_every_node to keep all nodes in sync.

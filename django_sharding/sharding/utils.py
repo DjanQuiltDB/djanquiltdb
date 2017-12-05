@@ -541,7 +541,7 @@ class transaction_for_every_node(Atomic):
 
     :returns: None
     """
-    def __init__(self, savepoint=True, lock_models=[]):
+    def __init__(self, savepoint=True, lock_models=()):
         # we don't support the 'using' argument of transaction.Atomic
         self.databases = get_all_databases()
         self.savepoint = savepoint
