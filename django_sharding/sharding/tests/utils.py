@@ -783,7 +783,6 @@ class TransactionForEveryNodeTransactionTestCase(TransactionTestCase):
 
     def setUp(self):
         self.addCleanup(self.cleanup)
-        self.addCleanup(mock.patch.stopall)
 
     def _post_teardown(self):
         # No need to revert stuff. In fact, it breaks the connections
@@ -841,17 +840,17 @@ class TransactionForEveryNodeTransactionTestCase(TransactionTestCase):
         """
 
         # mocking a cursor.execute is a bit of a faff
-        mock_connections = mock.patch('sharding.utils.connections').start()
-        mock_connection = mock_connections.__getitem__ = mock.Mock()
-        mock_cursor = mock_connection.return_value.cursor = mock.Mock()
-        mock_execute = mock_cursor.return_value.execute = mock.Mock()
+        with mock.patch('sharding.utils.connections') as mock_connections:
+            mock_connection = mock_connections.__getitem__ = mock.Mock()
+            mock_cursor = mock_connection.return_value.cursor = mock.Mock()
+            mock_execute = mock_cursor.return_value.execute = mock.Mock()
 
-        with transaction_for_every_node(lock_models=((Type, 'ROW SHARE'), (SuperType, 'SHARE'))):
-            pass
+            with transaction_for_every_node(lock_models=((Type, 'ROW SHARE'), (SuperType, 'SHARE'))):
+                pass
 
-        self.assertEqual(mock_execute.call_count, 4)  # we test with two databases and 2 tables
-        mock_execute.assert_any_call('LOCK TABLE {} IN {} MODE'.format('example_type', 'ROW SHARE'))
-        mock_execute.assert_any_call('LOCK TABLE {} IN {} MODE'.format('example_supertype', 'SHARE'))
+            self.assertEqual(mock_execute.call_count, 4)  # we test with two databases and 2 tables
+            mock_execute.assert_any_call('LOCK TABLE {} IN {} MODE'.format('example_type', 'ROW SHARE'))
+            mock_execute.assert_any_call('LOCK TABLE {} IN {} MODE'.format('example_supertype', 'SHARE'))
 
     def test_with_table_lock(self):
         """
