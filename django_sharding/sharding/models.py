@@ -31,12 +31,15 @@ class BaseShard(models.Model):
         abstract = True
         unique_together = ('schema_name', 'node_name')
 
-    def save(self, **kwargs):
-        if not self.pk:  # only create a new shard if the shard is newly created.
-            self.node_name = self.node_name or settings.SHARDING.get('NEW_SHARD_NODE', None)
-            if not self.node_name:
-                raise ValueError("No node_name given, or no NEW_SHARD_NODE set in the SHARING settings.")
+    def save(self, using=None, **kwargs):
+        self.node_name = self.node_name or settings.SHARDING.get('NEW_SHARD_NODE', None)
+        if not self.node_name:
+            raise ValueError("No node_name given, or no NEW_SHARD_NODE set in the SHARING settings.")
 
+        # only create a new shard if the shard is newly created and we're saving to the correct node
+        # If this object is made within a 'use_shard' manager we will have 'using' set.
+        # Else we need to get our db alias form the manager
+        if not self.pk and (using or self._base_manager.db) == self.node_name:
             from sharding.utils import create_schema_on_node  # import it here, to prevent circle dependencies
             create_schema_on_node(schema_name=self.schema_name, node_name=self.node_name, migrate=True)
 
