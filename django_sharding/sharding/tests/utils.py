@@ -661,28 +661,25 @@ class ForEachShardTestCase(TestCase):
 @mock.patch('sharding.utils.get_all_databases', return_value=['default', 'other'])
 class ForEachNodeTestCase(SimpleTestCase):
     def repeatable_function(self, node_name=None, **kwargs):
-        self.nodes.append((node_name, kwargs))
+        return node_name, kwargs
 
     def test_for_each_node(self, mock_get_all_databases):
         """
         Case: Call self.repeatable_function for every node
         Expected: Function is called for every node
         """
-        self.nodes = []
-        for_each_node(self.repeatable_function)
-        self.assertCountEqual(self.nodes, [('default', {}), ('other', {})])
+        result = for_each_node(self.repeatable_function)
+        self.assertEqual(result, {'default': ('default', {}), 'other': ('other', {})})
         self.assertTrue(mock_get_all_databases.called)
 
     def test_for_each_node_with_kwargs(self, mock_get_all_databases):
         """
-        Case: Call self.repeatable_function for every node and pass
-              keyword arguments to the function.
-        Expected: Function is called for every node and is called with
-                  the keyword arguments provided.
+        Case: Call self.repeatable_function for every node and pass keyword arguments to the function.
+        Expected: Function is called for every node and is called with the keyword arguments provided.
         """
-        self.nodes = []
-        for_each_node(self.repeatable_function, kwargs={'organization_id': 1})
-        self.assertCountEqual(self.nodes, [('default', {'organization_id': 1}), ('other', {'organization_id': 1})])
+        result = for_each_node(self.repeatable_function, kwargs={'org_id': 1})
+        self.assertEqual(result, {'default': ('default', {'org_id': 1}), 'other': ('other', {'org_id': 1})})
+
         self.assertTrue(mock_get_all_databases.called)
 
 

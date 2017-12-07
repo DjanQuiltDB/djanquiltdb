@@ -516,7 +516,7 @@ def for_each_node(func, args=(), kwargs=None):
     :param func: Function to call for each node
     :param kwargs: Keyword arguments to pass to the function to call
 
-    :returns: None
+    :returns: Dict with the functions return values per node.
 
     :Example:
         .. code-block:: python
@@ -524,14 +524,16 @@ def for_each_node(func, args=(), kwargs=None):
             from sharding.utils import for_each_node
 
             function sharded_function(node_name=None, prefix=None):
-                print('{prefix}{node_name}'.format(prefix=prefix, node_name=node_name))
+                return '{prefix}{node_name}'.format(prefix=prefix, node_name=node_name)
 
-            for_each_node(sharded_function)
-            for_each_node(sharded_function, kwargs={'prefix': 'node-'})
+            for_each_node(sharded_function)  # {'default': 'default'}
+            for_each_node(sharded_function, kwargs={'prefix': 'node-'})  # {'default': 'node-default'}
 
     """
+    return_values = {}
     for node_name in get_all_databases():
-        func(*args, node_name=node_name, **(kwargs or {}))
+        return_values[node_name] = func(*args, node_name=node_name, **(kwargs or {}))
+    return return_values
 
 
 class transaction_for_every_node(Atomic):
