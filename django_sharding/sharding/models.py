@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import models, connections
 from django.db.models import Q
 
-from sharding.utils import State, STATES
+from sharding.utils import State, STATES, ShardingMode
 
 
 class MappingQuerySet(models.QuerySet):
@@ -36,14 +36,19 @@ class BaseShard(models.Model):
         if not self.node_name:
             raise ValueError("No node_name given, or no NEW_SHARD_NODE set in the SHARING settings.")
 
-        # only create a new shard if the shard is newly created and we're saving to the correct node
+        if self.pk:  # this is an update, no need to create a schema
+            return super().save(**kwargs)
+
+        # If we have a Mirrored sharding mode, we need to work on our target node to create a schema.
         # If this object is made within a 'use_shard' manager we will have 'using' set.
         # Else we need to get our db alias form the manager
-        if not self.pk and (using or self._base_manager.db) == self.node_name:
+        if not hasattr(self, 'sharding_mode') \
+                or (getattr(self, 'sharding_mode') == ShardingMode.MIRRORED
+                    and (using or self._base_manager.db) == self.node_name):
             from sharding.utils import create_schema_on_node  # import it here, to prevent circle dependencies
             create_schema_on_node(schema_name=self.schema_name, node_name=self.node_name, migrate=True)
 
-        super().save(**kwargs)  # save to default database
+        super().save(**kwargs)
 
     def clean(self):
         if self.node_name not in connections:
