@@ -953,6 +953,7 @@ class ShardedMigrationCheckOrMigrateShardTestCase(MigrationTestBase):
 
         # This makes completely unmigrated schemas
         mock_save = mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema').start()
+
         cls.rose = Shard.objects.create(alias='rose', node_name='other', schema_name='test_rose',
                                         state=State.ACTIVE)
         mock_save.stop()

@@ -516,7 +516,7 @@ def for_each_node(func, args=(), kwargs=None):
     :param func: Function to call for each node
     :param kwargs: Keyword arguments to pass to the function to call
 
-    :returns: None
+    :returns: Dict with the functions return values per node.
 
     :Example:
         .. code-block:: python
@@ -524,14 +524,16 @@ def for_each_node(func, args=(), kwargs=None):
             from sharding.utils import for_each_node
 
             function sharded_function(node_name=None, prefix=None):
-                print('{prefix}{node_name}'.format(prefix=prefix, node_name=node_name))
+                return '{prefix}{node_name}'.format(prefix=prefix, node_name=node_name)
 
-            for_each_node(sharded_function)
-            for_each_node(sharded_function, kwargs={'prefix': 'node-'})
+            for_each_node(sharded_function)  # {'default': 'default'}
+            for_each_node(sharded_function, kwargs={'prefix': 'node-'})  # {'default': 'node-default'}
 
     """
+    return_values = {}
     for node_name in get_all_databases():
-        func(*args, node_name=node_name, **(kwargs or {}))
+        return_values[node_name] = func(*args, node_name=node_name, **(kwargs or {}))
+    return return_values
 
 
 class transaction_for_every_node(Atomic):
@@ -541,15 +543,21 @@ class transaction_for_every_node(Atomic):
 
     :returns: None
     """
-    def __init__(self, savepoint=True):
+    def __init__(self, savepoint=True, lock_models=()):
         # we don't support the 'using' argument of transaction.Atomic
         self.databases = get_all_databases()
         self.savepoint = savepoint
+        self.lock_models = lock_models
 
     def __enter__(self):
         for database in self.databases:
             self.using = database
             super().__enter__()  # will grab the connection corresponding to the database set in self.using
+
+            for model, mode in self.lock_models:
+                connection = connections[self.using]
+                cursor = connection.cursor()
+                cursor.execute('LOCK TABLE {} IN {} MODE'.format(model._meta.db_table, mode))
 
     def __exit__(self, exc_type, exc_value, traceback):
         for database in reversed(self.databases):
