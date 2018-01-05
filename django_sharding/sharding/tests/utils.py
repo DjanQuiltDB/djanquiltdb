@@ -113,7 +113,7 @@ class UseShardTestCase(ShardingTestCase):
         Expected: Connection and schema to be changed
         """
         with use_shard(self.shard) as env:
-            self.assertEqual(connection.settings_dict['NAME'], 'test_sharding')
+            self.assertEqual(connection.alias, 'default')
             mock_set_schema.assert_called_once_with('test_schema', env.connection)
 
     @mock.patch('sharding.utils._set_schema')

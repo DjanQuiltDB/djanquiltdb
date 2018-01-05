@@ -170,16 +170,16 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
         request, response = RequestFactory().get('/'), HttpResponse()
         middleware = UseShardMiddleware()
 
-        middleware.process_view(request)  # required, sets the context manager
+        middleware.process_request(request)  # required, sets the context manager
         middleware.process_response(request, response)
 
         mock_use_shard.enable.assert_called_with()  # called by `process_view`
         mock_use_shard.disable.assert_called_with()  # called by `process_response`
 
     @mock.patch('sharding.middleware.use_shard')
-    def test_process_view(self, mock_use_shard):
+    def test_process_request(self, mock_use_shard):
         """
-        Case: Call the middleware to process a view.
+        Case: Call the middleware to process a request.
         Expected: The context manager returned by `use_shard` is
                   entered but not exited.
         """
@@ -188,14 +188,14 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
         mock_use_shard_value.return_value.disable = mock.Mock()
         mock_use_shard.return_value = mock_use_shard_value
 
-        UseShardMiddleware().process_view(RequestFactory().get('/'))
+        UseShardMiddleware().process_request(RequestFactory().get('/'))
 
         self.assertTrue(mock_use_shard.called)
         self.assertTrue(mock_use_shard.return_value.enable.called)
         self.assertFalse(mock_use_shard.return_value.disable.called)  # process_response is not called
 
     @mock.patch('sharding.middleware.use_shard')
-    def test_process_view_with_use_shard_exception(self, mock_use_shard):
+    def test_process_request_with_use_shard_exception(self, mock_use_shard):
         """
         Case: Call the middleware to process a shard in maintenance
         Expected: process_state_exception is called,
@@ -211,7 +211,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
         mock_process_state_exception = \
             mock.patch('sharding.tests.middleware.UseShardMiddleware.process_state_exception').start()
 
-        UseShardMiddleware().process_view(RequestFactory().get('/'))
+        UseShardMiddleware().process_request(RequestFactory().get('/'))
 
         self.assertTrue(mock_use_shard.called)
         self.assertFalse(mock_use_shard.return_value.enable.called)
