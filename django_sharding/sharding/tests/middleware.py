@@ -245,3 +245,21 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
 
         self.assertFalse(mock_process_state_exception.called)
         self.assertTrue(mock_use_shard_context_manager.disable.called)
+
+    @mock.patch('sharding.middleware.use_shard_for')
+    def test_enable_shard_for(self, mock_use_shard_for):
+        """
+        Case: Call the _use_shard_for of the UseShardMiddleware
+        Expected: The context manager is the one from use_shard_for and it is enabled
+        """
+        mock_use_shard_for_value = mock.Mock()
+        mock_use_shard_for_value.return_value.enable = mock.Mock()
+        mock_use_shard_for.return_value = mock_use_shard_for_value
+
+        middleware = UseShardMiddleware()
+        middleware._enable_shard_for(1)
+
+        self.assertEqual(middleware.shard_context_manager, mock_use_shard_for_value)
+
+        self.assertTrue(mock_use_shard_for.called)
+        self.assertTrue(mock_use_shard_for.return_value.enable.called)
