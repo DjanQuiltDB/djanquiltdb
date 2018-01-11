@@ -261,5 +261,5 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
 
         self.assertEqual(middleware.shard_context_manager, mock_use_shard_for_value)
 
-        self.assertTrue(mock_use_shard_for.called)
+        mock_use_shard_for.assert_called_once_with(1)
         self.assertTrue(mock_use_shard_for.return_value.enable.called)
