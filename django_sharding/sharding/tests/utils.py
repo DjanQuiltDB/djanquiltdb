@@ -11,7 +11,7 @@ from example.models import Shard, OrganizationShards, Type, SuperType
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
     StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node
-from sharding.decorators import sharded_model, mirrored_model, write_to_every_node
+from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_every_node
 
 
 def test_model():
@@ -699,16 +699,16 @@ class WriteToEveryNodeSystemTestCase(TransactionTestCase):
 
     def test_write_to_all_nodes(self):
         """
-        Case: Use the @write_to_every_node on a simple write function.
+        Case: Use the @atomic_write_to_every_node on a simple write function.
         Expected: Every Database has been written to.
-        Note: This is system test keeping write_to_every_node and transaction_for_every_node as a black box.
+        Note: This is system test keeping atomic_write_to_every_node and transaction_for_every_node as a black box.
         """
         with use_shard(node_name='default', schema_name='public'):
             self.assertEqual(Type.objects.count(), 0)
         with use_shard(node_name='other', schema_name='public'):
             self.assertEqual(Type.objects.count(), 0)
 
-        @write_to_every_node(schema_name='public')
+        @atomic_write_to_every_node(schema_name='public')
         def write_func(node_name):
             Type.objects.create(name='test_type')
 
@@ -725,11 +725,11 @@ class WriteToEveryNodeSystemTestCase(TransactionTestCase):
     @mock.patch('sharding.decorators.transaction_for_every_node')
     def test_write_to_all_nodes_locking(self, mock_transaction_for_every_node):
         """
-        Case: Use the @write_to_every_node with locking argument given.
+        Case: Use the @atomic_write_to_every_node with locking argument given.
         Expected: transaction_for_every_node to be called with the locking arguments.
         """
 
-        @write_to_every_node(schema_name='public', lock_models=((Type, 'SHARE'),))
+        @atomic_write_to_every_node(schema_name='public', lock_models=((Type, 'SHARE'),))
         def dummy_func(node_name):
             pass
 
@@ -893,12 +893,12 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
     @mock.patch('sharding.decorators.get_all_databases', return_value=['sina', 'rose', 'maria'])
     def test_write_to_every_node(self, mock_get_all_databases, mock_use_shard, mock_transaction):
         """
-        Case: Use the @write_to_every_node, and call the decorated function with an argument.
+        Case: Use the @atomic_write_to_every_node, and call the decorated function with an argument.
         Expected: transaction_for_every_node, use_shard and the decorated function to be called.
         """
         use_schemas = []
 
-        @write_to_every_node(schema_name='some_schema')
+        @atomic_write_to_every_node(schema_name='some_schema')
         def test_function(test_argument, node_name):
             use_schemas.append(node_name)
             self.assertEqual(test_argument, 'Sunstone')
@@ -917,10 +917,10 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
     @mock.patch('sharding.decorators.get_all_databases', return_value=['sina', 'rose', 'maria'])
     def test_write_to_every_node_return_value(self, mock_get_all_databases, mock_use_shard, mock_transaction):
         """
-        Case: Use the @write_to_every_node, and call the decorated function with an argument.
+        Case: Use the @atomic_write_to_every_node, and call the decorated function with an argument.
         Expected: The function gives back a dict with the node_name as keys and the return value as their values
         """
-        @write_to_every_node(schema_name='some_schema')
+        @atomic_write_to_every_node(schema_name='some_schema')
         def test_function(test_argument, node_name):
             return (test_argument, node_name)
 
@@ -942,14 +942,14 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
         Case: Check if the function is decorator with a specific decorator
         Expected: The function is decorated and called with the expected argument
         """
-        @write_to_every_node(schema_name='some_schema')
+        @atomic_write_to_every_node(schema_name='some_schema')
         def test_function(test_argument, node_name):
             pass
 
-        expected_bound_arguments = inspect.signature(write_to_every_node).bind('some_schema')
+        expected_bound_arguments = inspect.signature(atomic_write_to_every_node).bind('some_schema')
 
         decorator, bound_arguments = test_function.__decorator__
 
-        self.assertEqual(decorator, write_to_every_node)
+        self.assertEqual(decorator, atomic_write_to_every_node)
         self.assertEqual(bound_arguments.args, expected_bound_arguments.args)
         self.assertEqual(bound_arguments.kwargs, expected_bound_arguments.kwargs)
