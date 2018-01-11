@@ -208,5 +208,6 @@ def atomic_write_to_every_node(schema_name='public', lock_models=()):
                         return_values[node_name] = func(*args, node_name=node_name, **kwargs)
 
             return return_values
-        return _add_decorator_reference(decorator, decorator=atomic_write_to_every_node, kwargs={'schema_name': schema_name})
+        return _add_decorator_reference(decorator, decorator=atomic_write_to_every_node,
+                                        kwargs={'schema_name': schema_name})
     return decorate
