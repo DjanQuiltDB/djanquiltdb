@@ -177,7 +177,7 @@ def sharded_model():
     return configure
 
 
-def write_to_every_node(schema_name='public', lock_models=()):
+def atomic_write_to_every_node(schema_name='public', lock_models=()):
     """
     Decorator to execute wrapped function for every node.
     Runs inside a transaction_for_every_node to keep all nodes in sync.
@@ -189,9 +189,9 @@ def write_to_every_node(schema_name='public', lock_models=()):
     :Example:
         .. code-block:: python
 
-            from sharding.utils import write_to_every_node
+            from sharding.utils import atomic_write_to_every_node
 
-            @write_to_every_node('public')
+            @atomic_write_to_every_node('public')
             def my_function(node_name):
                 # Create an object on each node's public schema
                 Type.objects.create(name='test_type')
@@ -208,5 +208,5 @@ def write_to_every_node(schema_name='public', lock_models=()):
                         return_values[node_name] = func(*args, node_name=node_name, **kwargs)
 
             return return_values
-        return _add_decorator_reference(decorator, decorator=write_to_every_node, kwargs={'schema_name': schema_name})
+        return _add_decorator_reference(decorator, decorator=atomic_write_to_every_node, kwargs={'schema_name': schema_name})
     return decorate

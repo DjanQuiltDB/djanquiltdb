@@ -539,7 +539,7 @@ def for_each_node(func, args=(), kwargs=None):
 class transaction_for_every_node(Atomic):
     """
     Context manager to start a transaction for each node and close them afterwards.
-    Used by write_to_every_node.
+    Used by atomic_write_to_every_node.
 
     :returns: None
     """
