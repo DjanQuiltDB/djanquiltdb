@@ -2,7 +2,7 @@ from django.conf import settings
 from django.http import HttpResponse
 from django.utils.module_loading import import_string
 
-from sharding.utils import StateException, use_shard, get_shard_class
+from sharding.utils import StateException, use_shard, get_shard_class, use_shard_for
 
 
 class StateExceptionMiddleware(object):
@@ -28,13 +28,11 @@ class BaseUseShardMiddleware(StateExceptionMiddleware):
             'The `BaseUseShardMiddleware` middleware class requires that `get_shard_id` is implemented.'
         )
 
-    def process_view(self, request, *args, **kwargs):
+    def process_request(self, request):
         try:
             shard_id = self.get_shard_id(request)
             if shard_id:
-                shard = get_shard_class().objects.get(id=shard_id)
-                self.shard_context_manager = use_shard(shard)
-                self.shard_context_manager.enable()
+                self._enable_shard(shard_id)
         except StateException as exception:
             return self.process_exception(request, exception)
 
@@ -47,6 +45,15 @@ class BaseUseShardMiddleware(StateExceptionMiddleware):
         if self.shard_context_manager:
             self.shard_context_manager.disable()
         return response
+
+    def _enable_shard(self, shard_id):
+        shard = get_shard_class().objects.get(id=shard_id)
+        self.shard_context_manager = use_shard(shard)
+        self.shard_context_manager.enable()
+
+    def _enable_shard_for(self, target_value):
+        self.shard_context_manager = use_shard_for(target_value)
+        self.shard_context_manager.enable()
 
 
 try:
