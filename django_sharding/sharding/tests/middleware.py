@@ -188,11 +188,13 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
         mock_use_shard_value.return_value.disable = mock.Mock()
         mock_use_shard.return_value = mock_use_shard_value
 
-        UseShardMiddleware().process_request(RequestFactory().get('/'))
+        request = RequestFactory().get('/')
+        UseShardMiddleware().process_request(request)
 
         self.assertTrue(mock_use_shard.called)
         self.assertTrue(mock_use_shard.return_value.enable.called)
         self.assertFalse(mock_use_shard.return_value.disable.called)  # process_response is not called
+        self.assertEqual(request._shard_id, 1)
 
     @mock.patch('sharding.middleware.use_shard')
     def test_process_request_with_use_shard_exception(self, mock_use_shard):

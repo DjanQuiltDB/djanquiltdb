@@ -30,9 +30,9 @@ class BaseUseShardMiddleware(StateExceptionMiddleware):
 
     def process_request(self, request):
         try:
-            shard_id = self.get_shard_id(request)
-            if shard_id:
-                self._enable_shard(shard_id)
+            request._shard_id = self.get_shard_id(request)
+            if request._shard_id:
+                self._enable_shard(request._shard_id)
         except StateException as exception:
             return self.process_exception(request, exception)
 
