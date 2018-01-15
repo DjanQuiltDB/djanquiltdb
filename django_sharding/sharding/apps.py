@@ -24,6 +24,10 @@ class ShardingConfig(AppConfig):
         if not issubclass(class_, BaseShard):
             raise ImproperlyConfigured(
                 'The type {} should inherit from {}.'.format(settings.SHARDING['SHARD_CLASS'], BaseShard.__name__))
+        if hasattr(class_, 'sharding_mode') and getattr(class_, 'sharding_mode') == ShardingMode.SHARDED:
+            raise ImproperlyConfigured(
+                'The Shard model cannot itself be sharded. It can only be non-sharded or mirrored.'
+            )
 
         if 'DATABASE_ROUTERS' not in dir(settings) or 'sharding.utils.DynamicDbRouter' not in settings.DATABASE_ROUTERS:
             raise ImproperlyConfigured(

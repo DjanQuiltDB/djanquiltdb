@@ -28,6 +28,30 @@ def _reset_shard_mapping_models():
 def mirrored_model():
     """
     A decorator for marking a model for being mirror across the various nodes.
+
+    This will tell the migration system that this model is to be available on the public schema on all nodes.
+    Keeping the data in sync is not done for you, but helper functions are provided.
+
+    :Example:
+        .. code-block:: python
+
+            from django.db import models
+            from sharding.decorators import mirrored_model
+
+            @mirrored_model()
+            class Type(models.Model):
+                name = models.CharField('name', max_length=100)
+
+                class Meta:
+                    app_label = 'example'
+
+
+            @atomic_write_to_every_node
+            def update_type(new_type_name):
+                # This runs within a use_node
+                Type.objects.create(name=new_type_name)
+
+            update_type('new_ type')  # add a new Type object to all nodes.
     """
     def configure(cls):
         cls.sharding_mode = ShardingMode.MIRRORED

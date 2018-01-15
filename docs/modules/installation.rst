@@ -99,6 +99,8 @@ If you also add the ``MappingQuerySet`` as object manager to that model you can 
     with use_shard_for(user.organization_id):
         # do things on my shard
 
+Additionally, you can mirror the mapping model by adding ``@mirrored_model`` to it.
+
 
 NEW_SHARD_NODE
 ~~~~~~~~~~~~~~
@@ -114,7 +116,8 @@ Optionally you can tell Django-sharding on which node new shards (schemas) will 
 
 ROUTER
 ~~~~~~
-Additionally Django-sharding uses a router to send each database transaction to the correct node.
+Django-sharding uses a router to send each database transaction to the correct node.
+It also uses the router to migrate the models to the correct shard when using ``manage migrate_shards``
 So set ``sharding.utils.DynamicDbRouter`` as the database_router in the settings. e.g.::
 
     DATABASE_ROUTERS = ['sharding.utils.DynamicDbRouter']
@@ -138,18 +141,48 @@ To do that set ``STATE_EXCEPTION_VIEW`` in the ``SHARDING`` setting to a view of
         'STATE_EXCEPTION_VIEW': 'myapp.views.unavailableView'
     }
 
+.. _use_shard_middleware:
+
 BASE_USE_SHARD_MIDDLEWARE
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 The ``sharding.middleware.BaseUseShardMiddleware`` class extends ``StateExceptionMiddleware`` and adds the option to
 wrap views in a ``use_shard`` context manager. This prevents the need to take note of sharding in each of your views.
 
-How the middleware determine which shard to use is up to you however. To use the `UseShardMiddleware`` you have to
-extend it and fill in the ``get_shard_id()`` function yourself.
-::
+How the middleware determines which shard to use is up to you however. To use the `UseShardMiddleware`` you have to extend it and fill in the ``get_shard_id()`` function yourself.
 
+Don't forget you can assign your own view as error page like in `STATE_EXCEPTION_MIDDLEWARE`_.
+
+.. code-block:: python
+
+    # settings.py
+    MIDDLEWARE_CLASSES = (
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'middleware.UseShardMiddleware',
+    (...)
+    )
+
+    SHARDING = {
+        'SHARD_CLASS': 'myapp.models.Shard',
+        'STATE_EXCEPTION_VIEW': 'myapp.views.unavailableView'
+    }
+
+    # middleware.py
     class UseShardMiddleware(BaseUseShardMiddleware):
     def get_shard_id(self, request):
         # A common way is to alter the login flow to set the shard_id in the session.
         return request.session.get('shard_id')
 
-Don't forget you can assign your own view as error page like in ``StateExceptionMiddleware``.
+
+    # views.py
+    from django.contrib.auth import views as django_auth_views
+
+    # Example way of obtaining a shard_id is to add an additional input field in the login form.
+    # Use the additional slug field to get the shard_id and save that to the session.
+    def login_organization_view(request, fake=False):
+        response = django_auth_views.login(request=request)
+
+        if request.user.is_authenticated():
+            slug = request.POST.get('slug')
+            request.session['shard_id'] = get_shard_for_slug(slug).id
+
+        return response
