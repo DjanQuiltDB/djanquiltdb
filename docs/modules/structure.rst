@@ -46,7 +46,7 @@ When we 'use' a Shard, we route the queries to the correct Node and set the conn
 Views
 -----
 
-To prevent the need to write ``with use_shard(shard_id):`` in every view your project has, this library provides a middleware to do that for you.
+To prevent the need to use ``with use_shard():`` in every view your project has, this library provides a middleware to do that for you.
 
 The ``UseShardMiddleware`` will enable a use_shard context manager in ``process_request`` and close it in ``process_response`` or ``process_exception``.
 

@@ -11,7 +11,7 @@ Since we work with multiple nodes and multiple schemas, performing migrations is
 Determining where models go is done by the DynamicDbRouter on basis of the decorators set on the model definitions.
 
 Using the normal ``migrate`` command will migrate all models to the public schema of the default shard.
-Doing so will break a number of things and is therefor discouraged.
+Doing so will break a number of things and is therefore discouraged.
 
 This library provides a ``migrate_shards`` management command that executed the migration on each shard of each node.
 
@@ -23,14 +23,14 @@ Creating migrations is done as usual. Since it is executed for each shard on eac
 Calling migrate_shards
 ----------------------
 
-``migrate_shards`` Does two things reguarding the way it applies migrations:
+``migrate_shards`` Does two things regarding the way it applies migrations:
 
 Determine migration state
 ~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Like the original, the command has to determine what the current state of the database is, to draft a list of mirations to execute: the migration plan.
+Like the original, the command has to determine what the current state of the database is, to draft a list of migrations to execute: the migration plan.
 Since we have multiple shards, it has to check the current state on each of them, in case they are not in sync with each other.
-After it has done this, it look to the 'least migrated' state. The state with the least migrations performed. It makes this the start point, and creates a plan from that point to the target state (either the latest or a target given as argument)
+After it has done this, it looks for the 'least migrated' state: the state with the least migrations performed. It makes this the start point, and creates a plan from that point to the target state (either the latest or a target given as argument).
 
 Applying migrations to each shard
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -47,7 +47,7 @@ The error handling is the main reason the ``migrate_shards`` command goes migrat
 
 Options
 -------
-``migrate shards`` extends the normal ``migrate`` command. Thus it knows the same arguments.
+``migrate_shards`` extends the normal ``migrate`` command. Thus it knows the same arguments.
 
 --database
 ~~~~~~~~~~
@@ -56,6 +56,6 @@ Example: ``migrate_shards --database hoth``
 
 --shard
 ~~~~~~~
-``--shard`` (or ``-s``) is a new argument. This allows you to specify a single shard by using the name of the node and the shard alias known to the Shard table. (or ``public`` if you want to target that)
+``--shard`` (or ``-s``) is a new argument. This allows you to specify a single shard by using the name of the node and the shard alias known to the Shard table (or ``public`` if you want to target that).
 For example: ``migrate_shards -s default|public`` or ``migrate_shards -s hoth|rebellious_shard``
 Note the ``|`` (pipe) between the node name and the schema name.

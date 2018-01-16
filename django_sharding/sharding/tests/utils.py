@@ -215,7 +215,7 @@ class UseShardTestCase(ShardingTestCase):
         OrganizationShards.objects.create(organization_id=6, shard=shard, state=State.MAINTENANCE)
 
         with self.assertRaises(StateException):
-            with use_shard(shard=shard):
+            with use_shard(shard):
                 pass
         self.assertFalse(mock_set_schema.called)
 

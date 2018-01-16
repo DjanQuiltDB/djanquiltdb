@@ -30,7 +30,7 @@ def mirrored_model():
     A decorator for marking a model for being mirror across the various nodes.
 
     This will tell the migration system that this model is to be available on the public schema on all nodes.
-    Keeping the data in sync is not done for you, but helper functions are provided.
+    Keeping the data in sync is not done automatically. Helper functions are provided.
 
     :Example:
         .. code-block:: python
@@ -51,7 +51,7 @@ def mirrored_model():
                 # This runs within a use_node
                 Type.objects.create(name=new_type_name)
 
-            update_type('new_ type')  # add a new Type object to all nodes.
+            update_type('new_type')  # add a new Type object to all nodes.
     """
     def configure(cls):
         cls.sharding_mode = ShardingMode.MIRRORED
@@ -233,5 +233,5 @@ def atomic_write_to_every_node(schema_name='public', lock_models=()):
 
             return return_values
         return _add_decorator_reference(decorator, decorator=atomic_write_to_every_node,
-                                        kwargs={'schema_name': schema_name})
+                                        kwargs={'schema_name': schema_name, 'lock_models': lock_models})
     return decorate

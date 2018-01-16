@@ -117,7 +117,7 @@ Optionally you can tell Django-sharding on which node new shards (schemas) will 
 ROUTER
 ~~~~~~
 Django-sharding uses a router to send each database transaction to the correct node.
-It also uses the router to migrate the models to the correct shard when using ``manage migrate_shards``
+It also uses the router to migrate the models to the correct shard when using ``./manage.py migrate_shards``
 So set ``sharding.utils.DynamicDbRouter`` as the database_router in the settings. e.g.::
 
     DATABASE_ROUTERS = ['sharding.utils.DynamicDbRouter']
@@ -132,13 +132,14 @@ You can also tell it to render a specific view instead.
 To do that set ``STATE_EXCEPTION_VIEW`` in the ``SHARDING`` setting to a view of your choice e.g.::
 
     MIDDLEWARE_CLASSES = (
-    (...)
-    'sharding.middleware.StateExceptionMiddleware'
+        (...)
+        'sharding.middleware.StateExceptionMiddleware'
+        (...)
     )
 
     SHARDING = {
         'SHARD_CLASS': 'myapp.models.Shard',
-        'STATE_EXCEPTION_VIEW': 'myapp.views.unavailableView'
+        'STATE_EXCEPTION_VIEW': 'myapp.views.ShardExceptionView'
     }
 
 .. _use_shard_middleware:
@@ -156,14 +157,15 @@ Don't forget you can assign your own view as error page like in `STATE_EXCEPTION
 
     # settings.py
     MIDDLEWARE_CLASSES = (
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'middleware.UseShardMiddleware',
-    (...)
+        (...)
+        'django.contrib.sessions.middleware.SessionMiddleware',
+        'middleware.UseShardMiddleware',
+        (...)
     )
 
     SHARDING = {
         'SHARD_CLASS': 'myapp.models.Shard',
-        'STATE_EXCEPTION_VIEW': 'myapp.views.unavailableView'
+        'STATE_EXCEPTION_VIEW': 'myapp.views.ShardExceptionView'
     }
 
     # middleware.py
@@ -178,7 +180,7 @@ Don't forget you can assign your own view as error page like in `STATE_EXCEPTION
 
     # Example way of obtaining a shard_id is to add an additional input field in the login form.
     # Use the additional slug field to get the shard_id and save that to the session.
-    def login_organization_view(request, fake=False):
+    def login_view(request):
         response = django_auth_views.login(request=request)
 
         if request.user.is_authenticated():
