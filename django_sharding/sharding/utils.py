@@ -486,13 +486,18 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
     :Example:
         .. code-block:: python
 
-            from sharding.utils import for_each_shard
+            from sharding.utils import for_each_shard, use_shard
 
             function sharded_function(shard=None, shard_id=None, prefix=None):
                 shard_id = shard.id if shard else shard_id
-                print('{prefix}{shard_id}'.format(prefix=prefix, shard_id=shard_id))
+                print('update user on {prefix}{shard_id}'.format(prefix=prefix, shard_id=shard_id))
+                with use_shard(shard):
+                    User.objects.update(last_updated=timezone.now())
+                return '{} users updated'.format(User.objects.count())
 
             for_each_shard(sharded_function)
+
+            # other ways of calling for_each_shard:
             for_each_shard(sharded_function, kwargs={'prefix': 'shard-'})
             for_each_shard(sharded_function, kwargs={'prefix': 'shard-'}, as_id=True)
 

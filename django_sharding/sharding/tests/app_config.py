@@ -7,11 +7,20 @@ from django.db import models
 from django.test import SimpleTestCase, override_settings
 
 from sharding.decorators import sharded_model
+from sharding.models import BaseShard
 from sharding.tests.utils import test_model
 
 
 @test_model()
 class DummyShard(models.Model):
+
+    class Meta:
+        app_label = 'sharding'
+
+
+@test_model()
+@sharded_model()
+class DummyShardedShard(BaseShard):
 
     class Meta:
         app_label = 'sharding'
@@ -43,7 +52,7 @@ class ShardingSettingsTestCase(SimpleTestCase):
 
     def test_incomplete_models_settings(self):
         """
-        Case: given incomplete SHARDING setting
+        Case: Given incomplete SHARDING setting
         Expected: ImproperlyConfigured raised
         """
         sharding_app = apps.get_app_config(app_label='sharding')
@@ -54,7 +63,7 @@ class ShardingSettingsTestCase(SimpleTestCase):
 
     def test_incompatible_models_settings(self):
         """
-        Case: given model in SHARDING setting is incompatible (not extending BaseShard/BaseNode)
+        Case: Given model in SHARDING setting is incompatible (not extending BaseShard/BaseNode)
         Expected: ImproperlyConfigured raised
         """
         sharding_app = apps.get_app_config(app_label='sharding')
@@ -63,9 +72,20 @@ class ShardingSettingsTestCase(SimpleTestCase):
             with self.assertRaises(ImproperlyConfigured):
                 sharding_app.ready()
 
+    def test_sharded_models_settings(self):
+        """
+        Case: Given sharding model is sharded itself.
+        Expected: ImproperlyConfigured raised
+        """
+        sharding_app = apps.get_app_config(app_label='sharding')
+
+        with override_settings(SHARDING={'SHARD_CLASS': 'sharding.tests.app_config.DummyShardedShard'}):
+            with self.assertRaises(ImproperlyConfigured):
+                sharding_app.ready()
+
     def test_correct_settings(self):
         """
-        Case: correct SHARDING setting
+        Case: Correct SHARDING setting
         Expected: ImproperlyConfigured NOT raised
         """
         sharding_app = apps.get_app_config(app_label='sharding')

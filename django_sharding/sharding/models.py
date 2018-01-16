@@ -20,7 +20,25 @@ class MappingQuerySet(models.QuerySet):
 
 
 class BaseShard(models.Model):
-    """ Base class for Shard models """
+    """
+    Base class for Shard models.
+
+    You will need to extend this model to have it live in your own application.
+    You often don't need additional fields, so it could just be::
+
+        class Shard(BaseShard):
+
+            class Meta:
+                app_label = 'example'
+
+    Mirroring
+
+    You can, if you wish, apply the ``@mirrored_model`` decorator to this model as well.
+    Like all mirrored models, you will have to keep them in sync yourself.
+    Though this library does provide helper functions to accomplish that.
+    Since this model will create a schema when saved, it has logic to only do so on the node is targets.
+
+    """
     alias = models.CharField(max_length=128, db_index=True, unique=True)
     schema_name = models.CharField(max_length=64)  # PostgreSQL default max limit = 63 chars
     node_name = models.CharField(max_length=64)

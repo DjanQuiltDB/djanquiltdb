@@ -15,6 +15,7 @@ Welcome to Django-sharding's documentation!
     modules/models
     modules/decorators
     modules/utils
+    modules/migrations
     modules/celery
 
 

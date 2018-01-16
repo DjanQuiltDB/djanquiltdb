@@ -215,7 +215,7 @@ class UseShardTestCase(ShardingTestCase):
         OrganizationShards.objects.create(organization_id=6, shard=shard, state=State.MAINTENANCE)
 
         with self.assertRaises(StateException):
-            with use_shard(shard=shard):
+            with use_shard(shard):
                 pass
         self.assertFalse(mock_set_schema.called)
 
@@ -942,11 +942,11 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
         Case: Check if the function is decorator with a specific decorator
         Expected: The function is decorated and called with the expected argument
         """
-        @atomic_write_to_every_node(schema_name='some_schema')
+        @atomic_write_to_every_node(schema_name='some_schema', lock_models=())
         def test_function(test_argument, node_name):
             pass
 
-        expected_bound_arguments = inspect.signature(atomic_write_to_every_node).bind('some_schema')
+        expected_bound_arguments = inspect.signature(atomic_write_to_every_node).bind('some_schema', ())
 
         decorator, bound_arguments = test_function.__decorator__
 
