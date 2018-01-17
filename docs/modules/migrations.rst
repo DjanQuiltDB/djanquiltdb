@@ -43,19 +43,24 @@ If an error occurs it will try to finish applying the migration on all schemas o
 It does this so a node will be in a single state as much as possible. But when an error occurred, it won't try any other nodes. Instead it will prompt the error.
 You can try to roll back the failed migration on the damaged node if you want, or alter the migration and try again.
 
+.. image:: migration_flow.svg
+   :scale: 100%
+   :alt: Django Sharding migration flow
+   :align: center
+
 The error handling is the main reason the ``migrate_shards`` command goes migration by migration. And not run all the migrations on a node before moving on to the next node. We want to keep the nodes similar as much as possible.
 
 Options
 -------
 ``migrate_shards`` extends the normal ``migrate`` command. Thus it knows the same arguments.
 
---database
-~~~~~~~~~~
+``--database``
+~~~~~~~~~~~~~~
 The ``--database`` argument defaults to `all`. But you can provide a name (as listed in the database connections in settings) if you want to migrate a single node.
 Example: ``migrate_shards --database hoth``
 
---shard
-~~~~~~~
+``--shard``
+~~~~~~~~~~~
 ``--shard`` (or ``-s``) is a new argument. This allows you to specify a single shard by using the name of the node and the shard alias known to the Shard table (or ``public`` if you want to target that).
 For example: ``migrate_shards -s default|public`` or ``migrate_shards -s hoth|rebellious_shard``
 Note the ``|`` (pipe) between the node name and the schema name.
