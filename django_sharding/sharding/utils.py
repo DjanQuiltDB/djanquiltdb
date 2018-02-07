@@ -59,7 +59,7 @@ def get_template_name():
 
 
 class DynamicDbRouter(object):
-    # A router that decides what db to read from based on a variable local to the current thread.
+    """ A router that decides what db to read from based on a variable local to the current thread. """
 
     def db_for_read(self, model, **hints):
         override_list = getattr(THREAD_LOCAL, 'DB_OVERRIDE', None)
@@ -70,18 +70,19 @@ class DynamicDbRouter(object):
         return override_list and override_list[-1]
 
     def allow_relation(self, obj1, obj2, *args, **kwargs):
-        obj1_mode = getattr(obj1, 'sharding_mode', False)
-        obj2_mode = getattr(obj2, 'sharding_mode', False)
+        obj1_mode = self._get_model_sharding_mode(obj1)
+        obj2_mode = self._get_model_sharding_mode(obj2)
 
         if obj1_mode or obj2_mode:
-            return obj1_mode and obj2_mode  # all is good if they are both sharded.
+            return obj1_mode and obj2_mode  # all is good if they both have a sharding mode set.
 
-        return None  # We have no opinion about non-sharded models.
+        return None  # We have no opinion if neither of the models have sharding mode set.
 
     def allow_syncdb(self, *args, **kwargs):
         model = kwargs.pop('model', False)
-        if getattr(model, 'test_model', False):
+        if model and getattr(model, 'test_model', False):
             return False
+
         return None
 
     def allow_migrate(self, connection_name, app_label, model_name=None, **hints):
@@ -89,15 +90,10 @@ class DynamicDbRouter(object):
         model = hints.pop('model', False)
 
         # This is for our test cases.
-        if getattr(model, 'test_model', False):
+        if model and getattr(model, 'test_model', False):
             return False
 
-        # Get real model for fake ones (happens in TestCases).
-
-        app = apps.get_app_config(app_label)
-        model = app.get_model(model_name)
-
-        sharding_mode = getattr(model, 'sharding_mode', False)
+        sharding_mode = self._get_sharding_mode(app_label, model_name)
         if sharding_mode == ShardingMode.SHARDED:
             # Sharded models should never reside in the public schema.
             # Only on templates and the shared schemas.
@@ -111,6 +107,24 @@ class DynamicDbRouter(object):
         else:
             # Non-sharded models only belong to the default database.
             return connection_name == 'default' and schema_name == 'public'
+
+    def _get_model_sharding_mode(self, instance):
+        app_label, model_name = instance._meta.app_label, instance._meta.model_name
+        return self._get_sharding_mode(app_label, model_name)
+
+    @staticmethod
+    def _get_sharding_mode(app_label, model_name):
+        override_sharding_mode = settings.SHARDING.get('OVERRIDE_SHARDING_MODE', {})
+
+        if (app_label, model_name) in override_sharding_mode:
+            # The configuration overrides the sharding_mode for a model in an app
+            return override_sharding_mode[(app_label, model_name)]
+        elif (app_label,) in override_sharding_mode:
+            # The configuration overrides the sharding_mode for all models in an app
+            return override_sharding_mode[(app_label,)]
+        else:
+            model = apps.get_model(app_label, model_name)
+            return getattr(model, 'sharding_mode', False)
 
 
 def _node_exists(node_name):
