@@ -206,7 +206,15 @@ def atomic_write_to_every_node(schema_name='public', lock_models=()):
     Decorator to execute wrapped function for every node.
     Runs inside a transaction_for_every_node to keep all nodes in sync.
 
+    transaction_for_every_node builds a cascading transaction tree:
+        a transaction for each node, each running inside the previous.
+    If an error occurs, all the transactions are rolled back, and no node is changed.
+
+    Optionally, you can give a set of models and locking modes to prevent other threads from accessing the table you
+    are manipulating. This is useful to ensure uniqueness, which might be threatened in edge-cases.
+
     :param str schema_name: The name of the schema used. 'public' by default.
+    :param tuple lock_models: Sets containing a model and a PostgreSQL lock mode. e.g.: "((User, 'ACCESS EXCLUSIVE'),)"
 
     :returns: The name of the node in use.
 
@@ -219,6 +227,13 @@ def atomic_write_to_every_node(schema_name='public', lock_models=()):
             def my_function(node_name):
                 # Create an object on each node's public schema
                 Type.objects.create(name='test_type')
+
+            @atomic_write_to_every_node('public', ((Type, 'ACCESS EXCLUSIVE'),)
+            def my_function(node_name):
+                # Create an object on each node's public schema
+                # We are in blocking mode, so nothing else can alter this table while this transaction is active.
+                # This ensures, if the name field has enforced distinction, no duplicate can exist.
+                Type.objects.create(name='unique type')
 
     """
     def decorate(func):
