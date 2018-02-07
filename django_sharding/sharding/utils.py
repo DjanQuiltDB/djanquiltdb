@@ -426,7 +426,7 @@ def create_template_schema(node_name='default'):
 def migrate_schema(node_name, schema_name):
     """
     It then migrates only the sharded tables to the given schema.
-    This actually performs a migration, it does not clone the template schema.
+    This actually performs a migration, it does not clone the template schema. (For we use it to create the template.)
 
     :note: Normally, you would not need to ever call this. It is used by create_template_schema.
 

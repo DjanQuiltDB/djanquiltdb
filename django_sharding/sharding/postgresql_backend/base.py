@@ -58,7 +58,7 @@ def get_validated_schema_name(schema_name, is_template=False):
     if not is_template and schema_name == get_template_name():
         raise ValueError("Schema name '{}' cannot be the same as the template name '{}' ".format(schema_name,
                                                                                                  get_template_name()))
-    if schema_name in ['public', 'information_schema']:
+    if schema_name in ['public', 'information_schema', 'default']:
         raise ValueError("Schema name '{}' is not allowed ".format(schema_name))
 
     if schema_name.startswith('pg_'):
