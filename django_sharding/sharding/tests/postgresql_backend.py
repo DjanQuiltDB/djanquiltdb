@@ -1,11 +1,11 @@
 from unittest import mock
 
-from django.db import connection
-from django.test import SimpleTestCase, override_settings
+from django.db import connection, ProgrammingError
+from django.test import SimpleTestCase, override_settings, TestCase
 from psycopg2 import InternalError
 
 from sharding.postgresql_backend.base import get_validated_schema_name
-from sharding.utils import create_schema_on_node, create_template_schema
+from sharding.utils import create_schema_on_node, create_template_schema, use_shard
 from sharding.tests.utils import ShardingTestCase
 
 
@@ -65,6 +65,14 @@ class GetValidatedSchemaNameTestCase(SimpleTestCase):
         """
         with self.assertRaises(ValueError):
             get_validated_schema_name('information_schema')
+
+    def test_default(self):
+        """
+        Case: Call get_validated_schema_name with 'default'.
+        Expected: A ValueError raised.
+        """
+        with self.assertRaises(ValueError):
+            get_validated_schema_name('default')
 
     def test_startswith_pg(self):
         """
@@ -205,3 +213,29 @@ class PostgresBackendTestCase(ShardingTestCase):
 
         with self.assertRaises(ValueError):
             connection.clone_schema('template2', 'test_schema')
+
+
+class CursorTestCase(TestCase):
+    def test_select_schema_operation(self):
+        """
+        Case: Use 'use_shard' on a normal connection
+        Expected: get_ps_schema to be called (part of setting the search_path)
+        """
+
+        with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema:
+            with use_shard(node_name='default', schema_name='public'):
+                with connection.cursor() as cursor:
+                    cursor.execute('SELECT * FROM example_type;')  # some query
+                    self.assertEqual(mock_get_ps_schema.call_count, 1)
+
+    def test_no_db_operation(self):
+        """
+        Case: Use 'use_shard' on a __no_db__ connection
+        Expected: get_ps_schema to be NOT called (part of setting the search_path)
+        """
+        with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema:
+            with use_shard(node_name='default', schema_name='public'):
+                with connection._nodb_connection.cursor() as cursor:
+                    with self.assertRaises(ProgrammingError):
+                        cursor.execute('SELECT * FROM example_type;')  # some query that will fail on __no_db__.
+                    self.assertEqual(mock_get_ps_schema.call_count, 0)

@@ -15,6 +15,7 @@ IN THE SOFTWARE.
 import re
 
 from django.db.backends.postgresql_psycopg2.base import DatabaseWrapper as BaseDatabaseWrapper
+from django.db.backends.base.base import NO_DB_ALIAS
 from django.db.utils import DatabaseError, IntegrityError
 from psycopg2 import InternalError, sql
 
@@ -176,7 +177,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         else:
             cursor = super(DatabaseWrapper, self)._cursor()
 
-        if self.search_path_set:
+        # No need to set search paths for operations without a database,
+        # or when there are no changes to the selected schemas.
+        if self.alias == NO_DB_ALIAS or self.search_path_set:
             return cursor
 
         if not self.get_ps_schema(self.schema_name, cursor):
