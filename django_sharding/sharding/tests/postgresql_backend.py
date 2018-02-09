@@ -61,7 +61,7 @@ class GetValidatedSchemaNameTestCase(SimpleTestCase):
     def test_information_schema(self):
         """
         Case: Call get_validated_schema_name with 'information_schema'.
-        Expected: A ValueError raised.
+        Expected: A ValueError raised, because 'information_schema' is a blacklisted schema name.
         """
         with self.assertRaises(ValueError):
             get_validated_schema_name('information_schema')
@@ -69,7 +69,7 @@ class GetValidatedSchemaNameTestCase(SimpleTestCase):
     def test_default(self):
         """
         Case: Call get_validated_schema_name with 'default'.
-        Expected: A ValueError raised.
+        Expected: A ValueError raised, because 'default' is a blacklisted schema name.
         """
         with self.assertRaises(ValueError):
             get_validated_schema_name('default')
@@ -77,7 +77,7 @@ class GetValidatedSchemaNameTestCase(SimpleTestCase):
     def test_startswith_pg(self):
         """
         Case: Call get_validated_schema_name with a value starting with 'pg_'
-        Expected: A ValueError raised.
+        Expected: A ValueError raised, because we do not allow schema names to start with the postgresql namespace.
         """
         with self.assertRaises(ValueError):
             get_validated_schema_name('pg_12')
@@ -86,7 +86,7 @@ class GetValidatedSchemaNameTestCase(SimpleTestCase):
     def test_is_template(self):
         """
         Case: Call get_validated_schema_name with a template name, while is_template set.
-        Expected: A ValueError raised.
+        Expected: A ValueError raised, we don't want shards to bear the 'template' name.
         """
         self.assertEqual(get_validated_schema_name('template', is_template=True), 'template')
 
@@ -137,7 +137,7 @@ class PostgresBackendTestCase(ShardingTestCase):
     def test_get_schema(self):
         """
         Case: Call connection.get_schema.
-        Expected: Returned the schema name
+        Expected: Returned the schema name.
         """
         connection.set_schema('test_schema')
         self.assertEqual(connection.get_schema(), 'test_schema')
@@ -221,7 +221,6 @@ class CursorTestCase(TestCase):
         Case: Use 'use_shard' on a normal connection
         Expected: get_ps_schema to be called (part of setting the search_path)
         """
-
         with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema:
             with use_shard(node_name='default', schema_name='public'):
                 with connection.cursor() as cursor:
