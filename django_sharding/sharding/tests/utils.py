@@ -1,17 +1,18 @@
 import inspect
-import re
-from unittest import mock
 import threading
+from unittest import mock
 
+import re
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connection, connections, models, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings, TransactionTestCase
 
-from example.models import Shard, OrganizationShards, Type, SuperType
+from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization
+from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_every_node
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
-    StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node
-from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_every_node
+    StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node, \
+    move_model_to_schema
 
 
 def test_model():
@@ -48,7 +49,7 @@ class DummyNonShardedModel(models.Model):
         app_label = 'sharding'
 
 
-class ShardingTestCase(TestCase):
+class ShardingTestCaseMixin(object):
     available_apps = ['sharding', 'example']
 
     def setUp(self):
@@ -67,6 +68,10 @@ class ShardingTestCase(TestCase):
                 schema = schema[0]
                 if schema.startswith('test') or schema == get_template_name():
                     con.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format(schema))
+
+
+class ShardingTestCase(ShardingTestCaseMixin, TestCase):
+    pass
 
 
 class GetTemplateName(SimpleTestCase):
@@ -106,6 +111,7 @@ class UseShardTestCase(ShardingTestCase):
     @classmethod
     def tearDownClass(cls):  # run when TestCase is done
         super().clean_up(cls)  # we only want to clean stuff up at the end of the TestCase
+        super().tearDownClass()
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard(self, mock_set_schema):
@@ -953,3 +959,90 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
         self.assertEqual(decorator, atomic_write_to_every_node)
         self.assertEqual(bound_arguments.args, expected_bound_arguments.args)
         self.assertEqual(bound_arguments.kwargs, expected_bound_arguments.kwargs)
+
+
+class MoveModelToSchemaTestCase(TransactionTestCase):
+    def test(self):
+        """
+        Case: Move the Type model over from public to a shard
+        Expected: The Type mode to be moved. All data should remain in tact.
+        """
+        create_template_schema('default')
+        other_shard = Shard.objects.create(alias='other', node_name='default', schema_name='other_schema',
+                                           state=State.ACTIVE)
+
+        # Create a bunch of connected objects.
+        supertype = SuperType.objects.create(id=4, name='tesla')  # use a specific id
+        type = Type.objects.create(id=3, name='tesla', super=supertype)  # use a specific id
+        with use_shard(other_shard):
+            organization = Organization.objects.create(name="SpaceX")
+            user = User.objects.create(name='Starman', organization=organization, type=type)
+
+        # We don't want to also select the public schema when we select a shard.
+        connection.include_public_schema = False
+
+        with use_shard(shard=other_shard):
+            # Doesn't exist on the shard, but will soon.
+            with self.assertRaises(ProgrammingError):
+                type.refresh_from_db()
+
+        connection.include_public_schema = True
+        move_model_to_schema(shard=other_shard, model=Type, target_schema_name='other_schema')
+        connection.include_public_schema = False
+
+        with use_shard(node_name='default', schema_name='public'):
+            # Now that we moved the Type table, we should not be able to refresh it.
+            with self.assertRaises(ProgrammingError):
+                type.refresh_from_db()
+
+            # supertype is not moved, so should remain accessible from the public schema.
+            supertype.refresh_from_db()
+
+        with use_shard(shard=other_shard):
+            # Now that we moved the Type table, we should be able to access it from the shard.
+            type.refresh_from_db()
+
+            # supertype is not moved, so should remain inaccessible
+            with self.assertRaises(ProgrammingError):
+                supertype.refresh_from_db()
+
+            # Organization and User are not moved, so should be on the shard still
+            organization.refresh_from_db()
+            user.refresh_from_db()
+
+        # Confirm Data integrity, now they are refreshed
+        self.assertEqual(user.type_id, 3)
+        self.assertEqual(user.type.id, 3)
+        self.assertEqual(type.id, 3)
+        self.assertEqual(type.name, 'tesla')
+        self.assertEqual(type.super_id, 4)
+        self.assertEqual(type.super.id, 4)
+        self.assertEqual(supertype.id, 4)
+
+        # Cleanup: move the table back; else the TestCase might go confused.
+        connection.include_public_schema = True
+        with use_shard(other_shard) as env:
+            move_model_to_schema(shard=other_shard, model=Type, target_schema_name='public')
+            Type.objects.all().delete()
+            SuperType.objects.all().delete()
+            User.objects.all().delete()
+            Organization.objects.all().delete()
+            env.connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('other_schema'))
+            env.connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
+
+    def test_already_moved(self):
+        """
+        Case: Move a schema to a shard where it already resides
+        Expected: move_model_to_schema to raise an error
+        """
+        create_template_schema('default')
+        other_shard = Shard.objects.create(alias='another', node_name='default', schema_name='another_schema',
+                                           state=State.ACTIVE)
+
+        # The User table is already on the sharded schema.
+        with self.assertRaises(ProgrammingError):
+            move_model_to_schema(shard=other_shard, model=User, target_schema_name=other_shard.schema_name)
+
+        # Cleanup
+        connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
+        connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('another_schema'))

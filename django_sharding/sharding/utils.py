@@ -18,7 +18,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.commands.migrate import Command as MigrateCommand
-from django.db import connections, connection
+from django.db import connections, connection, ProgrammingError
 from django.db.transaction import Atomic
 from django.utils.module_loading import import_string
 from functools import wraps
@@ -569,3 +569,18 @@ class transaction_for_every_node(Atomic):
             self.using = database
             # will grab the connection corresponding to the database set in self.using
             super().__exit__(exc_type, exc_value, traceback)
+
+
+def move_model_to_schema(shard, model, target_schema_name):
+    """
+    This alters a table in such a way it is lifted from it's original schema and placed into the target one.
+    It assumes that the table moves from a sharded schema to the public or the other way around.
+    """
+    with use_shard(shard) as env:
+        cursor = env.connection.cursor()
+        if cursor.execute(
+                'SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = %s AND tablename = %s);',
+                [target_schema_name, model._meta.db_table]):
+            raise ProgrammingError("table {} already exists on schema {}".format(model._meta.db_table,
+                                                                                 target_schema_name))
+        cursor.execute('ALTER TABLE {} SET SCHEMA {};'.format(model._meta.db_table, target_schema_name))
