@@ -7,7 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connection, connections, models, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings, TransactionTestCase
 
-from example.models import Shard, OrganizationShards, Type, SuperType
+from example.models import Shard, OrganizationShards, Type, SuperType, Organization
 from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_every_node
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
@@ -545,7 +545,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Case: Call allow_relation with two sharded models, the latter is set through the configuration.
         Expected: True, we don't check if they are on the same shard yet.
         """
-        self.assertTrue(self.router.allow_relation(DummyShardedModel(), DummyNonShardedModel()))
+        self.assertTrue(self.router.allow_relation(Organization(), DummyNonShardedModel()))
 
     def test_allow_syncdb(self):
         """
@@ -620,6 +620,30 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         """
         self.assertTrue(self.router.allow_migrate('default', 'example', 'organization'))
         self.assertTrue(self.router.allow_migrate('other', 'example', 'organization'))
+
+    def test_get_sharding_mode_override_settings(self):
+        """
+        Case: Set sharding configuration and verify that DynamicDbRouter.get_sharding_mode() it uses the overriden
+              settings.
+        Expected: The router should return the overriden setting for the model.
+        """
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'organization'): ShardingMode.MIRRORED, }}):
+            self.assertEqual(DynamicDbRouter._get_sharding_mode('example', 'organization'), ShardingMode.MIRRORED)
+
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', ): ShardingMode.MIRRORED, }}):
+            self.assertEqual(DynamicDbRouter._get_sharding_mode('example', 'user'), ShardingMode.MIRRORED)
+
+    def test_get_sharding_mode_fallback(self):
+        """
+        Case: Set sharding configuration and verify that DynamicDbRouter.get_sharding_mode() will use the fallback to
+              checking model class if the model sharding mode is not overriden in settings.
+        Expected: The router should return the class setting for the model.
+        """
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'user'): ShardingMode.MIRRORED, }}):
+            self.assertEqual(DynamicDbRouter._get_sharding_mode('example', 'organization'), ShardingMode.SHARDED)
 
 
 class CreateTemplateSchemaTestCase(ShardingTestCase):

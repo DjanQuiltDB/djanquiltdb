@@ -116,15 +116,16 @@ class DynamicDbRouter(object):
     def _get_sharding_mode(app_label, model_name):
         override_sharding_mode = settings.SHARDING.get('OVERRIDE_SHARDING_MODE', {})
 
-        if (app_label, model_name) in override_sharding_mode:
-            # The configuration overrides the sharding_mode for a model in an app
-            return override_sharding_mode[(app_label, model_name)]
-        elif (app_label,) in override_sharding_mode:
-            # The configuration overrides the sharding_mode for all models in an app
-            return override_sharding_mode[(app_label,)]
-        else:
-            model = apps.get_model(app_label, model_name)
-            return getattr(model, 'sharding_mode', False)
+        if override_sharding_mode:
+            if (app_label, model_name) in override_sharding_mode:
+                # The configuration overrides the sharding_mode for a model in an app
+                return override_sharding_mode[(app_label, model_name)]
+            elif (app_label,) in override_sharding_mode:
+                # The configuration overrides the sharding_mode for all models in an app
+                return override_sharding_mode[(app_label,)]
+
+        model = apps.get_model(app_label, model_name)
+        return getattr(model, 'sharding_mode', False)
 
 
 def _node_exists(node_name):

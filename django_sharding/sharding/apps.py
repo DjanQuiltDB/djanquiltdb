@@ -34,7 +34,11 @@ class ShardingConfig(AppConfig):
             raise ImproperlyConfigured('Incorrect setting value of SHARDING["OVERRIDE_SHARDING_MODE"].')
 
         for key, value in override_sharding_mode.items():
-            _validate_override_shardin_mode_entry(key, value)
+            _validate_override_sharding_mode_entry(key, value)
+
+        # Convert app and model names to lowercase
+        settings.SHARDING['OVERRIDE_SHARDING_MODE'] = dict((tuple(x.lower() for x in k), v)
+                                                           for k, v in override_sharding_mode.items())
 
         if 'DATABASE_ROUTERS' not in dir(settings) or 'sharding.utils.DynamicDbRouter' not in settings.DATABASE_ROUTERS:
             raise ImproperlyConfigured(
@@ -50,20 +54,14 @@ class ShardingConfig(AppConfig):
             )
 
 
-def _validate_override_shardin_mode_entry(key, value):
-    if not (isinstance(key, (tuple, list)) and len(key) in (1, 2) and isinstance(value, ShardingMode)):
+def _validate_override_sharding_mode_entry(key, value):
+    if not (isinstance(key, tuple) and len(key) in (1, 2) and isinstance(value, ShardingMode)):
         raise ImproperlyConfigured('The override sharding mode entry is improperly configured: '
                                    '{{ {}: {} }}'.format(repr(key), repr(value)))
 
-    app_label = key[0]
-    if not app_label.islower():
-        raise ImproperlyConfigured('The override sharding mode entry app_label is not in lower case: '
-                                   '{{ {}: {} }}'.format(repr(key), repr(value)))
+    app_label = key[0].lower()
     if len(key) == 2:
-        model_name = key[1]
-        if not model_name.islower():
-            raise ImproperlyConfigured('The override sharding mode entry model_name is not in lower case: '
-                                       '{{ {}: {} }}'.format(repr(key), repr(value)))
+        model_name = key[1].lower()
         try:
             apps.get_model(app_label, model_name)
         except LookupError:
