@@ -509,6 +509,11 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
             func(*args, shard=shard, **(kwargs or {}))
 
 
+def get_all_sharded_models():
+    models = apps.get_models()
+    return [model for model in models if getattr(model, 'sharding_mode', None) == ShardingMode.SHARDED]
+
+
 def get_all_databases():
     return [name for name, db in settings.DATABASES.items()]
 

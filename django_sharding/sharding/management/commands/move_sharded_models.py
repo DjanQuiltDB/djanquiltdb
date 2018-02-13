@@ -1,9 +1,8 @@
 from django.core.management import BaseCommand, CommandError
-from django.apps import apps
 from django.db import ProgrammingError
 
-from sharding.utils import use_shard, get_all_databases, move_model_to_schema, ShardingMode, State, \
-    create_template_schema, get_shard_class, transaction_for_every_node
+from sharding.utils import use_shard, get_all_databases, move_model_to_schema, State, \
+    create_template_schema, get_shard_class, transaction_for_every_node, get_all_sharded_models
 
 
 class Command(BaseCommand):
@@ -42,9 +41,7 @@ class Command(BaseCommand):
         if Shard.objects.filter(schema_name=target_schema_name).exists():
             raise ValueError("The target schema '{}' already exist.".format(target_schema_name))
 
-        # Get all sharded models
-        models = apps.get_models()
-        sharded_models = [model for model in models if getattr(model, 'sharding_mode', None) == ShardingMode.SHARDED]
+        sharded_models = get_all_sharded_models()
 
         if not options.get('no_input'):
             confirm = input("Type 'yes' if you are sure if you want to move the following models from {} to {}:\n{}: "
@@ -54,19 +51,25 @@ class Command(BaseCommand):
 
         with transaction_for_every_node():
             for node_name in databases:
-                # Create a new shard
-                create_template_schema(node_name)
-                shard = Shard.objects.create(alias=target_schema_name, node_name=node_name,
-                                             schema_name=target_schema_name, state=State.ACTIVE)
+                self.move_models_on_node(node_name=node_name,
+                                         target_schema_name=target_schema_name,
+                                         sharded_models=sharded_models)
 
-                # Flush the shard
-                with use_shard(shard) as env:
-                    env.connection.flush_schema(shard.schema_name)
+    def move_models_on_node(self, node_name, target_schema_name, sharded_models):
+        # Create a new shard
+        with use_shard(node_name=node_name, schema_name='public'):
+            create_template_schema(node_name)
+            shard = get_shard_class().objects.create(alias=target_schema_name, node_name=node_name,
+                                                     schema_name=target_schema_name, state=State.ACTIVE)
 
-                # Move the tables over
-                for model in sharded_models:
-                    try:
-                        move_model_to_schema(model=model, node_name='default', from_schema_name='public',
-                                             to_schema_name=shard.schema_name)
-                    except ProgrammingError:
-                        print('Model {} already on schema {}'.format(model, shard.schema_name))
+            # Flush the shard
+            with use_shard(shard) as env:
+                env.connection.flush_schema(shard.schema_name)
+
+            # Move the tables over
+            for model in sharded_models:
+                try:
+                    move_model_to_schema(model=model, node_name='default', from_schema_name='public',
+                                         to_schema_name=shard.schema_name)
+                except ProgrammingError:
+                    print('Model {} already on schema {}'.format(model, shard.schema_name))

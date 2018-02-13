@@ -12,7 +12,7 @@ from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_e
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
     StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node, \
-    move_model_to_schema
+    move_model_to_schema, get_all_databases
 
 
 def test_model():
@@ -609,6 +609,17 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         """
         with self.assertRaises(ValueError):
             migrate_schema('default', 'test_schema')  # this also calls the migration
+
+
+class GetAllDatabases(SimpleTestCase):
+    @override_settings(DATABASES={'default': 'some connection', 'space': 'some otherworldly connection'})
+    def test(self):
+        """
+        Case: Call get_all_databases.
+        Expected: Names of the databases defined in the settings.
+        :return:
+        """
+        self.assertCountEqual(get_all_databases(), ['default', 'space'])
 
 
 class ForEachShardTestCase(TestCase):
