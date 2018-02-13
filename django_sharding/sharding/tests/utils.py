@@ -1,17 +1,18 @@
 import inspect
 import re
-from unittest import mock
 import threading
+from unittest import mock
 
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connection, connections, models, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings, TransactionTestCase
 
-from example.models import Shard, OrganizationShards, Type, SuperType
+from example.models import Shard, OrganizationShards, Type, SuperType, Organization
+from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_every_node
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
-    StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node
-from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_every_node
+    StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node, \
+    ShardingMode
 
 
 def test_model():
@@ -452,14 +453,14 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
     def test_db_for_read_while_not_set(self):
         """
-        Case: call db_for_read with no DB_ORVERRIDE set
+        Case: call db_for_read with no DB_OVERRIDE set
         Expected: None returned
         """
         self.assertIsNone(self.router.db_for_read(model=mock.MagicMock()))
 
     def test_db_for_read_while_set_single(self):
         """
-        Case: Call db_for_read with a DB_ORVERRIDE set
+        Case: Call db_for_read with a DB_OVERRIDE set
         Expected: Name of the correct node returned
         """
         THREAD_LOCAL.DB_OVERRIDE = ['test_node']
@@ -467,7 +468,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
     def test_db_for_read_while_set_multiple(self):
         """
-        Case: Call db_for_read with a DB_ORVERRIDE set with more than one entree
+        Case: Call db_for_read with a DB_OVERRIDE set with more than one entry
         Expected: Name of the correct node returned
         """
         THREAD_LOCAL.DB_OVERRIDE = ['default', 'test_node']
@@ -475,14 +476,14 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
     def test_db_for_write_while_not_set(self):
         """
-        Case: call db_for_write with no DB_ORVERRIDE set
+        Case: call db_for_write with no DB_OVERRIDE set
         Expected: None returned
         """
         self.assertIsNone(self.router.db_for_write(model=mock.MagicMock()))
 
     def test_db_for_write_while_set_single(self):
         """
-        Case: Call db_for_write with a DB_ORVERRIDE set
+        Case: Call db_for_write with a DB_OVERRIDE set
         Expected: Name of the correct node returned
         """
         THREAD_LOCAL.DB_OVERRIDE = ['test_node']
@@ -490,7 +491,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
     def test_db_for_write_while_set_multiple(self):
         """
-        Case: Call db_for_write with a DB_ORVERRIDE set with more than one entree
+        Case: Call db_for_write with a DB_OVERRIDE set with more than one entry
         Expected: Name of the correct node returned
         """
         THREAD_LOCAL.DB_OVERRIDE = ['default', 'test_node']
@@ -523,6 +524,28 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Expected: True, we don't check if they are on the same shard yet.
         """
         self.assertTrue(self.router.allow_relation(DummyShardedModel(), DummyShardedModel()))
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                 'OVERRIDE_SHARDING_MODE': {
+                                     ('sharding', 'dummynonshardedmodel'): ShardingMode.MIRRORED,
+                                 }})
+    def test_allow_relation_between_sharded_models_settings_override_model(self):
+        """
+        Case: Call allow_relation with two sharded models, the latter is set through the configuration.
+        Expected: True, we don't check if they are on the same shard yet.
+        """
+        self.assertTrue(self.router.allow_relation(DummyShardedModel(), DummyNonShardedModel()))
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                 'OVERRIDE_SHARDING_MODE': {
+                                     ('sharding',): ShardingMode.MIRRORED,
+                                 }})
+    def test_allow_relation_between_sharded_models_settings_override_app(self):
+        """
+        Case: Call allow_relation with two sharded models, the latter is set through the configuration.
+        Expected: True, we don't check if they are on the same shard yet.
+        """
+        self.assertTrue(self.router.allow_relation(Organization(), DummyNonShardedModel()))
 
     def test_allow_syncdb(self):
         """
@@ -575,9 +598,55 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         create_schema_on_node('schema2', node_name='other', migrate=True)
         self.assertCountEqual(connections['other'].get_all_table_headers(schema_name='schema2'), template_tables)
 
+    def test_not_allow_migrate_sharded_on_public(self):
+        """
+        Case: Check if sharded model is allowed to migrate on default connection public schema.
+        Expected: The sharded model should not be allowed to migrate to the public schema.
+        """
+        self.assertFalse(self.router.allow_migrate('default', 'example', 'organization'))
+        self.assertFalse(self.router.allow_migrate('other', 'example', 'organization'))
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                 'MAPPING_MODEL': 'example.models.OrganizationShards',
+                                 'NEW_SHARD_NODE': 'other',
+                                 'OVERRIDE_SHARDING_MODE': {
+                                     ('example', 'organization'): ShardingMode.MIRRORED,
+                                 }})
+    def test_allow_migrate_sharded_settings_override_to_mirrored(self):
+        """
+        Case: Check if previously sharded model is allowed to migrate onto public schema if it is set
+              to ShardingMode.MIRRORED through the configuration.
+        Expected: The router should allow the overriden model to be migrated onto the public schema.
+        """
+        self.assertTrue(self.router.allow_migrate('default', 'example', 'organization'))
+        self.assertTrue(self.router.allow_migrate('other', 'example', 'organization'))
+
+    def test_get_sharding_mode_override_settings(self):
+        """
+        Case: Set sharding configuration and verify that DynamicDbRouter.get_sharding_mode() it uses the overriden
+              settings.
+        Expected: The router should return the overriden setting for the model.
+        """
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'organization'): ShardingMode.MIRRORED, }}):
+            self.assertEqual(DynamicDbRouter._get_sharding_mode('example', 'organization'), ShardingMode.MIRRORED)
+
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', ): ShardingMode.MIRRORED, }}):
+            self.assertEqual(DynamicDbRouter._get_sharding_mode('example', 'user'), ShardingMode.MIRRORED)
+
+    def test_get_sharding_mode_fallback(self):
+        """
+        Case: Set sharding configuration and verify that DynamicDbRouter.get_sharding_mode() will use the fallback to
+              checking model class if the model sharding mode is not overriden in settings.
+        Expected: The router should return the class setting for the model.
+        """
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'user'): ShardingMode.MIRRORED, }}):
+            self.assertEqual(DynamicDbRouter._get_sharding_mode('example', 'organization'), ShardingMode.SHARDED)
+
 
 class CreateTemplateSchemaTestCase(ShardingTestCase):
-
     def test_create_template_schema(self):
         """
         Case: call utils.migrate_schema() to migrate the sharded models to the template schema

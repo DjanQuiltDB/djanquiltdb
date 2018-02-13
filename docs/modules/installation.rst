@@ -188,3 +188,23 @@ Don't forget you can assign your own view as error page like in `STATE_EXCEPTION
             request.session['shard_id'] = get_shard_for_slug(slug).id
 
         return response
+
+OVERRIDE_SHARDING_MODE
+~~~~~~~~~~~~~~~~~~~~~~
+If you want to override the sharding_mode for a specific model or application you can use ``SHARDING['OVERRIDE_SHARDING_MODE']`` configuration setting. The setting is a dictionary with tuple or list as a key and ShardingMode enum as value. The key is composed from one or two lowercase strings and it is used as a lookup for an app or a model in an app.
+
+.. code-block:: python
+
+    # settings
+    SHARDING = {
+        'SHARD_CLASS': 'myapp.models.Shard',
+        'MAPPING_MODEL': 'myapp.models.MyMappingModel',
+        'OVERRIDE_SHARDING_MODE': {
+            # The entry overrides app1.ExampleModel sharding_mode to ShardingMode.MIRRORED
+            ('app1', 'examplemodel'): ShardingMode.MIRRORED,
+
+            # The entry overrides all app2 models sharding_mode to ShardingMode.SHARDED
+            ('app2',): ShardingMode.SHARDED,
+        }
+    }
+
