@@ -9,6 +9,7 @@ from django.test import SimpleTestCase, override_settings
 from sharding.decorators import sharded_model
 from sharding.models import BaseShard
 from sharding.tests.utils import test_model
+from sharding.utils import ShardingMode
 
 
 @test_model()
@@ -35,63 +36,171 @@ class DummyUser(AbstractBaseUser):
 
 
 class ShardingSettingsTestCase(SimpleTestCase):
+    def setUp(self):
+        self.sharding_app = apps.get_app_config(app_label='sharding')
+
     def test_no_settings(self):
         """
         Case: None or empty SHARDING setting
         Expected: ImproperlyConfigured raised
         """
-        sharding_app = apps.get_app_config(app_label='sharding')
-
         with override_settings(SHARDING=None):
             with self.assertRaises(ImproperlyConfigured):
-                sharding_app.ready()
+                self.sharding_app.ready()
 
         with override_settings(SHARDING=""):
             with self.assertRaises(ImproperlyConfigured):
-                sharding_app.ready()
+                self.sharding_app.ready()
 
     def test_incomplete_models_settings(self):
         """
         Case: Given incomplete SHARDING setting
         Expected: ImproperlyConfigured raised
         """
-        sharding_app = apps.get_app_config(app_label='sharding')
-
         with override_settings(SHARDING={}):
             with self.assertRaises(ImproperlyConfigured):
-                sharding_app.ready()
+                self.sharding_app.ready()
 
     def test_incompatible_models_settings(self):
         """
         Case: Given model in SHARDING setting is incompatible (not extending BaseShard/BaseNode)
         Expected: ImproperlyConfigured raised
         """
-        sharding_app = apps.get_app_config(app_label='sharding')
-
         with override_settings(SHARDING={'SHARD_CLASS': 'sharding.tests.app_config.DummyShard'}):
             with self.assertRaises(ImproperlyConfigured):
-                sharding_app.ready()
+                self.sharding_app.ready()
 
     def test_sharded_models_settings(self):
         """
         Case: Given sharding model is sharded itself.
         Expected: ImproperlyConfigured raised
         """
-        sharding_app = apps.get_app_config(app_label='sharding')
-
         with override_settings(SHARDING={'SHARD_CLASS': 'sharding.tests.app_config.DummyShardedShard'}):
             with self.assertRaises(ImproperlyConfigured):
-                sharding_app.ready()
+                self.sharding_app.ready()
 
     def test_correct_settings(self):
         """
         Case: Correct SHARDING setting
         Expected: ImproperlyConfigured NOT raised
         """
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'}):
+            try:
+                self.sharding_app.ready()
+            except ImproperlyConfigured:
+                self.fail('A valid configuration raises an exception')
+
+    def test_invalid_override_shard_mode_list(self):
+        """
+        Case: Pass a list instead of a dict to SHARDING["OVERRIDE_SHARDING_MODE"].
+        Expected: ImproperlyConfigured raised
+        """
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'OVERRIDE_SHARDING_MODE': []}):
+            with self.assertRaises(ImproperlyConfigured):
+                self.sharding_app.ready()
+
+    def test_invalid_override_shard_mode_invalid_value_type(self):
+        """
+        Case: Pass an object that is not ShardingMode enum as a value to the dict SHARDING["OVERRIDE_SHARDING_MODE"].
+        Expected: ImproperlyConfigured raised
+        """
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'OVERRIDE_SHARDING_MODE': {
+                                             ('app', 'model'): 'asd',
+                                         }}):
+            with self.assertRaises(ImproperlyConfigured):
+                self.sharding_app.ready()
+
+    def test_invalid_override_shard_mode_invalid_key_type(self):
+        """
+        Case: Pass an object that is not a tuple or list as a key to the dict SHARDING["OVERRIDE_SHARDING_MODE"].
+        Expected: ImproperlyConfigured raised
+        """
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'OVERRIDE_SHARDING_MODE': {
+                                             1: ShardingMode.MIRRORED,
+                                         }}):
+            with self.assertRaises(ImproperlyConfigured):
+                self.sharding_app.ready()
+
+    def test_invalid_override_shard_mode_nonexistent_app(self):
+        """
+        Case: Pass a non-existent app to SHARDING["OVERRIDE_SHARDING_MODE"].
+        Expected: ImproperlyConfigured raised
+        """
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'OVERRIDE_SHARDING_MODE': {
+                                             ('nonexistent', ): ShardingMode.MIRRORED,
+                                         }}):
+            with self.assertRaises(ImproperlyConfigured):
+                self.sharding_app.ready()
+
+    def test_invalid_override_shard_mode_nonexistent_model(self):
+        """
+        Case: Pass a non-existent model to SHARDING["OVERRIDE_SHARDING_MODE"].
+        Expected: ImproperlyConfigured raised
+        """
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'OVERRIDE_SHARDING_MODE': {
+                                             ('example', 'nonexistent'): ShardingMode.MIRRORED,
+                                         }}):
+            with self.assertRaises(ImproperlyConfigured):
+                self.sharding_app.ready()
+
+    def test_override_shard_mode_case_insensitive(self):
+        """
+        Case: Pass an upcase app and model name to SHARDING["OVERRIDE_SHARDING_MODE"].
+        Expected:
+        """
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'OVERRIDE_SHARDING_MODE': {
+                                             ('Example',): ShardingMode.MIRRORED,
+                                         }}):
+            try:
+                self.sharding_app.ready()
+            except ImproperlyConfigured:
+                self.fail('It should not trigger an exception')
+
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'OVERRIDE_SHARDING_MODE': {
+                                             ('example', 'User'): ShardingMode.MIRRORED,
+                                         }}):
+            try:
+                self.sharding_app.ready()
+            except ImproperlyConfigured:
+                self.fail('It should not trigger an exception')
+
+    def test_override_model_shard_mode_setting(self):
+        """
+        Case: A valid configuration value for SHARDING["OVERRIDE_SHARDING_MODE"] is provided.
+        Expected: No ImproperlyConfigured is raised
+        """
         sharding_app = apps.get_app_config(app_label='sharding')
 
-        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'}):
-            sharding_app.ready()  # no error
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'OVERRIDE_SHARDING_MODE': {
+                                             ('example', 'user'): ShardingMode.MIRRORED,
+                                         }}):
+            try:
+                sharding_app.ready()
+            except ImproperlyConfigured:
+                self.fail('A valid configuration raises an exception')
+
+    def test_override_app_shard_mode_setting(self):
+        """
+        Case: A valid configuration value for SHARDING["OVERRIDE_SHARDING_MODE"] is provided.
+        Expected: No ImproperlyConfigured is raised
+        """
+        sharding_app = apps.get_app_config(app_label='sharding')
+
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'OVERRIDE_SHARDING_MODE': {
+                                             ('example', ): ShardingMode.MIRRORED,
+                                         }}):
+            try:
+                sharding_app.ready()
+            except ImproperlyConfigured:
+                self.fail('A valid configuration raises an exception')
 
 
 class SessionsBackendTestCase(SimpleTestCase):
