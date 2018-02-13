@@ -581,6 +581,6 @@ def move_model_to_schema(model, node_name, to_schema_name, from_schema_name='pub
         if cursor.execute(
                 'SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = %s AND tablename = %s);',
                 [to_schema_name, model._meta.db_table]):
-            raise ProgrammingError("table {} already exists on schema {}".format(model._meta.db_table,
-                                                                                 to_schema_name))
+            raise ProgrammingError("Table '{}' already exists on schema '{}'.".format(model._meta.db_table,
+                                                                                      to_schema_name))
         cursor.execute('ALTER TABLE {} SET SCHEMA {};'.format(model._meta.db_table, to_schema_name))

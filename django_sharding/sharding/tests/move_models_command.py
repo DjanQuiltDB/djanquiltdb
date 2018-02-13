@@ -1,8 +1,8 @@
 from unittest import mock
 
-from django.core.management import call_command
-from django.db import connection, ProgrammingError
-from django.test import TransactionTestCase, TestCase
+from django.core.management import call_command, CommandError
+from django.db import connection
+from django.test import TransactionTestCase
 
 from example.models import Type, User, SuperType, Organization, Shard
 from sharding.utils import migrate_schema, use_shard, create_template_schema, State
@@ -41,10 +41,11 @@ class MoveModelsCommandTestCase(TransactionTestCase):
         self.assertCountEqual(connection.get_schema_for_model(User), [('public',)])
         self.assertCountEqual(connection.get_schema_for_model(Organization), [('public',)])
 
-        call_command('move_sharded_models', database='default', target_schema_name='target')
+        call_command('move_sharded_models', database='default', target_schema_name='target', no_input=True)
 
         # Sharded models are now moved to the newly created default_shard and the template.
         # Mirrored models are unaffected.
+        self.assertTrue(Shard.objects.filter(alias='target', node_name='default', schema_name='target').exists())
         self.assertCountEqual(connection.get_schema_for_model(SuperType), [('public',)])
         self.assertCountEqual(connection.get_schema_for_model(Type), [('public',)])
         self.assertCountEqual(connection.get_schema_for_model(User), [('target',), ('template', )])
@@ -60,12 +61,20 @@ class MoveModelsCommandTestCase(TransactionTestCase):
         Expected: This fact to be called out and the move not to be performed.
         """
         create_template_schema('default')
-        target = Shard.objects.create(alias='another', node_name='default', schema_name='target', state=State.ACTIVE)
+        Shard.objects.create(alias='another', node_name='default', schema_name='target', state=State.ACTIVE)
 
         # The User table is already on the sharded schema.
         with self.assertRaises(ValueError):
-            call_command('move_sharded_models', database='default', target_schema_name='target')
+            call_command('move_sharded_models', database='default', target_schema_name='target', no_input=True)
 
         # Cleanup
         connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
         connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('target'))
+
+    def test_with_invalid_argument(self):
+        """
+        Case: Call move_sharded_models command with 'public' as target schema name.
+        Expected: CommandError to be raised.
+        """
+        with self.assertRaises(CommandError):
+            call_command('move_sharded_models', database='default', target_schema_name='public', no_input=True)

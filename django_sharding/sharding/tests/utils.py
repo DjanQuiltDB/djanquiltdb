@@ -959,7 +959,9 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
 
 class MoveModelToSchemaTestCase(TransactionTestCase):
     def cleanup(self):
-        # Cleanup: move the table back; else the TestCase might go confused.
+        """
+        Cleanup: move the table back; else the TestCase might go confused.
+        """
         connection.include_public_schema = True
 
         if Shard.objects.filter(schema_name='other_schema').exists():
