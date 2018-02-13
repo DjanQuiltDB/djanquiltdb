@@ -9,7 +9,6 @@ from sharding.management.commands.move_sharded_models import Command as MoveComm
 from sharding.utils import migrate_schema, use_shard, create_template_schema, State, get_all_sharded_models
 
 
-
 class MoveModelsCommandTestCase(TransactionTestCase):
     def cleanup(self):
         if Shard.objects.filter(schema_name='other_schema').exists():

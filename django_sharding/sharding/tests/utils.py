@@ -3,6 +3,7 @@ import re
 import threading
 from unittest import mock
 
+from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connection, connections, models, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings, TransactionTestCase
@@ -12,7 +13,8 @@ from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_e
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
     StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node, \
-    move_model_to_schema, get_all_databases, ShardingMode
+    move_model_to_schema, get_all_databases, ShardingMode, get_sharding_mode, get_model_sharding_mode, \
+    get_all_sharded_models
 
 
 def test_model():
@@ -32,6 +34,7 @@ class DummyShardedModel(models.Model):
 
     class Meta:
         app_label = 'sharding'
+        managed = False
 
 
 @mirrored_model()
@@ -40,6 +43,7 @@ class DummyMirroredModel(models.Model):
 
     class Meta:
         app_label = 'sharding'
+        managed = False
 
 
 @test_model()
@@ -47,6 +51,7 @@ class DummyNonShardedModel(models.Model):
 
     class Meta:
         app_label = 'sharding'
+        managed = False
 
 
 class ShardingTestCase(TestCase):
@@ -622,30 +627,6 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         self.assertTrue(self.router.allow_migrate('default', 'example', 'organization'))
         self.assertTrue(self.router.allow_migrate('other', 'example', 'organization'))
 
-    def test_get_sharding_mode_override_settings(self):
-        """
-        Case: Set sharding configuration and verify that DynamicDbRouter.get_sharding_mode() it uses the overriden
-              settings.
-        Expected: The router should return the overriden setting for the model.
-        """
-        with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'organization'): ShardingMode.MIRRORED, }}):
-            self.assertEqual(DynamicDbRouter._get_sharding_mode('example', 'organization'), ShardingMode.MIRRORED)
-
-        with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', ): ShardingMode.MIRRORED, }}):
-            self.assertEqual(DynamicDbRouter._get_sharding_mode('example', 'user'), ShardingMode.MIRRORED)
-
-    def test_get_sharding_mode_fallback(self):
-        """
-        Case: Set sharding configuration and verify that DynamicDbRouter.get_sharding_mode() will use the fallback to
-              checking model class if the model sharding mode is not overriden in settings.
-        Expected: The router should return the class setting for the model.
-        """
-        with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'user'): ShardingMode.MIRRORED, }}):
-            self.assertEqual(DynamicDbRouter._get_sharding_mode('example', 'organization'), ShardingMode.SHARDED)
-
 
 class CreateTemplateSchemaTestCase(ShardingTestCase):
     def test_create_template_schema(self):
@@ -677,6 +658,67 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         """
         with self.assertRaises(ValueError):
             migrate_schema('default', 'test_schema')  # this also calls the migration
+
+
+class GetModelShardingModeTestCase(SimpleTestCase):
+    @mock.patch('sharding.utils.get_sharding_mode')
+    def test(self, mock_get_sharding_mode):
+        """
+        Case: Call get_model_sharding_mode.
+        Expected: get_sharding_mode to be called with the correct arguments.
+        """
+        get_model_sharding_mode(User)
+        mock_get_sharding_mode.called_once_with(app_label='example', model_name='User')
+
+
+class GetShardingModeTestCase(SimpleTestCase):
+    def test_get_sharding_mode_override_settings(self):
+        """
+        Case: Set sharding configuration and verify that DynamicDbRouter.get_sharding_mode() it uses the overriden
+              settings.
+        Expected: The router should return the overriden setting for the model.
+        """
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'organization'): ShardingMode.MIRRORED, }}):
+            self.assertEqual(get_sharding_mode('example', 'organization'), ShardingMode.MIRRORED)
+
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', ): ShardingMode.MIRRORED, }}):
+            self.assertEqual(get_sharding_mode('example', 'user'), ShardingMode.MIRRORED)
+
+    def test_get_sharding_mode_fallback(self):
+        """
+        Case: Set sharding configuration and verify that DynamicDbRouter.get_sharding_mode() will use the fallback to
+              checking model class if the model sharding mode is not overriden in settings.
+        Expected: The router should return the class setting for the model.
+        """
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'user'): ShardingMode.MIRRORED, }}):
+            self.assertEqual(get_sharding_mode('example', 'organization'), ShardingMode.SHARDED)
+
+
+class GetAllShardedModels(TestCase):
+    available_apps = ['example']
+
+    def test_with_override(self):
+        """
+        Case: Call get_all_sharded_models.
+        Expected: Only the User model to be returned. The rest is mirrored or not sharded.
+        Note: System test
+        """
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'organization'): ShardingMode.MIRRORED, }}):
+            self.assertCountEqual(get_all_sharded_models(), [User])
+
+    @mock.patch('sharding.utils.get_model_sharding_mode')
+    def test(self, mock_get_model_sharding_mode):
+        """
+        Case: Call get_all_sharded_models.
+        Expected: get_model_sharding_mode called for each model.
+        """
+        get_all_sharded_models()
+        for model in apps.get_models():
+            mock_get_model_sharding_mode.assert_has_call(model=model)
 
 
 class GetAllDatabases(SimpleTestCase):
@@ -1037,6 +1079,8 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
 
 
 class MoveModelToSchemaTestCase(TransactionTestCase):
+    available_apps = ['example']
+
     def cleanup(self):
         """
         Cleanup: move the table back; else the TestCase might go confused.
@@ -1051,6 +1095,7 @@ class MoveModelToSchemaTestCase(TransactionTestCase):
                 SuperType.objects.all().delete()
                 User.objects.all().delete()
                 Organization.objects.all().delete()
+                Shard.objects.all().delete()
                 env.connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('other_schema'))
                 env.connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
 
@@ -1116,8 +1161,11 @@ class MoveModelToSchemaTestCase(TransactionTestCase):
 
 
 class MoveModelToExistingSchemaTestCase(TransactionTestCase):
+    available_apps = ['example']
+
     def cleanup(self):
         if Shard.objects.filter(schema_name='another_schema').exists():
+            Shard.objects.all().delete()
             connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
             connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('another_schema'))
 

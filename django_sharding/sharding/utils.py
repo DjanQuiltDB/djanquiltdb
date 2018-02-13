@@ -70,8 +70,8 @@ class DynamicDbRouter(object):
         return override_list and override_list[-1]
 
     def allow_relation(self, obj1, obj2, *args, **kwargs):
-        obj1_mode = self._get_model_sharding_mode(obj1)
-        obj2_mode = self._get_model_sharding_mode(obj2)
+        obj1_mode = get_model_sharding_mode(obj1)
+        obj2_mode = get_model_sharding_mode(obj2)
 
         if obj1_mode or obj2_mode:
             return obj1_mode and obj2_mode  # all is good if they both have a sharding mode set.
@@ -93,7 +93,7 @@ class DynamicDbRouter(object):
         if model and getattr(model, 'test_model', False):
             return False
 
-        sharding_mode = self._get_sharding_mode(app_label, model_name)
+        sharding_mode = get_sharding_mode(app_label, model_name)
         if sharding_mode == ShardingMode.SHARDED:
             # Sharded models should never reside in the public schema.
             # Only on templates and the shared schemas.
@@ -107,25 +107,6 @@ class DynamicDbRouter(object):
         else:
             # Non-sharded models only belong to the default database.
             return connection_name == 'default' and schema_name == 'public'
-
-    def _get_model_sharding_mode(self, instance):
-        app_label, model_name = instance._meta.app_label, instance._meta.model_name
-        return self._get_sharding_mode(app_label, model_name)
-
-    @staticmethod
-    def _get_sharding_mode(app_label, model_name):
-        override_sharding_mode = settings.SHARDING.get('OVERRIDE_SHARDING_MODE', {})
-
-        if override_sharding_mode:
-            if (app_label, model_name) in override_sharding_mode:
-                # The configuration overrides the sharding_mode for a model in an app
-                return override_sharding_mode[(app_label, model_name)]
-            elif (app_label,) in override_sharding_mode:
-                # The configuration overrides the sharding_mode for all models in an app
-                return override_sharding_mode[(app_label,)]
-
-        model = apps.get_model(app_label, model_name)
-        return getattr(model, 'sharding_mode', False)
 
 
 def _node_exists(node_name):
@@ -524,9 +505,29 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
             func(*args, shard=shard, **(kwargs or {}))
 
 
+def get_model_sharding_mode(model):
+    app_label, model_name = model._meta.app_label, model._meta.model_name
+    return get_sharding_mode(app_label, model_name)
+
+
+def get_sharding_mode(app_label, model_name):
+    override_sharding_mode = settings.SHARDING.get('OVERRIDE_SHARDING_MODE', {})
+
+    if override_sharding_mode:
+        if (app_label, model_name) in override_sharding_mode:
+            # The configuration overrides the sharding_mode for a model in an app
+            return override_sharding_mode[(app_label, model_name)]
+        elif (app_label,) in override_sharding_mode:
+            # The configuration overrides the sharding_mode for all models in an app
+            return override_sharding_mode[(app_label,)]
+
+    model = apps.get_model(app_label, model_name)
+    return getattr(model, 'sharding_mode', False)
+
+
 def get_all_sharded_models():
     models = apps.get_models()
-    return [model for model in models if getattr(model, 'sharding_mode', None) == ShardingMode.SHARDED]
+    return [model for model in models if get_model_sharding_mode(model) == ShardingMode.SHARDED]
 
 
 def get_all_databases():

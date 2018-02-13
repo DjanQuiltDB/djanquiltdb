@@ -2,7 +2,7 @@ from django.core.management import BaseCommand, CommandError
 from django.db import ProgrammingError
 
 from sharding.utils import use_shard, get_all_databases, move_model_to_schema, State, \
-    create_template_schema, get_shard_class, transaction_for_every_node, get_all_sharded_models
+    create_template_schema, get_shard_class, get_all_sharded_models
 
 
 class Command(BaseCommand):
@@ -49,11 +49,10 @@ class Command(BaseCommand):
             if confirm != 'yes':
                 return
 
-        with transaction_for_every_node():
-            for node_name in databases:
-                self.move_models_on_node(node_name=node_name,
-                                         target_schema_name=target_schema_name,
-                                         sharded_models=sharded_models)
+        for node_name in databases:
+            self.move_models_on_node(node_name=node_name,
+                                     target_schema_name=target_schema_name,
+                                     sharded_models=sharded_models)
 
     def move_models_on_node(self, node_name, target_schema_name, sharded_models):
         # Create a new shard
