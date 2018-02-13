@@ -144,7 +144,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         cursor = _cursor or self.cursor()
         schema = schema_name or self.get_schema()
         for table in self.get_all_table_headers(schema_name=schema):
-            cursor.execute('DROP TABLE {} CASCADE'.format(table))
+            cursor.execute('DROP TABLE "{}" CASCADE'.format(table))
 
     def get_schema_for_model(self, model, _cursor=None):
         """

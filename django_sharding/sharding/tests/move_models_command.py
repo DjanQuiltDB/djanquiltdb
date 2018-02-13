@@ -6,7 +6,8 @@ from django.test import TransactionTestCase
 
 from example.models import Type, User, SuperType, Organization, Shard
 from sharding.management.commands.move_sharded_models import Command as MoveCommand
-from sharding.utils import migrate_schema, use_shard, create_template_schema, State, get_all_sharded_models
+from sharding.utils import migrate_schema, use_shard, create_template_schema, State, get_all_sharded_models, \
+    get_template_name
 
 
 class MoveModelsCommandTestCase(TransactionTestCase):
@@ -53,31 +54,21 @@ class MoveModelsCommandTestCase(TransactionTestCase):
         self.assertCountEqual(connection.get_schema_for_model(User), [('target',), ('template', )])
         self.assertCountEqual(connection.get_schema_for_model(Organization), [('target',), ('template', )])
 
-        # Cleanup
-        connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
-        connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('target'))
-
     @mock.patch('sharding.management.commands.move_sharded_models.get_all_databases',
                 return_value=['default', 'other', 'another'])
-    @mock.patch('sharding.management.commands.move_sharded_models.Command.move_models_on_node')
-    def test_call_on_node_function(self, mock_move_models_on_node, mock_get_all_databases):
+    @mock.patch('sharding.management.commands.move_sharded_models.Command.move_models')
+    def test_call_on_node_function(self, mock_move_models, mock_get_all_databases):
         """
-        Case: Call move_sharded_models command for all nodes.
-        Expected: move_models_on_node to be called for each database.
+        Case: Call move_sharded_models command.
+        Expected: move_models to be called with the correct argumetns.
         """
-        sharded_models = get_all_sharded_models()
+        call_command('move_sharded_models', target_schema_name='target', no_input=True)
 
-        call_command('move_sharded_models', database='all', target_schema_name='target', no_input=True)
+        mock_move_models.assert_called_once_with(node_name='default',
+                                                 target_schema_name='target',
+                                                 sharded_models=get_all_sharded_models())
 
-        mock_move_models_on_node.assert_any_call(node_name='default',
-                                                 target_schema_name='target',
-                                                 sharded_models=sharded_models)
-        mock_move_models_on_node.assert_any_call(node_name='other',
-                                                 target_schema_name='target',
-                                                 sharded_models=sharded_models)
-        mock_move_models_on_node.assert_any_call(node_name='another',
-                                                 target_schema_name='target',
-                                                 sharded_models=sharded_models)
+        self.assertTrue(mock_get_all_databases.called)
 
     def test_on_existing_shard(self):
         """
@@ -91,11 +82,7 @@ class MoveModelsCommandTestCase(TransactionTestCase):
         with self.assertRaises(ValueError):
             call_command('move_sharded_models', database='default', target_schema_name='target', no_input=True)
 
-        # Cleanup
-        connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
-        connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('target'))
-
-    def test_with_invalid_argument(self):
+    def test_with_public_argument(self):
         """
         Case: Call move_sharded_models command with 'public' as target schema name.
         Expected: CommandError to be raised.
@@ -103,23 +90,32 @@ class MoveModelsCommandTestCase(TransactionTestCase):
         with self.assertRaises(CommandError):
             call_command('move_sharded_models', database='default', target_schema_name='public', no_input=True)
 
+    def test_with_template_argument(self):
+        """
+        Case: Call move_sharded_models command with 'public' as target schema name.
+        Expected: CommandError to be raised.
+        """
+        with self.assertRaises(CommandError):
+            call_command('move_sharded_models', database='default', target_schema_name=get_template_name(),
+                         no_input=True)
+
     @mock.patch('sharding.management.commands.move_sharded_models.move_model_to_schema')
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.flush_schema')
     @mock.patch('sharding.models.BaseShard.save')
     @mock.patch('sharding.management.commands.move_sharded_models.create_template_schema')
-    def test_move_models_on_node(self, mock_create_template_schema, mock_model_save, mock_flush_schema,
-                                 mock_move_model_to_schema):
+    def test_move_models(self, mock_create_template_schema, mock_model_save, mock_flush_schema,
+                         mock_move_model_to_schema):
         """
-        Case: Call move_models_on_node.
+        Case: Call move_models.
         Expected: Several functions to be called with the correct arguments:
                   - create_template_schema
                   - flush_schema
                   - move_model_to_schema for each model.
                   And a Shard to be created
         """
-        MoveCommand().move_models_on_node(node_name='default',
-                                          target_schema_name='target',
-                                          sharded_models=get_all_sharded_models())
+        MoveCommand().move_models(node_name='default',
+                                  target_schema_name='target',
+                                  sharded_models=get_all_sharded_models())
 
         mock_create_template_schema.assert_called_once_with('default')
         self.assertTrue(mock_model_save.called)

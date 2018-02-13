@@ -583,7 +583,7 @@ class transaction_for_every_node(Atomic):
             for model, mode in self.lock_models:
                 connection = connections[self.using]
                 cursor = connection.cursor()
-                cursor.execute('LOCK TABLE {} IN {} MODE'.format(model._meta.db_table, mode))
+                cursor.execute('LOCK TABLE "{}" IN {} MODE'.format(model._meta.db_table, mode))
 
     def __exit__(self, exc_type, exc_value, traceback):
         for database in reversed(self.databases):
