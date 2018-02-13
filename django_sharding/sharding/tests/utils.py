@@ -49,7 +49,7 @@ class DummyNonShardedModel(models.Model):
         app_label = 'sharding'
 
 
-class ShardingTestCaseMixin(object):
+class ShardingTestCase(TestCase):
     available_apps = ['sharding', 'example']
 
     def setUp(self):
@@ -68,10 +68,6 @@ class ShardingTestCaseMixin(object):
                 schema = schema[0]
                 if schema.startswith('test') or schema == get_template_name():
                     con.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format(schema))
-
-
-class ShardingTestCase(ShardingTestCaseMixin, TestCase):
-    pass
 
 
 class GetTemplateName(SimpleTestCase):
