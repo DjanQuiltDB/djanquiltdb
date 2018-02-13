@@ -962,10 +962,28 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
 
 
 class MoveModelToSchemaTestCase(TransactionTestCase):
+    def cleanup(self):
+        # Cleanup: move the table back; else the TestCase might go confused.
+        connection.include_public_schema = True
+
+        if Shard.objects.filter(schema_name='other_schema').exists():
+            with use_shard(node_name='default', schema_name='other_schema') as env:
+                move_model_to_schema(model=Type, node_name='default', from_schema_name='other_schema',
+                                     to_schema_name='public')
+                Type.objects.all().delete()
+                SuperType.objects.all().delete()
+                User.objects.all().delete()
+                Organization.objects.all().delete()
+                env.connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('other_schema'))
+                env.connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
+
+    def setUp(self):
+        self.addCleanup(self.cleanup)
+
     def test(self):
         """
         Case: Move the Type model over from public to a shard
-        Expected: The Type mode to be moved. All data should remain in tact.
+        Expected: The Type model to be moved. All data should remain in tact.
         """
         create_template_schema('default')
         other_shard = Shard.objects.create(alias='other', node_name='default', schema_name='other_schema',
@@ -987,7 +1005,7 @@ class MoveModelToSchemaTestCase(TransactionTestCase):
                 type.refresh_from_db()
 
         connection.include_public_schema = True
-        move_model_to_schema(shard=other_shard, model=Type, target_schema_name='other_schema')
+        move_model_to_schema(model=Type, node_name='default', to_schema_name='other_schema')
         connection.include_public_schema = False
 
         with use_shard(node_name='default', schema_name='public'):
@@ -1019,30 +1037,25 @@ class MoveModelToSchemaTestCase(TransactionTestCase):
         self.assertEqual(type.super.id, 4)
         self.assertEqual(supertype.id, 4)
 
-        # Cleanup: move the table back; else the TestCase might go confused.
-        connection.include_public_schema = True
-        with use_shard(other_shard) as env:
-            move_model_to_schema(shard=other_shard, model=Type, target_schema_name='public')
-            Type.objects.all().delete()
-            SuperType.objects.all().delete()
-            User.objects.all().delete()
-            Organization.objects.all().delete()
-            env.connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('other_schema'))
-            env.connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
 
-    def test_already_moved(self):
+class MoveModelToExistingSchemaTestCase(TransactionTestCase):
+    def cleanup(self):
+        if Shard.objects.filter(schema_name='another_schema').exists():
+            connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
+            connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('another_schema'))
+
+    def setUp(self):
+        self.addCleanup(self.cleanup)
+
+    def test(self):
         """
         Case: Move a schema to a shard where it already resides
         Expected: move_model_to_schema to raise an error
         """
         create_template_schema('default')
-        other_shard = Shard.objects.create(alias='another', node_name='default', schema_name='another_schema',
-                                           state=State.ACTIVE)
+        another_schema = Shard.objects.create(alias='another', node_name='default', schema_name='another_schema',
+                                              state=State.ACTIVE)
 
         # The User table is already on the sharded schema.
         with self.assertRaises(ProgrammingError):
-            move_model_to_schema(shard=other_shard, model=User, target_schema_name=other_shard.schema_name)
-
-        # Cleanup
-        connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
-        connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('another_schema'))
+            move_model_to_schema(model=User, node_name='default', to_schema_name=another_schema.schema_name)

@@ -1,15 +1,23 @@
 from unittest import mock
 
 from django.core.management import call_command
-from django.db import connection
-from django.test import TestCase, TransactionTestCase
+from django.db import connection, ProgrammingError
+from django.test import TransactionTestCase, TestCase
 
-from example.models import Type, User, SuperType, Organization
-from sharding.utils import migrate_schema, use_shard
+from example.models import Type, User, SuperType, Organization, Shard
+from sharding.utils import migrate_schema, use_shard, create_template_schema, State
 
 
 class MoveModelsCommandTestCase(TransactionTestCase):
-    def fake_allow_migrate(self, connection_name, app_label, model_name=None, **hints):
+    def cleanup(self):
+        if Shard.objects.filter(schema_name='other_schema').exists():
+            connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
+            connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('target'))
+
+    def setUp(self):
+        self.addCleanup(self.cleanup)
+
+    def fake_allow_migrate(self, *args, **hints):
         model = hints.pop('model', False)
         if getattr(model, 'test_model', False):
             return False
@@ -20,7 +28,6 @@ class MoveModelsCommandTestCase(TransactionTestCase):
         Expected: Only the sharded models (not mirrored) to be moved to a newly created schema.
                   And have a proper template schema.
         """
-
         # Create a situation where the sharded models are on the public schema
         # We do this by flushing the public schema, and migrating it with the router disabled
         with use_shard(node_name='default', schema_name='public') as env:
@@ -42,6 +49,22 @@ class MoveModelsCommandTestCase(TransactionTestCase):
         self.assertCountEqual(connection.get_schema_for_model(Type), [('public',)])
         self.assertCountEqual(connection.get_schema_for_model(User), [('target',), ('template', )])
         self.assertCountEqual(connection.get_schema_for_model(Organization), [('target',), ('template', )])
+
+        # Cleanup
+        connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
+        connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('target'))
+
+    def test_on_existing_shard(self):
+        """
+        Case: Call move_sharded_models while the target schema already exists
+        Expected: This fact to be called out and the move not to be performed.
+        """
+        create_template_schema('default')
+        target = Shard.objects.create(alias='another', node_name='default', schema_name='target', state=State.ACTIVE)
+
+        # The User table is already on the sharded schema.
+        with self.assertRaises(ValueError):
+            call_command('move_sharded_models', database='default', target_schema_name='target')
 
         # Cleanup
         connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))

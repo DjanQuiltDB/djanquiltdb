@@ -127,7 +127,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         cursor.execute('SELECT schema_name FROM information_schema.schemata;')
         return cursor.fetchall()
 
-    def get_all_table_headers(self, schema_name=None, _cursor=None, ):
+    def get_all_table_headers(self, schema_name=None, _cursor=None):
         cursor = _cursor or self.cursor()
         schema = schema_name or self.get_schema()
         cursor.execute(
@@ -147,10 +147,10 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def get_schema_for_model(self, model, _cursor=None):
         """
-        Retruns the schema the given table lives on
+        Returns the schema the given model lives on.
         """
         cursor = _cursor or self.cursor()
-        cursor.execute("SELECT table_schema FROM information_schema.tables WHERE table_name=%s;",
+        cursor.execute('SELECT table_schema FROM information_schema.tables WHERE table_name=%s;',
                        [model._meta.db_table])
         return cursor.fetchall()
 
