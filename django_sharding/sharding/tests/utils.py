@@ -1143,7 +1143,7 @@ class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
         connection.include_public_schema = True
 
         if Shard.objects.filter(schema_name='test_other_schema').exists():
-            with use_shard(node_name='default', schema_name='test_other_schema') as env:
+            with use_shard(node_name='default', schema_name='test_other_schema'):
                 move_model_to_schema(model=Type, node_name='default', from_schema_name='test_other_schema',
                                      to_schema_name='public')
         super().clean_up()
