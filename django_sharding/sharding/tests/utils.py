@@ -81,14 +81,12 @@ class ShardingTransactionTestCase(TransactionTestCase):
     @staticmethod
     def get_all_non_sharded_models():
         models = apps.get_models()
-        # return [model for model in models if not getattr(model, 'test_model', False)]
         return [model for model in models if get_model_sharding_mode(model) != ShardingMode.SHARDED
                 and not getattr(model, 'test_model', False)]
 
     @staticmethod
     def get_all_mirrored_models():
         models = apps.get_models()
-        # return [model for model in models if not getattr(model, 'test_model', False)]
         return [model for model in models if get_model_sharding_mode(model) == ShardingMode.MIRRORED
                 and not getattr(model, 'test_model', False)]
 
@@ -1137,10 +1135,10 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
 class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
     available_apps = ['example']
 
-    def cleanup(self):
+    def clean_up(self):
         """
-        Cleanup: Move the table back; else the TestCase might go confused.
-                 Then perform the normal ShardingTransactionTestCase cleanup
+        Move the table back; else the TestCase might go confused.
+        Then perform the normal ShardingTransactionTestCase clean_up
         """
         connection.include_public_schema = True
 
@@ -1151,7 +1149,7 @@ class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
         super().clean_up()
 
     def setUp(self):
-        self.addCleanup(self.cleanup)
+        self.addCleanup(self.clean_up)
 
     def test(self):
         """
