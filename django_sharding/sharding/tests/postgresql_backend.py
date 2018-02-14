@@ -1,15 +1,16 @@
 from unittest import mock
 
 from django.db import connection, ProgrammingError
-from django.test import SimpleTestCase, override_settings, TestCase
+from django.test import override_settings, TestCase
 from psycopg2 import InternalError
 
+from example.models import Type
 from sharding.postgresql_backend.base import get_validated_schema_name
 from sharding.utils import create_schema_on_node, create_template_schema, use_shard
 from sharding.tests.utils import ShardingTestCase
 
 
-class GetValidatedSchemaNameTestCase(SimpleTestCase):
+class GetValidatedSchemaNameTestCase(TestCase):
     def test_valid_name(self):
         """
         Case: Call get_validated_schema_name with a valid name.
@@ -213,6 +214,24 @@ class PostgresBackendTestCase(ShardingTestCase):
 
         with self.assertRaises(ValueError):
             connection.clone_schema('template2', 'test_schema')
+
+    def test_flush_schema(self):
+        """
+        Case: Create a template schema and call 'flush_schema' on it.
+        Expected: We end up with an empty schema. Stripped from all tables.
+        """
+        create_template_schema('default')
+        with use_shard(node_name='default', schema_name='template') as env:
+            self.assertNotEqual(connection.get_all_table_headers(schema_name='template'), [])
+            env.connection.flush_schema(schema_name='template')
+            self.assertEqual(connection.get_all_table_headers(schema_name='template'), [])
+
+    def test_get_schema_for_model(self):
+        """
+        Case: Call get_schema_for_model for a model.
+        Expected: the correct schema name to be returned.
+        """
+        self.assertEquals(connection.get_schema_for_model(Type), [('public',)])
 
 
 class CursorTestCase(TestCase):

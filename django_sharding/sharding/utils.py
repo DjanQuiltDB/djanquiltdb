@@ -18,7 +18,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.commands.migrate import Command as MigrateCommand
-from django.db import connections, connection
+from django.db import connections, connection, ProgrammingError
 from django.db.transaction import Atomic
 from django.utils.module_loading import import_string
 from functools import wraps
@@ -70,8 +70,8 @@ class DynamicDbRouter(object):
         return override_list and override_list[-1]
 
     def allow_relation(self, obj1, obj2, *args, **kwargs):
-        obj1_mode = self._get_model_sharding_mode(obj1)
-        obj2_mode = self._get_model_sharding_mode(obj2)
+        obj1_mode = get_model_sharding_mode(obj1)
+        obj2_mode = get_model_sharding_mode(obj2)
 
         if obj1_mode or obj2_mode:
             return obj1_mode and obj2_mode  # all is good if they both have a sharding mode set.
@@ -93,7 +93,7 @@ class DynamicDbRouter(object):
         if model and getattr(model, 'test_model', False):
             return False
 
-        sharding_mode = self._get_sharding_mode(app_label, model_name)
+        sharding_mode = get_sharding_mode(app_label, model_name)
         if sharding_mode == ShardingMode.SHARDED:
             # Sharded models should never reside in the public schema.
             # Only on templates and the shared schemas.
@@ -107,25 +107,6 @@ class DynamicDbRouter(object):
         else:
             # Non-sharded models only belong to the default database.
             return connection_name == 'default' and schema_name == 'public'
-
-    def _get_model_sharding_mode(self, instance):
-        app_label, model_name = instance._meta.app_label, instance._meta.model_name
-        return self._get_sharding_mode(app_label, model_name)
-
-    @staticmethod
-    def _get_sharding_mode(app_label, model_name):
-        override_sharding_mode = settings.SHARDING.get('OVERRIDE_SHARDING_MODE', {})
-
-        if override_sharding_mode:
-            if (app_label, model_name) in override_sharding_mode:
-                # The configuration overrides the sharding_mode for a model in an app
-                return override_sharding_mode[(app_label, model_name)]
-            elif (app_label,) in override_sharding_mode:
-                # The configuration overrides the sharding_mode for all models in an app
-                return override_sharding_mode[(app_label,)]
-
-        model = apps.get_model(app_label, model_name)
-        return getattr(model, 'sharding_mode', False)
 
 
 def _node_exists(node_name):
@@ -524,6 +505,31 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
             func(*args, shard=shard, **(kwargs or {}))
 
 
+def get_model_sharding_mode(model):
+    app_label, model_name = model._meta.app_label, model._meta.model_name
+    return get_sharding_mode(app_label, model_name)
+
+
+def get_sharding_mode(app_label, model_name):
+    override_sharding_mode = settings.SHARDING.get('OVERRIDE_SHARDING_MODE', {})
+
+    if override_sharding_mode:
+        if (app_label, model_name) in override_sharding_mode:
+            # The configuration overrides the sharding_mode for a model in an app
+            return override_sharding_mode[(app_label, model_name)]
+        elif (app_label,) in override_sharding_mode:
+            # The configuration overrides the sharding_mode for all models in an app
+            return override_sharding_mode[(app_label,)]
+
+    model = apps.get_model(app_label, model_name)
+    return getattr(model, 'sharding_mode', False)
+
+
+def get_all_sharded_models():
+    models = apps.get_models()
+    return [model for model in models if get_model_sharding_mode(model) == ShardingMode.SHARDED]
+
+
 def get_all_databases():
     return [name for name, db in settings.DATABASES.items()]
 
@@ -577,10 +583,25 @@ class transaction_for_every_node(Atomic):
             for model, mode in self.lock_models:
                 connection = connections[self.using]
                 cursor = connection.cursor()
-                cursor.execute('LOCK TABLE {} IN {} MODE'.format(model._meta.db_table, mode))
+                cursor.execute('LOCK TABLE "{}" IN {} MODE'.format(model._meta.db_table, mode))
 
     def __exit__(self, exc_type, exc_value, traceback):
         for database in reversed(self.databases):
             self.using = database
             # will grab the connection corresponding to the database set in self.using
             super().__exit__(exc_type, exc_value, traceback)
+
+
+def move_model_to_schema(model, node_name, to_schema_name, from_schema_name='public'):
+    """
+    This alters a table in such a way it is lifted from it's original schema and placed into the target one.
+    It assumes that the table moves from a sharded schema to the public or the other way around.
+    """
+    with use_shard(node_name=node_name, schema_name=from_schema_name) as env:
+        cursor = env.connection.cursor()
+        if cursor.execute(
+                'SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = %s AND tablename = %s);',
+                [to_schema_name, model._meta.db_table]):
+            raise ProgrammingError("Table '{}' already exists on schema '{}'.".format(model._meta.db_table,
+                                                                                      to_schema_name))
+        cursor.execute('ALTER TABLE "{}" SET SCHEMA "{}";'.format(model._meta.db_table, to_schema_name))

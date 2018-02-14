@@ -116,19 +116,19 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def get_schema(self):
         return self.schema_name
 
-    def get_ps_schema(self, shard_name, _cursor=None):
+    def get_ps_schema(self, schema_name, _cursor=None):
         cursor = _cursor or self.cursor()
         cursor.execute('SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = %s);',
-                       [shard_name])
+                       [schema_name])
         if cursor.fetchall()[0][0]:
-            return shard_name
+            return schema_name
 
     def get_all_pg_schemas(self, _cursor=None):
         cursor = _cursor or self.cursor()
         cursor.execute('SELECT schema_name FROM information_schema.schemata;')
         return cursor.fetchall()
 
-    def get_all_table_headers(self, _cursor=None, schema_name=None):
+    def get_all_table_headers(self, schema_name=None, _cursor=None):
         cursor = _cursor or self.cursor()
         schema = schema_name or self.get_schema()
         cursor.execute(
@@ -136,6 +136,24 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             [schema]
         )
         return [x[0] for x in cursor.fetchall()]  # we get a list of single tuples
+
+    def flush_schema(self, schema_name=None, _cursor=None):
+        """
+        Drops all tables on the given schema
+        """
+        cursor = _cursor or self.cursor()
+        schema = schema_name or self.get_schema()
+        for table in self.get_all_table_headers(schema_name=schema):
+            cursor.execute('DROP TABLE "{}" CASCADE'.format(table))
+
+    def get_schema_for_model(self, model, _cursor=None):
+        """
+        Returns the schema the given model lives on.
+        """
+        cursor = _cursor or self.cursor()
+        cursor.execute('SELECT table_schema FROM information_schema.tables WHERE table_name=%s;',
+                       [model._meta.db_table])
+        return cursor.fetchall()
 
     def create_schema(self, schema_name, is_template=False):
         schema_name = get_validated_schema_name(schema_name, is_template)
