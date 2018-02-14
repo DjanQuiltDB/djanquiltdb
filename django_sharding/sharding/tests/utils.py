@@ -75,6 +75,61 @@ class ShardingTestCase(TestCase):
                     con.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format(schema))
 
 
+class ShardingTransactionTestCase(TransactionTestCase):
+    available_apps = ['sharding', 'example']
+
+    @staticmethod
+    def get_all_non_sharded_models():
+        models = apps.get_models()
+        # return [model for model in models if not getattr(model, 'test_model', False)]
+        return [model for model in models if get_model_sharding_mode(model) != ShardingMode.SHARDED
+                and not getattr(model, 'test_model', False)]
+
+    @staticmethod
+    def get_all_mirrored_models():
+        models = apps.get_models()
+        # return [model for model in models if not getattr(model, 'test_model', False)]
+        return [model for model in models if get_model_sharding_mode(model) == ShardingMode.MIRRORED
+                and not getattr(model, 'test_model', False)]
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self.clean_up)
+
+    def clean_up(self):
+        """
+        This clean_up looks a bit like the _fixture_teardown from the TransactionTestCase.
+        But it does so on each connection and looks at the shards for what to truncate.
+        And it removes the test and template schemas like the ShardedTestCase does.
+        """
+        THREAD_LOCAL.DB_OVERRIDE = None
+
+        for con in connections.all():
+            con.clone_function_set = False
+
+            # Remove all schemas made in tests.
+            for schema in con.get_all_pg_schemas():
+                schema = schema[0]
+                if schema.startswith('test') or schema == get_template_name():
+                    con.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format(schema))
+
+            # Truncate all public schemas
+            if con.get_ps_schema('public'):
+                # default|public has more schema's than just the mirrored ones. example_shard for instance.
+                models = self.get_all_non_sharded_models() if con.alias == 'default' else self.get_all_mirrored_models()
+                con.cursor().execute('TRUNCATE ONLY {};'.format(
+                    ', '.join('"{}"'.format(model._meta.db_table) for model in models)
+                    ))
+
+            con.set_schema_to_public()
+
+    def _fixture_teardown(self):
+        """
+        Fixture teardown is no longer necessary. And won't work properly anyway.
+        """
+        pass
+
+
 class GetTemplateName(SimpleTestCase):
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_get_template_unset(self):
@@ -622,7 +677,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         """
         Case: Check if previously sharded model is allowed to migrate onto public schema if it is set
               to ShardingMode.MIRRORED through the configuration.
-        Expected: The router should allow the overriden model to be migrated onto the public schema.
+        Expected: The router should allow the overridden model to be migrated onto the public schema.
         """
         self.assertTrue(self.router.allow_migrate('default', 'example', 'organization'))
         self.assertTrue(self.router.allow_migrate('other', 'example', 'organization'))
@@ -674,7 +729,7 @@ class GetModelShardingModeTestCase(SimpleTestCase):
 class GetShardingModeTestCase(SimpleTestCase):
     def test_get_sharding_mode_override_settings(self):
         """
-        Case: Set sharding configuration and verify that DynamicDbRouter.get_sharding_mode() it uses the overriden
+        Case: Set sharding configuration and verify that DynamicDbRouter.get_sharding_mode() it uses the overridden
               settings.
         Expected: The router should return the overriden setting for the model.
         """
@@ -689,7 +744,7 @@ class GetShardingModeTestCase(SimpleTestCase):
     def test_get_sharding_mode_fallback(self):
         """
         Case: Set sharding configuration and verify that DynamicDbRouter.get_sharding_mode() will use the fallback to
-              checking model class if the model sharding mode is not overriden in settings.
+              checking model class if the model sharding mode is not overridden in settings.
         Expected: The router should return the class setting for the model.
         """
         with override_settings(
@@ -727,7 +782,6 @@ class GetAllDatabases(SimpleTestCase):
         """
         Case: Call get_all_databases.
         Expected: Names of the databases defined in the settings.
-        :return:
         """
         self.assertCountEqual(get_all_databases(), ['default', 'space'])
 
@@ -806,7 +860,7 @@ class ForEachNodeTestCase(SimpleTestCase):
         self.assertTrue(mock_get_all_databases.called)
 
 
-class WriteToEveryNodeSystemTestCase(TransactionTestCase):
+class WriteToEveryNodeSystemTestCase(ShardingTransactionTestCase):
     def cleanup(self):
         for_each_node(self.cleanup_shard)
 
@@ -814,6 +868,7 @@ class WriteToEveryNodeSystemTestCase(TransactionTestCase):
         Type.objects.all().delete()
 
     def setUp(self):
+        super().setUp()
         self.addCleanup(self.cleanup)
 
     def _post_teardown(self):
@@ -894,7 +949,7 @@ class TransactionForEveryNodeTestCase(SimpleTestCase):
         self.assertTrue(mock_get_all_databases.called)
 
 
-class TransactionForEveryNodeTransactionTestCase(TransactionTestCase):
+class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
     def cleanup(self):
         for_each_node(self.cleanup_shard)
 
@@ -902,6 +957,7 @@ class TransactionForEveryNodeTransactionTestCase(TransactionTestCase):
         Type.objects.all().delete()
 
     def setUp(self):
+        super().setUp()
         self.addCleanup(self.cleanup)
 
     def _post_teardown(self):
@@ -969,8 +1025,8 @@ class TransactionForEveryNodeTransactionTestCase(TransactionTestCase):
                 pass
 
             self.assertEqual(mock_execute.call_count, 4)  # we test with two databases and 2 tables
-            mock_execute.assert_any_call('LOCK TABLE {} IN {} MODE'.format('example_type', 'ROW SHARE'))
-            mock_execute.assert_any_call('LOCK TABLE {} IN {} MODE'.format('example_supertype', 'SHARE'))
+            mock_execute.assert_any_call('LOCK TABLE "{}" IN {} MODE'.format('example_type', 'ROW SHARE'))
+            mock_execute.assert_any_call('LOCK TABLE "{}" IN {} MODE'.format('example_supertype', 'SHARE'))
 
     def test_with_table_lock(self):
         """
@@ -1078,26 +1134,21 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
         self.assertEqual(bound_arguments.kwargs, expected_bound_arguments.kwargs)
 
 
-class MoveModelToSchemaTestCase(TransactionTestCase):
+class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
     available_apps = ['example']
 
     def cleanup(self):
         """
-        Cleanup: move the table back; else the TestCase might go confused.
+        Cleanup: Move the table back; else the TestCase might go confused.
+                 Then perform the normal ShardingTransactionTestCase cleanup
         """
         connection.include_public_schema = True
 
-        if Shard.objects.filter(schema_name='other_schema').exists():
-            with use_shard(node_name='default', schema_name='other_schema') as env:
-                move_model_to_schema(model=Type, node_name='default', from_schema_name='other_schema',
+        if Shard.objects.filter(schema_name='test_other_schema').exists():
+            with use_shard(node_name='default', schema_name='test_other_schema') as env:
+                move_model_to_schema(model=Type, node_name='default', from_schema_name='test_other_schema',
                                      to_schema_name='public')
-                Type.objects.all().delete()
-                SuperType.objects.all().delete()
-                User.objects.all().delete()
-                Organization.objects.all().delete()
-                Shard.objects.all().delete()
-                env.connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('other_schema'))
-                env.connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
+        super().clean_up()
 
     def setUp(self):
         self.addCleanup(self.cleanup)
@@ -1108,14 +1159,14 @@ class MoveModelToSchemaTestCase(TransactionTestCase):
         Expected: The Type model to be moved. All data should remain in tact.
         """
         create_template_schema('default')
-        other_shard = Shard.objects.create(alias='other', node_name='default', schema_name='other_schema',
+        other_shard = Shard.objects.create(alias='other', node_name='default', schema_name='test_other_schema',
                                            state=State.ACTIVE)
 
         # Create a bunch of connected objects.
         supertype = SuperType.objects.create(id=4, name='tesla')  # use a specific id
         type = Type.objects.create(id=3, name='tesla', super=supertype)  # use a specific id
         with use_shard(other_shard):
-            organization = Organization.objects.create(name="SpaceX")
+            organization = Organization.objects.create(name='SpaceX')
             user = User.objects.create(name='Starman', organization=organization, type=type)
 
         # We don't want to also select the public schema when we select a shard.
@@ -1127,7 +1178,7 @@ class MoveModelToSchemaTestCase(TransactionTestCase):
                 type.refresh_from_db()
 
         connection.include_public_schema = True
-        move_model_to_schema(model=Type, node_name='default', to_schema_name='other_schema')
+        move_model_to_schema(model=Type, node_name='default', to_schema_name='test_other_schema')
         connection.include_public_schema = False
 
         with use_shard(node_name='default', schema_name='public'):
@@ -1160,17 +1211,8 @@ class MoveModelToSchemaTestCase(TransactionTestCase):
         self.assertEqual(supertype.id, 4)
 
 
-class MoveModelToExistingSchemaTestCase(TransactionTestCase):
+class MoveModelToExistingSchemaTestCase(ShardingTransactionTestCase):
     available_apps = ['example']
-
-    def cleanup(self):
-        if Shard.objects.filter(schema_name='another_schema').exists():
-            Shard.objects.all().delete()
-            connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('template'))
-            connection.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format('another_schema'))
-
-    def setUp(self):
-        self.addCleanup(self.cleanup)
 
     def test(self):
         """
@@ -1178,7 +1220,7 @@ class MoveModelToExistingSchemaTestCase(TransactionTestCase):
         Expected: move_model_to_schema to raise an error
         """
         create_template_schema('default')
-        another_schema = Shard.objects.create(alias='another', node_name='default', schema_name='another_schema',
+        another_schema = Shard.objects.create(alias='another', node_name='default', schema_name='test_another_schema',
                                               state=State.ACTIVE)
 
         # The User table is already on the sharded schema.

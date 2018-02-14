@@ -32,9 +32,8 @@ class Command(BaseCommand):
             raise CommandError("Target schema name cannot be 'public' nor '{}'.".format(get_template_name()))
 
         # Check if the target_schema does not already exist
-        with use_shard(node_name=database, schema_name='public'):
-            if get_shard_class().objects.filter(schema_name=target_schema_name).exists():
-                raise ValueError("The target schema '{}' already exist.".format(target_schema_name))
+        if get_shard_class().objects.filter(node_name=database, schema_name=target_schema_name).exists():
+            raise ValueError("The target schema '{}' on node '{}' already exist.".format(target_schema_name, database))
 
         sharded_models = get_all_sharded_models()
 

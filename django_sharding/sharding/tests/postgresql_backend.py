@@ -226,7 +226,7 @@ class PostgresBackendTestCase(ShardingTestCase):
             env.connection.flush_schema(schema_name='template')
             self.assertEqual(connection.get_all_table_headers(schema_name='template'), [])
 
-    def get_schema_for_model(self):
+    def test_get_schema_for_model(self):
         """
         Case: Call get_schema_for_model for a model.
         Expected: the correct schema name to be returned.
