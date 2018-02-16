@@ -11,7 +11,6 @@
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 import threading
-from enum import Enum
 
 from django.apps import apps
 from django.db.migrations.executor import MigrationExecutor
@@ -23,24 +22,9 @@ from django.db.transaction import Atomic
 from django.utils.module_loading import import_string
 from functools import wraps
 
+from sharding import ShardingMode, State
+
 THREAD_LOCAL = threading.local()
-
-
-class ShardingMode(Enum):
-    MIRRORED = 'M'
-    DEFINING = 'D'
-    SHARDED = 'S'
-
-
-class State(object):
-    ACTIVE = 'A'
-    MAINTENANCE = 'M'
-
-
-STATES = (
-    (State.ACTIVE, 'Active'),
-    (State.MAINTENANCE, 'Maintenance'),
-)
 
 
 class StateException(Exception):

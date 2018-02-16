@@ -5,7 +5,8 @@ from django.core.exceptions import ImproperlyConfigured, FieldDoesNotExist
 from django.conf import settings
 from django.db import models
 
-from sharding.utils import ShardingMode, STATES, transaction_for_every_node, get_all_databases, use_shard
+from sharding import ShardingMode, STATES
+from sharding.utils import transaction_for_every_node, get_all_databases, use_shard
 
 shard_mapping_models = False
 

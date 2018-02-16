@@ -2,9 +2,9 @@ from django.contrib.auth.models import AbstractBaseUser, UserManager
 from django.db import models
 from django.utils import timezone
 
+from sharding import State, STATES
 from sharding.decorators import mirrored_model, sharded_model, shard_mapping_model
 from sharding.models import BaseShard, MappingQuerySet
-from sharding.utils import State, STATES
 
 
 class Shard(BaseShard):
