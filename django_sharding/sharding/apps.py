@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.module_loading import import_string
 
-from sharding.utils import ShardingMode
+from sharding import ShardingMode
 
 
 class ShardingConfig(AppConfig):

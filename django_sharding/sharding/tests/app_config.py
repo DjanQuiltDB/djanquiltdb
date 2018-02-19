@@ -6,10 +6,10 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 from django.test import SimpleTestCase, override_settings
 
+from sharding import ShardingMode
 from sharding.decorators import sharded_model
 from sharding.models import BaseShard
 from sharding.tests.utils import test_model
-from sharding.utils import ShardingMode
 
 
 @test_model()

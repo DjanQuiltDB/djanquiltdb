@@ -2,7 +2,7 @@ from django.conf import settings
 from django.db import models, connections
 from django.db.models import Q
 
-from sharding.utils import State, STATES, ShardingMode
+from sharding import State, STATES, ShardingMode
 
 
 class MappingQuerySet(models.QuerySet):
