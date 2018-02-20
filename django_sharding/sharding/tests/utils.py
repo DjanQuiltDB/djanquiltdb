@@ -680,6 +680,25 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         self.assertTrue(self.router.allow_migrate('default', 'example', 'organization'))
         self.assertTrue(self.router.allow_migrate('other', 'example', 'organization'))
 
+    def test_allow_migrate_on_none(self):
+        """
+        Case: Call allow_migrate without a model_name
+        Expected: None to be returned
+        """
+        self.assertIsNone(self.router.allow_migrate('default', 'example', model_name=None))
+
+    def test_allow_migrate_with_hints(self):
+        """
+        Case: run_python in migration with hints given
+        Expected: Router to route correctly
+        """
+        self.assertTrue(self.router.allow_migrate('default', 'example', model_name=None,
+                                                  sharding_mode=ShardingMode.MIRRORED))
+        self.assertFalse(self.router.allow_migrate('default', 'example', model_name=None,
+                                                   sharding_mode=ShardingMode.SHARDED))
+        self.assertTrue(self.router.allow_migrate('default', 'example', model_name='organization',
+                                                  sharding_mode=ShardingMode.MIRRORED))
+
 
 class CreateTemplateSchemaTestCase(ShardingTestCase):
     def test_create_template_schema(self):
@@ -748,6 +767,22 @@ class GetShardingModeTestCase(SimpleTestCase):
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'user'): ShardingMode.MIRRORED, }}):
             self.assertEqual(get_sharding_mode('example', 'organization'), ShardingMode.SHARDED)
+
+    def test_get_sharding_mode_without_model_name(self):
+        """
+        Case: Call get_sharding_mode with None as model_name
+        Expected: None returned.
+        """
+        self.assertIsNone(get_sharding_mode('example', None))
+
+    def test_get_sharding_mode_without_model_name_but_with_override(self):
+        """
+        Case: Call get_sharding_mode with None as model_name, while settings override set.
+        Expected: Mode returned as defined by the settings override
+        """
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example',): ShardingMode.MIRRORED, }}):
+            self.assertEqual(get_sharding_mode('example', None), ShardingMode.MIRRORED)
 
 
 class GetAllShardedModels(TestCase):

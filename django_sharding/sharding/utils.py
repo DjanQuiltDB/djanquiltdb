@@ -77,8 +77,15 @@ class DynamicDbRouter(object):
         if model and getattr(model, 'test_model', False):
             return False
 
-        sharding_mode = get_sharding_mode(app_label, model_name)
-        if sharding_mode == ShardingMode.SHARDED:
+        # sharding_mode can be set as hints (on run_pyton/run_sql for example).
+        sharding_mode = hints.get('sharding_mode') or get_sharding_mode(app_label, model_name)
+
+        if sharding_mode is None:
+            # This happens when no model_name is given.
+            # We only know the sharding_mode when it is overridden in the settings.
+            # If we get None from get_sharding_mode, there is nothing we can do with it.
+            return None
+        elif sharding_mode == ShardingMode.SHARDED:
             # Sharded models should never reside in the public schema.
             # Only on templates and the shared schemas.
             return schema_name != 'public'
@@ -504,6 +511,9 @@ def get_sharding_mode(app_label, model_name):
         elif (app_label,) in override_sharding_mode:
             # The configuration overrides the sharding_mode for all models in an app
             return override_sharding_mode[(app_label,)]
+
+    if not model_name:
+        return None
 
     model = apps.get_model(app_label, model_name)
     return getattr(model, 'sharding_mode', False)
