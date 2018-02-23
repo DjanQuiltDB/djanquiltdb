@@ -16,19 +16,19 @@ from sharding.utils import use_shard, get_shard_class, get_all_sharded_models, g
 
 class Command(BaseCommand):
     """
-    This command migrates all data belonging to a single group from one shard to another.
-    A group is the top object of a data hierarchy.
+    This command migrates all data belonging to a single root_object from one shard to another.
+    A root_object is the top object of a data hierarchy.
 
     Both the source and target shard are put into maintenance mode during the migration.
     """
-    help = 'Move all data belonging to a single group from one shard to another.'
+    help = 'Move all data belonging to a single root_object from one shard to another.'
 
     def add_arguments(self, parser):
         parser.add_argument('--source_shard_alias', action='store', dest='source_shard_alias',
-                            help='Name of the shard where the group will be migrated from.')
+                            help='Name of the shard where the root_object will be migrated from.')
         parser.add_argument('--target_shard_alias', action='store', dest='target_shard_alias',
                             help='Name of the shard which will receive the data.')
-        parser.add_argument('--group_id', action='store', dest='group_id', help='ID of the top level group.')
+        parser.add_argument('--root_object_id', action='store', dest='root_object_id', help='ID of the root_object.')
         parser.add_argument('--model_name', action='store', dest='model_name',
                             help='app_label.model_name of the top level model.')
         parser.add_argument('--quiet', action='store', dest='quiet', default=False, help='Suppress output.')
@@ -42,14 +42,14 @@ class Command(BaseCommand):
         """
         quiet = options.get('quiet')
         model_name = options.get('model_name')
-        group_id = options.get('group_id')
+        root_object_id = options.get('root_object_id')
 
         source_shard_alias = options.get('source_shard_alias')
         source_shard = self.get_shard(alias=source_shard_alias)
         target_shard = self.get_target_shard(options=options)
 
-        group = self.get_object(model_name, group_id, source_shard)
-        data = self.get_data(source_shard=source_shard, group=group)
+        root_object = self.get_object(model_name, root_object_id, source_shard)
+        data = self.get_data(source_shard=source_shard, root_object=root_object)
 
         if not options.get('no_input'):
             confirm = input("Type 'yes' if you are sure if you want to move the following data from {} to {}:\n{}: "
@@ -57,8 +57,8 @@ class Command(BaseCommand):
             if confirm != 'yes':
                 return
 
-        self.pre_execution(options=options, source_shard=source_shard, target_shard=target_shard, group=group,
-                           data=data)
+        self.pre_execution(options=options, source_shard=source_shard, target_shard=target_shard,
+                           root_object=root_object, data=data)
         try:
             with transaction.atomic(using=target_shard.node_name):
                 self.move_data(data=data, source_shard=source_shard, target_shard=target_shard, quiet=quiet)
@@ -67,15 +67,15 @@ class Command(BaseCommand):
                     raise IntegrityError('Data was not successfully copied.')
                 self.delete_data(data=data, source_shard=source_shard, quiet=quiet)
         finally:
-            self.post_execution(options=options, source_shard=source_shard, target_shard=target_shard, group=group,
-                                data=data)
+            self.post_execution(options=options, source_shard=source_shard, target_shard=target_shard,
+                                root_object=root_object, data=data)
 
         if not quiet:
             data_points = sum(map(len, data.values()))
             print('Done. Moved {} data points'.format(data_points))
 
     @staticmethod
-    def get_object(model_name, group_id, source_shard):
+    def get_object(model_name, root_object_id, source_shard):
         """
         Get top level object based on model name and id.
         """
@@ -83,7 +83,7 @@ class Command(BaseCommand):
             model = get_model(model_name)
             if not get_model_sharding_mode(model) is ShardingMode.SHARDED:
                 raise CommandError("'{}' is not a sharded model.".format(model))
-            return model.objects.get(id=group_id)
+            return model.objects.get(id=root_object_id)
 
     @staticmethod
     def get_shard(alias):
@@ -104,7 +104,7 @@ class Command(BaseCommand):
         return Command.get_shard(alias=options.get('target_shard_alias'))
 
     @staticmethod
-    def get_data(source_shard, group):
+    def get_data(source_shard, root_object):
         """
         Use a collector to gather all data belonging to the given object.
         Return only the data dict.
@@ -115,7 +115,7 @@ class Command(BaseCommand):
 
         with use_shard(source_shard):
             collector = NestedObjects(using=source_shard.node_name)
-            collector.collect([group])
+            collector.collect([root_object])
 
         return {model: instances for model, instances in collector.data.items() if model in sharded_models}
 
@@ -189,7 +189,7 @@ class Command(BaseCommand):
                 # Providing a 'using' to delete_batch is not needed for us, but the function expects it.
                 query.delete_batch(pk_list, using=source_shard.node_name)
 
-    def pre_execution(self, options, source_shard, target_shard, group, data):
+    def pre_execution(self, options, source_shard, target_shard, root_object, data):
         """
         Called before we enter the transaction.
         If there is a mapping model, we can set that into maintenance.
@@ -197,7 +197,7 @@ class Command(BaseCommand):
         """
         mapping_model = get_mapping_class()
         if mapping_model:
-            mapping_object = mapping_model.objects.select_related('shard').for_target(group.id)
+            mapping_object = mapping_model.objects.select_related('shard').for_target(root_object.id)
             self.old_source_state = mapping_object.state
             mapping_object.state = State.MAINTENANCE
             mapping_object.save(update_fields=['state'])
@@ -206,14 +206,14 @@ class Command(BaseCommand):
             source_shard.state = State.MAINTENANCE
             source_shard.save(update_fields=['state'])
 
-    def post_execution(self, options, source_shard, target_shard, group, data):
+    def post_execution(self, options, source_shard, target_shard, root_object, data):
         """
         Called after the transaction is committed. Both after success or failure.
         Set both shards in maintenance.
         """
         mapping_model = get_mapping_class()
         if mapping_model:
-            mapping_object = mapping_model.objects.select_related('shard').for_target(group.id)
+            mapping_object = mapping_model.objects.select_related('shard').for_target(root_object.id)
             mapping_object.state = self.old_source_state
             mapping_object.shard = target_shard
             mapping_object.save(update_fields=['state', 'shard'])
