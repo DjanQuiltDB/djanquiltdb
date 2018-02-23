@@ -552,16 +552,13 @@ def for_each_node(func, args=(), kwargs=None):
     return return_values
 
 
-class transaction_for_every_node(Atomic):
+class transaction_for_nodes(Atomic):
     """
-    Context manager to start a transaction for each node and close them afterwards.
-    Used by atomic_write_to_every_node.
-
-    :returns: None
+    Context manager to start a transaction for each given node and close them afterwards.
     """
-    def __init__(self, savepoint=True, lock_models=()):
+    def __init__(self, nodes, savepoint=True, lock_models=()):
         # we don't support the 'using' argument of transaction.Atomic
-        self.databases = get_all_databases()
+        self.databases = nodes
         self.savepoint = savepoint
         self.lock_models = lock_models
 
@@ -580,6 +577,15 @@ class transaction_for_every_node(Atomic):
             self.using = database
             # will grab the connection corresponding to the database set in self.using
             super().__exit__(exc_type, exc_value, traceback)
+
+
+class transaction_for_every_node(transaction_for_nodes):
+    """
+    Context manager to start a transaction for all existing nodes and close them afterwards.
+    Used by atomic_write_to_every_node.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(nodes=get_all_databases(), **kwargs)
 
 
 def move_model_to_schema(model, node_name, to_schema_name, from_schema_name='public'):

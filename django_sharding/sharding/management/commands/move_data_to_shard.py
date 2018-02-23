@@ -1,17 +1,16 @@
 import filecmp
-from tempfile import NamedTemporaryFile
-
 from io import StringIO
+from tempfile import NamedTemporaryFile
 
 from django.contrib.admin.utils import NestedObjects
 from django.core.management import BaseCommand, CommandError
-from django.db import transaction, IntegrityError
+from django.db import IntegrityError
 from django.db.models import sql
 from django.db.models.loading import get_model
 
 from sharding import State, ShardingMode
 from sharding.utils import use_shard, get_shard_class, get_all_sharded_models, get_mapping_class, \
-    get_model_sharding_mode
+    get_model_sharding_mode, transaction_for_nodes
 
 
 class Command(BaseCommand):
@@ -28,9 +27,9 @@ class Command(BaseCommand):
                             help='Name of the shard where the root_object will be migrated from.')
         parser.add_argument('--target_shard_alias', action='store', dest='target_shard_alias',
                             help='Name of the shard which will receive the data.')
-        parser.add_argument('--root_object_id', action='store', dest='root_object_id', help='ID of the root_object.')
         parser.add_argument('--model_name', action='store', dest='model_name',
-                            help='app_label.model_name of the top level model.')
+                            help='app_label.model_name of the root object.')
+        parser.add_argument('--root_object_id', action='store', dest='root_object_id', help='ID of the root object.')
         parser.add_argument('--quiet', action='store', dest='quiet', default=False, help='Suppress output.')
         parser.add_argument('--no_input', action='store', dest='no_input', default=False, help='Skip confirmation.')
 
@@ -40,7 +39,7 @@ class Command(BaseCommand):
         Both shards are put into maintenance during this.
         Delete the original data and release the transaction only after the migration is verified.
         """
-        quiet = options.get('quiet')
+        self.quiet = options.get('quiet')
         model_name = options.get('model_name')
         root_object_id = options.get('root_object_id')
 
@@ -60,17 +59,18 @@ class Command(BaseCommand):
         self.pre_execution(options=options, source_shard=source_shard, target_shard=target_shard,
                            root_object=root_object, data=data)
         try:
-            with transaction.atomic(using=target_shard.node_name):
-                self.move_data(data=data, source_shard=source_shard, target_shard=target_shard, quiet=quiet)
-                if not self.confirm_data_integrity(data=data, source_shard=source_shard, target_shard=target_shard,
-                                                   quiet=quiet):
+            # Pushing the node names through a set means we end up with a list of unique names.
+            nodes = list(set([source_shard.node_name, target_shard.node_name]))
+            with transaction_for_nodes(nodes=nodes):
+                self.move_data(data=data, source_shard=source_shard, target_shard=target_shard)
+                if not self.confirm_data_integrity(data=data, source_shard=source_shard, target_shard=target_shard):
                     raise IntegrityError('Data was not successfully copied.')
-                self.delete_data(data=data, source_shard=source_shard, quiet=quiet)
+                self.delete_data(data=data, source_shard=source_shard)
         finally:
             self.post_execution(options=options, source_shard=source_shard, target_shard=target_shard,
                                 root_object=root_object, data=data)
 
-        if not quiet:
+        if not self.quiet:
             data_points = sum(map(len, data.values()))
             print('Done. Moved {} data points'.format(data_points))
 
@@ -81,7 +81,7 @@ class Command(BaseCommand):
         """
         with use_shard(source_shard):
             model = get_model(model_name)
-            if not get_model_sharding_mode(model) is ShardingMode.SHARDED:
+            if not get_model_sharding_mode(model) == ShardingMode.SHARDED:
                 raise CommandError("'{}' is not a sharded model.".format(model))
             return model.objects.get(id=root_object_id)
 
@@ -119,15 +119,14 @@ class Command(BaseCommand):
 
         return {model: instances for model, instances in collector.data.items() if model in sharded_models}
 
-    @staticmethod
-    def move_data(data, source_shard, target_shard, quiet=False):
+    def move_data(self, data, source_shard, target_shard):
         """
         Copy all given data from the source to the target. Delete the data on source after a successful copy.
         """
-        if not quiet:
+        if not self.quiet:
             print('Moving data from {} to {}'.format(source_shard, target_shard))
         for model, instances in data.items():
-            if not quiet:
+            if not self.quiet:
                 print('Exporting {}.{}'.format(model._meta.app_label, model._meta.model_name))
             # Export
             pk_list = [obj.pk for obj in instances]
@@ -136,37 +135,38 @@ class Command(BaseCommand):
                 query = env.connection.cursor().mogrify(
                     'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(t=model._meta.db_table),
                     [pk_list])
-                Command.copy_expert(env.connection.cursor(), query, io)
+                self.copy_expert(env.connection.cursor(), query, io)
+                # TODO(SHARDING-21) update sequencer for this table
+                # This wouldn't be necessary if we would omit the ids when copying.
 
             # Import
             io.seek(0)
             with use_shard(target_shard, active_only_schemas=False) as env:
-                Command.copy_from(env.connection.cursor(), io, model._meta.db_table)
+                self.copy_from(env.connection.cursor(), io, model._meta.db_table)
 
-    @staticmethod
-    def confirm_data_integrity(data, source_shard, target_shard, quiet=False):
+    def confirm_data_integrity(self, data, source_shard, target_shard):
         """
         Let both the source_shard and the target_shard export the data to a file and compare them.
         """
-        if not quiet:
+        if not self.quiet:
             print('Confirming data integrity')
-        source_file = NamedTemporaryFile(delete=False)
-        target_file = NamedTemporaryFile(delete=False)
+
         # With TemporaryFile
         with NamedTemporaryFile() as source_file, NamedTemporaryFile() as target_file:
             for model, instances in data.items():
                 # Export
                 pk_list = [obj.pk for obj in instances]
-                query_string = 'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(t=model._meta.db_table)
+                query_string = 'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT' \
+                    .format(t=model._meta.db_table)
 
                 # We let the copy functions just append to the output file
                 with use_shard(source_shard, active_only_schemas=False) as env:
                     query = env.connection.cursor().mogrify(query_string, [pk_list])
-                    Command.copy_expert(env.connection.cursor(), query, source_file)
+                    self.copy_expert(env.connection.cursor(), query, source_file)
 
                 with use_shard(target_shard, active_only_schemas=False) as env:
                     query = env.connection.cursor().mogrify(query_string, [pk_list])
-                    Command.copy_expert(env.connection.cursor(), query, target_file)
+                    self.copy_expert(env.connection.cursor(), query, target_file)
 
             source_file.seek(0)
             target_file.seek(0)
@@ -174,13 +174,12 @@ class Command(BaseCommand):
             # Tempfiles are removed when we leave their context manager.
             return filecmp.cmp(source_file.name, target_file.name)
 
-    @staticmethod
-    def delete_data( data, source_shard, quiet=False):
+    def delete_data(self, data, source_shard):
         """
         Delete all the data given.
         It uses the function `objects.delete()` would.
         """
-        if not quiet:
+        if not self.quiet:
             print('Deleting exported data')
         for model, instances in data.items():
             query = sql.DeleteQuery(model)

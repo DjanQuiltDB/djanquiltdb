@@ -14,7 +14,7 @@ from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, TH
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
     StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node, \
     move_model_to_schema, get_all_databases, ShardingMode, get_sharding_mode, get_model_sharding_mode, \
-    get_all_sharded_models, get_shard_class, get_mapping_class
+    get_all_sharded_models, get_shard_class, get_mapping_class, transaction_for_nodes
 
 
 def test_model():
@@ -730,7 +730,7 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         # Filter test models
         template_tables = [table for table in template_tables if not re.search(r'_[t|T]est', table)]
         self.assertCountEqual(sorted(template_tables), ['django_migrations', 'example_organization', 'example_user',
-                                                   'example_statement'])
+                                                        'example_statement'])
 
     def test_create_template_schema_invalid_node(self):
         """
@@ -983,7 +983,7 @@ class TransactionForEveryNodeTestCase(SimpleTestCase):
         self.assertTrue(mock_get_all_databases.called)
 
 
-class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
+class TransactionForNodesTestCase(ShardingTransactionTestCase):
     def cleanup(self):
         for_each_node(self.cleanup_shard)
 
@@ -1009,7 +1009,7 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
             self.assertEqual(Type.objects.count(), 0)
 
         with self.assertRaises(ProgrammingError):
-            with transaction_for_every_node():
+            with transaction_for_nodes(nodes=['default', 'other']):
                 with use_shard(node_name='default', schema_name='public'):
                     Type.objects.create(name='test_type')  # this is to be rolled back
                 with use_shard(node_name='other', schema_name='public'):
@@ -1031,7 +1031,7 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
             self.assertEqual(Type.objects.count(), 0)
 
         with self.assertRaises(InterfaceError):
-            with transaction_for_every_node():
+            with transaction_for_nodes(nodes=['default', 'other']):
                 with use_shard(node_name='default', schema_name='public'):
                     Type.objects.create(name='test_type')  # this is to be rolled back
                 with use_shard(node_name='other', schema_name='public') as shard:
@@ -1055,7 +1055,8 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
             mock_cursor = mock_connection.return_value.cursor = mock.Mock()
             mock_execute = mock_cursor.return_value.execute = mock.Mock()
 
-            with transaction_for_every_node(lock_models=((Type, 'ROW SHARE'), (SuperType, 'SHARE'))):
+            with transaction_for_nodes(nodes=['default', 'other'],
+                                       lock_models=((Type, 'ROW SHARE'), (SuperType, 'SHARE'))):
                 pass
 
             self.assertEqual(mock_execute.call_count, 4)  # we test with two databases and 2 tables
@@ -1083,7 +1084,8 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
                     Type.objects.create(name='test_type')
                 con.close()
 
-        with transaction_for_every_node(lock_models=((Type, 'ACCESS EXCLUSIVE'),)):
+        with transaction_for_nodes(nodes=['default', 'other'],
+                                   lock_models=((Type, 'ACCESS EXCLUSIVE'),)):
             with use_shard(node_name='default', schema_name='public'):
                 # Don't create an object before calling the other thread.
                 # A write will lock the table too, and will only be released when the transaction is committed.
@@ -1098,6 +1100,23 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
 
         with use_shard(node_name='default', schema_name='public'):
             self.assertEqual(Type.objects.count(), 1)
+
+
+class TransactionForEveryNodeTestCase(SimpleTestCase):
+    @mock.patch('sharding.utils.transaction_for_nodes.__init__')
+    @mock.patch('sharding.utils.transaction_for_nodes.__enter__', mock.Mock)
+    @mock.patch('sharding.utils.transaction_for_nodes.__exit__',  mock.Mock)
+    @mock.patch('sharding.utils.get_all_databases', return_value=['default', 'other'])
+    def test(self, mock_all_databases, mock_init):
+        """
+        Case: Use transaction_for_every_node.
+        Expected: transaction_for_nodes to be called with the correct value for nodes.
+        """
+        with transaction_for_every_node():
+            pass
+
+        self.assertEqual(mock_all_databases.call_count, 1)
+        mock_init.assert_called_once_with(nodes=['default', 'other'])
 
 
 class WriteToEveryNodeTestCase(SimpleTestCase):

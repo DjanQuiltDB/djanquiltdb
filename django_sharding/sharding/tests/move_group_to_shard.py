@@ -4,7 +4,7 @@ from django.core.management import call_command, CommandError
 from django.db import DatabaseError, IntegrityError
 from django.test import override_settings
 
-from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards
+from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Cake
 from sharding.tests.utils import ShardingTestCase
 from sharding.utils import use_shard, create_template_schema, State
 from sharding.management.commands.move_data_to_shard import Command as MoveCommand
@@ -20,7 +20,7 @@ class MoveDataToShard(ShardingTestCase):
         super().setUp()
 
         self.command = MoveCommand()
-        self.command.silent = True
+        self.command.quiet = True
 
         create_template_schema()
         self.source_shard = Shard.objects.create(alias='court', node_name='default', schema_name='test_source',
@@ -36,6 +36,7 @@ class MoveDataToShard(ShardingTestCase):
                                               organization=self.organization_1, type=self.type_1)
             self.statement_1 = Statement.objects.create(content='Objection!', user=self.user_1)
             self.statement_2 = Statement.objects.create(content='discrepancy', user=self.user_1)
+            self.cake_1 = Cake.objects.create(name='Carrot Cake', user=self.user_1)
             self.organization_shard = OrganizationShards.objects.create(shard=self.source_shard,
                                                                         organization_id=self.organization_1.id,
                                                                         state=State.ACTIVE)
@@ -46,9 +47,12 @@ class MoveDataToShard(ShardingTestCase):
                                               organization=self.organization_2, type=self.type_2)
             self.statement_3 = Statement.objects.create(content='Luke!', user=self.user_2)
             self.statement_4 = Statement.objects.create(content='Try to solve this puzzle', user=self.user_2)
+            self.cake_2 = Cake.objects.create(name='Apple Pie', user=self.user_2)
 
-        self.data = {Organization: {self.organization_1}, User: {self.user_1},
-                     Statement: {self.statement_1, self.statement_2}}
+        self.data = {Organization: {self.organization_1},
+                     User: {self.user_1},
+                     Statement: {self.statement_1, self.statement_2},
+                     Cake: {self.cake_1}}
 
         self.options = {'database': 'default',
                         'source_shard_alias': self.source_shard.alias,
@@ -71,11 +75,13 @@ class MoveDataToShard(ShardingTestCase):
             self.assertCountEqual(Organization.objects.all(), [self.organization_2])
             self.assertCountEqual(User.objects.all(), [self.user_2])
             self.assertCountEqual(Statement.objects.all(), [self.statement_3, self.statement_4])
+            self.assertCountEqual(Cake.objects.all(), [self.cake_2])
 
         with use_shard(self.target_shard):
             self.assertCountEqual(Organization.objects.all(), [self.organization_1])
             self.assertCountEqual(User.objects.all(), [self.user_1])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2])
+            self.assertCountEqual(Cake.objects.all(), [self.cake_1])
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert', side_effect=DatabaseError)
     def test_failure_on_move(self, mock_copy_expert):
@@ -176,18 +182,28 @@ class MoveDataToShard(ShardingTestCase):
         self.assertEqual(mock_pre_execution.call_count, 1)
         mock_get_data.assert_called_once_with(source_shard=self.source_shard, root_object=self.organization_1)
         mock_move_data.assert_called_once_with(data=data, source_shard=self.source_shard,
-                                               target_shard=self.target_shard, quiet=self.options['quiet'])
-        mock_confirm.assert_called_once_with(data=data, source_shard=self.source_shard, target_shard=self.target_shard,
-                                             quiet=self.options['quiet'])
-        mock_delete_data.assert_called_once_with(data=data, source_shard=self.source_shard, quiet=self.options['quiet'])
+                                               target_shard=self.target_shard)
+        mock_confirm.assert_called_once_with(data=data, source_shard=self.source_shard, target_shard=self.target_shard)
+        mock_delete_data.assert_called_once_with(data=data, source_shard=self.source_shard)
         self.assertEqual(mock_post_execution.call_count, 1)
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.transaction_for_nodes')
+    def test_handle_transaction(self, mock_transaction_for_nodes):
+        """
+        Case: Call the handle
+        Expected: transaction_for_nodes to be used with the correct node names as argument.
+        """
+        self.command.handle(**self.options)
+
+        mock_transaction_for_nodes.assert_called_once_with(nodes=['default'])
 
     def test_get_object(self):
         """
         Case: Call get_object
         Expected: The correct object to be returned
         """
-        self.assertEqual(self.command.get_object(model_name='example.organization', root_object_id=self.organization_1.id,
+        self.assertEqual(self.command.get_object(model_name='example.organization',
+                                                 root_object_id=self.organization_1.id,
                                                  source_shard=self.source_shard),
                          self.organization_1)
 
@@ -266,8 +282,8 @@ class MoveDataToShard(ShardingTestCase):
         """
         self.command.move_data(data=self.data, source_shard=self.source_shard, target_shard=self.target_shard)
         # Since a cursor object is given, we cannot assert the calls specifically.
-        self.assertEqual(mock_copy_expert.call_count, 3)
-        self.assertEqual(mock_copy_from.call_count, 3)
+        self.assertEqual(mock_copy_expert.call_count, 4)
+        self.assertEqual(mock_copy_from.call_count, 4)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.filecmp.cmp', return_value=True)
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
@@ -280,7 +296,7 @@ class MoveDataToShard(ShardingTestCase):
         self.assertTrue(self.command.confirm_data_integrity(data=self.data, source_shard=self.source_shard,
                                                             target_shard=self.target_shard))
         # Since a cursor object is given, we cannot assert the calls specifically.
-        self.assertEqual(mock_copy_expert.call_count, 6)
+        self.assertEqual(mock_copy_expert.call_count, 8)
         # We callot specifically assert the filecmp call, since the given arguments are randomly named temp files
         self.assertEqual(mock_filecmp.call_count, 1)
 
