@@ -42,6 +42,15 @@ def get_template_name():
     return settings.SHARDING.get('TEMPLATE_NAME', 'template')
 
 
+def get_mapping_class():
+    """
+    Helper function to get implemented Mapping model, if the project has one.
+    """
+    if 'MAPPING_MODEL' not in settings.SHARDING:
+        return None
+    return import_string(settings.SHARDING['MAPPING_MODEL'])
+
+
 class DynamicDbRouter(object):
     """ A router that decides what db to read from based on a variable local to the current thread. """
 
@@ -85,9 +94,6 @@ class DynamicDbRouter(object):
         elif sharding_mode == ShardingMode.MIRRORED:
             # Mirrored models belong to public schemas and no where else.
             return schema_name == 'public'
-        elif sharding_mode == ShardingMode.DEFINING:
-            # Defining (mapping) models are migrated the same as non-sharded models. (for now)
-            return connection_name == 'default' and schema_name == 'public'
         else:
             # Non-sharded models only belong to the default database.
             return connection_name == 'default' and schema_name == 'public'
@@ -160,8 +166,8 @@ class use_shard(object):
             if active_only_schemas and shard.state != State.ACTIVE:
                 raise StateException("Shard {} state is {}".format(shard, shard.state), shard.state)
 
-            if active_only_schemas and 'MAPPING_MODEL' in settings.SHARDING:
-                mapping_model = import_string(settings.SHARDING['MAPPING_MODEL'])
+            mapping_model = get_mapping_class()
+            if active_only_schemas and mapping_model:
                 if mapping_model.objects.for_shard(shard).in_maintenance().exists():
                     raise StateException("Shard {} contains mapping objects that are in maintenance".format(shard),
                                          State.MAINTENANCE)
@@ -261,10 +267,10 @@ def get_shard_for(target_value, active_only=False):
             print (get_shard_for(user.organization.id, active_only=True))  # StateException if state is not active
 
        """
-    if 'MAPPING_MODEL' not in settings.SHARDING:
+    mapping_model = get_mapping_class()
+    if not mapping_model:
         raise ImproperlyConfigured('Missing or incorrect type of a setting SHARDING["{}"].'.format('MAPPING_MODEL'))
 
-    mapping_model = import_string(settings.SHARDING['MAPPING_MODEL'])
     mapping_object = mapping_model.objects.select_related('shard').for_target(target_value)
     if active_only:
         if mapping_object.state != State.ACTIVE:

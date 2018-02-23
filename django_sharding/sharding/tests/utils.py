@@ -8,13 +8,13 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connection, connections, models, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings, TransactionTestCase
 
-from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization
+from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement
 from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_every_node
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
     StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node, \
     move_model_to_schema, get_all_databases, ShardingMode, get_sharding_mode, get_model_sharding_mode, \
-    get_all_sharded_models
+    get_all_sharded_models, get_shard_class, get_mapping_class
 
 
 def test_model():
@@ -128,6 +128,20 @@ class ShardingTransactionTestCase(TransactionTestCase):
         pass
 
 
+class GetShardClass(SimpleTestCase):
+    """
+    We don't need to test for the situation where the class is not set in the settings.
+    For we will give an error on run in that case.
+    """
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    def test_get_shard_class_set(self):
+        """
+        Case: Call get_shard_class while it is set in the settings
+        Expected: The model class.
+        """
+        self.assertEqual(get_shard_class(), Shard)
+
+
 class GetTemplateName(SimpleTestCase):
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_get_template_unset(self):
@@ -144,6 +158,25 @@ class GetTemplateName(SimpleTestCase):
         Expected: Set name: 'new-template'
         """
         self.assertEqual(get_template_name(), 'new-template')
+
+
+class GetMappingClass(SimpleTestCase):
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    def test_get_mapping_class_unset(self):
+        """
+        Case: Call get_mapping_class when it is not set in the settings.
+        Expected: The default template name: 'template'
+        """
+        self.assertIsNone(get_mapping_class())
+
+    @override_settings(SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards',
+                                 'SHARD_CLASS': 'example.models.Shard'})
+    def test_get_mapping_class_set(self):
+        """
+        Case: Call get_mapping_class_ while it is set in the settings
+        Expected: The model class.
+        """
+        self.assertEqual(get_mapping_class(), OrganizationShards)
 
 
 class UseShardTestCase(ShardingTestCase):
@@ -635,8 +668,10 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         default_public_tables = ['django_migrations', 'django_content_type', 'auth_group', 'auth_permission',
                                  'auth_group_permissions', 'example_shard', 'django_session', 'example_type',
                                  'example_supertype', 'example_organizationshards']
-        other_public_tables = ['django_migrations',  'example_type', 'example_supertype']  # only the mirrored table
-        template_tables = ['django_migrations', 'example_organization', 'example_user']  # only sharded tables
+        # The tables present on all non-default public schema's are all the mirrored tables.
+        other_public_tables = ['django_migrations',  'example_type', 'example_supertype']
+        # The tables present on the template schema's are all the sharded tables.
+        template_tables = ['django_migrations', 'example_organization', 'example_user', 'example_statement']
 
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'),
                               default_public_tables)
@@ -694,7 +729,8 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         template_tables = [table[1] for table in cursor.fetchall()]
         # Filter test models
         template_tables = [table for table in template_tables if not re.search(r'_[t|T]est', table)]
-        self.assertEqual(sorted(template_tables), ['django_migrations', 'example_organization', 'example_user'])
+        self.assertCountEqual(sorted(template_tables), ['django_migrations', 'example_organization', 'example_user',
+                                                   'example_statement'])
 
     def test_create_template_schema_invalid_node(self):
         """
@@ -756,12 +792,12 @@ class GetAllShardedModels(TestCase):
     def test_with_override(self):
         """
         Case: Call get_all_sharded_models.
-        Expected: Only the User model to be returned. The rest is mirrored or not sharded.
+        Expected: Only the User and the Statement models to be returned. The rest is mirrored or not sharded.
         Note: System test
         """
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'organization'): ShardingMode.MIRRORED, }}):
-            self.assertCountEqual(get_all_sharded_models(), [User])
+            self.assertCountEqual(get_all_sharded_models(), [User, Statement])
 
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):

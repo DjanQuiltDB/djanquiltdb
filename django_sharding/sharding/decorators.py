@@ -163,7 +163,6 @@ def shard_mapping_model(mapping_field):  # noqa: C901
         else:
             shard_mapping_models = True
 
-        cls.sharding_mode = ShardingMode.DEFINING
         cls.mapping_field = mapping_field
         return cls
 

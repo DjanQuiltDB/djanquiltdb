@@ -47,7 +47,7 @@ class MappingModelDecoratorTestCase(TestCase):
     def test_shard_mapping_model(self):
         """
         Case: Check if decorated model has shard_mapping_model set.
-        Expected: 'D' to be returned.
+        Expected: It to not have one set.
         """
         @shard_mapping_model('map_field')
         @test_model()
@@ -59,7 +59,7 @@ class MappingModelDecoratorTestCase(TestCase):
             class Meta:
                 app_label = 'sharding'
 
-        self.assertEqual(MappingDummyModel1.sharding_mode, ShardingMode.DEFINING)
+        self.assertFalse(hasattr(MappingDummyModel1, 'sharding_mode'))
 
     def test_shard_mapping_model_no_shard_field(self):
         """

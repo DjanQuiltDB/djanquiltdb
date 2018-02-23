@@ -1,9 +1,10 @@
 from unittest import mock
 
-from django.core.management import call_command
+from django.core.management import call_command, CommandError
 from django.db import DatabaseError, IntegrityError
+from django.test import override_settings
 
-from example.models import Type, User, SuperType, Organization, Shard, Statement
+from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards
 from sharding.tests.utils import ShardingTestCase
 from sharding.utils import use_shard, create_template_schema, State
 from sharding.management.commands.move_group_to_shard import Command as MoveCommand
@@ -35,6 +36,9 @@ class MoveModelsCommandTestCase(ShardingTestCase):
                                               organization=self.organization_1, type=self.type_1)
             self.statement_1 = Statement.objects.create(content='Objection!', user=self.user_1)
             self.statement_2 = Statement.objects.create(content='discrepancy', user=self.user_1)
+            self.organization_shard = OrganizationShards.objects.create(shard=self.source_shard,
+                                                                        organization_id=self.organization_1.id,
+                                                                        state=State.ACTIVE)
 
             self.type_2 = Type.objects.create(name='Professor', super=self.super)
             self.organization_2 = Organization.objects.create(name='Layton inc.',)
@@ -52,7 +56,7 @@ class MoveModelsCommandTestCase(ShardingTestCase):
                         'group_id': self.organization_1.pk,
                         'model_name': 'example.organization',
                         'no_input': True,
-                        'silent': True}
+                        'quiet': True}
 
     def test(self):
         """
@@ -95,6 +99,8 @@ class MoveModelsCommandTestCase(ShardingTestCase):
             self.assertFalse(User.objects.all().exists())
             self.assertFalse(Statement.objects.all().exists())
 
+        self.assertTrue(mock_copy_expert.called)
+
     @mock.patch('sharding.management.commands.move_group_to_shard.Command.confirm_data_integrity', return_value=False)
     def test_failure_on_integrity(self, mock_copy_expert):
         """
@@ -116,6 +122,8 @@ class MoveModelsCommandTestCase(ShardingTestCase):
             self.assertFalse(Organization.objects.all().exists())
             self.assertFalse(User.objects.all().exists())
             self.assertFalse(Statement.objects.all().exists())
+
+        self.assertTrue(mock_copy_expert.called)
 
     @mock.patch('sharding.management.commands.move_group_to_shard.Command.delete_data', side_effect=DatabaseError)
     def test_failure_on_delete(self, mock_copy_expert):
@@ -139,6 +147,8 @@ class MoveModelsCommandTestCase(ShardingTestCase):
             self.assertFalse(User.objects.all().exists())
             self.assertFalse(Statement.objects.all().exists())
 
+        self.assertTrue(mock_copy_expert.called)
+
     @mock.patch('sharding.management.commands.move_group_to_shard.Command.get_target_shard')
     @mock.patch('sharding.management.commands.move_group_to_shard.Command.pre_execution')
     @mock.patch('sharding.management.commands.move_group_to_shard.Command.get_object')
@@ -153,28 +163,23 @@ class MoveModelsCommandTestCase(ShardingTestCase):
         Case: Call the handle
         Expected: All sub-functions to be called with the correct arguments.
         """
-        options = {'database': 'default',
-                   'source_shard_alias': self.source_shard.alias,
-                   'target_shard_alias': self.target_shard.alias,
-                   'group_id': self.organization_1.pk,
-                   'model_name': 'example.organization',
-                   'no_input': True}
         data = {Statement: [self.statement_1, self.statement_2]}  # dummy data
 
         mock_get_target_shard.return_value = self.target_shard
         mock_get_object.return_value = self.organization_1
         mock_get_data.return_value = data
 
-        self.command.handle(**options)
+        self.command.handle(**self.options)
 
-        mock_get_target_shard.assert_called_once_with(options=options)
+        mock_get_target_shard.assert_called_once_with(options=self.options)
         mock_get_object.assert_called_once_with('example.organization', self.organization_1.id, self.source_shard)
         self.assertEqual(mock_pre_execution.call_count, 1)
         mock_get_data.assert_called_once_with(source_shard=self.source_shard, group=self.organization_1)
         mock_move_data.assert_called_once_with(data=data, source_shard=self.source_shard,
-                                               target_shard=self.target_shard)
-        mock_confirm.assert_called_once_with(data=data, source_shard=self.source_shard, target_shard=self.target_shard)
-        mock_delete_data.assert_called_once_with(data=data, source_shard=self.source_shard)
+                                               target_shard=self.target_shard, quiet=self.options['quiet'])
+        mock_confirm.assert_called_once_with(data=data, source_shard=self.source_shard, target_shard=self.target_shard,
+                                             quiet=self.options['quiet'])
+        mock_delete_data.assert_called_once_with(data=data, source_shard=self.source_shard, quiet=self.options['quiet'])
         self.assertEqual(mock_post_execution.call_count, 1)
 
     def test_get_object(self):
@@ -186,13 +191,37 @@ class MoveModelsCommandTestCase(ShardingTestCase):
                                                  source_shard=self.source_shard),
                          self.organization_1)
 
+    def test_get_object_that_is_not_sharded(self):
+        """
+        Case: Call get_object for model that is not sharded
+        Expected: CommandError raised
+        """
+        with self.assertRaises(CommandError):
+            self.command.get_object(model_name='example.type', group_id=self.type_1.id,
+                                    source_shard=self.source_shard)
+
     def test_get_shard(self):
         """
         Case: Call get_shard
         Expected: The correct shard object to be returned
         """
-        self.assertEqual(self.command.get_shard(alias='court'),
-                         self.source_shard)
+        self.assertEqual(self.command.get_shard(alias='court'), self.source_shard)
+
+    def test_get_shard_for_nonexistent_model(self):
+        """
+        Case: Call get_shard with an nonexistent alias
+        Expected: CommandError to be raised
+        """
+        with self.assertRaises(CommandError):
+            self.command.get_shard(alias='void')
+
+    def test_get_shard_for_mirrored_model(self):
+        """
+        Case: Call get_shard with an alias to a mirrored model
+        Expected: CommandError to be raised
+        """
+        with self.assertRaises(CommandError):
+            self.command.get_shard(alias='type')
 
     def test_get_target_shard(self):
         """
@@ -231,7 +260,6 @@ class MoveModelsCommandTestCase(ShardingTestCase):
     @mock.patch('sharding.management.commands.move_group_to_shard.Command.copy_from')
     @mock.patch('sharding.management.commands.move_group_to_shard.Command.copy_expert')
     def test_move_data(self, mock_copy_expert, mock_copy_from):
-        # from psycopg2._psycopg import cursor
         """
         Case: Call move_data.
         Expected: copy_expert and copy_from to be called for each model
@@ -253,7 +281,8 @@ class MoveModelsCommandTestCase(ShardingTestCase):
                                                             target_shard=self.target_shard))
         # Since a cursor object is given, we cannot assert the calls specifically.
         self.assertEqual(mock_copy_expert.call_count, 6)
-        mock_filecmp.assert_called_once_with('/tmp/source_buffer.txt', '/tmp/target_buffer.txt')
+        # We callot specifically assert the filecmp call, since the given arguments are randomly named temp files
+        self.assertEqual(mock_filecmp.call_count, 1)
 
     @mock.patch('django.db.models.sql.DeleteQuery.delete_batch')
     @mock.patch('sharding.management.commands.move_group_to_shard.sql.DeleteQuery')
@@ -270,47 +299,72 @@ class MoveModelsCommandTestCase(ShardingTestCase):
         mock_delete_query.mock_delete_batch([self.user_1.id], using='default')
         mock_delete_query.mock_delete_batch([self.statement_1.id, self.statement_2.id], using='default')
 
-    def test_pre_execution(self):
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    def test_pre_execution_non_mapping(self):
         """
-        Case: Call pre_execution.
-        Expected: Both shard to be put into maintenance, old states saved.
+        Case: Call pre_execution without a mapping_model.
+        Expected: The source shard to be put into maintenance, old state saved.
         """
         self.command.old_source_state = None
-        self.command.old_target_state = None
         self.source_shard.state = State.ACTIVE
         self.source_shard.save()
-        self.target_shard.state = State.ACTIVE
-        self.target_shard.save()
 
         self.command.pre_execution(options=self.options, source_shard=self.source_shard, target_shard=self.target_shard,
-                                   data=self.data)
+                                   data=self.data, group=self.organization_1)
 
         self.source_shard.refresh_from_db()
-        self.target_shard.refresh_from_db()
         self.assertEqual(self.source_shard.state, State.MAINTENANCE)
-        self.assertEqual(self.target_shard.state, State.MAINTENANCE)
         self.assertEqual(self.command.old_source_state, State.ACTIVE)
-        self.assertEqual(self.command.old_target_state, State.ACTIVE)
 
-    def test_post_execution(self):
+    @override_settings(SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards',
+                                 'SHARD_CLASS': 'example.models.Shard'})
+    def test_pre_execution_with_mapping(self):
         """
-        Case: Call post_execution.
-        Expected: Both shard's state to be restored.
+        Case: Call pre_execution with a mapping_model.
+        Expected: The organization's mapping object to be put into maintenance, old state saved.
         """
-        self.command.old_source_state = State.MAINTENANCE
-        self.command.old_target_state = State.ACTIVE
-        self.source_shard.state = State.ACTIVE
+        self.command.old_source_state = None
+        self.command.pre_execution(options=self.options, source_shard=self.source_shard, target_shard=self.target_shard,
+                                   data=self.data, group=self.organization_1)
+
+        self.organization_shard.refresh_from_db()
+        self.assertEqual(self.organization_shard.state, State.MAINTENANCE)
+        self.assertEqual(self.command.old_source_state, State.ACTIVE)
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    def test_post_execution_non_mapping(self):
+        """
+        Case: Call post_execution without a mapping_model.
+        Expected: The source shard's state to be restored.
+        """
+        self.command.old_source_state = State.ACTIVE
+        self.source_shard.state = State.MAINTENANCE
         self.source_shard.save()
-        self.target_shard.state = State.ACTIVE
-        self.target_shard.save()
 
         self.command.post_execution(options=self.options, source_shard=self.source_shard,
-                                    target_shard=self.target_shard, data=self.data)
+                                    target_shard=self.target_shard, data=self.data, group=self.organization_1)
 
         self.source_shard.refresh_from_db()
-        self.target_shard.refresh_from_db()
-        self.assertEqual(self.source_shard.state, State.MAINTENANCE)
-        self.assertEqual(self.target_shard.state, State.ACTIVE)
+        self.assertEqual(self.source_shard.state, State.ACTIVE)
+
+    @override_settings(SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards',
+                                 'SHARD_CLASS': 'example.models.Shard'})
+    def test_post_execution_with_mapping(self):
+        """
+        Case: Call post_execution with a mapping_model.
+        Expected: The organization's mapping object's state to be restored.
+                  And The shard to be moved as well.
+        """
+        self.command.old_source_state = State.ACTIVE
+        self.organization_shard.state = State.MAINTENANCE
+        self.organization_shard.save()
+
+        self.command.post_execution(options=self.options, source_shard=self.source_shard,
+                                    target_shard=self.target_shard, data=self.data, group=self.organization_1)
+
+        self.organization_shard.refresh_from_db()
+        self.assertEqual(self.organization_shard.state, State.ACTIVE)
+        self.assertEqual(self.organization_shard.shard, self.target_shard)
 
     @mock.patch('sharding.management.commands.move_group_to_shard.Command.move_data', side_effect=DatabaseError)
     @mock.patch('sharding.management.commands.move_group_to_shard.Command.post_execution')
@@ -318,7 +372,6 @@ class MoveModelsCommandTestCase(ShardingTestCase):
         """
         Case: Call the handle while move_data will raise an exception.
         Expected: post_execution still called.
-        :return:
         """
         with self.assertRaises(DatabaseError):
             self.command.handle(**self.options)
