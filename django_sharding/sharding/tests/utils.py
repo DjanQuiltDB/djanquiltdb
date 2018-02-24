@@ -8,7 +8,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connection, connections, models, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings, TransactionTestCase
 
-from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement
+from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement, Cake
 from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_every_node
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
@@ -671,7 +671,8 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         # The tables present on all non-default public schema's are all the mirrored tables.
         other_public_tables = ['django_migrations',  'example_type', 'example_supertype']
         # The tables present on the template schema's are all the sharded tables.
-        template_tables = ['django_migrations', 'example_organization', 'example_user', 'example_statement']
+        template_tables = ['django_migrations', 'example_organization', 'example_user', 'example_statement',
+                           'example_cake']
 
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'),
                               default_public_tables)
@@ -730,7 +731,7 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         # Filter test models
         template_tables = [table for table in template_tables if not re.search(r'_[t|T]est', table)]
         self.assertCountEqual(sorted(template_tables), ['django_migrations', 'example_organization', 'example_user',
-                                                        'example_statement'])
+                                                        'example_statement', 'example_cake'])
 
     def test_create_template_schema_invalid_node(self):
         """
@@ -797,7 +798,7 @@ class GetAllShardedModels(TestCase):
         """
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'organization'): ShardingMode.MIRRORED, }}):
-            self.assertCountEqual(get_all_sharded_models(), [User, Statement])
+            self.assertCountEqual(get_all_sharded_models(), [User, Statement, Cake])
 
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):
@@ -950,39 +951,6 @@ class WriteToEveryNodeSystemTestCase(ShardingTransactionTestCase):
         mock_transaction_for_every_node.assert_called_once_with(lock_models=((Type, 'SHARE'),))
 
 
-class TransactionForEveryNodeTestCase(SimpleTestCase):
-    @mock.patch('sharding.utils.Atomic.__init__')
-    @mock.patch('sharding.utils.Atomic.__enter__', autospec=True)
-    @mock.patch('sharding.utils.Atomic.__exit__', autospec=True)
-    @mock.patch('sharding.utils.get_all_databases', return_value=['sina', 'rose', 'maria'])
-    def test_parent_calls(self, mock_get_all_databases, mock_exit, mock_enter, mock_init):
-        """
-        Case: Use @transaction_for_every_node.
-        Expected: The parent context manager classes to be called with the correct self.using set.
-        """
-        enter_connections = []
-        exit_connections = []
-
-        def fake_enter(self):
-            enter_connections.append(self.using)
-
-        def fake_exit(self, exc_type, exc_value, traceback):
-            exit_connections.append(self.using)
-
-        mock_enter.side_effect = fake_enter
-        mock_exit.side_effect = fake_exit
-
-        with transaction_for_every_node():
-            pass
-
-        self.assertFalse(mock_init.called)
-        self.assertEqual(mock_enter.call_count, 3)
-        self.assertEqual(mock_exit.call_count, 3)
-        self.assertCountEqual(enter_connections, ['sina', 'rose', 'maria'])
-        self.assertCountEqual(exit_connections, ['sina', 'rose', 'maria'])
-        self.assertTrue(mock_get_all_databases.called)
-
-
 class TransactionForNodesTestCase(ShardingTransactionTestCase):
     def cleanup(self):
         for_each_node(self.cleanup_shard)
@@ -998,9 +966,38 @@ class TransactionForNodesTestCase(ShardingTransactionTestCase):
         # No need to revert stuff. In fact, it breaks the connections
         pass
 
+    @mock.patch('sharding.utils.Atomic.__init__')
+    @mock.patch('sharding.utils.Atomic.__enter__', autospec=True)
+    @mock.patch('sharding.utils.Atomic.__exit__', autospec=True)
+    def test_parent_calls(self, mock_exit, mock_enter, mock_init):
+        """
+        Case: Use @transaction_for_nodes.
+        Expected: The parent context manager classes to be called with the correct self.using set.
+        """
+        enter_connections = []
+        exit_connections = []
+
+        def fake_enter(self):
+            enter_connections.append(self.using)
+
+        def fake_exit(self, exc_type, exc_value, traceback):
+            exit_connections.append(self.using)
+
+        mock_enter.side_effect = fake_enter
+        mock_exit.side_effect = fake_exit
+
+        with transaction_for_nodes(nodes=['sina', 'rose', 'maria']):
+            pass
+
+        self.assertFalse(mock_init.called)
+        self.assertEqual(mock_enter.call_count, 3)
+        self.assertEqual(mock_exit.call_count, 3)
+        self.assertCountEqual(enter_connections, ['sina', 'rose', 'maria'])
+        self.assertCountEqual(exit_connections, ['sina', 'rose', 'maria'])
+
     def test_with_failure_during_write(self):
         """
-        Case: Use @transaction_for_every_node and fail when writing.
+        Case: Use @transaction_for_nodes and fail when writing.
         Expected: All transactions to be rolled back.
         """
         with use_shard(node_name='default', schema_name='public'):
@@ -1022,7 +1019,7 @@ class TransactionForNodesTestCase(ShardingTransactionTestCase):
 
     def test_with_closing_connection_during_write(self):
         """
-        Case: Use @transaction_for_every_node and close connection when writing.
+        Case: Use @transaction_for_nodes and close connection when writing.
         Expected: All transactions to be rolled back.
         """
         with use_shard(node_name='default', schema_name='public'):
@@ -1045,7 +1042,7 @@ class TransactionForNodesTestCase(ShardingTransactionTestCase):
 
     def test_table_lock_execution(self):
         """
-        Case: use @transaction_for_every_node with lock_models given
+        Case: use @transaction_for_nodes with lock_models given
         Expected: SQL command to lock the models is executed
         """
 
@@ -1065,7 +1062,7 @@ class TransactionForNodesTestCase(ShardingTransactionTestCase):
 
     def test_with_table_lock(self):
         """
-        Case: use @transaction_for_every_node with lock_models given
+        Case: use @transaction_for_nodes with lock_models given
         Expected: The models to be locked and other writes outside the transaction to be blocked
         """
 

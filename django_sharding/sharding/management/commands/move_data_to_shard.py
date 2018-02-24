@@ -133,7 +133,7 @@ class Command(BaseCommand):
             io = StringIO()
             with use_shard(source_shard, active_only_schemas=False) as env:
                 query = env.connection.cursor().mogrify(
-                    'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(t=model._meta.db_table),
+                    'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(t=model._meta.db_table),  # nosec
                     [pk_list])
                 self.copy_expert(env.connection.cursor(), query, io)
                 # TODO(SHARDING-21) update sequencer for this table
@@ -153,7 +153,7 @@ class Command(BaseCommand):
 
         # With TemporaryFile
         with NamedTemporaryFile() as source_file, NamedTemporaryFile() as target_file:
-            for model, instances in data.items():
+            for model, instances in data.items():  # nosec
                 # Export
                 pk_list = [obj.pk for obj in instances]
                 query_string = 'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT' \
