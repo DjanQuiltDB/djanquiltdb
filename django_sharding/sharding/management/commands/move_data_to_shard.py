@@ -45,9 +45,9 @@ class Command(BaseCommand):
 
         source_shard_alias = options.get('source_shard_alias')
         source_shard = self.get_shard(alias=source_shard_alias)
-        target_shard = self.get_target_shard(options=options)
-
         root_object = self.get_object(model_name, root_object_id, source_shard)
+        target_shard = self.get_target_shard(root_object=root_object, options=options)
+
         data = self.get_data(source_shard=source_shard, root_object=root_object)
 
         if not options.get('no_input'):
