@@ -177,7 +177,7 @@ class MoveDataToShard(ShardingTestCase):
 
         self.command.handle(**self.options)
 
-        mock_get_target_shard.assert_called_once_with(options=self.options)
+        mock_get_target_shard.assert_called_once_with(root_object=self.organization_1, options=self.options)
         mock_get_object.assert_called_once_with('example.organization', self.organization_1.id, self.source_shard)
         self.assertEqual(mock_pre_execution.call_count, 1)
         mock_get_data.assert_called_once_with(source_shard=self.source_shard, root_object=self.organization_1)
@@ -244,7 +244,8 @@ class MoveDataToShard(ShardingTestCase):
         Case: Call get_target_shard with options
         Expected: The shard for the target_shard_alias option to be returned
         """
-        self.assertEqual(self.command.get_target_shard(options={'target_shard_alias': 'Curious Village'}),
+        self.assertEqual(self.command.get_target_shard(root_object=self.organization_1,
+                                                       options={'target_shard_alias': 'Curious Village'}),
                          self.target_shard)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.NestedObjects')

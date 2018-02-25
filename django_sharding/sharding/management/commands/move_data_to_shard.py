@@ -96,7 +96,7 @@ class Command(BaseCommand):
         return shard
 
     @staticmethod
-    def get_target_shard(options):
+    def get_target_shard(root_object, options):
         """
         Get the target shard based on options.
         This function is here so one can easily override it for their own needs.
@@ -151,7 +151,6 @@ class Command(BaseCommand):
         if not self.quiet:
             print('Confirming data integrity')
 
-        # With TemporaryFile
         with NamedTemporaryFile() as source_file, NamedTemporaryFile() as target_file:
             for model, instances in data.items():  # nosec
                 # Export

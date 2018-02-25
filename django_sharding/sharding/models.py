@@ -74,4 +74,4 @@ class BaseShard(models.Model):
                              .format(self.node_name))
 
     def __str__(self):
-        return "{}({}|{})".format(self.alias, self.node_name, self.schema_name)
+        return "Shard {}({}|{})".format(self.alias, self.node_name, self.schema_name)
