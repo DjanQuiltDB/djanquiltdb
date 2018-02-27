@@ -173,8 +173,8 @@ class GetMappingClass(SimpleTestCase):
                                  'SHARD_CLASS': 'example.models.Shard'})
     def test_get_mapping_class_set(self):
         """
-        Case: Call get_mapping_class_ while it is set in the settings
-        Expected: The model class.
+        Case: Call get_mapping_class while it is set in the settings
+        Expected: The mapping class.
         """
         self.assertEqual(get_mapping_class(), OrganizationShards)
 

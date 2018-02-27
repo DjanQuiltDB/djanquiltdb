@@ -155,8 +155,8 @@ class Command(BaseCommand):
             for model, instances in data.items():  # nosec
                 # Export
                 pk_list = [obj.pk for obj in instances]
-                query_string = 'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT' \
-                    .format(t=model._meta.db_table)
+                query_string = \
+                    'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(t=model._meta.db_table)  # nosec
 
                 # We let the copy functions just append to the output file
                 with use_shard(source_shard, active_only_schemas=False) as env:

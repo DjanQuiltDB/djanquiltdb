@@ -26,7 +26,7 @@ class MoveDataToShard(ShardingTestCase):
         self.source_shard = Shard.objects.create(alias='court', node_name='default', schema_name='test_source',
                                                  state=State.ACTIVE)
         self.target_shard = Shard.objects.create(alias='Curious Village', node_name='default',
-                                                 schema_name='test_target',  state=State.ACTIVE)
+                                                 schema_name='test_target', state=State.ACTIVE)
 
         with use_shard(self.source_shard):
             self.super = SuperType.objects.create(name='Character')
