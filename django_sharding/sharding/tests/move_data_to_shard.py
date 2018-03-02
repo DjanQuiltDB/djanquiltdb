@@ -49,10 +49,10 @@ class MoveDataToShard(ShardingTestCase):
             self.statement_4 = Statement.objects.create(content='Try to solve this puzzle', user=self.user_2)
             self.cake_2 = Cake.objects.create(name='Apple Pie', user=self.user_2)
 
-        self.data = {Organization: {self.organization_1},
-                     User: {self.user_1},
-                     Statement: {self.statement_1, self.statement_2},
-                     Cake: {self.cake_1}}
+        self.data = {Organization: {self.organization_1.id},
+                     User: {self.user_1.id},
+                     Statement: {self.statement_1.id, self.statement_2.id},
+                     Cake: {self.cake_1.id}}
 
         self.options = {'database': 'default',
                         'source_shard_alias': self.source_shard.alias,
@@ -86,7 +86,7 @@ class MoveDataToShard(ShardingTestCase):
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert', side_effect=DatabaseError)
     def test_failure_on_move(self, mock_copy_expert):
         """
-        Case: Call move_data_to_shard command, and let it fail during move_data
+        Case: Call move_data_to_shard command, and let it fail during move_data.
         Expected: Transaction to be rolled back, no data moved or lost.
         Note: System test
         """
@@ -110,7 +110,7 @@ class MoveDataToShard(ShardingTestCase):
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.confirm_data_integrity', return_value=False)
     def test_failure_on_integrity(self, mock_copy_expert):
         """
-        Case: Call move_data_to_shard command, and let it fail during confirm_data_integrity
+        Case: Call move_data_to_shard command, and let it fail during confirm_data_integrity.
         Expected: Transaction to be rolled back, no data moved or lost.
         Note: System test
         """
@@ -134,7 +134,7 @@ class MoveDataToShard(ShardingTestCase):
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.delete_data', side_effect=DatabaseError)
     def test_failure_on_delete(self, mock_copy_expert):
         """
-        Case: Call move_data_to_shard command, and let it fail during delete_data
+        Case: Call move_data_to_shard command, and let it fail during delete_data.
         Expected: Transaction to be rolled back, no data moved or lost.
         Note: System test
         """
@@ -163,10 +163,10 @@ class MoveDataToShard(ShardingTestCase):
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.confirm_data_integrity')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.delete_data')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
-    def test_handle(self, mock_post_execution, mock_delete_data, mock_confirm, mock_move_data, mock_get_data,
-                    mock_get_object, mock_pre_execution, mock_get_target_shard):
+    def test_handle(self, mock_post_execution, mock_delete_data, mock_confirm, mock_move_data,
+                    mock_get_data,mock_get_object, mock_pre_execution, mock_get_target_shard):
         """
-        Case: Call the handle
+        Case: Call the handle.
         Expected: All sub-functions to be called with the correct arguments.
         """
         data = {Statement: [self.statement_1, self.statement_2]}  # dummy data
@@ -175,6 +175,43 @@ class MoveDataToShard(ShardingTestCase):
         mock_get_object.return_value = self.organization_1
         mock_get_data.return_value = data
 
+        self.command.handle(**self.options)
+
+        mock_get_target_shard.assert_called_once_with(root_object=self.organization_1, options=self.options)
+        mock_get_object.assert_called_once_with('example.organization', self.organization_1.id, self.source_shard)
+        self.assertEqual(mock_pre_execution.call_count, 1)
+        mock_get_data.assert_any_call(source_shard=self.source_shard, root_object=self.organization_1)
+        mock_get_data.assert_any_call(source_shard=self.source_shard, root_object=self.organization_1,
+                                      use_original_collector=True)
+        mock_move_data.assert_called_once_with(data=data, source_shard=self.source_shard,
+                                               target_shard=self.target_shard)
+        mock_confirm.assert_called_once_with(data=data, source_shard=self.source_shard, target_shard=self.target_shard)
+        mock_delete_data.assert_called_once_with(data=data, source_shard=self.source_shard)
+        self.assertEqual(mock_post_execution.call_count, 1)
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_target_shard')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.pre_execution')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_object')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.move_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.confirm_data_integrity')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.delete_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
+    def test_handle_reuse_data(self, mock_post_execution, mock_delete_data, mock_confirm, mock_move_data, mock_get_data,
+                               mock_get_object, mock_pre_execution, mock_get_target_shard):
+        """
+        Case: Call the handle with reuse_simple_collector_for_delete set to True.
+        Expected: All sub-functions to be called with the correct arguments.
+                  Which are the same as the test_handle above, except the move_data function is only called once.
+        """
+        data = {Statement: [self.statement_1, self.statement_2]}  # dummy data
+
+        mock_get_target_shard.return_value = self.target_shard
+        mock_get_object.return_value = self.organization_1
+        mock_get_data.return_value = data
+
+        options = self.options
+        options['reuse_simple_collector_for_delete'] = True
         self.command.handle(**self.options)
 
         mock_get_target_shard.assert_called_once_with(root_object=self.organization_1, options=self.options)
@@ -190,7 +227,7 @@ class MoveDataToShard(ShardingTestCase):
     @mock.patch('sharding.management.commands.move_data_to_shard.transaction_for_nodes')
     def test_handle_transaction(self, mock_transaction_for_nodes):
         """
-        Case: Call the handle
+        Case: Call the handle.
         Expected: transaction_for_nodes to be used with the correct node names as argument.
         """
         self.command.handle(**self.options)
@@ -199,8 +236,8 @@ class MoveDataToShard(ShardingTestCase):
 
     def test_get_object(self):
         """
-        Case: Call get_object
-        Expected: The correct object to be returned
+        Case: Call get_object.
+        Expected: The correct object to be returned.
         """
         self.assertEqual(self.command.get_object(model_name='example.organization',
                                                  root_object_id=self.organization_1.id,
@@ -209,8 +246,8 @@ class MoveDataToShard(ShardingTestCase):
 
     def test_get_object_that_is_not_sharded(self):
         """
-        Case: Call get_object for model that is not sharded
-        Expected: CommandError raised
+        Case: Call get_object for model that is not sharded.
+        Expected: CommandError raised.
         """
         with self.assertRaises(CommandError):
             self.command.get_object(model_name='example.type', root_object_id=self.type_1.id,
@@ -218,60 +255,89 @@ class MoveDataToShard(ShardingTestCase):
 
     def test_get_shard(self):
         """
-        Case: Call get_shard
-        Expected: The correct shard object to be returned
+        Case: Call get_shard.
+        Expected: The correct shard object to be returned.
         """
         self.assertEqual(self.command.get_shard(alias='court'), self.source_shard)
 
     def test_get_shard_for_nonexistent_model(self):
         """
-        Case: Call get_shard with an nonexistent alias
-        Expected: CommandError to be raised
+        Case: Call get_shard with an nonexistent alias.
+        Expected: CommandError to be raised.
         """
         with self.assertRaises(CommandError):
             self.command.get_shard(alias='void')
 
     def test_get_shard_for_mirrored_model(self):
         """
-        Case: Call get_shard with an alias to a mirrored model
-        Expected: CommandError to be raised
+        Case: Call get_shard with an alias to a mirrored model.
+        Expected: CommandError to be raised.
         """
         with self.assertRaises(CommandError):
             self.command.get_shard(alias='type')
 
     def test_get_target_shard(self):
         """
-        Case: Call get_target_shard with options
-        Expected: The shard for the target_shard_alias option to be returned
+        Case: Call get_target_shard with options.
+        Expected: The shard for the target_shard_alias option to be returned.
         """
         self.assertEqual(self.command.get_target_shard(root_object=self.organization_1,
                                                        options={'target_shard_alias': 'Curious Village'}),
                          self.target_shard)
 
-    @mock.patch('sharding.management.commands.move_data_to_shard.NestedObjects')
-    def test_get_data_nestedobjects(self, mock_nested_objects):
+    @mock.patch('sharding.management.commands.move_data_to_shard.SimpleCollector')
+    @mock.patch('sharding.management.commands.move_data_to_shard.use_shard')
+    def test_get_data_simple_collector(self, mock_use_shard, mock_collector):
         """
-        Case: Call get_data
-        Expected: Collector called
+        Case: Call get_data using the simple collector.
+        Expected: SimpleCollector called.
         """
-        self.command.get_data(source_shard=self.source_shard, root_object=self.organization_1)
-        mock_nested_objects.assert_called_once_with(using=self.source_shard.node_name)
+        with use_shard(self.source_shard) as env:
+            mock_use_shard.return_value = env
+            self.command.get_data(source_shard=self.source_shard, root_object=self.organization_1)
 
-    @mock.patch('sharding.management.commands.move_data_to_shard.NestedObjects.collect')
+        mock_use_shard.assert_called_once_with(self.source_shard, active_only_schemas=False)
+        mock_collector.assert_called_once_with(connection=env.connection, verbose=False)
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.NestedObjects')
+    @mock.patch('sharding.management.commands.move_data_to_shard.use_shard')
+    def test_get_data_native_collector(self, mock_use_shard, mock_collector):
+        """
+        Case: Call get_data, with use_original_collector set to True.
+        Expected: NestedObjects called.
+        """
+        with use_shard(self.source_shard) as env:
+            mock_use_shard.return_value = env
+            self.command.get_data(source_shard=self.source_shard, root_object=self.organization_1,
+                                  use_original_collector=True)
+
+        mock_use_shard.assert_called_once_with(self.source_shard, active_only_schemas=False)
+        mock_collector.assert_called_once_with(using=self.source_shard.node_name)
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.SimpleCollector.collect')
     def test_get_data_collect(self, mock_collect):
         """
-        Case: Call get_data
-        Expected: Collector called
+        Case: Call get_data using the simple collector.
+        Expected: Collector called.
         """
         self.command.get_data(source_shard=self.source_shard, root_object=self.organization_1)
         mock_collect.assert_called_once_with([self.organization_1])
 
     def test_get_data_result(self):
         """
-        Case: Call get_data
-        Expected: A dict with the correct data to be returned
+        Case: Call get_data using the simple collector.
+        Expected: A dict with the correct data to be returned.
         """
         self.assertEqual(self.command.get_data(source_shard=self.source_shard, root_object=self.organization_1),
+                         self.data)
+
+    def test_get_data_result_native_collector(self):
+        """
+        Case: Call get_data, with use_original_collector set to True.
+        Expected: A dict with the correct data to be returned.
+        """
+        self.assertEqual(self.command.get_data(source_shard=self.source_shard, root_object=self.organization_1,
+                                               use_original_collector=True),
                          self.data)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_from')
@@ -279,7 +345,7 @@ class MoveDataToShard(ShardingTestCase):
     def test_move_data(self, mock_copy_expert, mock_copy_from):
         """
         Case: Call move_data.
-        Expected: copy_expert and copy_from to be called for each model
+        Expected: copy_expert and copy_from to be called for each model.
         """
         self.command.move_data(data=self.data, source_shard=self.source_shard, target_shard=self.target_shard)
         # Since a cursor object is given, we cannot assert the calls specifically.

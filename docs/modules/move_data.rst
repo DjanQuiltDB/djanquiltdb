@@ -88,6 +88,14 @@ Eg. ``--model_name example.Organization``
 ~~~~~~~~~~~~~~~~~~~~
 The ``--root_object_id`` argument must be the id of the root_object.
 
+``--use_original_collector``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The ``--reuse_simple_collector_for_delete`` argument forces the command to reuse to data gathered for the copy step for deletion as well.
+During the data collection for copy step, it uses the SimpleCollector within this library. This collector does not follow delete constrains or patterns (such as on_delete=CASCADE or on_delete=PROTECTED) to get the complete picture.
+Per default it will run Django's delete collector to collect data to delete from the source shard.
+Naturally, this collector does take constrains into account and will not delete data that might be used by objects outside the collected objects.
+Setting this argument to true will allow the command to use the same data to delete from the source shard. Be careful when using this: for it might remove data used by other objects. But not using it leads to duplication of that data, since it will get copied and not deleted.
+
 ``--quiet``
 ~~~~~~~~~~~
 The ``--quiet`` allows you to silence the output of the command. It will normally notify the user what it is doing by printing the step it is performing and listing per model that it is copying data.

@@ -9,6 +9,7 @@ from django.db.models import sql
 from django.db.models.loading import get_model
 
 from sharding import State, ShardingMode
+from sharding.collector import SimpleCollector
 from sharding.utils import use_shard, get_shard_class, get_all_sharded_models, get_mapping_class, \
     get_model_sharding_mode, transaction_for_nodes
 
@@ -30,6 +31,12 @@ class Command(BaseCommand):
         parser.add_argument('--model_name', action='store', dest='model_name',
                             help='app_label.model_name of the root object.')
         parser.add_argument('--root_object_id', action='store', dest='root_object_id', help='ID of the root object.')
+        parser.add_argument('--reuse_simple_collector_for_delete',
+                            action='store',
+                            dest='reuse_simple_collector_for_delete',
+                            help="Do not use Django's original delete collector to determine what needs to be "
+                                 "deleted from the source_shard, but reuse the data collector for copy.",
+                            default=False)
         parser.add_argument('--quiet', action='store', dest='quiet', default=False, help='Suppress output.')
         parser.add_argument('--no_input', action='store', dest='no_input', default=False, help='Skip confirmation.')
 
@@ -40,6 +47,7 @@ class Command(BaseCommand):
         Delete the original data and release the transaction only after the migration is verified.
         """
         self.quiet = options.get('quiet')
+        self.reuse_data = options.get('reuse_simple_collector_for_delete')
         model_name = options.get('model_name')
         root_object_id = options.get('root_object_id')
 
@@ -51,8 +59,13 @@ class Command(BaseCommand):
         data = self.get_data(source_shard=source_shard, root_object=root_object)
 
         if not options.get('no_input'):
-            confirm = input("Type 'yes' if you are sure if you want to move the following data from {} to {}:\n{}: "
-                            .format(source_shard_alias, target_shard.alias, data))
+            print("\nData:")
+            for model, instances in data.items():
+                print('\033[95m{}\033[0m'.format(model))
+                print('    {} datapoints'.format(len(instances)))
+            confirm = input("Type 'yes' if you are sure if you want to move this data "
+                            "from \033[1m{}\033[0m to \033[1m{}\033[0m: "
+                            .format(source_shard, target_shard))
             if confirm != 'yes':
                 return
 
@@ -63,9 +76,20 @@ class Command(BaseCommand):
             nodes = list(set([source_shard.node_name, target_shard.node_name]))
             with transaction_for_nodes(nodes=nodes):
                 self.move_data(data=data, source_shard=source_shard, target_shard=target_shard)
+
                 if not self.confirm_data_integrity(data=data, source_shard=source_shard, target_shard=target_shard):
                     raise IntegrityError('Data was not successfully copied.')
-                self.delete_data(data=data, source_shard=source_shard)
+
+                if self.reuse_data:
+                    # Use the data we already collected to delete.
+                    self.delete_data(data=data, source_shard=source_shard)
+                else:
+                    # Use Django's original collector to get the data to delete
+                    self.delete_data(
+                        data=self.get_data(source_shard=source_shard, root_object=root_object,
+                                           use_original_collector=True),
+                        source_shard=source_shard)
+
         finally:
             self.post_execution(options=options, source_shard=source_shard, target_shard=target_shard,
                                 root_object=root_object, data=data)
@@ -103,21 +127,24 @@ class Command(BaseCommand):
         """
         return Command.get_shard(alias=options.get('target_shard_alias'))
 
-    @staticmethod
-    def get_data(source_shard, root_object):
+    def get_data(self, source_shard, root_object, use_original_collector=False):
         """
-        Use a collector to gather all data belonging to the given object.
+        Use the simple collector or Django's delete collector to gather all data belonging to the given object.
         Return only the data dict.
-        We also filter on Sharded models only. Though this is, if the target data model is correct, not needed:
-        The collector doesn't collect m2m field targets.
+        We also filter on Sharded models only.
         """
         sharded_models = get_all_sharded_models()
 
-        with use_shard(source_shard):
-            collector = NestedObjects(using=source_shard.node_name)
-            collector.collect([root_object])
-
-        return {model: instances for model, instances in collector.data.items() if model in sharded_models}
+        with use_shard(source_shard, active_only_schemas=False) as env:
+            if use_original_collector:
+                collector = NestedObjects(using=source_shard.node_name)
+                collector.collect([root_object])
+                return {model: {i.pk for i in instances} for model, instances in collector.data.items()
+                        if model in sharded_models}
+            else:
+                collector = SimpleCollector(connection=env.connection, verbose=(not self.quiet))
+                collector.collect([root_object])
+                return {model: pk_set for model, pk_set in collector.data.items() if model in sharded_models}
 
     def move_data(self, data, source_shard, target_shard):
         """
@@ -125,16 +152,16 @@ class Command(BaseCommand):
         """
         if not self.quiet:
             print('Moving data from {} to {}'.format(source_shard, target_shard))
-        for model, instances in data.items():
+        for model, pk_set in data.items():
             if not self.quiet:
                 print('Exporting {}.{}'.format(model._meta.app_label, model._meta.model_name))
             # Export
-            pk_list = [obj.pk for obj in instances]
+            # pk_list = [obj.pk for obj in instances]
             io = StringIO()
             with use_shard(source_shard, active_only_schemas=False) as env:
                 query = env.connection.cursor().mogrify(
                     'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(t=model._meta.db_table),  # nosec
-                    [pk_list])
+                    [list(pk_set)])
                 self.copy_expert(env.connection.cursor(), query, io)
                 # TODO(SHARDING-21) update sequencer for this table
                 # This wouldn't be necessary if we would omit the ids when copying.
@@ -152,9 +179,9 @@ class Command(BaseCommand):
             print('Confirming data integrity')
 
         with NamedTemporaryFile() as source_file, NamedTemporaryFile() as target_file:
-            for model, instances in data.items():  # nosec
+            for model, pk_set in data.items():  # nosec
+                pk_list = list(pk_set)
                 # Export
-                pk_list = [obj.pk for obj in instances]
                 query_string = \
                     'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(t=model._meta.db_table)  # nosec
 
@@ -180,12 +207,13 @@ class Command(BaseCommand):
         """
         if not self.quiet:
             print('Deleting exported data')
-        for model, instances in data.items():
+
+        for model, pk_set in data.items():
             query = sql.DeleteQuery(model)
-            pk_list = [obj.pk for obj in instances]
+            # pk_list = [obj.pk for obj in instances]
             with use_shard(source_shard, active_only_schemas=False):
                 # Providing a 'using' to delete_batch is not needed for us, but the function expects it.
-                query.delete_batch(pk_list, using=source_shard.node_name)
+                query.delete_batch(list(pk_set), using=source_shard.node_name)
 
     def pre_execution(self, options, source_shard, target_shard, root_object, data):
         """

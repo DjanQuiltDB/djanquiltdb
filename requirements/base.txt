@@ -5,6 +5,7 @@ Django>=1.8.18, <1.9
 pytz
 python-dateutil
 django-braces
+progressbar2
 
 psycopg2
 dj-database-url
