@@ -75,9 +75,10 @@ class Command(BaseCommand):
             # Pushing the node names through a set means we end up with a list of unique names.
             nodes = list(set([source_shard.node_name, target_shard.node_name]))
             with transaction_for_nodes(nodes=nodes):
-                self.move_data(data=data, source_shard=source_shard, target_shard=target_shard)
+                model_fields = self.move_data(data=data, source_shard=source_shard, target_shard=target_shard)
 
-                if not self.confirm_data_integrity(data=data, source_shard=source_shard, target_shard=target_shard):
+                if not self.confirm_data_integrity(data=data, source_shard=source_shard, target_shard=target_shard,
+                                                   model_fields=model_fields):
                     raise IntegrityError('Data was not successfully copied.')
 
                 if self.reuse_data:
@@ -149,29 +150,42 @@ class Command(BaseCommand):
     def move_data(self, data, source_shard, target_shard):
         """
         Copy all given data from the source to the target. Delete the data on source after a successful copy.
+        Return a dict with the models as key and their exported fields as value.
         """
+        model_fields = {}
         if not self.quiet:
             print('Moving data from {} to {}'.format(source_shard, target_shard))
         for model, pk_set in data.items():
             if not self.quiet:
                 print('Exporting {}.{}'.format(model._meta.app_label, model._meta.model_name))
+
             # Export
-            # pk_list = [obj.pk for obj in instances]
             io = StringIO()
             with use_shard(source_shard, active_only_schemas=False) as env:
                 query = env.connection.cursor().mogrify(
-                    'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(t=model._meta.db_table),  # nosec
+                    'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT WITH CSV DELIMITER \';\' HEADER'  # nosec
+                    .format(t=model._meta.db_table),
                     [list(pk_set)])
                 self.copy_expert(env.connection.cursor(), query, io)
                 # TODO(SHARDING-21) update sequencer for this table
                 # This wouldn't be necessary if we would omit the ids when copying.
 
+            # Read the csv headers from the output, and save them as a list of field names.
+            # We will use this for importing and validation.
+            io.seek(0)
+            fields = str.replace(str.replace(io.readline(), ';', ','), '\n', '')
+            model_fields[model] = fields
+
             # Import
             io.seek(0)
             with use_shard(target_shard, active_only_schemas=False) as env:
-                self.copy_from(env.connection.cursor(), io, model._meta.db_table)
+                self.copy_expert(env.connection.cursor(),
+                                 'COPY "{t}" ({f}) FROM STDIN WITH CSV DELIMITER \';\' HEADER'  # nosec
+                                 .format(t=model._meta.db_table, f=fields), io)
 
-    def confirm_data_integrity(self, data, source_shard, target_shard):
+        return model_fields
+
+    def confirm_data_integrity(self, data, source_shard, target_shard, model_fields):
         """
         Let both the source_shard and the target_shard export the data to a file and compare them.
         """
@@ -180,10 +194,14 @@ class Command(BaseCommand):
 
         with NamedTemporaryFile() as source_file, NamedTemporaryFile() as target_file:
             for model, pk_set in data.items():  # nosec
+                fields = model_fields.get(model)
                 pk_list = list(pk_set)
                 # Export
                 query_string = \
-                    'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(t=model._meta.db_table)  # nosec
+                    'COPY (SELECT {f} FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(
+                        t=model._meta.db_table,
+                        f=fields
+                    )  # nosec
 
                 # We let the copy functions just append to the output file
                 with use_shard(source_shard, active_only_schemas=False) as env:
@@ -253,10 +271,3 @@ class Command(BaseCommand):
         Make this mockable by giving it a separate function.
         """
         cursor.copy_expert(*args, **kwargs)
-
-    @staticmethod
-    def copy_from(cursor, *args, **kwargs):
-        """
-        Make this mockable by giving it a separate function.
-        """
-        cursor.copy_from(*args, **kwargs)

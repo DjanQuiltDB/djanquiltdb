@@ -71,17 +71,36 @@ class MoveDataToShard(ShardingTestCase):
         call_command('move_data_to_shard', **self.options)
 
         with use_shard(self.source_shard):
-            # Fails at the moment: The data is not removed from the source yet.
             self.assertCountEqual(Organization.objects.all(), [self.organization_2])
             self.assertCountEqual(User.objects.all(), [self.user_2])
             self.assertCountEqual(Statement.objects.all(), [self.statement_3, self.statement_4])
             self.assertCountEqual(Cake.objects.all(), [self.cake_2])
+            self.organization_2.refresh_from_db()
 
         with use_shard(self.target_shard):
             self.assertCountEqual(Organization.objects.all(), [self.organization_1])
             self.assertCountEqual(User.objects.all(), [self.user_1])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2])
             self.assertCountEqual(Cake.objects.all(), [self.cake_1])
+            self.organization_1.refresh_from_db()
+
+    def test_sequencer_on_same_node(self):
+        """
+        Case: Move an organization to another shard and make another organization afterwards.
+        Expected: No id collision to occur.
+        """
+        call_command('move_data_to_shard', **self.options)
+
+        with use_shard(self.source_shard):
+            self.organization_2.refresh_from_db()
+
+        with use_shard(self.target_shard):
+            self.organization_1.refresh_from_db()
+
+            # make new organization, check if the id does not collide
+            organization_3 = Organization.objects.create(name='Scribblenauts')
+            self.assertEqual(self.organization_2.id, self.organization_1.id+1)
+            self.assertEqual(organization_3.id, self.organization_2.id+1)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert', side_effect=DatabaseError)
     def test_failure_on_move(self, mock_copy_expert):
@@ -185,7 +204,8 @@ class MoveDataToShard(ShardingTestCase):
                                       use_original_collector=True)
         mock_move_data.assert_called_once_with(data=data, source_shard=self.source_shard,
                                                target_shard=self.target_shard)
-        mock_confirm.assert_called_once_with(data=data, source_shard=self.source_shard, target_shard=self.target_shard)
+        mock_confirm.assert_called_once_with(data=data, source_shard=self.source_shard, target_shard=self.target_shard,
+                                             model_fields=mock_move_data.return_value)
         mock_delete_data.assert_called_once_with(data=data, source_shard=self.source_shard)
         self.assertEqual(mock_post_execution.call_count, 1)
 
@@ -220,7 +240,8 @@ class MoveDataToShard(ShardingTestCase):
         mock_get_data.assert_called_once_with(source_shard=self.source_shard, root_object=self.organization_1)
         mock_move_data.assert_called_once_with(data=data, source_shard=self.source_shard,
                                                target_shard=self.target_shard)
-        mock_confirm.assert_called_once_with(data=data, source_shard=self.source_shard, target_shard=self.target_shard)
+        mock_confirm.assert_called_once_with(data=data, source_shard=self.source_shard, target_shard=self.target_shard,
+                                             model_fields=mock_move_data.return_value)
         mock_delete_data.assert_called_once_with(data=data, source_shard=self.source_shard)
         self.assertEqual(mock_post_execution.call_count, 1)
 
@@ -340,17 +361,31 @@ class MoveDataToShard(ShardingTestCase):
                                                use_original_collector=True),
                          self.data)
 
-    @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_from')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
-    def test_move_data(self, mock_copy_expert, mock_copy_from):
+    def test_move_data(self, mock_copy_expert):
         """
         Case: Call move_data.
-        Expected: copy_expert and copy_from to be called for each model.
+        Expected: copy_expert and copy_from to be called twice for each model. (One for export, one for import.)
+                  A dict with <model>:[<fields>] to be returned.
         """
-        self.command.move_data(data=self.data, source_shard=self.source_shard, target_shard=self.target_shard)
+        self.command.move_data(data=self.data, source_shard=self.source_shard, target_shard=self.target_shard),
+
         # Since a cursor object is given, we cannot assert the calls specifically.
-        self.assertEqual(mock_copy_expert.call_count, 4)
-        self.assertEqual(mock_copy_from.call_count, 4)
+        self.assertEqual(mock_copy_expert.call_count, 8)
+
+    def test_move_data_return_value(self):
+        """
+        Case: Call move_data.
+        Expected: copy_expert and copy_from to be called twice for each model. (One for export, one for import.)
+                  A dict with <model>:'<field>,<field>,<etc>' to be returned.
+        """
+        self.assertEqual(
+            self.command.move_data(data=self.data, source_shard=self.source_shard, target_shard=self.target_shard),
+            {Organization: 'id,name,created_at',
+             User: 'id,password,last_login,name,email,created_at,organization_id,type_id',
+             Statement: 'id,content,user_id',
+             Cake: 'id,name,user_id'}
+        )
 
     @mock.patch('sharding.management.commands.move_data_to_shard.filecmp.cmp', return_value=True)
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
@@ -361,7 +396,7 @@ class MoveDataToShard(ShardingTestCase):
         Expected: copy_expert to be called for each model for both shards, and compare_files called with file paths.
         """
         self.assertTrue(self.command.confirm_data_integrity(data=self.data, source_shard=self.source_shard,
-                                                            target_shard=self.target_shard))
+                                                            target_shard=self.target_shard, model_fields=mock.Mock()))
         # Since a cursor object is given, we cannot assert the calls specifically.
         self.assertEqual(mock_copy_expert.call_count, 8)
         # We callot specifically assert the filecmp call, since the given arguments are randomly named temp files
