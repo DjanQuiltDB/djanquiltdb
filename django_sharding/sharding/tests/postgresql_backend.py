@@ -21,7 +21,7 @@ class GetValidatedSchemaNameTestCase(TestCase):
     def test_non_string(self):
         """
         Case: Call get_validated_schema_name with None.
-        Expected: A ValueError raised. (not a string)
+        Expected: A ValueError raised (not a string).
         """
         with self.assertRaises(ValueError):
             get_validated_schema_name(None)
@@ -77,7 +77,7 @@ class GetValidatedSchemaNameTestCase(TestCase):
 
     def test_startswith_pg(self):
         """
-        Case: Call get_validated_schema_name with a value starting with 'pg_'
+        Case: Call get_validated_schema_name with a value starting with 'pg_'.
         Expected: A ValueError raised, because we do not allow schema names to start with the postgresql namespace.
         """
         with self.assertRaises(ValueError):
@@ -118,7 +118,7 @@ class PostgresBackendTestCase(ShardingTestCase):
         Case: Call connection.set_schema.
         Expected: connection.schema_name to be set and connection.search_path_set to be set to false.
         """
-        connection.set_schema('test_schema')  # First set to something, we can't be sure our starting position is clean
+        connection.set_schema('test_schema')  # First set to something, we can't be sure our starting position is clean.
         self.assertEqual(connection.schema_name, 'test_schema')
         connection.set_schema('other_schema')
         self.assertEqual(connection.schema_name, 'other_schema')
@@ -129,7 +129,7 @@ class PostgresBackendTestCase(ShardingTestCase):
         Case: Call connection.set_schema_to_public.
         Expected: connection.schema_name to be set to None and connection.search_path_set to be set to false.
         """
-        connection.set_schema('test_schema')  # First set to something, we can't be sure our starting position is clean
+        connection.set_schema('test_schema')  # First set to something, we can't be sure our starting position is clean.
         self.assertEqual(connection.schema_name, 'test_schema')
         connection.set_schema_to_public()
         self.assertEqual(connection.schema_name, 'public')
@@ -160,8 +160,8 @@ class PostgresBackendTestCase(ShardingTestCase):
 
     def test_set_clone_function(self):
         """
-        Case: Call connection.set_clone_function
-        Expected: The clone_schema function to be defined on our pSQL connection
+        Case: Call connection.set_clone_function.
+        Expected: The clone_schema function to be defined on our pSQL connection.
         """
         cursor = connection.cursor()
         connection.set_clone_function(cursor)
@@ -176,8 +176,8 @@ class PostgresBackendTestCase(ShardingTestCase):
 
     def test_clone_schema(self):
         """
-        Case: Call connection.migrate_schema
-        Expected: The given schema to have correct table headers and sequencers
+        Case: Call connection.migrate_schema.
+        Expected: The given schema to have correct table headers and sequencers.
         """
         create_template_schema('default')
         connection.create_schema('test_schema')
@@ -204,8 +204,8 @@ class PostgresBackendTestCase(ShardingTestCase):
 
     def test_clone_schema_wo_template(self):
         """
-        Case: Call connection.migrate_schema with missing template schema
-        Expected: An error to be raised
+        Case: Call connection.migrate_schema with missing template schema.
+        Expected: An error to be raised.
         """
         connection.create_schema('test_schema')
 
@@ -214,8 +214,8 @@ class PostgresBackendTestCase(ShardingTestCase):
 
     def test_clone_schema_wo_target(self):
         """
-        Case: Call connection.migrate_schema with missing target schema
-        Expected: An error to be raised
+        Case: Call connection.migrate_schema with missing target schema.
+        Expected: An error to be raised.
         """
         create_template_schema('default')
 
@@ -258,7 +258,7 @@ class PostgresBackendTestCase(ShardingTestCase):
 
     def test_reset_sequence_for_m2m_field(self):
         """
-        Case: Call reset_sequence for a model with a many-to-many field
+        Case: Call reset_sequence for a model with a many-to-many field.
         Expected: The correct statement to be formulated and executed.
         """
         mock_cursor = mock.Mock()
@@ -272,8 +272,8 @@ class PostgresBackendTestCase(ShardingTestCase):
 class CursorTestCase(TestCase):
     def test_select_schema_operation(self):
         """
-        Case: Use 'use_shard' on a normal connection
-        Expected: get_ps_schema to be called (part of setting the search_path)
+        Case: Use 'use_shard' on a normal connection.
+        Expected: get_ps_schema to be called (part of setting the search_path).
         """
         with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema:
             with use_shard(node_name='default', schema_name='public'):
@@ -283,8 +283,8 @@ class CursorTestCase(TestCase):
 
     def test_no_db_operation(self):
         """
-        Case: Use 'use_shard' on a __no_db__ connection
-        Expected: get_ps_schema to be NOT called (part of setting the search_path)
+        Case: Use 'use_shard' on a __no_db__ connection.
+        Expected: get_ps_schema to be NOT called (part of setting the search_path).
         """
         with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema:
             with use_shard(node_name='default', schema_name='public'):

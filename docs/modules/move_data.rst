@@ -40,7 +40,7 @@ get_target_shard
 ----------------
 
 By default, the command assumes the target shard exists and won't suffer from receiving the data.
-Since it just copies the data over, no modification is done on the ids found within that data. So if there already exists data on the target shard that shared ids, you will get in trouble.
+Since it just copies the data over, no modification is done on the ids found within that data. So if there already exists data on the target shard that shares ids, you will get in trouble.
 
 We advise you to move data over to a new, empty shard. Or know for sure that there won't be id collisions.
 If you want the command to create the target shard for you, you will discover it cannot do that out of the box. The library does not know what naming scheme you use, and what fields your Shard model might have in addition to the base. And if you use mapping models, there are even more considerations.

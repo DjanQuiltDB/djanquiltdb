@@ -33,7 +33,12 @@ import progressbar
 
 
 def get_candidate_relations_to_collect(opts):
-    # Collect models that contain candidate relations. This may include relations coming from proxy models.
+    """
+    Collect models that contain candidate relations. This may include relations coming from proxy models.
+    It returns all fields that have a relation, being one-to-one, one-to-many or many-to-many.
+
+    It is unaltered compared to  Django's collector.
+    """
     candidate_models = {opts}
     candidate_models = candidate_models.union(opts.concrete_model._meta.proxied_children)
     # For each model, get all candidate fields.

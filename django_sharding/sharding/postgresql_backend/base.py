@@ -36,7 +36,7 @@ BEGIN
   LOOP
     EXECUTE 'CREATE SEQUENCE ' || dest_schema || '.' || object;
   END LOOP;
- 
+
   FOR object IN
     SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
   LOOP
@@ -45,7 +45,7 @@ BEGIN
      'INCLUDING INDEXES INCLUDING DEFAULTS)';
     EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || source_schema || '.' || object || ')';
   END LOOP;
- 
+
 END;
 $BODY$
 LANGUAGE plpgsql VOLATILE;
@@ -212,7 +212,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             for f in model._meta.local_fields:
                 if isinstance(f, models.AutoField):
                     statements.append(
-                        "SELECT setval('{s}', coalesce(max({f}), 1), max({f}) IS NOT null) FROM {qnm}".format(
+                        "SELECT setval('{s}', coalesce(max({f}), 1), max({f}) IS NOT null) FROM {qnm}"  # nosec
+                        .format(
                             s='{}_{}_seq'.format(model._meta.db_table, f.column),
                             f=qn(f.column),
                             qnm=qn(model._meta.db_table)
@@ -222,7 +223,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             for f in model._meta.many_to_many:
                 if not f.rel.through:
                     statements.append(
-                        "SELECT setval('{s}', coalesce(max({f}), 1), max({f}) IS NOT null) FROM {qnm}".format(
+                        "SELECT setval('{s}', coalesce(max({f}), 1), max({f}) IS NOT null) FROM {qnm}"  # nosec
+                        .format(
                             s='{}_{}_seq'.format(f.m2m_db_table(), 'id'),
                             f=qn('id'),
                             qnm=qn(f.m2m_db_table())

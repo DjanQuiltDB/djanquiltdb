@@ -18,7 +18,6 @@ class DummyShard(models.Model):
         app_label = 'sharding'
 
 
-
 @sharded_model()
 class DummyShardedShard(BaseShard):
     test_model = True

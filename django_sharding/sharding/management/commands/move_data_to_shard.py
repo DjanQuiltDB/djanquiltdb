@@ -59,7 +59,8 @@ class Command(BaseCommand):
         data = self.get_data(source_shard=source_shard, root_object=root_object)
 
         if not options.get('no_input'):
-            print("\nData:")
+            print();
+            print('Data:')
             for model, instances in data.items():
                 print('\033[95m{}\033[0m'.format(model))
                 print('    {} datapoints'.format(len(instances)))
@@ -124,7 +125,7 @@ class Command(BaseCommand):
     @staticmethod
     def get_target_shard(root_object, options):
         """
-        Get the target shard based on options.
+        Get the target shard based on the root_object and options.
         This function is here so one can easily override it for their own needs.
         """
         return Command.get_shard(alias=options.get('target_shard_alias'))
@@ -168,8 +169,6 @@ class Command(BaseCommand):
                     .format(t=model._meta.db_table),
                     [list(pk_set)])
                 self.copy_expert(env.connection.cursor(), query, io)
-                # TODO(SHARDING-21) update sequencer for this table
-                # This wouldn't be necessary if we would omit the ids when copying.
 
             # Read the csv headers from the output, and save them as a list of field names.
             # We will use this for importing and validation.
@@ -237,7 +236,6 @@ class Command(BaseCommand):
 
         for model, pk_set in data.items():
             query = sql.DeleteQuery(model)
-            # pk_list = [obj.pk for obj in instances]
             with use_shard(source_shard, active_only_schemas=False):
                 # Providing a 'using' to delete_batch is not needed for us, but the function expects it.
                 query.delete_batch(list(pk_set), using=source_shard.node_name)
