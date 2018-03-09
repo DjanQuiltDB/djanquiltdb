@@ -86,12 +86,3 @@ class Statement(models.Model):
 
     def __str__(self):
         return '{}: {}'.format(self.user.name, self.content)
-
-
-@sharded_model()
-class Cake(models.Model):
-    name = models.CharField('name', max_length=100)
-    user = models.OneToOneField(User, related_name='cake')
-
-    class Mata:
-        app_label = 'example'

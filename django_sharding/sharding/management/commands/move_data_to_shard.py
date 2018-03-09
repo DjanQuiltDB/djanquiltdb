@@ -76,6 +76,7 @@ class Command(BaseCommand):
             nodes = list(set([source_shard.node_name, target_shard.node_name]))
             with transaction_for_nodes(nodes=nodes):
                 model_fields = self.move_data(data=data, source_shard=source_shard, target_shard=target_shard)
+                self.reset_sequencers(data=data, target_shard=target_shard)
 
                 if not self.confirm_data_integrity(data=data, source_shard=source_shard, target_shard=target_shard,
                                                    model_fields=model_fields):
@@ -185,6 +186,14 @@ class Command(BaseCommand):
 
         return model_fields
 
+    def reset_sequencers(self, data, target_shard):
+        """
+        Reset the sequencers for all models on the target schema
+        """
+        models = [model for model, _ in data.items()]
+        with use_shard(target_shard, active_only_schemas=False) as env:
+            env.connection.reset_sequence(model_list=models)
+
     def confirm_data_integrity(self, data, source_shard, target_shard, model_fields):
         """
         Let both the source_shard and the target_shard export the data to a file and compare them.
@@ -254,6 +263,7 @@ class Command(BaseCommand):
         """
         Called after the transaction is committed. Both after success or failure.
         Set both shards in maintenance.
+        Update the mapping object's Shard field, if available.
         """
         mapping_model = get_mapping_class()
         if mapping_model:

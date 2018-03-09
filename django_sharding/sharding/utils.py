@@ -520,6 +520,11 @@ def get_all_sharded_models():
     return [model for model in models if get_model_sharding_mode(model) == ShardingMode.SHARDED]
 
 
+def get_all_mirrored_models():
+    models = apps.get_models()
+    return [model for model in models if get_model_sharding_mode(model) == ShardingMode.MIRRORED]
+
+
 def get_all_databases():
     return [name for name, db in settings.DATABASES.items()]
 

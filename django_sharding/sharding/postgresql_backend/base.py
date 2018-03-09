@@ -29,16 +29,23 @@ $BODY$
 DECLARE
   object text;
   buffer text;
-BEGIN
-    FOR object IN
-        SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
-    LOOP
-        buffer := dest_schema || '.' || object;
-        EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || source_schema || '.' || object || ' INCLUDING CONSTRAINTS ' ||
-         'INCLUDING INDEXES INCLUDING DEFAULTS)';
-        EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || source_schema || '.' || object || ')';
-    END LOOP;
 
+BEGIN
+  FOR object IN
+    SELECT sequence_name::text FROM information_schema.SEQUENCES WHERE sequence_schema = source_schema
+  LOOP
+    EXECUTE 'CREATE SEQUENCE ' || dest_schema || '.' || object;
+  END LOOP;
+ 
+  FOR object IN
+    SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
+  LOOP
+    buffer := dest_schema || '.' || object;
+    EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || source_schema || '.' || object || ' INCLUDING CONSTRAINTS ' ||
+     'INCLUDING INDEXES INCLUDING DEFAULTS)';
+    EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || source_schema || '.' || object || ')';
+  END LOOP;
+ 
 END;
 $BODY$
 LANGUAGE plpgsql VOLATILE;
@@ -137,6 +144,15 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         )
         return [x[0] for x in cursor.fetchall()]  # we get a list of single tuples
 
+    def get_all_table_sequences(self, schema_name=None, _cursor=None):
+        cursor = _cursor or self.cursor()
+        schema = schema_name or self.get_schema()
+        cursor.execute(
+            "SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema=%s;",
+            [schema]
+        )
+        return [x[0] for x in cursor.fetchall()]  # we get a list of single tuples
+
     def flush_schema(self, schema_name=None, _cursor=None):
         """
         Drops all tables on the given schema
@@ -145,6 +161,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         schema = schema_name or self.get_schema()
         for table in self.get_all_table_headers(schema_name=schema):
             cursor.execute('DROP TABLE "{}" CASCADE'.format(table))
+            cursor.execute('DROP SEQUENCE IF EXISTS "{}_id_seq" CASCADE'.format(table))
 
     def get_schema_for_model(self, model, _cursor=None):
         """
@@ -180,6 +197,38 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             self.clone_function_set = True
         else:
             cursor.execute("SELECT pg_get_functiondef('clone_schema(text, text)'::regprocedure);")
+
+    def reset_sequence(self, model_list, _cursor=None):
+        from django.db import models
+
+        cursor = _cursor or self.cursor()
+        statements = []
+        qn = self.ops.quote_name
+        for model in model_list:
+            # Use `coalesce` to set the sequence for each model to the max pk value if there are records,
+            # or 1 if there are none. Set the `is_called` property (the third argument to `setval`) to true
+            # if there are records (as the max pk value is already in use), otherwise set it to false.
+
+            for f in model._meta.local_fields:
+                if isinstance(f, models.AutoField):
+                    statements.append(
+                        "SELECT setval('{s}', coalesce(max({f}), 1), max({f}) IS NOT null) FROM {qnm}".format(
+                            s='{}_{}_seq'.format(model._meta.db_table, f.column),
+                            f=qn(f.column),
+                            qnm=qn(model._meta.db_table)
+                        )
+                    )
+                    break  # Only one AutoField is allowed per model, so don't bother continuing.
+            for f in model._meta.many_to_many:
+                if not f.rel.through:
+                    statements.append(
+                        "SELECT setval('{s}', coalesce(max({f}), 1), max({f}) IS NOT null) FROM {qnm}".format(
+                            s='{}_{}_seq'.format(f.m2m_db_table(), 'id'),
+                            f=qn('id'),
+                            qnm=qn(f.m2m_db_table())
+                        )
+                    )
+        cursor.execute(';\n'.join(statements))
 
     def _cursor(self, name=None):
         """Database cursor to write whatever we want.

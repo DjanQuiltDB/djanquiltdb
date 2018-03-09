@@ -6,13 +6,13 @@ from django.db import connection, ProgrammingError
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.migration import Migration
 from django.db.migrations.recorder import MigrationRecorder
-from django.test import override_settings
+from django.test import override_settings, TransactionTestCase
 from django.utils import six
 
 from example.models import Shard
 from migration_tests.tests.migration_base import MigrationTestBase
 from sharding.management.commands.migrate_shards import Command as MigrateShards
-from sharding.utils import State, use_shard, get_template_name, get_all_databases
+from sharding.utils import State, use_shard, get_template_name, get_all_databases, create_template_schema
 
 
 class ShardedMigrationSystemTestCase(MigrationTestBase):
@@ -389,9 +389,7 @@ class ShardedMigrationHandleTestCase(MigrationTestBase):
         migrate_shards = MigrateShards()
         migrate_shards.stderr = stderr
         migrate_shards.stdout = stdout
-
         migrate_shards.handle(app_label='migration_tests', database='all', fake=False, fake_initial=False, verbosity=0)
-
         self.assertIn('default|sina: migration_tests.0002_second - programmingerror: table "migration_test_hometown" '
                       'does not exist', stderr.getvalue().lower())
         self.assertIn('migration stopped due to errors after completing migration_tests.0002_second.',
@@ -724,7 +722,6 @@ class ShardedMigrationGetPlanTestCase(MigrationTestBase):
         # Migrate maria a bit further
         with use_shard(node_name='default', schema_name='test_maria'):
             call_command('migrate', 'migration_tests', '0002', verbosity=0)
-
         # rose is the furthest behind. So we should get her migration path
         self.assertEqual(MigrateShards().get_plan(self.targets, self.databases),
                          MigrateShards().get_plan_for_shard('default', 'test_rose', self.targets))

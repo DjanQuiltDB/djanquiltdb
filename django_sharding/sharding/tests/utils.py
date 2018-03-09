@@ -8,29 +8,18 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connection, connections, models, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings, TransactionTestCase
 
-from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement, Cake
+from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement
 from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_every_node
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
     StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node, \
     move_model_to_schema, get_all_databases, ShardingMode, get_sharding_mode, get_model_sharding_mode, \
-    get_all_sharded_models, get_shard_class, get_mapping_class, transaction_for_nodes
-
-
-def test_model():
-    """
-    A decorator for marking a model to be used for testing and not to be migrated.
-    """
-    def configure(cls):
-        cls.test_model = True
-        return cls
-
-    return configure
+    get_all_sharded_models, get_shard_class, get_mapping_class, transaction_for_nodes, get_all_mirrored_models
 
 
 @sharded_model()
-@test_model()
 class DummyShardedModel(models.Model):
+    test_model = True
 
     class Meta:
         app_label = 'sharding'
@@ -38,16 +27,16 @@ class DummyShardedModel(models.Model):
 
 
 @mirrored_model()
-@test_model()
 class DummyMirroredModel(models.Model):
+    test_model = True
 
     class Meta:
         app_label = 'sharding'
         managed = False
 
 
-@test_model()
 class DummyNonShardedModel(models.Model):
+    test_model = True
 
     class Meta:
         app_label = 'sharding'
@@ -111,9 +100,9 @@ class ShardingTransactionTestCase(TransactionTestCase):
                 if schema.startswith('test') or schema == get_template_name():
                     con.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format(schema))
 
-            # Truncate all public schemas
+            # Truncate all public tables
             if con.get_ps_schema('public'):
-                # default|public has more schema's than just the mirrored ones. example_shard for instance.
+                # default|public has more tables's than just the mirrored ones. example_shard for instance.
                 models = self.get_all_non_sharded_models() if con.alias == 'default' else self.get_all_mirrored_models()
                 con.cursor().execute('TRUNCATE ONLY {};'.format(
                     ', '.join('"{}"'.format(model._meta.db_table) for model in models)
@@ -671,8 +660,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         # The tables present on all non-default public schema's are all the mirrored tables.
         other_public_tables = ['django_migrations',  'example_type', 'example_supertype']
         # The tables present on the template schema's are all the sharded tables.
-        template_tables = ['django_migrations', 'example_organization', 'example_user', 'example_statement',
-                           'example_cake']
+        template_tables = ['django_migrations', 'example_organization', 'example_user', 'example_statement']
 
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'),
                               default_public_tables)
@@ -731,7 +719,7 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         # Filter test models
         template_tables = [table for table in template_tables if not re.search(r'_[t|T]est', table)]
         self.assertCountEqual(sorted(template_tables), ['django_migrations', 'example_organization', 'example_user',
-                                                        'example_statement', 'example_cake'])
+                                                        'example_statement'])
 
     def test_create_template_schema_invalid_node(self):
         """
@@ -798,7 +786,7 @@ class GetAllShardedModels(TestCase):
         """
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'organization'): ShardingMode.MIRRORED, }}):
-            self.assertCountEqual(get_all_sharded_models(), [User, Statement, Cake])
+            self.assertCountEqual(get_all_sharded_models(), [User, Statement])
 
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):
@@ -807,6 +795,30 @@ class GetAllShardedModels(TestCase):
         Expected: get_model_sharding_mode called for each model.
         """
         get_all_sharded_models()
+        for model in apps.get_models():
+            mock_get_model_sharding_mode.assert_has_call(model=model)
+
+
+class GetAllMirroredModels(TestCase):
+    available_apps = ['example']
+
+    def test_with_override(self):
+        """
+        Case: Call get_all_mirrored_models.
+        Expected: Only SuperType models to be returned. The rest is sharded and/or not mirrored.
+        Note: System test
+        """
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'type'): ShardingMode.SHARDED, }}):
+            self.assertCountEqual(get_all_mirrored_models(), [SuperType])
+
+    @mock.patch('sharding.utils.get_model_sharding_mode')
+    def test(self, mock_get_model_sharding_mode):
+        """
+        Case: Call get_all_mirrored_models.
+        Expected: get_model_sharding_mode called for each model.
+        """
+        get_all_mirrored_models()
         for model in apps.get_models():
             mock_get_model_sharding_mode.assert_has_call(model=model)
 

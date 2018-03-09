@@ -4,7 +4,7 @@ from django.db import connection, ProgrammingError
 from django.test import override_settings, TestCase
 from psycopg2 import InternalError
 
-from example.models import Type
+from example.models import Type, Organization, User, Statement
 from sharding.postgresql_backend.base import get_validated_schema_name
 from sharding.utils import create_schema_on_node, create_template_schema, use_shard
 from sharding.tests.utils import ShardingTestCase
@@ -177,7 +177,7 @@ class PostgresBackendTestCase(ShardingTestCase):
     def test_clone_schema(self):
         """
         Case: Call connection.migrate_schema
-        Expected: The given schema to have correct table headers.
+        Expected: The given schema to have correct table headers and sequencers
         """
         create_template_schema('default')
         connection.create_schema('test_schema')
@@ -194,6 +194,13 @@ class PostgresBackendTestCase(ShardingTestCase):
         new_schema_tables = [table[1] for table in cursor.fetchall()]
 
         self.assertCountEqual(template_tables, new_schema_tables)
+
+        # Get sequencer names and start value
+        cursor.execute("SELECT sequence_name, start_value FROM information_schema.sequences "
+                       "WHERE sequence_schema = 'test_schema';")
+        new_sequencers = cursor.fetchall()
+        self.assertCountEqual(new_sequencers,
+                              [('{}_id_seq'.format(table_name), '1') for table_name in new_schema_tables])
 
     def test_clone_schema_wo_template(self):
         """
@@ -218,20 +225,48 @@ class PostgresBackendTestCase(ShardingTestCase):
     def test_flush_schema(self):
         """
         Case: Create a template schema and call 'flush_schema' on it.
-        Expected: We end up with an empty schema. Stripped from all tables.
+        Expected: We end up with an empty schema. Stripped from all tables and sequencers.
         """
         create_template_schema('default')
         with use_shard(node_name='default', schema_name='template') as env:
             self.assertNotEqual(connection.get_all_table_headers(schema_name='template'), [])
+            self.assertNotEqual(connection.get_all_table_sequences(schema_name='template'), [])
             env.connection.flush_schema(schema_name='template')
             self.assertEqual(connection.get_all_table_headers(schema_name='template'), [])
+            self.assertEqual(connection.get_all_table_sequences(schema_name='template'), [])
 
     def test_get_schema_for_model(self):
         """
         Case: Call get_schema_for_model for a model.
-        Expected: the correct schema name to be returned.
+        Expected: The correct schema name to be returned.
         """
         self.assertEquals(connection.get_schema_for_model(Type), [('public',)])
+
+    def test_reset_sequence_for_local_field(self):
+        """
+        Case: Call reset_sequence for a two models with only local fields,
+        Expected: The correct statement to be formulated and executed.
+        """
+        mock_cursor = mock.Mock()
+        mock_cursor.execute = mock.Mock()
+        connection.reset_sequence(_cursor=mock_cursor, model_list=[Organization, Statement])
+        mock_cursor.execute.assert_called_once_with(
+            'SELECT setval(\'example_organization_id_seq\', coalesce(max("id"), 1), max("id") IS NOT null) '
+            'FROM "example_organization";\n'
+            'SELECT setval(\'example_statement_id_seq\', coalesce(max("id"), 1), max("id") IS NOT null) '
+            'FROM "example_statement"')
+
+    def test_reset_sequence_for_m2m_field(self):
+        """
+        Case: Call reset_sequence for a model with a many-to-many field
+        Expected: The correct statement to be formulated and executed.
+        """
+        mock_cursor = mock.Mock()
+        mock_cursor.execute = mock.Mock()
+        connection.reset_sequence(_cursor=mock_cursor, model_list=[User])
+        mock_cursor.execute.assert_called_once_with(
+            'SELECT setval(\'example_user_id_seq\', coalesce(max("id"), 1), max("id") IS NOT null) '
+            'FROM "example_user"')
 
 
 class CursorTestCase(TestCase):

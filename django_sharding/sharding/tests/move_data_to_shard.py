@@ -4,10 +4,59 @@ from django.core.management import call_command, CommandError
 from django.db import DatabaseError, IntegrityError
 from django.test import override_settings
 
-from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Cake
-from sharding.tests.utils import ShardingTestCase
+from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards
+from sharding.tests.utils import ShardingTestCase, ShardingTransactionTestCase
 from sharding.utils import use_shard, create_template_schema, State
 from sharding.management.commands.move_data_to_shard import Command as MoveCommand
+
+
+class MoveDataToShardTransaction(ShardingTransactionTestCase):
+    def setUp(self):
+        super().setUp()
+
+        create_template_schema()
+        self.source_shard = Shard.objects.create(alias='court', node_name='default', schema_name='test_source',
+                                                 state=State.ACTIVE)
+        self.target_shard = Shard.objects.create(alias='Curious Village', node_name='default',
+                                                 schema_name='test_target', state=State.ACTIVE)
+
+        with use_shard(self.source_shard):
+            self.organization = Organization.objects.create(name='Ace')
+            self.organization_shard = OrganizationShards.objects.create(shard=self.source_shard,
+                                                                        organization_id=self.organization.id,
+                                                                        state=State.ACTIVE)
+            self.type = Type.objects.create(name='student')
+            self.user = User.objects.create(name='Luke', email='luke@layton.l15', type=self.type,
+                                            organization=self.organization)
+
+        self.options = {'source_shard_alias': self.source_shard.alias,
+                        'target_shard_alias': self.target_shard.alias,
+                        'root_object_id': self.organization.pk,
+                        'model_name': 'example.organization',
+                        'no_input': True,
+                        'quiet': True}
+
+    def test_sequencer_on_same_node(self):
+        """
+        Case: Move an organization to another shard and make another organization afterwards.
+        Expected: No id collision to occur.
+        """
+        call_command('move_data_to_shard', **self.options)
+
+        with use_shard(self.source_shard):
+            self.assertFalse(Organization.objects.all().exists())
+
+        with use_shard(self.target_shard):
+            self.organization.refresh_from_db()
+            self.user.refresh_from_db()
+
+            # make new organization and user, check if the id does not collide
+            organization_new = Organization.objects.create(name='Scribblenauts')
+            self.assertEqual(organization_new.id, self.organization.id+1)
+
+            user_new = User.objects.create(name='Jean Descole', email='jean@layton.l15', type=self.type,
+                                           organization=organization_new)
+            self.assertEqual(user_new.id, self.user.id+1)
 
 
 class MoveDataToShard(ShardingTestCase):
@@ -36,7 +85,6 @@ class MoveDataToShard(ShardingTestCase):
                                               organization=self.organization_1, type=self.type_1)
             self.statement_1 = Statement.objects.create(content='Objection!', user=self.user_1)
             self.statement_2 = Statement.objects.create(content='discrepancy', user=self.user_1)
-            self.cake_1 = Cake.objects.create(name='Carrot Cake', user=self.user_1)
             self.organization_shard = OrganizationShards.objects.create(shard=self.source_shard,
                                                                         organization_id=self.organization_1.id,
                                                                         state=State.ACTIVE)
@@ -47,15 +95,12 @@ class MoveDataToShard(ShardingTestCase):
                                               organization=self.organization_2, type=self.type_2)
             self.statement_3 = Statement.objects.create(content='Luke!', user=self.user_2)
             self.statement_4 = Statement.objects.create(content='Try to solve this puzzle', user=self.user_2)
-            self.cake_2 = Cake.objects.create(name='Apple Pie', user=self.user_2)
 
         self.data = {Organization: {self.organization_1.id},
                      User: {self.user_1.id},
-                     Statement: {self.statement_1.id, self.statement_2.id},
-                     Cake: {self.cake_1.id}}
+                     Statement: {self.statement_1.id, self.statement_2.id}}
 
-        self.options = {'database': 'default',
-                        'source_shard_alias': self.source_shard.alias,
+        self.options = {'source_shard_alias': self.source_shard.alias,
                         'target_shard_alias': self.target_shard.alias,
                         'root_object_id': self.organization_1.pk,
                         'model_name': 'example.organization',
@@ -74,33 +119,13 @@ class MoveDataToShard(ShardingTestCase):
             self.assertCountEqual(Organization.objects.all(), [self.organization_2])
             self.assertCountEqual(User.objects.all(), [self.user_2])
             self.assertCountEqual(Statement.objects.all(), [self.statement_3, self.statement_4])
-            self.assertCountEqual(Cake.objects.all(), [self.cake_2])
             self.organization_2.refresh_from_db()
 
         with use_shard(self.target_shard):
             self.assertCountEqual(Organization.objects.all(), [self.organization_1])
             self.assertCountEqual(User.objects.all(), [self.user_1])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2])
-            self.assertCountEqual(Cake.objects.all(), [self.cake_1])
             self.organization_1.refresh_from_db()
-
-    def test_sequencer_on_same_node(self):
-        """
-        Case: Move an organization to another shard and make another organization afterwards.
-        Expected: No id collision to occur.
-        """
-        call_command('move_data_to_shard', **self.options)
-
-        with use_shard(self.source_shard):
-            self.organization_2.refresh_from_db()
-
-        with use_shard(self.target_shard):
-            self.organization_1.refresh_from_db()
-
-            # make new organization, check if the id does not collide
-            organization_3 = Organization.objects.create(name='Scribblenauts')
-            self.assertEqual(self.organization_2.id, self.organization_1.id+1)
-            self.assertEqual(organization_3.id, self.organization_2.id+1)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert', side_effect=DatabaseError)
     def test_failure_on_move(self, mock_copy_expert):
@@ -178,12 +203,13 @@ class MoveDataToShard(ShardingTestCase):
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.pre_execution')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_object')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.reset_sequencers')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.move_data')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.confirm_data_integrity')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.delete_data')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
-    def test_handle(self, mock_post_execution, mock_delete_data, mock_confirm, mock_move_data,
-                    mock_get_data,mock_get_object, mock_pre_execution, mock_get_target_shard):
+    def test_handle(self, mock_post_execution, mock_delete_data, mock_confirm, mock_move_data, mock_reset_sequencers,
+                    mock_get_data, mock_get_object, mock_pre_execution, mock_get_target_shard):
         """
         Case: Call the handle.
         Expected: All sub-functions to be called with the correct arguments.
@@ -204,6 +230,7 @@ class MoveDataToShard(ShardingTestCase):
                                       use_original_collector=True)
         mock_move_data.assert_called_once_with(data=data, source_shard=self.source_shard,
                                                target_shard=self.target_shard)
+        mock_reset_sequencers.assert_called_once_with(data=data, target_shard=self.target_shard)
         mock_confirm.assert_called_once_with(data=data, source_shard=self.source_shard, target_shard=self.target_shard,
                                              model_fields=mock_move_data.return_value)
         mock_delete_data.assert_called_once_with(data=data, source_shard=self.source_shard)
@@ -213,12 +240,14 @@ class MoveDataToShard(ShardingTestCase):
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.pre_execution')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_object')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.reset_sequencers')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.move_data')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.confirm_data_integrity')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.delete_data')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
-    def test_handle_reuse_data(self, mock_post_execution, mock_delete_data, mock_confirm, mock_move_data, mock_get_data,
-                               mock_get_object, mock_pre_execution, mock_get_target_shard):
+    def test_handle_reuse_data(self, mock_post_execution, mock_delete_data, mock_confirm, mock_move_data,
+                               mock_reset_sequencers, mock_get_data, mock_get_object, mock_pre_execution,
+                               mock_get_target_shard):
         """
         Case: Call the handle with reuse_simple_collector_for_delete set to True.
         Expected: All sub-functions to be called with the correct arguments.
@@ -371,7 +400,7 @@ class MoveDataToShard(ShardingTestCase):
         self.command.move_data(data=self.data, source_shard=self.source_shard, target_shard=self.target_shard),
 
         # Since a cursor object is given, we cannot assert the calls specifically.
-        self.assertEqual(mock_copy_expert.call_count, 8)
+        self.assertEqual(mock_copy_expert.call_count, len(self.data)*2)
 
     def test_move_data_return_value(self):
         """
@@ -383,9 +412,17 @@ class MoveDataToShard(ShardingTestCase):
             self.command.move_data(data=self.data, source_shard=self.source_shard, target_shard=self.target_shard),
             {Organization: 'id,name,created_at',
              User: 'id,password,last_login,name,email,created_at,organization_id,type_id',
-             Statement: 'id,content,user_id',
-             Cake: 'id,name,user_id'}
+             Statement: 'id,content,user_id'}
         )
+
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.reset_sequence')
+    def test_reset_sequencers(self, mock_reset_sequence):
+        """
+        Case: Call reset_sequencers
+        Expected: reset_sequence on the connection to be called with the correct model list.
+        """
+        self.command.reset_sequencers(data=self.data, target_shard=self.target_shard)
+        self.assertCountEqual(mock_reset_sequence.call_args[1]['model_list'], [User, Statement, Organization])
 
     @mock.patch('sharding.management.commands.move_data_to_shard.filecmp.cmp', return_value=True)
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
@@ -398,7 +435,7 @@ class MoveDataToShard(ShardingTestCase):
         self.assertTrue(self.command.confirm_data_integrity(data=self.data, source_shard=self.source_shard,
                                                             target_shard=self.target_shard, model_fields=mock.Mock()))
         # Since a cursor object is given, we cannot assert the calls specifically.
-        self.assertEqual(mock_copy_expert.call_count, 8)
+        self.assertEqual(mock_copy_expert.call_count, len(self.data)*2)
         # We callot specifically assert the filecmp call, since the given arguments are randomly named temp files
         self.assertEqual(mock_filecmp.call_count, 1)
 
@@ -476,6 +513,7 @@ class MoveDataToShard(ShardingTestCase):
         self.command.old_source_state = State.ACTIVE
         self.organization_shard.state = State.MAINTENANCE
         self.organization_shard.save()
+        self.assertEqual(self.organization_shard.shard, self.source_shard)
 
         self.command.post_execution(options=self.options, source_shard=self.source_shard,
                                     target_shard=self.target_shard, data=self.data, root_object=self.organization_1)
