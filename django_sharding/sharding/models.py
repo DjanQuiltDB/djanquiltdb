@@ -72,3 +72,6 @@ class BaseShard(models.Model):
         if self.node_name not in connections:
             raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?"
                              .format(self.node_name))
+
+    def __str__(self):
+        return "Shard {}({}|{})".format(self.alias, self.node_name, self.schema_name)

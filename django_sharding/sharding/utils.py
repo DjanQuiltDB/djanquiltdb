@@ -42,6 +42,15 @@ def get_template_name():
     return settings.SHARDING.get('TEMPLATE_NAME', 'template')
 
 
+def get_mapping_class():
+    """
+    Helper function to get implemented Mapping model, if the project has one.
+    """
+    if 'MAPPING_MODEL' not in settings.SHARDING:
+        return None
+    return import_string(settings.SHARDING['MAPPING_MODEL'])
+
+
 class DynamicDbRouter(object):
     """ A router that decides what db to read from based on a variable local to the current thread. """
 
@@ -92,9 +101,6 @@ class DynamicDbRouter(object):
         elif sharding_mode == ShardingMode.MIRRORED:
             # Mirrored models belong to public schemas and no where else.
             return schema_name == 'public'
-        elif sharding_mode == ShardingMode.DEFINING:
-            # Defining (mapping) models are migrated the same as non-sharded models. (for now)
-            return connection_name == 'default' and schema_name == 'public'
         else:
             # Non-sharded models only belong to the default database.
             return connection_name == 'default' and schema_name == 'public'
@@ -167,8 +173,8 @@ class use_shard(object):
             if active_only_schemas and shard.state != State.ACTIVE:
                 raise StateException("Shard {} state is {}".format(shard, shard.state), shard.state)
 
-            if active_only_schemas and 'MAPPING_MODEL' in settings.SHARDING:
-                mapping_model = import_string(settings.SHARDING['MAPPING_MODEL'])
+            mapping_model = get_mapping_class()
+            if active_only_schemas and mapping_model:
                 if mapping_model.objects.for_shard(shard).in_maintenance().exists():
                     raise StateException("Shard {} contains mapping objects that are in maintenance".format(shard),
                                          State.MAINTENANCE)
@@ -268,10 +274,10 @@ def get_shard_for(target_value, active_only=False):
             print (get_shard_for(user.organization.id, active_only=True))  # StateException if state is not active
 
        """
-    if 'MAPPING_MODEL' not in settings.SHARDING:
+    mapping_model = get_mapping_class()
+    if not mapping_model:
         raise ImproperlyConfigured('Missing or incorrect type of a setting SHARDING["{}"].'.format('MAPPING_MODEL'))
 
-    mapping_model = import_string(settings.SHARDING['MAPPING_MODEL'])
     mapping_object = mapping_model.objects.select_related('shard').for_target(target_value)
     if active_only:
         if mapping_object.state != State.ACTIVE:
@@ -524,6 +530,11 @@ def get_all_sharded_models():
     return [model for model in models if get_model_sharding_mode(model) == ShardingMode.SHARDED]
 
 
+def get_all_mirrored_models():
+    models = apps.get_models()
+    return [model for model in models if get_model_sharding_mode(model) == ShardingMode.MIRRORED]
+
+
 def get_all_databases():
     return [name for name, db in settings.DATABASES.items()]
 
@@ -556,16 +567,13 @@ def for_each_node(func, args=(), kwargs=None):
     return return_values
 
 
-class transaction_for_every_node(Atomic):
+class transaction_for_nodes(Atomic):
     """
-    Context manager to start a transaction for each node and close them afterwards.
-    Used by atomic_write_to_every_node.
-
-    :returns: None
+    Context manager to start a transaction for each given node and close them afterwards.
     """
-    def __init__(self, savepoint=True, lock_models=()):
+    def __init__(self, nodes, savepoint=True, lock_models=()):
         # we don't support the 'using' argument of transaction.Atomic
-        self.databases = get_all_databases()
+        self.databases = nodes
         self.savepoint = savepoint
         self.lock_models = lock_models
 
@@ -584,6 +592,15 @@ class transaction_for_every_node(Atomic):
             self.using = database
             # will grab the connection corresponding to the database set in self.using
             super().__exit__(exc_type, exc_value, traceback)
+
+
+class transaction_for_every_node(transaction_for_nodes):
+    """
+    Context manager to start a transaction for all existing nodes and close them afterwards.
+    Used by atomic_write_to_every_node.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(nodes=get_all_databases(), **kwargs)
 
 
 def move_model_to_schema(model, node_name, to_schema_name, from_schema_name='public'):

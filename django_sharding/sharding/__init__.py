@@ -7,7 +7,6 @@ default_app_config = 'sharding.apps.ShardingConfig'
 
 class ShardingMode(Enum):
     MIRRORED = 'M'
-    DEFINING = 'D'
     SHARDED = 'S'
 
 

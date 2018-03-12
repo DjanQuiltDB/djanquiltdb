@@ -163,7 +163,6 @@ def shard_mapping_model(mapping_field):  # noqa: C901
         else:
             shard_mapping_models = True
 
-        cls.sharding_mode = ShardingMode.DEFINING
         cls.mapping_field = mapping_field
         return cls
 
@@ -209,6 +208,7 @@ def atomic_write_to_every_node(schema_name='public', lock_models=()):
 
     transaction_for_every_node builds a cascading transaction tree:
         a transaction for each node, each running inside the previous.
+
     If an error occurs, all the transactions are rolled back, and no node is changed.
 
     Optionally, you can give a set of models and locking modes to prevent other threads from accessing the table you

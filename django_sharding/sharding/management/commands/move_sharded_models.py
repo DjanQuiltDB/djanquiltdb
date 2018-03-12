@@ -10,7 +10,7 @@ class Command(BaseCommand):
     This command creates a new schema and moves all sharded tables over from public to that new schema.
     It does so for a single database.
     """
-    help = 'Move all models flagged as sharded from public to a newly made sharded schema.'
+    help = 'Move all models marked as sharded from public to a newly made sharded schema.'
 
     def add_arguments(self, parser):
         parser.add_argument('--database', action='store', dest='database', default='default',

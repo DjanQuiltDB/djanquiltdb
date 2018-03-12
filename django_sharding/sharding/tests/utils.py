@@ -8,29 +8,18 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connection, connections, models, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings, TransactionTestCase
 
-from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization
+from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement
 from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_every_node
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
     StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node, \
     move_model_to_schema, get_all_databases, ShardingMode, get_sharding_mode, get_model_sharding_mode, \
-    get_all_sharded_models
-
-
-def test_model():
-    """
-    A decorator for marking a model to be used for testing and not to be migrated.
-    """
-    def configure(cls):
-        cls.test_model = True
-        return cls
-
-    return configure
+    get_all_sharded_models, get_shard_class, get_mapping_class, transaction_for_nodes, get_all_mirrored_models
 
 
 @sharded_model()
-@test_model()
 class DummyShardedModel(models.Model):
+    test_model = True
 
     class Meta:
         app_label = 'sharding'
@@ -38,16 +27,16 @@ class DummyShardedModel(models.Model):
 
 
 @mirrored_model()
-@test_model()
 class DummyMirroredModel(models.Model):
+    test_model = True
 
     class Meta:
         app_label = 'sharding'
         managed = False
 
 
-@test_model()
 class DummyNonShardedModel(models.Model):
+    test_model = True
 
     class Meta:
         app_label = 'sharding'
@@ -111,9 +100,9 @@ class ShardingTransactionTestCase(TransactionTestCase):
                 if schema.startswith('test') or schema == get_template_name():
                     con.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format(schema))
 
-            # Truncate all public schemas
+            # Truncate all public tables
             if con.get_ps_schema('public'):
-                # default|public has more schema's than just the mirrored ones. example_shard for instance.
+                # default|public has more tables's than just the mirrored ones. example_shard for instance.
                 models = self.get_all_non_sharded_models() if con.alias == 'default' else self.get_all_mirrored_models()
                 con.cursor().execute('TRUNCATE ONLY {};'.format(
                     ', '.join('"{}"'.format(model._meta.db_table) for model in models)
@@ -126,6 +115,20 @@ class ShardingTransactionTestCase(TransactionTestCase):
         Fixture teardown is no longer necessary. And won't work properly anyway.
         """
         pass
+
+
+class GetShardClass(SimpleTestCase):
+    """
+    We don't need to test for the situation where the class is not set in the settings.
+    For we will give an error on run in that case.
+    """
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    def test_get_shard_class_set(self):
+        """
+        Case: Call get_shard_class while it is set in the settings
+        Expected: The model class.
+        """
+        self.assertEqual(get_shard_class(), Shard)
 
 
 class GetTemplateName(SimpleTestCase):
@@ -144,6 +147,25 @@ class GetTemplateName(SimpleTestCase):
         Expected: Set name: 'new-template'
         """
         self.assertEqual(get_template_name(), 'new-template')
+
+
+class GetMappingClass(SimpleTestCase):
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    def test_get_mapping_class_unset(self):
+        """
+        Case: Call get_mapping_class when it is not set in the settings.
+        Expected: The default template name: 'template'
+        """
+        self.assertIsNone(get_mapping_class())
+
+    @override_settings(SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards',
+                                 'SHARD_CLASS': 'example.models.Shard'})
+    def test_get_mapping_class_set(self):
+        """
+        Case: Call get_mapping_class while it is set in the settings
+        Expected: The mapping class.
+        """
+        self.assertEqual(get_mapping_class(), OrganizationShards)
 
 
 class UseShardTestCase(ShardingTestCase):
@@ -635,8 +657,10 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         default_public_tables = ['django_migrations', 'django_content_type', 'auth_group', 'auth_permission',
                                  'auth_group_permissions', 'example_shard', 'django_session', 'example_type',
                                  'example_supertype', 'example_organizationshards']
-        other_public_tables = ['django_migrations',  'example_type', 'example_supertype']  # only the mirrored table
-        template_tables = ['django_migrations', 'example_organization', 'example_user']  # only sharded tables
+        # The tables present on all non-default public schema's are all the mirrored tables.
+        other_public_tables = ['django_migrations',  'example_type', 'example_supertype']
+        # The tables present on the template schema's are all the sharded tables.
+        template_tables = ['django_migrations', 'example_organization', 'example_user', 'example_statement']
 
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'),
                               default_public_tables)
@@ -713,7 +737,8 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         template_tables = [table[1] for table in cursor.fetchall()]
         # Filter test models
         template_tables = [table for table in template_tables if not re.search(r'_[t|T]est', table)]
-        self.assertEqual(sorted(template_tables), ['django_migrations', 'example_organization', 'example_user'])
+        self.assertCountEqual(sorted(template_tables), ['django_migrations', 'example_organization', 'example_user',
+                                                        'example_statement'])
 
     def test_create_template_schema_invalid_node(self):
         """
@@ -791,12 +816,12 @@ class GetAllShardedModels(TestCase):
     def test_with_override(self):
         """
         Case: Call get_all_sharded_models.
-        Expected: Only the User model to be returned. The rest is mirrored or not sharded.
+        Expected: Only the User and the Statement models to be returned. The rest is mirrored or not sharded.
         Note: System test
         """
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'organization'): ShardingMode.MIRRORED, }}):
-            self.assertCountEqual(get_all_sharded_models(), [User])
+            self.assertCountEqual(get_all_sharded_models(), [User, Statement])
 
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):
@@ -805,6 +830,30 @@ class GetAllShardedModels(TestCase):
         Expected: get_model_sharding_mode called for each model.
         """
         get_all_sharded_models()
+        for model in apps.get_models():
+            mock_get_model_sharding_mode.assert_has_call(model=model)
+
+
+class GetAllMirroredModels(TestCase):
+    available_apps = ['example']
+
+    def test_with_override(self):
+        """
+        Case: Call get_all_mirrored_models.
+        Expected: Only SuperType models to be returned. The rest is sharded and/or not mirrored.
+        Note: System test
+        """
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'type'): ShardingMode.SHARDED, }}):
+            self.assertCountEqual(get_all_mirrored_models(), [SuperType])
+
+    @mock.patch('sharding.utils.get_model_sharding_mode')
+    def test(self, mock_get_model_sharding_mode):
+        """
+        Case: Call get_all_mirrored_models.
+        Expected: get_model_sharding_mode called for each model.
+        """
+        get_all_mirrored_models()
         for model in apps.get_models():
             mock_get_model_sharding_mode.assert_has_call(model=model)
 
@@ -949,40 +998,7 @@ class WriteToEveryNodeSystemTestCase(ShardingTransactionTestCase):
         mock_transaction_for_every_node.assert_called_once_with(lock_models=((Type, 'SHARE'),))
 
 
-class TransactionForEveryNodeTestCase(SimpleTestCase):
-    @mock.patch('sharding.utils.Atomic.__init__')
-    @mock.patch('sharding.utils.Atomic.__enter__', autospec=True)
-    @mock.patch('sharding.utils.Atomic.__exit__', autospec=True)
-    @mock.patch('sharding.utils.get_all_databases', return_value=['sina', 'rose', 'maria'])
-    def test_parent_calls(self, mock_get_all_databases, mock_exit, mock_enter, mock_init):
-        """
-        Case: Use @transaction_for_every_node.
-        Expected: The parent context manager classes to be called with the correct self.using set.
-        """
-        enter_connections = []
-        exit_connections = []
-
-        def fake_enter(self):
-            enter_connections.append(self.using)
-
-        def fake_exit(self, exc_type, exc_value, traceback):
-            exit_connections.append(self.using)
-
-        mock_enter.side_effect = fake_enter
-        mock_exit.side_effect = fake_exit
-
-        with transaction_for_every_node():
-            pass
-
-        self.assertFalse(mock_init.called)
-        self.assertEqual(mock_enter.call_count, 3)
-        self.assertEqual(mock_exit.call_count, 3)
-        self.assertCountEqual(enter_connections, ['sina', 'rose', 'maria'])
-        self.assertCountEqual(exit_connections, ['sina', 'rose', 'maria'])
-        self.assertTrue(mock_get_all_databases.called)
-
-
-class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
+class TransactionForNodesTestCase(ShardingTransactionTestCase):
     def cleanup(self):
         for_each_node(self.cleanup_shard)
 
@@ -997,9 +1013,38 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
         # No need to revert stuff. In fact, it breaks the connections
         pass
 
+    @mock.patch('sharding.utils.Atomic.__init__')
+    @mock.patch('sharding.utils.Atomic.__enter__', autospec=True)
+    @mock.patch('sharding.utils.Atomic.__exit__', autospec=True)
+    def test_parent_calls(self, mock_exit, mock_enter, mock_init):
+        """
+        Case: Use @transaction_for_nodes.
+        Expected: The parent context manager classes to be called with the correct self.using set.
+        """
+        enter_connections = []
+        exit_connections = []
+
+        def fake_enter(self):
+            enter_connections.append(self.using)
+
+        def fake_exit(self, exc_type, exc_value, traceback):
+            exit_connections.append(self.using)
+
+        mock_enter.side_effect = fake_enter
+        mock_exit.side_effect = fake_exit
+
+        with transaction_for_nodes(nodes=['sina', 'rose', 'maria']):
+            pass
+
+        self.assertFalse(mock_init.called)
+        self.assertEqual(mock_enter.call_count, 3)
+        self.assertEqual(mock_exit.call_count, 3)
+        self.assertCountEqual(enter_connections, ['sina', 'rose', 'maria'])
+        self.assertCountEqual(exit_connections, ['sina', 'rose', 'maria'])
+
     def test_with_failure_during_write(self):
         """
-        Case: Use @transaction_for_every_node and fail when writing.
+        Case: Use @transaction_for_nodes and fail when writing.
         Expected: All transactions to be rolled back.
         """
         with use_shard(node_name='default', schema_name='public'):
@@ -1008,7 +1053,7 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
             self.assertEqual(Type.objects.count(), 0)
 
         with self.assertRaises(ProgrammingError):
-            with transaction_for_every_node():
+            with transaction_for_nodes(nodes=['default', 'other']):
                 with use_shard(node_name='default', schema_name='public'):
                     Type.objects.create(name='test_type')  # this is to be rolled back
                 with use_shard(node_name='other', schema_name='public'):
@@ -1021,7 +1066,7 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
 
     def test_with_closing_connection_during_write(self):
         """
-        Case: Use @transaction_for_every_node and close connection when writing.
+        Case: Use @transaction_for_nodes and close connection when writing.
         Expected: All transactions to be rolled back.
         """
         with use_shard(node_name='default', schema_name='public'):
@@ -1030,7 +1075,7 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
             self.assertEqual(Type.objects.count(), 0)
 
         with self.assertRaises(InterfaceError):
-            with transaction_for_every_node():
+            with transaction_for_nodes(nodes=['default', 'other']):
                 with use_shard(node_name='default', schema_name='public'):
                     Type.objects.create(name='test_type')  # this is to be rolled back
                 with use_shard(node_name='other', schema_name='public') as shard:
@@ -1044,7 +1089,7 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
 
     def test_table_lock_execution(self):
         """
-        Case: use @transaction_for_every_node with lock_models given
+        Case: use @transaction_for_nodes with lock_models given
         Expected: SQL command to lock the models is executed
         """
 
@@ -1054,7 +1099,8 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
             mock_cursor = mock_connection.return_value.cursor = mock.Mock()
             mock_execute = mock_cursor.return_value.execute = mock.Mock()
 
-            with transaction_for_every_node(lock_models=((Type, 'ROW SHARE'), (SuperType, 'SHARE'))):
+            with transaction_for_nodes(nodes=['default', 'other'],
+                                       lock_models=((Type, 'ROW SHARE'), (SuperType, 'SHARE'))):
                 pass
 
             self.assertEqual(mock_execute.call_count, 4)  # we test with two databases and 2 tables
@@ -1063,7 +1109,7 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
 
     def test_with_table_lock(self):
         """
-        Case: use @transaction_for_every_node with lock_models given
+        Case: use @transaction_for_nodes with lock_models given
         Expected: The models to be locked and other writes outside the transaction to be blocked
         """
 
@@ -1082,7 +1128,8 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
                     Type.objects.create(name='test_type')
                 con.close()
 
-        with transaction_for_every_node(lock_models=((Type, 'ACCESS EXCLUSIVE'),)):
+        with transaction_for_nodes(nodes=['default', 'other'],
+                                   lock_models=((Type, 'ACCESS EXCLUSIVE'),)):
             with use_shard(node_name='default', schema_name='public'):
                 # Don't create an object before calling the other thread.
                 # A write will lock the table too, and will only be released when the transaction is committed.
@@ -1097,6 +1144,23 @@ class TransactionForEveryNodeTransactionTestCase(ShardingTransactionTestCase):
 
         with use_shard(node_name='default', schema_name='public'):
             self.assertEqual(Type.objects.count(), 1)
+
+
+class TransactionForEveryNodeTestCase(SimpleTestCase):
+    @mock.patch('sharding.utils.transaction_for_nodes.__init__')
+    @mock.patch('sharding.utils.transaction_for_nodes.__enter__', mock.Mock)
+    @mock.patch('sharding.utils.transaction_for_nodes.__exit__',  mock.Mock)
+    @mock.patch('sharding.utils.get_all_databases', return_value=['default', 'other'])
+    def test(self, mock_all_databases, mock_init):
+        """
+        Case: Use transaction_for_every_node.
+        Expected: transaction_for_nodes to be called with the correct value for nodes.
+        """
+        with transaction_for_every_node():
+            pass
+
+        self.assertEqual(mock_all_databases.call_count, 1)
+        mock_init.assert_called_once_with(nodes=['default', 'other'])
 
 
 class WriteToEveryNodeTestCase(SimpleTestCase):

@@ -9,27 +9,26 @@ from django.test import SimpleTestCase, override_settings
 from sharding import ShardingMode
 from sharding.decorators import sharded_model
 from sharding.models import BaseShard
-from sharding.tests.utils import test_model
 
 
-@test_model()
 class DummyShard(models.Model):
+    test_model = True
 
     class Meta:
         app_label = 'sharding'
 
 
-@test_model()
 @sharded_model()
 class DummyShardedShard(BaseShard):
+    test_model = True
 
     class Meta:
         app_label = 'sharding'
 
 
-@test_model()
 @sharded_model()
 class DummyUser(AbstractBaseUser):
+    test_model = True
 
     class Meta:
         app_label = 'sharding'
@@ -271,8 +270,9 @@ class SessionEngineTestCase(SimpleTestCase):
         Expected: ImproperlyConfigured raised.
         """
         @sharded_model()
-        @test_model()
         class User1(AbstractBaseUser):
+            test_model = True
+
             class Meta:
                 app_label = 'sharding'
 
@@ -288,8 +288,9 @@ class SessionEngineTestCase(SimpleTestCase):
         Expected: No ImproperlyConfigured raised.
         """
         @sharded_model()
-        @test_model()
         class User2(AbstractBaseUser):
+            test_model = True
+
             class Meta:
                 app_label = 'sharding'
 
@@ -303,8 +304,9 @@ class SessionEngineTestCase(SimpleTestCase):
         Case: User model is not sharded and use of cached_db session backend
         Expected: No ImproperlyConfigured raised.
         """
-        @test_model()
         class User3(AbstractBaseUser):
+            test_model = True
+
             class Meta:
                 app_label = 'sharding'
 

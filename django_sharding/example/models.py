@@ -74,3 +74,15 @@ class User(AbstractBaseUser):
 
     def __str__(self):
         return self.name
+
+
+@sharded_model()
+class Statement(models.Model):
+    content = models.CharField('content', max_length=300)
+    user = models.ForeignKey('User', verbose_name='user')
+
+    class Meta:
+        app_label = 'example'
+
+    def __str__(self):
+        return '{}: {}'.format(self.user.name, self.content)

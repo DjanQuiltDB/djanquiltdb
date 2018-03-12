@@ -4,7 +4,6 @@ from django.test import TestCase
 
 from sharding import ShardingMode, State, STATES
 from sharding.decorators import sharded_model, shard_mapping_model, mirrored_model, _reset_shard_mapping_models
-from sharding.tests.utils import test_model
 
 
 class ShardedModelDecoratorTestCase(TestCase):
@@ -15,8 +14,9 @@ class ShardedModelDecoratorTestCase(TestCase):
         """
 
         @sharded_model()
-        @test_model()
         class TestShardedModel(models.Model):
+            test_model = True
+
             class Meta:
                 app_label = 'sharding'
 
@@ -31,8 +31,9 @@ class MirroredModelDecoratorTestCase(TestCase):
         """
 
         @mirrored_model()
-        @test_model()
         class TestMirroredModel(models.Model):
+            test_model = True
+
             class Meta:
                 app_label = 'sharding'
 
@@ -47,11 +48,12 @@ class MappingModelDecoratorTestCase(TestCase):
     def test_shard_mapping_model(self):
         """
         Case: Check if decorated model has shard_mapping_model set.
-        Expected: 'D' to be returned.
+        Expected: It to not have one set.
         """
         @shard_mapping_model('map_field')
-        @test_model()
         class MappingDummyModel1(models.Model):
+            test_model = True
+
             shard = models.ForeignKey('example.Shard', verbose_name='shard')
             map_field = models.PositiveSmallIntegerField()
             state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
@@ -59,7 +61,7 @@ class MappingModelDecoratorTestCase(TestCase):
             class Meta:
                 app_label = 'sharding'
 
-        self.assertEqual(MappingDummyModel1.sharding_mode, ShardingMode.DEFINING)
+        self.assertFalse(hasattr(MappingDummyModel1, 'sharding_mode'))
 
     def test_shard_mapping_model_no_shard_field(self):
         """
@@ -67,9 +69,10 @@ class MappingModelDecoratorTestCase(TestCase):
         Expected: ImproperlyConfigured to be raised.
         """
         with self.assertRaises(ImproperlyConfigured):
-            @test_model()
             @shard_mapping_model('map_field')
             class MappingDummyModel2(models.Model):
+                test_model = True
+
                 map_field = models.PositiveSmallIntegerField()
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
@@ -83,8 +86,9 @@ class MappingModelDecoratorTestCase(TestCase):
         """
         with self.assertRaises(ImproperlyConfigured):
             @shard_mapping_model('map_field')
-            @test_model()
             class MappingDummyModel3(models.Model):
+                test_model = True
+
                 shard = models.CharField('name', max_length=100)
                 map_field = models.PositiveSmallIntegerField()
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
@@ -99,8 +103,9 @@ class MappingModelDecoratorTestCase(TestCase):
         """
         with self.assertRaises(ImproperlyConfigured):
             @shard_mapping_model('map_field')
-            @test_model()
             class MappingDummyModel4(models.Model):
+                test_model = True
+
                 shard = models.ForeignKey('Stars', verbose_name='shard')  # NOOA (unresolved reference on purpose)
                 map_field = models.PositiveSmallIntegerField()
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
@@ -114,8 +119,9 @@ class MappingModelDecoratorTestCase(TestCase):
         Expected: ImproperlyConfigured to be raised.
         """
         @shard_mapping_model('map_field')  # first time goes without error.
-        @test_model()
         class MappingDummyModel5(models.Model):
+            test_model = True
+
             shard = models.ForeignKey('example.Shard', verbose_name='shard')
             map_field = models.PositiveSmallIntegerField()
             state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
@@ -125,8 +131,9 @@ class MappingModelDecoratorTestCase(TestCase):
 
         with self.assertRaises(ImproperlyConfigured):
             @shard_mapping_model('map_field')
-            @test_model()
             class MappingDummyModel6(models.Model):
+                test_model = True
+
                 shard = models.ForeignKey('example.Shard', verbose_name='shard')
                 map_field = models.PositiveSmallIntegerField()
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
@@ -141,8 +148,9 @@ class MappingModelDecoratorTestCase(TestCase):
         """
         with self.assertRaises(TypeError):
             @shard_mapping_model()
-            @test_model()
             class MappingDummyModel7(models.Model):
+                test_model = True
+
                 shard = models.ForeignKey('example.Shard', verbose_name='shard')
                 map_field = models.PositiveSmallIntegerField()
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
@@ -157,8 +165,9 @@ class MappingModelDecoratorTestCase(TestCase):
         """
         with self.assertRaises(ImproperlyConfigured):
             @shard_mapping_model('no_field')
-            @test_model()
             class MappingDummyModel7(models.Model):
+                test_model = True
+
                 shard = models.ForeignKey('example.Shard', verbose_name='shard')
                 map_field = models.PositiveSmallIntegerField()
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
@@ -173,8 +182,9 @@ class MappingModelDecoratorTestCase(TestCase):
         """
         with self.assertRaises(ImproperlyConfigured):
             @shard_mapping_model('map_field')
-            @test_model()
             class MappingDummyModel9(models.Model):
+                test_model = True
+
                 shard = models.ForeignKey('example.Shard', verbose_name='shard')
                 map_field = models.PositiveSmallIntegerField()
 
@@ -188,8 +198,9 @@ class MappingModelDecoratorTestCase(TestCase):
         """
         with self.assertRaises(ImproperlyConfigured):
             @shard_mapping_model('map_field')
-            @test_model()
             class MappingDummyModel10(models.Model):
+                test_model = True
+
                 shard = models.ForeignKey('example.Shard', verbose_name='shard')
                 map_field = models.PositiveSmallIntegerField()
                 state = models.PositiveSmallIntegerField()
@@ -204,8 +215,9 @@ class MappingModelDecoratorTestCase(TestCase):
         """
         with self.assertRaises(ImproperlyConfigured):
             @shard_mapping_model('map_field')
-            @test_model()
             class MappingDummyModel11(models.Model):
+                test_model = True
+
                 shard = models.ForeignKey('example.Shard', verbose_name='shard')
                 map_field = models.PositiveSmallIntegerField()
                 state = models.CharField(choices=(('P', 'Pie'),), max_length=1, default='P')
