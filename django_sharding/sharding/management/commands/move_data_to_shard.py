@@ -59,7 +59,7 @@ class Command(BaseCommand):
         data = self.get_data(source_shard=source_shard, root_object=root_object)
 
         if not options.get('no_input'):
-            print();
+            print()
             print('Data:')
             for model, instances in data.items():
                 print('\033[95m{}\033[0m'.format(model))
@@ -106,7 +106,7 @@ class Command(BaseCommand):
         """
         Get top level object based on model name and id.
         """
-        with use_shard(source_shard):
+        with use_shard(source_shard, active_only_schemas=False):
             model = get_model(model_name)
             if not get_model_sharding_mode(model) == ShardingMode.SHARDED:
                 raise CommandError("'{}' is not a sharded model.".format(model))
@@ -201,15 +201,12 @@ class Command(BaseCommand):
             print('Confirming data integrity')
 
         with NamedTemporaryFile() as source_file, NamedTemporaryFile() as target_file:
-            for model, pk_set in data.items():  # nosec
+            for model, pk_set in data.items():
                 fields = model_fields.get(model)
                 pk_list = list(pk_set)
                 # Export
-                query_string = \
-                    'COPY (SELECT {f} FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(
-                        t=model._meta.db_table,
-                        f=fields
-                    )  # nosec
+                query_string = 'COPY (SELECT {f} FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(  # nosec
+                        t=model._meta.db_table, f=fields)
 
                 # We let the copy functions just append to the output file
                 with use_shard(source_shard, active_only_schemas=False) as env:
@@ -229,7 +226,7 @@ class Command(BaseCommand):
     def delete_data(self, data, source_shard):
         """
         Delete all the data given.
-        It uses the function `objects.delete()` would.
+        It calls delete_batch(pk_set) on each model in the data set.
         """
         if not self.quiet:
             print('Deleting exported data')

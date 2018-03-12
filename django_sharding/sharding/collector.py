@@ -28,29 +28,9 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
-from itertools import chain
 import progressbar
 
-
-def get_candidate_relations_to_collect(opts):
-    """
-    Collect models that contain candidate relations. This may include relations coming from proxy models.
-    It returns all fields that have a relation, being one-to-one, one-to-many or many-to-many.
-
-    It is unaltered compared to  Django's collector.
-    """
-    candidate_models = {opts}
-    candidate_models = candidate_models.union(opts.concrete_model._meta.proxied_children)
-    # For each model, get all candidate fields.
-    candidate_model_fields = set(chain.from_iterable(
-        opts.get_fields(include_hidden=True) for opts in candidate_models
-    ))
-    # The candidate relations are the ones that come from N-1 and 1-1 relations.
-    # N-N  (i.e., many-to-many) relations aren't candidates for collecting.
-    return (
-        f for f in candidate_model_fields
-        if f.auto_created and not f.concrete and (f.one_to_one or f.one_to_many)
-    )
+from django.db.models.deletion import get_candidate_relations_to_delete as get_candidate_relations_to_collect
 
 
 class SimpleCollector(object):
@@ -62,16 +42,8 @@ class SimpleCollector(object):
     def __init__(self, connection, verbose=False):
         self.connection = connection
         self.verbose = verbose
-        # Initially, {model: {instances}}, later values become lists.
         self.data = {}
         self.data_points = 0
-
-        # Tracks deletion-order dependency for databases without transactions
-        # or ability to defer constraint checks. Only concrete model classes
-        # should be included, as the dependencies exist only between actual
-        # database tables; proxy models are represented here by their concrete
-        # parent.
-        self.dependencies = {}  # {model: {models}}
 
         self.bar = progressbar.ProgressBar(max_value=progressbar.UnknownLength)
 
@@ -98,9 +70,6 @@ class SimpleCollector(object):
             self.data_points += len(new_pks)
             self.bar.update(self.data_points)
 
-        if source is not None:
-            self.dependencies.setdefault(
-                source._meta.concrete_model, set()).add(model._meta.concrete_model)
         return new_objs
 
     def get_batches(self, objs, field):

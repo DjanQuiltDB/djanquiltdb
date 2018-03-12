@@ -408,6 +408,7 @@ class MoveDataToShard(ShardingTestCase):
         Expected: copy_expert and copy_from to be called twice for each model. (One for export, one for import.)
                   A dict with <model>:'<field>,<field>,<etc>' to be returned.
         """
+        self.maxDiff = 2000
         self.assertEqual(
             self.command.move_data(data=self.data, source_shard=self.source_shard, target_shard=self.target_shard),
             {Organization: 'id,name,created_at',

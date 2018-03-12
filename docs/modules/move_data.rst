@@ -25,15 +25,15 @@ The command will do its thing in several steps:
 
 1. Create a data set based on the root-object given.
 
-2. Put ths source shard, or relevant mapping object (if any) into MAINTENANCE mode.
+2. Puts the source shard, or relevant mapping object (if any) into MAINTENANCE mode.
 
 3. Copy the data from the source shard to the target shard.
 
-4. Check if the data is copies completely and is the same as found on the source shard.
+4. Check if the data is copied completely and it is the same as one on the source shard.
 
 5. Delete the data from the source shard.
 
-6. Return both shard's state back to their original (probably ACTIVE).
+6. Return both shards back to their original state (probably ACTIVE).
 
 
 get_target_shard
@@ -63,12 +63,9 @@ To solve this, you can easily extend the command and override the function it ca
             return Shard.objects.create(alias='new Shard', node_name=get_new_shard_node(), organization=root_object)
 
 
-
-
-
 Options
 -------
-Most options it knows are mandatory.
+Most options the command recognizes are mandatory.
 Example: ``migrate_shards --source_shard_alias earth --target_shard_alias mars --model_name example.organization --root_object_id 1``
 
 ``--source_shard_alias``

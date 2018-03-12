@@ -142,7 +142,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             "SELECT table_name FROM information_schema.tables WHERE table_schema=%s AND table_type='BASE TABLE';",
             [schema]
         )
-        return [x[0] for x in cursor.fetchall()]  # we get a list of single tuples
+        return [x[0] for x in cursor.fetchall()]  # We get a list of single tuples
 
     def get_all_table_sequences(self, schema_name=None, _cursor=None):
         cursor = _cursor or self.cursor()
@@ -151,7 +151,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             "SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema=%s;",
             [schema]
         )
-        return [x[0] for x in cursor.fetchall()]  # we get a list of single tuples
+        return [x[0] for x in cursor.fetchall()]  # We get a list of single tuples
 
     def flush_schema(self, schema_name=None, _cursor=None):
         """

@@ -17,7 +17,7 @@ class GetShardTestCase(ShardingTestCase):
         super_type = SuperType.objects.create(name='Animals')
         type = Type.objects.create(name='Birds', super=super_type)
 
-        with use_shard(self.test_shard) as env:
+        with use_shard(self.test_shard):
             self.organization = Organization.objects.create(name='Field')
             self.user_1 = User.objects.create(organization=self.organization, name='Geese', email='g@b.gak', type=type)
             self.user_2 = User.objects.create(organization=self.organization, name='Koot', email='k@b.koo', type=type)
@@ -34,7 +34,6 @@ class GetShardTestCase(ShardingTestCase):
         """
         Case: call the collector on some test data
         Expected: The correct objects to be returned.
-        :return:
         """
         with use_shard(self.test_shard) as env:
             collector = SimpleCollector(connection=env.connection, verbose=False)
