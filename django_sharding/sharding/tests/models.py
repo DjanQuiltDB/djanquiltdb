@@ -34,13 +34,26 @@ class BaseShardTestCase(TestCase):
         mock_create_schema.assert_called_with(schema_name='test_schema', node_name='default', migrate=True)
 
     @mock.patch('sharding.utils.create_schema_on_node')
+    def test_save_with_pk(self, mock_create_schema):
+        """
+        Case: Create a shard object with a given pk
+        Expected: Create_schema and super().mock are called
+        """
+        shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default', pk=123)
+        self.assertTrue(mock_create_schema.called)  # mock_create_schema is called when created.
+        self.assertEqual(shard.pk, 123)
+        mock_create_schema.reset_mock()
+        shard.save()
+        self.assertFalse(mock_create_schema.called)
+
+    @mock.patch('sharding.utils.create_schema_on_node')
     def test_save_while_already_created(self, mock_create_schema):
         """
         Case: Call the save method from the BaseShard model which already exists
         Expected: Create_schema and super().mock are NOT called
         """
         shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default')
-        self.assertTrue(mock_create_schema.called)  # called when created
+        self.assertTrue(mock_create_schema.called)  # mock_create_schema is called when created.
         mock_create_schema.reset_mock()
         shard.save()
         self.assertFalse(mock_create_schema.called)

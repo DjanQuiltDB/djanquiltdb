@@ -3,6 +3,7 @@ from django.db import models, connections
 from django.db.models import Q
 
 from sharding import State, STATES, ShardingMode
+from sharding.utils import get_shard_class
 
 
 class MappingQuerySet(models.QuerySet):
@@ -54,7 +55,8 @@ class BaseShard(models.Model):
         if not self.node_name:
             raise ValueError("No node_name given, or no NEW_SHARD_NODE set in the SHARING settings.")
 
-        if self.pk:  # this is an update, no need to create a schema
+        # If this is an update, no need to create a schema
+        if self.pk and get_shard_class().objects.filter(pk=self.pk).exists():
             return super().save(**kwargs)
 
         # If we have a Mirrored sharding mode, we need to work on our target node to create a schema.
