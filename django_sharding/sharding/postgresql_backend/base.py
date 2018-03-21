@@ -22,19 +22,24 @@ from psycopg2 import InternalError, sql
 from sharding.utils import get_template_name
 from sharding.postgresql_backend.introspection import DatabaseSchemaIntrospection
 
-# clone function is from the PostgreSQL wiki by Emanuel '3manuek'
+# Clone function is from the PostgreSQL wiki by Emanuel '3manuek'.
+# Adjusted to set the value of the created sequences to the same value as those we clone.
 clone_function = """
-CREATE OR REPLACE FUNCTION clone_schema(source_schema text, dest_schema text) RETURNS void AS
+CREATE OR REPLACE FUNCTION clone_schema(source_schema TEXT, dest_schema TEXT) RETURNS VOID AS
 $BODY$
 DECLARE
-  object text;
-  buffer text;
+  object TEXT;
+  buffer TEXT;
+  default_ TEXT;
+  column_ TEXT;
 
 BEGIN
   FOR object IN
     SELECT sequence_name::text FROM information_schema.SEQUENCES WHERE sequence_schema = source_schema
   LOOP
     EXECUTE 'CREATE SEQUENCE ' || dest_schema || '.' || object;
+    EXECUTE format('SELECT setval(%L, (SELECT last_value FROM %I.%I))',
+    dest_schema || '.' || object, source_schema, object);
   END LOOP;
 
   FOR object IN
@@ -44,13 +49,20 @@ BEGIN
     EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || source_schema || '.' || object || ' INCLUDING CONSTRAINTS ' ||
      'INCLUDING INDEXES INCLUDING DEFAULTS)';
     EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || source_schema || '.' || object || ')';
+
+    FOR column_, default_ IN
+      SELECT column_name::TEXT, regexp_replace(column_default::TEXT, source_schema, dest_schema)
+      FROM information_schema.COLUMNS WHERE table_schema = dest_schema AND TABLE_NAME = object
+      AND column_default LIKE 'nextval(%' || source_schema || '%::regclass)'
+    LOOP
+      EXECUTE 'ALTER TABLE ' || buffer || ' ALTER COLUMN ' || column_ || ' SET DEFAULT ' || default_;
+    END LOOP;
   END LOOP;
 
 END;
 $BODY$
 LANGUAGE plpgsql VOLATILE;
 """
-
 
 PUBLIC_SCHEMA_NAME = 'public'
 
@@ -105,12 +117,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # Django's rollback clears the search path so we have to set it again the next time.
         self.search_path_set = False
 
-    def set_schema(self, schema_name):
+    def set_schema(self, schema_name, include_public=True):
         """
         Main API method to current database schema,
         but it does not actually modify the db connection.
         """
         self.schema_name = schema_name
+        self.include_public_schema = include_public
         self.search_path_set = False
 
     def set_schema_to_public(self):

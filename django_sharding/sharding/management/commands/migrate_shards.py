@@ -272,7 +272,7 @@ class Command(MigrateCommand):
         return False  # report migration went without troubles
 
     def check_or_migrate_shard(self, shard, plan_node, fake, fake_initial):
-        with use_shard(shard, active_only_schemas=False) as env:
+        with use_shard(shard, active_only_schemas=False, include_public=False) as env:
             shard_executor = MigrationExecutor(env.connection)
             migration, backwards = plan_node
 
