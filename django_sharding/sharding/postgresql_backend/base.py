@@ -53,7 +53,7 @@ BEGIN
     FOR column_, default_ IN
       SELECT column_name::TEXT, regexp_replace(column_default::TEXT, source_schema, dest_schema)
         FROM information_schema.COLUMNS WHERE table_schema = dest_schema AND TABLE_NAME = object
-        AND column_default LIKE 'nextval(%' || source_schema || '%::regclass)'
+        AND column_default LIKE 'nextval(%' || source_schema || '%)'
     LOOP
       EXECUTE 'ALTER TABLE ' || buffer || ' ALTER COLUMN ' || column_ || ' SET DEFAULT ' || default_;
     END LOOP;
