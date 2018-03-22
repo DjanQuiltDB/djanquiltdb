@@ -1046,3 +1046,56 @@ class ShardedMigrationCheckOrMigrateShardTestCase(MigrationTestBase):
         self.migrateShards.stdout.write.assert_any_call(
             '    other|rose does not have migration_tests.0001_initial applied yet.\n')
         self.assertFalse(mock_executor.return_value.migrate.called)
+
+
+class SeparateDatabaseAndStateTestCase(MigrationTestBase):
+    available_apps = ['migration_tests']
+
+    def setUp(self):
+        # Do not silently mock the router.
+        pass
+
+    @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_remove_model'})
+    @mock.patch('sharding.utils.DynamicDbRouter.allow_migrate')
+    def test(self, mock_allow_migrate):
+        """
+        Case: Migrate with a SeparateDatabaseAndState operation and a model that does not exist in the apps.
+        Expected: allow_migrate to block all database operations, but not the state operations
+        """
+
+        self.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
+                                         state=State.ACTIVE)
+        with use_shard(self.sina) as env:
+            # Setup the shard with the initial migration ran.
+            executor = MigrationExecutor(env.connection)
+            executor.migrate([('migration_tests', '0001_initial')])
+            executor.loader.build_graph()
+
+            recorder = MigrationRecorder(env.connection)
+            applied_migration_tests = recorder.applied_migrations()
+            self.assertFalse(('migration_tests', '0003_third') in applied_migration_tests)
+            self.assertFalse(('migration_tests', '0002_second') in applied_migration_tests)
+            self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
+            # allow_migrate called once for create_model
+            self.assertEqual(mock_allow_migrate.call_count, 1)
+            mock_allow_migrate.reset_mock()
+
+            executor.migrate([('migration_tests', '0002_second')])
+            executor.loader.build_graph()
+            applied_migration_tests = recorder.applied_migrations()
+            self.assertFalse(('migration_tests', '0003_third') in applied_migration_tests)
+            self.assertTrue(('migration_tests', '0002_second') in applied_migration_tests)
+            self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
+            # allow_migrate called twice. For RemoveFIeld and AddField
+            self.assertEqual(mock_allow_migrate.call_count, 2)
+            mock_allow_migrate.reset_mock()
+
+            # 0003 uses SeparateDatabaseAndState to only perform the state operation
+            executor.migrate([('migration_tests', '0003_third')])
+            executor.loader.build_graph()
+            applied_migration_tests = recorder.applied_migrations()
+            self.assertTrue(('migration_tests', '0003_third') in applied_migration_tests)
+            self.assertTrue(('migration_tests', '0002_second') in applied_migration_tests)
+            self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
+            # allow_migrate not called because of the SeparateDatabaseAndState
+            self.assertEqual(mock_allow_migrate.call_count, 0)

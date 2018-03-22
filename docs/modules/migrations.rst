@@ -64,3 +64,41 @@ Example: ``migrate_shards --database hoth``
 ``--shard`` (or ``-s``) is a new argument. This allows you to specify a single shard by using the name of the node and the shard alias known to the Shard table (or ``public`` if you want to target that).
 For example: ``migrate_shards -s default|public`` or ``migrate_shards -s hoth|rebellious_shard``
 Note the ``|`` (pipe) between the node name and the schema name.
+
+Router considerations
+---------------------
+
+The DynamicDbRouter will ensure the tables will only be created on the schemas they should be created on.
+To do that, it looks at the sharding mode of models during ``allow_migrate``.
+
+This can be a problem if the migration to be extecuted no longer has a model known to Django; most likely because you removed it and the migration is to remove the table as well.
+Any migration operation related to a model of which we cannot confirm the sharding mode is NOT executed on the database.
+This is no problem for models that have been migrated in the past, or when a model is only created and removed in old migrations and you perform them from scratch.
+
+If you want to remove a model, use ``migrations.SeparateDatabaseAndState`` to remove it from the state and use runSQL with a hint to remove the tables from the database.
+
+
+.. code-block:: python
+
+   from django.db import migrations
+
+   from sharding import ShardingMode
+
+
+   class Migration(migrations.Migration):
+
+       dependencies = [
+           ('example', '0001_initial'),
+       ]
+
+       operations = [
+           migrations.SeparateDatabaseAndState(
+               state_operations=[
+                   migrations.DeleteModel('Knights'),
+               ],
+               database_operations=[
+                   migrations.RunSQL('DROP TABLE example_knights CASCADE;',
+                   sharding_mode=ShardingMode.SHARDED)
+               ]
+           )
+       ]

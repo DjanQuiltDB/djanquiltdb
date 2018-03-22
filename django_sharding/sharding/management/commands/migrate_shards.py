@@ -87,7 +87,10 @@ class Command(MigrateCommand):
         targets = self.get_targets_from_options(executor, options)
 
         # Work out from which node we need to migrate
-        plan = self.get_plan(targets, databases)
+        if schema_name:
+            plan = self.get_plan_for_shard(databases[0], schema_name, targets)
+        else:
+            plan = self.get_plan(targets, databases)
 
         # Execute the plan
         emit_pre_migrate_signal([], self.verbosity, self.interactive, connection.alias)
@@ -272,7 +275,7 @@ class Command(MigrateCommand):
         return False  # report migration went without troubles
 
     def check_or_migrate_shard(self, shard, plan_node, fake, fake_initial):
-        with use_shard(shard, active_only_schemas=False) as env:
+        with use_shard(shard, active_only_schemas=False, include_public=False) as env:
             shard_executor = MigrationExecutor(env.connection)
             migration, backwards = plan_node
 

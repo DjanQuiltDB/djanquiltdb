@@ -87,7 +87,16 @@ class DynamicDbRouter(object):
             return False
 
         # sharding_mode can be set as hints (on run_pyton/run_sql for example).
-        sharding_mode = hints.get('sharding_mode') or get_sharding_mode(app_label, model_name)
+        try:
+            sharding_mode = hints.get('sharding_mode') or get_sharding_mode(app_label, model_name)
+        except LookupError:
+            # Model does not exist anymore, probably because it's removed in another migration. Ignore it now.
+            # Note that there is a separation between state_operations and database_operations.
+            # state_operations do not take heed of allow_migrate. They will therefore always be performed.
+            # Where database_operations ask allow_migrate if they should proceed.
+            # Creating and removing a model will therefore happen in state,
+            # but if the model is unknown to apps no mutations will be performed on the database.
+            return False
 
         if sharding_mode is None:
             # This happens when no model_name is given.
@@ -119,10 +128,10 @@ def _use_connection(node):
     return connections[node]
 
 
-def _set_schema(schema_name, _connection=None):
+def _set_schema(schema_name, _connection=None, include_public=True):
     if not _connection:
         _connection = connection
-    _connection.set_schema(schema_name)
+    _connection.set_schema(schema_name, include_public=include_public)
 
 
 class use_shard(object):
@@ -163,7 +172,9 @@ class use_shard(object):
     # Both node_name and schema_name are not documented.
     # They bypass the shard.state check, and are only there to for internal use.
     # (Situations where the schema is made, but the shard object is not saved yet.)
-    def __init__(self, shard=None, node_name=None, schema_name=None, active_only_schemas=True):
+    def __init__(self, shard=None, node_name=None, schema_name=None, active_only_schemas=True, include_public=True):
+        self.include_public = include_public
+
         shard_class = get_shard_class()
         if shard:
             if not isinstance(shard, shard_class):
@@ -213,7 +224,7 @@ class use_shard(object):
         # second: set the correct search_path for the requested schema
         self.old_schema_name = self.connection.get_schema()
 
-        _set_schema(self.schema_name, self.connection)
+        _set_schema(self.schema_name, self.connection, include_public=self.include_public)
         return self
 
     def disable(self):
