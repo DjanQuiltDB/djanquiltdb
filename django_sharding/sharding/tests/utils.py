@@ -722,9 +722,9 @@ class DynamicDbRouterTestCase(ShardingTestCase):
     def test_allow_migrate_on_none(self):
         """
         Case: Call allow_migrate without a model_name
-        Expected: None to be returned
+        Expected: False to be returned
         """
-        self.assertIsNone(self.router.allow_migrate('default', 'example', model_name=None))
+        self.assertFalse(self.router.allow_migrate('default', 'example', model_name=None))
 
     def test_allow_migrate_with_hints(self):
         """

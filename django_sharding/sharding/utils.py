@@ -102,7 +102,7 @@ class DynamicDbRouter(object):
             # This happens when no model_name is given.
             # We only know the sharding_mode when it is overridden in the settings.
             # If we get None from get_sharding_mode, there is nothing we can do with it.
-            return None
+            return False
         elif sharding_mode == ShardingMode.SHARDED:
             # Sharded models should never reside in the public schema.
             # Only on templates and the shared schemas.
