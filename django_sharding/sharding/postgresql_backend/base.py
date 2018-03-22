@@ -39,7 +39,7 @@ BEGIN
   LOOP
     EXECUTE 'CREATE SEQUENCE ' || dest_schema || '.' || object;
     EXECUTE format('SELECT setval(%L, (SELECT last_value FROM %I.%I))',
-    dest_schema || '.' || object, source_schema, object);
+      dest_schema || '.' || object, source_schema, object);
   END LOOP;
 
   FOR object IN
@@ -52,8 +52,8 @@ BEGIN
 
     FOR column_, default_ IN
       SELECT column_name::TEXT, regexp_replace(column_default::TEXT, source_schema, dest_schema)
-      FROM information_schema.COLUMNS WHERE table_schema = dest_schema AND TABLE_NAME = object
-      AND column_default LIKE 'nextval(%' || source_schema || '%::regclass)'
+        FROM information_schema.COLUMNS WHERE table_schema = dest_schema AND TABLE_NAME = object
+        AND column_default LIKE 'nextval(%' || source_schema || '%::regclass)'
     LOOP
       EXECUTE 'ALTER TABLE ' || buffer || ' ALTER COLUMN ' || column_ || ' SET DEFAULT ' || default_;
     END LOOP;
@@ -119,8 +119,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def set_schema(self, schema_name, include_public=True):
         """
-        Main API method to current database schema,
-        but it does not actually modify the db connection.
+        Main API method to tell the connection to use a different schema.
+        The postgresql search_path will be changed when a new cursor is requested.
+        See `_cursor`.
         """
         self.schema_name = schema_name
         self.include_public_schema = include_public

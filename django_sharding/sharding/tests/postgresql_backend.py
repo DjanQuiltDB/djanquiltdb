@@ -4,7 +4,8 @@ from django.db import connection, ProgrammingError
 from django.test import override_settings, TestCase
 from psycopg2 import InternalError
 
-from example.models import Type, Organization, User, Statement
+from example.models import Type, Organization, User, Statement, Shard
+from sharding import State
 from sharding.postgresql_backend.base import get_validated_schema_name
 from sharding.utils import create_schema_on_node, create_template_schema, use_shard
 from sharding.tests.utils import ShardingTestCase
@@ -232,6 +233,34 @@ class PostgresBackendTestCase(ShardingTestCase):
                                "nextval('test_schema.example_user_id_seq'::regclass)",
                                "nextval('test_schema.example_statement_id_seq'::regclass)",
                                "nextval('test_schema.django_migrations_id_seq'::regclass)"])
+
+    def test_sequencers_of_cloned_schema(self):
+        """
+        Case: Create two shards and write similar data to both shards.
+        Expected: Each schema to have their own sequences and thus we get the same ids across shards.
+        """
+        create_template_schema('default')
+        shard_1 = Shard.objects.create(alias='org_1_shard', schema_name='org_1_shard', node_name='default',
+                                       state=State.ACTIVE)
+        shard_2 = Shard.objects.create(alias='org_2_shard', schema_name='org_2_shard', node_name='default',
+                                       state=State.ACTIVE)
+        with use_shard(shard_1):
+            organization_1 = Organization.objects.create(name='The Boris Corp')
+            user_1 = User.objects.create(name='Boris', email='boris@gast.bv', organization=organization_1)
+        with use_shard(shard_2):
+            organization_2 = Organization.objects.create(name='The Sjonnie Corp')
+            user_2 = User.objects.create(name='Boris', email='boris@gast.bv', organization=organization_2)
+
+        with use_shard(shard_1):
+            user_3 = User.objects.create(name='Sjonnie', email='sjonnie@gast.bv', organization=organization_1)
+        with use_shard(shard_2):
+            user_4 = User.objects.create(name='Sjonnie', email='sjonnie@gast.bv', organization=organization_2)
+
+        self.assertEqual(user_1.id, user_2.id)  # Both on different schema's, both new sequencers.
+        self.assertEqual(user_3.id, user_4.id)  # Both on different schema's, continuation of above sequencer.
+        self.assertEqual(organization_1.id, organization_2.id)  # different schema's, both new sequencers
+        self.assertNotEqual(user_1.id, user_3.id)  # Both on same schema
+        self.assertNotEqual(user_2.id, user_4.id)  # Both on same schema
 
     def test_clone_schema_wo_template(self):
         """

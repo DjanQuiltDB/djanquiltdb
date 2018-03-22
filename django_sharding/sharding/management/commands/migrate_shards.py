@@ -87,7 +87,10 @@ class Command(MigrateCommand):
         targets = self.get_targets_from_options(executor, options)
 
         # Work out from which node we need to migrate
-        plan = self.get_plan(targets, databases)
+        if schema_name:
+            plan = self.get_plan_for_shard(databases[0], schema_name, targets)
+        else:
+            plan = self.get_plan(targets, databases)
 
         # Execute the plan
         emit_pre_migrate_signal([], self.verbosity, self.interactive, connection.alias)

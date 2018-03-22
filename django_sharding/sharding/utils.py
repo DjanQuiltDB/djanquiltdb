@@ -90,7 +90,13 @@ class DynamicDbRouter(object):
         try:
             sharding_mode = hints.get('sharding_mode') or get_sharding_mode(app_label, model_name)
         except LookupError:
-            return False  # Model does not exist anymore: ignore.
+            # Model does not exist anymore, probably because it's removed in another migration. Ignore it now.
+            # Note that there is a separation between state_operations and database_operations.
+            # state_operations do not take heed of allow_migrate. They will therefore always be performed.
+            # Where database_operations ask allow_migrate if they should proceed.
+            # Creating and removing a model will therefore happen in state,
+            # but if the model is unknown to apps no mutations will be performed on the database.
+            return False
 
         if sharding_mode is None:
             # This happens when no model_name is given.

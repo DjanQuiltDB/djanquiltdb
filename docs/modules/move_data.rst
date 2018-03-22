@@ -1,4 +1,7 @@
-============
+=================
+Move Data Command
+=================
+
 Introduction
 ============
 
@@ -11,9 +14,8 @@ Next is to move data away from that 'main' schema, and into their own schemas. A
 This can be done with the move_data_to_shard command.
 
 
-=================
-Move Data Command
-=================
+Command usage
+=============
 
 Root-object
 -----------

@@ -249,21 +249,34 @@ class UseShardTestCase(ShardingTestCase):
 
         self.assertTrue(mock_set_schema.called)
 
-    def test_use_shard_without_public(self):
+    @mock.patch('sharding.utils._set_schema')
+    def test_use_shard_without_public(self, mock_set_schema):
         """
-        Case: Call use_shard within with include_plublic set to False.
+        Case: Call use_shard within with include_public set to False.
         Expected: Connection to switch twice and set_schema to be called accordingly
         """
+        with use_shard(self.shard, include_public=False) as env:
+            connection_1 = env.connection
+
+        mock_set_schema.assert_any_call(self.shard.schema_name, connection_1, include_public=False)
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard_inception(self, mock_set_schema):
         """
         Case: Call use_shard within a use_shard enviorment
-        Expected: _sets_schema to be called with include_public set to fasle
+        Expected: Connection to switch twice and set_schema to be called accordingly
         """
-        with use_shard(self.shard, include_public=False) as env:
-            connection1 = env.connection
-            mock_set_schema.assert_has_call(mock.call('test_schema', connection1, include_public=False))
+        with use_shard(self.shard) as env_1:
+            connection_1 = env_1.connection
+            mock_set_schema.assert_any_call(self.shard.schema_name, connection_1, include_public=True)
+            self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['default'])
+
+            with use_shard(self.other_shard) as env_2:
+                connection_2 = env_2.connection
+                mock_set_schema.assert_any_call(self.other_shard.schema_name, connection_2, include_public=True)
+                self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['default', 'other'])
+
+        self.assertIsNone(THREAD_LOCAL.DB_OVERRIDE)
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard_invalid_node_name(self, mock_set_schema):
