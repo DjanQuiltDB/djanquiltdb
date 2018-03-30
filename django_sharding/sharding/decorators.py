@@ -208,7 +208,7 @@ def sharded_model():
         cls.sharding_mode = ShardingMode.SHARDED
 
         for attr, func in cls.__dict__.items():
-            if callable(func) and not attr.startswith('__') and attr != 'check':
+            if callable(func) and attr != 'check':
                 # Make sure that all model methods are performed in a use shard context
                 setattr(cls, attr, _use_shard_sharded_model(func))
 
