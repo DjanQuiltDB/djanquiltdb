@@ -6,6 +6,7 @@ from django.db.models.signals import post_init
 from django.utils.module_loading import import_string
 
 from sharding import ShardingMode
+from sharding.decorators import _use_shard_sharded_model
 from sharding.utils import get_all_sharded_models
 
 
@@ -58,6 +59,10 @@ class ShardingConfig(AppConfig):
 
         for model in get_all_sharded_models():
             post_init.connect(store_initial_shard, model=model)
+
+            for attr, func in model.__dict__.items():
+                if callable(func) and not isinstance(func, type):
+                    setattr(model, attr, _use_shard_sharded_model(func))
 
 
 def _validate_override_sharding_mode_entry(key, value):
