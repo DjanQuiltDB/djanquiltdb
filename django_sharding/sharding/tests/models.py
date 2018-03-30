@@ -2,7 +2,7 @@ from unittest import mock
 
 from django.test import TestCase, SimpleTestCase, override_settings
 
-from example.models import Shard, Type, SuperType, Organization, User, OrganizationShards
+from example.models import Shard, Organization, User
 from sharding import ShardingMode, State
 from sharding.models import BaseShard
 from sharding.tests.utils import ShardingTestCase
@@ -178,10 +178,8 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
 
         self.assertEqual(org._schema_name, 'empire_schema')
         self.assertEqual(org._node_name, 'default')
-        self.assertEqual(org._shard, shard)
         self.assertEqual(user._schema_name, 'empire_schema')
         self.assertEqual(user._node_name, 'default')
-        self.assertEqual(user._shard, shard)
 
     def test_model_method(self):
         """

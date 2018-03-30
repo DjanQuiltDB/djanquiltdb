@@ -197,7 +197,8 @@ class UseShardTestCase(ShardingTestCase):
         """
         with use_shard(self.shard) as env:
             self.assertEqual(connection.alias, 'default')
-            mock_set_schema.assert_called_once_with('test_schema', env.connection, include_public=True)
+            mock_set_schema.assert_called_once_with('test_schema', env.connection, include_public=True,
+                                                    override_model_use_shard=False)
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard_on_other_node(self, mock_set_schema):
@@ -207,7 +208,8 @@ class UseShardTestCase(ShardingTestCase):
         """
         with use_shard(self.other_shard) as env:
             self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['other'])
-            mock_set_schema.assert_called_once_with('test_other_schema', env.connection,  include_public=True)
+            mock_set_schema.assert_called_once_with('test_other_schema', env.connection,  include_public=True,
+                                                    override_model_use_shard=False)
 
     @mock.patch("sharding.utils.connection.set_schema")
     def test_use_shard_with_invalid_argument(self, mock_set_schema):
@@ -258,7 +260,8 @@ class UseShardTestCase(ShardingTestCase):
         with use_shard(self.shard, include_public=False) as env:
             connection_1 = env.connection
 
-        mock_set_schema.assert_any_call(self.shard.schema_name, connection_1, include_public=False)
+        mock_set_schema.assert_any_call(self.shard.schema_name, connection_1, include_public=False,
+                                        override_model_use_shard=False)
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard_inception(self, mock_set_schema):
@@ -268,12 +271,14 @@ class UseShardTestCase(ShardingTestCase):
         """
         with use_shard(self.shard) as env_1:
             connection_1 = env_1.connection
-            mock_set_schema.assert_any_call(self.shard.schema_name, connection_1, include_public=True)
+            mock_set_schema.assert_any_call(self.shard.schema_name, connection_1, include_public=True,
+                                            override_model_use_shard=False)
             self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['default'])
 
             with use_shard(self.other_shard) as env_2:
                 connection_2 = env_2.connection
-                mock_set_schema.assert_any_call(self.other_shard.schema_name, connection_2, include_public=True)
+                mock_set_schema.assert_any_call(self.other_shard.schema_name, connection_2, include_public=True,
+                                                override_model_use_shard=False)
                 self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['default', 'other'])
 
         self.assertIsNone(THREAD_LOCAL.DB_OVERRIDE)
@@ -345,7 +350,7 @@ class UseShardForTestCase(TestCase):
         """
         with use_shard_for(1):
             mock_set_schema.assert_called_once_with(self.shard1.schema_name, connections[self.shard1.node_name],
-                                                    include_public=True)
+                                                    include_public=True, override_model_use_shard=False)
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard_for_inactive_object(self, mock_set_schema):

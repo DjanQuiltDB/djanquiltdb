@@ -78,6 +78,7 @@ def _validate_override_sharding_mode_entry(key, value):
         except LookupError:
             raise ImproperlyConfigured('Cannot find app_label to override sharding mode: {}'.format(app_label))
 
+
 def _initialize_sharded_models():
     """
     Initialize sharded models by adding a signal that sets some attributes and overriding all methods to add a
@@ -86,8 +87,8 @@ def _initialize_sharded_models():
     from .signals import store_initial_shard
 
     for model in get_all_sharded_models():
-        # Connect a signal to all sharded model that set _schema_name, _node_name and _shard on the instance
-        # after initializing the object
+        # Connect a signal to all sharded model that set _schema_name and _node_name on the instanc after initializing
+        # the object
         post_init.connect(store_initial_shard, sender=model)
 
         for attr, func in model.__dict__.items():
