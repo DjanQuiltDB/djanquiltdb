@@ -58,10 +58,14 @@ class ShardingConfig(AppConfig):
             )
 
         for model in get_all_sharded_models():
+            # Connect a signal to all sharded model that set _schema_name, _node_name and _shard on the instance
+            # after initializing the object
             post_init.connect(store_initial_shard, sender=model)
 
             for attr, func in model.__dict__.items():
                 if callable(func) and not isinstance(func, type):
+                    # And decorate all model methods so that the methods will all run in the same shard context as the
+                    # instance is living in
                     setattr(model, attr, _use_shard_sharded_model(func))
 
 
