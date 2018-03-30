@@ -16,7 +16,6 @@ class ShardingConfig(AppConfig):
 
     def ready(self):
         from .models import BaseShard
-        from .signals import store_initial_shard
 
         if 'SHARDING' not in dir(settings) or not isinstance(settings.SHARDING, dict):
             raise ImproperlyConfigured('Missing or incorrect type of a setting SHARDING.')
@@ -57,16 +56,7 @@ class ShardingConfig(AppConfig):
                 "to store sessions. It references the user table and won't know where to find it."
             )
 
-        for model in get_all_sharded_models():
-            # Connect a signal to all sharded model that set _schema_name, _node_name and _shard on the instance
-            # after initializing the object
-            post_init.connect(store_initial_shard, sender=model)
-
-            for attr, func in model.__dict__.items():
-                if callable(func) and not isinstance(func, type):
-                    # And decorate all model methods so that the methods will all run in the same shard context as the
-                    # instance is living in
-                    setattr(model, attr, _use_shard_sharded_model(func))
+        _initialize_sharded_models()
 
 
 def _validate_override_sharding_mode_entry(key, value):
@@ -87,3 +77,21 @@ def _validate_override_sharding_mode_entry(key, value):
             apps.get_app_config(app_label)
         except LookupError:
             raise ImproperlyConfigured('Cannot find app_label to override sharding mode: {}'.format(app_label))
+
+def _initialize_sharded_models():
+    """
+    Initialize sharded models by adding a signal that sets some attributes and overriding all methods to add a
+    use_shard context manager that makes sure all queries are done in that same shard as the object is living in.
+    """
+    from .signals import store_initial_shard
+
+    for model in get_all_sharded_models():
+        # Connect a signal to all sharded model that set _schema_name, _node_name and _shard on the instance
+        # after initializing the object
+        post_init.connect(store_initial_shard, sender=model)
+
+        for attr, func in model.__dict__.items():
+            if callable(func) and not isinstance(func, type):
+                # And decorate all model methods so that the methods will all run in the same shard context as the
+                # instance is living in
+                setattr(model, attr, _use_shard_sharded_model(func))
