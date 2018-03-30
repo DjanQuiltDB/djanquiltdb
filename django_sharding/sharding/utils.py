@@ -128,10 +128,11 @@ def _use_connection(node):
     return connections[node]
 
 
-def _set_schema(schema_name, _connection=None, include_public=True):
+def _set_schema(schema_name, _connection=None, include_public=True, override_model_use_shard=False):
     if not _connection:
         _connection = connection
-    _connection.set_schema(schema_name, include_public=include_public)
+    _connection.set_schema(schema_name, include_public=include_public,
+                           override_model_use_shard=override_model_use_shard)
 
 
 class use_shard(object):
@@ -172,8 +173,10 @@ class use_shard(object):
     # Both node_name and schema_name are not documented.
     # They bypass the shard.state check, and are only there to for internal use.
     # (Situations where the schema is made, but the shard object is not saved yet.)
-    def __init__(self, shard=None, node_name=None, schema_name=None, active_only_schemas=True, include_public=True):
+    def __init__(self, shard=None, node_name=None, schema_name=None, active_only_schemas=True, include_public=True,
+                 override_model_use_shard=False):
         self.include_public = include_public
+        self.override_model_use_shard = override_model_use_shard
 
         shard_class = get_shard_class()
         if shard:
@@ -223,13 +226,15 @@ class use_shard(object):
 
         # second: set the correct search_path for the requested schema
         self.old_schema_name = self.connection.get_schema()
+        self.old_override_model_use_shard = self.connection.override_model_use_shard
 
-        _set_schema(self.schema_name, self.connection, include_public=self.include_public)
+        _set_schema(self.schema_name, self.connection, include_public=self.include_public,
+                    override_model_use_shard=self.override_model_use_shard)
         return self
 
     def disable(self):
         # reset both the connection and the schema back to the old state
-        _set_schema(self.old_schema_name, self.connection)
+        _set_schema(self.old_schema_name, self.connection, override_model_use_shard=self.old_override_model_use_shard)
         if not THREAD_LOCAL.DB_OVERRIDE or THREAD_LOCAL.DB_OVERRIDE == [self.node_name]:
             THREAD_LOCAL.DB_OVERRIDE = None
         else:
