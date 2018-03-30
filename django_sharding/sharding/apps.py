@@ -87,7 +87,7 @@ def _initialize_sharded_models():
     from .signals import store_initial_shard
 
     for model in get_all_sharded_models():
-        # Connect a signal to all sharded model that set _schema_name and _node_name on the instanc after initializing
+        # Connect a signal to all sharded model that set _schema_name and _node_name on the instance after initializing
         # the object
         post_init.connect(store_initial_shard, sender=model)
 
@@ -95,4 +95,4 @@ def _initialize_sharded_models():
             if callable(func) and not isinstance(func, type):
                 # And decorate all model methods so that the methods will all run in the same shard context as the
                 # instance is living in
-                setattr(model, attr, _use_shard_sharded_model(func))
+                setattr(model, attr, _use_shard_sharded_model()(func))

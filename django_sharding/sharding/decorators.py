@@ -26,14 +26,18 @@ def _reset_shard_mapping_models():
     shard_mapping_models = False
 
 
-def _use_shard_sharded_model(func):
-    def inner(self, *args, **kwargs):
-        if getattr(self, '_schema_name') and getattr(self, '_node_name') and not connection.override_model_use_shard:
-            with use_shard(schema_name=self._schema_name, node_name=self._node_name):
-                return func(self, *args, **kwargs)
+def _use_shard_sharded_model():
+    def outer(func):
+        @functools.wraps(func)
+        def inner(self, *args, **kwargs):
+            if getattr(self, '_schema_name', None) and getattr(self, '_node_name', None) \
+                    and not connection.override_model_use_shard:
+                with use_shard(schema_name=self._schema_name, node_name=self._node_name):
+                    return func(self, *args, **kwargs)
 
-        return func(self, *args, **kwargs)
-    return inner
+            return func(self, *args, **kwargs)
+        return _add_decorator_reference(inner, decorator=_use_shard_sharded_model)
+    return outer
 
 
 def mirrored_model():
