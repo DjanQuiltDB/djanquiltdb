@@ -3,7 +3,7 @@ import inspect
 
 from django.core.exceptions import ImproperlyConfigured, FieldDoesNotExist
 from django.conf import settings
-from django.db import models
+from django.db import models, connection
 
 from sharding import ShardingMode, STATES
 from sharding.utils import transaction_for_every_node, get_all_databases, use_shard
@@ -24,6 +24,16 @@ def _reset_shard_mapping_models():
     # for internal testing use only.
     global shard_mapping_models
     shard_mapping_models = False
+
+
+def _use_shard_sharded_model(func):
+    def inner(self, *args, **kwargs):
+        if getattr(self, '_schema_name') and getattr(self, '_node_name') and not connection.override_model_use_shard:
+            with use_shard(schema_name=self._schema_name, node_name=self._node_name):
+                return func(self, *args, **kwargs)
+
+        return func(self, *args, **kwargs)
+    return inner
 
 
 def mirrored_model():

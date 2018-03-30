@@ -75,6 +75,10 @@ class User(AbstractBaseUser):
     def __str__(self):
         return self.name
 
+    def get_organization_name(self):
+        """ For testing purposes, we do a new query here to get the organization name """
+        return Organization.objects.get(id=self.organization_id).name
+
 
 @sharded_model()
 class Statement(models.Model):

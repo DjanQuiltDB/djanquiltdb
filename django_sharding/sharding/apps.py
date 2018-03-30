@@ -2,14 +2,17 @@ from django.apps import AppConfig, apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
+from django.db.models.signals import post_init
 from django.utils.module_loading import import_string
 
 from sharding import ShardingMode
+from sharding.decorators import _use_shard_sharded_model
+from sharding.utils import get_all_sharded_models
 
 
 class ShardingConfig(AppConfig):
     name = 'sharding'
-    verbose_name = "Sharding"
+    verbose_name = 'Sharding'
 
     def ready(self):
         from .models import BaseShard
@@ -53,6 +56,8 @@ class ShardingConfig(AppConfig):
                 "to store sessions. It references the user table and won't know where to find it."
             )
 
+        _initialize_sharded_models()
+
 
 def _validate_override_sharding_mode_entry(key, value):
     if not (isinstance(key, tuple) and len(key) in (1, 2) and isinstance(value, ShardingMode)):
@@ -72,3 +77,22 @@ def _validate_override_sharding_mode_entry(key, value):
             apps.get_app_config(app_label)
         except LookupError:
             raise ImproperlyConfigured('Cannot find app_label to override sharding mode: {}'.format(app_label))
+
+
+def _initialize_sharded_models():
+    """
+    Initialize sharded models by adding a signal that sets some attributes and overriding all methods to add a
+    use_shard context manager that makes sure all queries are done in that same shard as the object is living in.
+    """
+    from .signals import store_initial_shard
+
+    for model in get_all_sharded_models():
+        # Connect a signal to all sharded model that set _schema_name and _node_name on the instanc after initializing
+        # the object
+        post_init.connect(store_initial_shard, sender=model)
+
+        for attr, func in model.__dict__.items():
+            if callable(func) and not isinstance(func, type):
+                # And decorate all model methods so that the methods will all run in the same shard context as the
+                # instance is living in
+                setattr(model, attr, _use_shard_sharded_model(func))
