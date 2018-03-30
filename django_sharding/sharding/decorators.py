@@ -26,6 +26,16 @@ def _reset_shard_mapping_models():
     shard_mapping_models = False
 
 
+def _use_shard_sharded_model(func):
+    def inner(self, *args, **kwargs):
+        if getattr(self, '_schema_name') and getattr(self, '_node_name') and getattr(self, '_shard'):
+            with use_shard(schema_name=self._schema_name, node_name=self._node_name):
+                return func(self, *args, **kwargs)
+
+        return func(self, *args, **kwargs)
+    return inner
+
+
 def mirrored_model():
     """
     A decorator for marking a model for being mirror across the various nodes.
@@ -196,6 +206,11 @@ def sharded_model():
     """
     def configure(cls):
         cls.sharding_mode = ShardingMode.SHARDED
+
+        for attr, func in cls.__dict__.items():
+            if callable(func) and not attr.startswith('__') and attr != 'check':
+                setattr(cls, attr, _use_shard_sharded_model(func))
+
         return cls
 
     return configure

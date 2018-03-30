@@ -2,17 +2,20 @@ from django.apps import AppConfig, apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
+from django.db.models.signals import post_init
 from django.utils.module_loading import import_string
 
 from sharding import ShardingMode
+from sharding.utils import get_all_sharded_models
 
 
 class ShardingConfig(AppConfig):
     name = 'sharding'
-    verbose_name = "Sharding"
+    verbose_name = 'Sharding'
 
     def ready(self):
         from .models import BaseShard
+        from .signals import store_initial_shard
 
         if 'SHARDING' not in dir(settings) or not isinstance(settings.SHARDING, dict):
             raise ImproperlyConfigured('Missing or incorrect type of a setting SHARDING.')
@@ -52,6 +55,9 @@ class ShardingConfig(AppConfig):
                 "When the user model is sharded, you cannot use django.contrib.sessions.backends.cached_db "
                 "to store sessions. It references the user table and won't know where to find it."
             )
+
+        for model in get_all_sharded_models():
+            post_init.connect(store_initial_shard, model=model)
 
 
 def _validate_override_sharding_mode_entry(key, value):
