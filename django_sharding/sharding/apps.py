@@ -58,7 +58,7 @@ class ShardingConfig(AppConfig):
             )
 
         for model in get_all_sharded_models():
-            post_init.connect(store_initial_shard, model=model)
+            post_init.connect(store_initial_shard, sender=model)
 
             for attr, func in model.__dict__.items():
                 if callable(func) and not isinstance(func, type):

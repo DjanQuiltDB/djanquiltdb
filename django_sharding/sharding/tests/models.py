@@ -2,10 +2,11 @@ from unittest import mock
 
 from django.test import TestCase, SimpleTestCase, override_settings
 
-from example.models import Shard
-from sharding import ShardingMode
+from example.models import Shard, Type, SuperType, Organization, User, OrganizationShards
+from sharding import ShardingMode, State
 from sharding.models import BaseShard
-from sharding.utils import get_shard_class, use_shard
+from sharding.tests.utils import ShardingTestCase
+from sharding.utils import get_shard_class, use_shard, create_template_schema
 from sharding.tests.app_config import DummyShard
 
 
@@ -156,3 +157,74 @@ class BaseShardTestCase(TestCase):
         with self.assertRaises(ValueError):
             Shard.objects.create(alias='test_shard', schema_name='test_schema')
         self.assertFalse(mock_create_schema.called)
+
+
+class ShardedModelMethodUseShardTestCase(ShardingTestCase):
+    def setUp(self):
+        super().setUp()
+        create_template_schema()
+
+    def test_post_init(self):
+        """
+        Case: Initialize model instance in a use shard context
+        Expected: _schema_name, _node_name and _shard to be set on the instance
+        """
+        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                     state=State.ACTIVE)
+
+        with use_shard(shard):
+            org = Organization.objects.create(name='The Empire')
+            user = User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw', organization=org)
+
+        self.assertEqual(org._schema_name, 'empire_schema')
+        self.assertEqual(org._node_name, 'default')
+        self.assertEqual(org._shard, shard)
+        self.assertEqual(user._schema_name, 'empire_schema')
+        self.assertEqual(user._node_name, 'default')
+        self.assertEqual(user._shard, shard)
+
+    def test_model_method(self):
+        """
+        Case: Use a model method to query a related object that is living on the same shard as the object, while being
+              in a different shard
+        Expected: The model method is performed in the shard the model instance is living on
+        """
+        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                     state=State.ACTIVE)
+        other_shard = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default',
+                                           state=State.ACTIVE)
+
+        with use_shard(shard):
+            org = Organization.objects.create(name='The Empire')
+            user = User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw', organization=org)
+
+        # Now switch to another shard where the user and organization are not living
+        with use_shard(other_shard):
+            # And this one uses the user and organization are living on (it would give a DoesNotExist if it would be
+            # performed on other_shard)
+            self.assertEqual(user.get_organization_name(), 'The Empire')
+
+    def test_override_model_use_shard(self):
+        """
+        Case: Use a model method while being a shard with override_model_use_shard=True
+        Expected: The model method is not performed in a use_shard context of the shard the model instance is living on
+        """
+        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                     state=State.ACTIVE)
+        other_shard = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default',
+                                           state=State.ACTIVE)
+
+        with use_shard(shard):
+            org = Organization.objects.create(name='The Empire')
+            user = User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw', organization=org)
+
+        with use_shard(other_shard):
+            other_org = Organization.objects.create(name='The Rebel Alliance')
+
+        self.assertEqual(org.id, other_org.id)
+
+        # Now switch to another shard where the user and organization are not living
+        with use_shard(other_shard, override_model_use_shard=True):
+            # Since we provided override_model_use_shard=True, this one now queries the organization that is living on
+            # other_shard with the same ID as the organization that is living on shard.
+            self.assertEqual(user.get_organization_name(), 'The Rebel Alliance')
