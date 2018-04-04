@@ -1,3 +1,6 @@
+import inspect
+import types
+
 from django.apps import AppConfig, apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -91,8 +94,19 @@ def _initialize_sharded_models():
         # the object
         post_init.connect(store_initial_shard, sender=model)
 
-        for attr, func in model.__dict__.items():
-            if callable(func) and not isinstance(func, type):
-                # And decorate all model methods so that the methods will all run in the same shard context as the
-                # instance is living in
-                setattr(model, attr, _use_shard_sharded_model()(func))
+        _decorate_sharded_model(model)
+
+
+def _decorate_sharded_model(model):
+    """
+    Add decorators to all class methods to use a use_shard context manager that makes sure all queries are done in that
+    same shard as the object is living in.
+    """
+    for attr, func in inspect.getmembers(model, inspect.isfunction):
+        # getattr(model, attr) will trigger dynamic lookup via the descriptor protocol,  __getattr__ or
+        # __getattribute__. Therefore, we use inspect.getattr_static to strip out staticmethods (which we don't want
+        # to decorate).
+        if isinstance(inspect.getattr_static(model, attr), types.FunctionType):
+            # And decorate all model methods so that the methods will all run in the same shard context as the
+            # instance is living in
+            setattr(model, attr, _use_shard_sharded_model()(func))

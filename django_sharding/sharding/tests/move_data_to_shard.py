@@ -46,10 +46,11 @@ class MoveDataToShardTransaction(ShardingTransactionTestCase):
         with use_shard(self.source_shard):
             self.assertFalse(Organization.objects.all().exists())
 
-        with use_shard(self.target_shard):
+        with use_shard(self.target_shard, override_model_use_shard=True):
             self.organization.refresh_from_db()
             self.user.refresh_from_db()
 
+        with use_shard(self.target_shard):
             # make new organization and user, check if the id does not collide
             organization_new = Organization.objects.create(name='Scribblenauts')
             self.assertEqual(organization_new.id, self.organization.id+1)
@@ -125,6 +126,8 @@ class MoveDataToShard(ShardingTestCase):
             self.assertCountEqual(Organization.objects.all(), [self.organization_1])
             self.assertCountEqual(User.objects.all(), [self.user_1])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2])
+
+        with use_shard(self.target_shard, override_model_use_shard=True):
             self.organization_1.refresh_from_db()
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert', side_effect=DatabaseError)
