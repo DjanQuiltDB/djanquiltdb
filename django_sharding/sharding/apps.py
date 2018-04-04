@@ -1,4 +1,5 @@
 import inspect
+import types
 
 from django.apps import AppConfig, apps
 from django.conf import settings
@@ -94,6 +95,10 @@ def _initialize_sharded_models():
         post_init.connect(store_initial_shard, sender=model)
 
         for attr, func in inspect.getmembers(model, inspect.isfunction):
-            # And decorate all model methods so that the methods will all run in the same shard context as the
-            # instance is living in
-            setattr(model, attr, _use_shard_sharded_model()(func))
+            # getattr(model, attr) will trigger dynamic lookup via the descriptor protocol,  __getattr__ or
+            # __getattribute__. Therefore, we use inspect.getattr_static to strip out staticmethods (which we don't want
+            # to decorate).
+            if isinstance(inspect.getattr_static(model, attr), types.FunctionType):
+                # And decorate all model methods so that the methods will all run in the same shard context as the
+                # instance is living in
+                setattr(model, attr, _use_shard_sharded_model()(func))
