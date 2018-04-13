@@ -256,8 +256,10 @@ class PostgresBackendTestCase(ShardingTestCase):
         with use_shard(shard_2):
             user_4 = User.objects.create(name='Sjonnie', email='sjonnie@gast.bv', organization=organization_2)
 
+        self.assertEqual(user_1.id, 1)  # Sequence starts at 1
         self.assertEqual(user_1.id, user_2.id)  # Both on different schema's, both new sequencers.
         self.assertEqual(user_3.id, user_4.id)  # Both on different schema's, continuation of above sequencer.
+        self.assertEqual(organization_1.id, 1)  # Sequence starts at 1
         self.assertEqual(organization_1.id, organization_2.id)  # different schema's, both new sequencers
         self.assertNotEqual(user_1.id, user_3.id)  # Both on same schema
         self.assertNotEqual(user_2.id, user_4.id)  # Both on same schema

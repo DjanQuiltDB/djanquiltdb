@@ -38,8 +38,8 @@ BEGIN
     SELECT sequence_name::text FROM information_schema.SEQUENCES WHERE sequence_schema = source_schema
   LOOP
     EXECUTE 'CREATE SEQUENCE ' || dest_schema || '.' || object;
-    EXECUTE format('SELECT setval(%L, (SELECT last_value FROM %I.%I))',
-      dest_schema || '.' || object, source_schema, object);
+    EXECUTE format('SELECT setval(%L, (SELECT last_value FROM %I.%I), (SELECT is_called FROM %I.%I))',
+      dest_schema || '.' || object, source_schema, object, source_schema, object);
   END LOOP;
 
   FOR object IN
