@@ -6,6 +6,7 @@ from django.conf import settings
 from django.db import models, connection
 
 from sharding import ShardingMode, STATES
+from sharding.exceptions import ShardingError
 from sharding.utils import transaction_for_every_node, get_all_databases, use_shard
 
 shard_mapping_models = False
@@ -30,11 +31,20 @@ def _use_shard_sharded_model():
     def outer(func):
         @functools.wraps(func)
         def inner(self, *args, **kwargs):
-            if getattr(self, '_schema_name', None) and getattr(self, '_node_name', None) \
-                    and not connection.override_model_use_shard:
+            has_shard_attributes = hasattr(self, '_schema_name') and hasattr(self, '_node_name')
+
+            if has_shard_attributes and (not self._schema_name or not self._node_name):
+                raise ShardingError('Sharded model instance does not have node name and schema name set')
+
+            if hasattr(self, '_state') and self._state.db and self._state.db != self._node_name:
+                raise ShardingError('Sharded model instance has a different node name than the Django state database')
+
+            if has_shard_attributes and not connection.override_model_use_shard:
                 with use_shard(schema_name=self._schema_name, node_name=self._node_name):
                     return func(self, *args, **kwargs)
 
+            # Schema name and node name are not set when creating an object (post_init didn't fire at that point),
+            # so just return the method without an use_shard context in this case.
             return func(self, *args, **kwargs)
         return _add_decorator_reference(inner, decorator=_use_shard_sharded_model)
     return outer
