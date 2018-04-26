@@ -28,22 +28,29 @@ def _reset_shard_mapping_models():
 
 
 def _use_shard_sharded_model():
+    """
+    Decorator that is used to decorate all model methods of sharded models. It will make sure that the model methods are
+    run in the same shard as the instance lives in.
+    """
     def outer(func):
         @functools.wraps(func)
         def inner(self, *args, **kwargs):
-            if connection.override_model_use_shard:
+            # Ignore going into a shard if override_model_use_shard is set to True
+            if connection._override_model_use_shard:
                 return func(self, *args, **kwargs)
 
-            has_shard_attributes = hasattr(self, '_schema_name') and hasattr(self, '_node_name')
+            has_shard_attributes = hasattr(self, '_shard')
 
-            if has_shard_attributes and (not self._schema_name or not self._node_name):
+            # If the shard attributes are set, both schema name and node name should be not null at all time
+            if has_shard_attributes and (not self._shard.schema_name or not self._shard.node_name):
                 raise ShardingError('Sharded model instance does not have node name and schema name set')
 
-            if hasattr(self, '_state') and self._state.db and self._state.db != self._node_name:
+            # Django also saves the node name in _state.db. Check, if set, if that is equal to the node name we saved
+            if hasattr(self, '_state') and self._state.db and self._state.db != self._shard.node_name:
                 raise ShardingError('Sharded model instance has a different node name than the Django state database')
 
             if has_shard_attributes:
-                with use_shard(schema_name=self._schema_name, node_name=self._node_name):
+                with self._shard.use():
                     return func(self, *args, **kwargs)
 
             # Schema name and node name are not set when creating an object (post_init didn't fire at that point),

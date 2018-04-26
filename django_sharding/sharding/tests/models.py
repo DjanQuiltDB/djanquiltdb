@@ -2,12 +2,12 @@ from unittest import mock
 
 from django.test import TestCase, SimpleTestCase, override_settings
 
-from example.models import Shard, Organization, User
+from example.models import Shard, Organization, User, OrganizationShards
 from sharding import ShardingMode, State
 from sharding.exceptions import ShardingError
 from sharding.models import BaseShard
 from sharding.tests.utils import ShardingTestCase
-from sharding.utils import get_shard_class, use_shard, create_template_schema
+from sharding.utils import get_shard_class, use_shard, create_template_schema, use_shard_for, StateException
 from sharding.tests.app_config import DummyShard
 
 
@@ -168,7 +168,7 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
     def test_post_init(self):
         """
         Case: Initialize model instance in a use shard context
-        Expected: _schema_name, _node_name and _shard to be set on the instance
+        Expected: _shard to be set on the instance
         """
         shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
                                      state=State.ACTIVE)
@@ -177,10 +177,77 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
             org = Organization.objects.create(name='The Empire')
             user = User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw', organization=org)
 
-        self.assertEqual(org._schema_name, 'empire_schema')
-        self.assertEqual(org._node_name, 'default')
-        self.assertEqual(user._schema_name, 'empire_schema')
-        self.assertEqual(user._node_name, 'default')
+        self.assertEqual(org._shard.schema_name, 'empire_schema')
+        self.assertEqual(org._shard.node_name, 'default')
+        self.assertEqual(org._shard.id, shard.id)
+        self.assertEqual(org._shard.mapping_value, None)
+        self.assertEqual(org._shard.active_only_schemas, True)
+
+        self.assertEqual(user._shard.schema_name, 'empire_schema')
+        self.assertEqual(user._shard.node_name, 'default')
+        self.assertEqual(user._shard.id, shard.id)
+        self.assertEqual(user._shard.mapping_value, None)
+        self.assertEqual(user._shard.active_only_schemas, True)
+
+    def test_post_init_use_shard_for(self):
+        """
+        Case: Initialize model instance in a use shard_for context
+        Expected: _shard to be set on the instance, with mapping value equal to the organization ID
+        """
+        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                     state=State.ACTIVE)
+
+        with use_shard(shard):
+            org = Organization.objects.create(name='The Empire')
+            User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw', organization=org)
+
+        OrganizationShards.objects.create(organization_id=org.id, shard_id=shard.id)
+
+        with use_shard_for(org.id):
+            org = Organization.objects.get()  # Only one entry, so we can do this safely
+            user = User.objects.get()  # Only one entry, so we can do this safely
+
+        self.assertEqual(org._shard.schema_name, 'empire_schema')
+        self.assertEqual(org._shard.node_name, 'default')
+        self.assertEqual(org._shard.id, shard.id)
+        self.assertEqual(org._shard.mapping_value, org.id)
+        self.assertEqual(org._shard.active_only_schemas, True)
+
+        self.assertEqual(user._shard.schema_name, 'empire_schema')
+        self.assertEqual(user._shard.node_name, 'default')
+        self.assertEqual(user._shard.id, shard.id)
+        self.assertEqual(user._shard.mapping_value, org.id)
+        self.assertEqual(user._shard.active_only_schemas, True)
+
+    def test_post_init_schema_name(self):
+        """
+        Case: Initialize model instance in a use shard context with providing the node name and schema name
+        Expected: _shard to be set on the instance, but shard id is not known
+        """
+        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                     state=State.ACTIVE)
+
+        with use_shard(node_name=shard.node_name, schema_name=shard.schema_name):
+            org = Organization.objects.create(name='The Empire')
+            user = User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw', organization=org)
+
+        self.assertEqual(org._shard.schema_name, 'empire_schema')
+        self.assertEqual(org._shard.node_name, 'default')
+        self.assertEqual(org._shard.id, None)
+        self.assertEqual(org._shard.mapping_value, None)
+        self.assertEqual(org._shard.active_only_schemas, True)
+
+        self.assertEqual(user._shard.schema_name, 'empire_schema')
+        self.assertEqual(user._shard.node_name, 'default')
+        self.assertEqual(user._shard.id, None)
+        self.assertEqual(user._shard.mapping_value, None)
+        self.assertEqual(user._shard.active_only_schemas, True)
+
+        with self.assertRaisesMessage(ShardingError, 'Shard ID is not known for this instance'):
+            org._shard.get()
+
+        with self.assertRaisesMessage(ShardingError, 'Shard ID is not known for this instance'):
+            user._shard.get()
 
     def test_model_method(self):
         """
@@ -239,17 +306,17 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         with use_shard(shard):
             org = Organization.objects.create(name='The Empire')
 
-        org._schema_name = None
+        org._shard.schema_name = None
 
         with self.assertRaises(ShardingError):
             org.save()
 
-        org._node_name = None
+        org._shard.node_name = None
 
         with self.assertRaises(ShardingError):
             org.save()
 
-        org._schema_name = 'empire_schema'
+        org._shard.schema_name = 'empire_schema'
 
         with self.assertRaises(ShardingError):
             org.save()
@@ -265,7 +332,45 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         with use_shard(shard):
             org = Organization.objects.create(name='The Empire')
 
-        org._node_name = 'not_default'
+        org._shard.node_name = 'not_default'
 
         with self.assertRaises(ShardingError):
             org.save()
+
+    def test_use_shard_for(self):
+        """
+        Case: Get a sharded model instance with use_shard_for and while having that instance, set the organization shard
+              to in maintenance
+        Expected: The model method on the sharded model instance will raise a StateException
+        """
+        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                     state=State.ACTIVE)
+        other_shard = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default',
+                                           state=State.ACTIVE)
+
+        with use_shard(shard):
+            org = Organization.objects.create(name='The Empire')
+            user = User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw', organization=org)
+
+        org_shard = OrganizationShards.objects.create(organization_id=org.id, shard_id=shard.id,
+                                                      state=State.MAINTENANCE)
+
+        # We can now still do this because we entered the shard through use_shard instead of use_shard_for
+        user.get_organization_name()
+
+        # Now set the organization shard to active, so we can retrieve the user
+        org_shard.state = State.ACTIVE
+        org_shard.save(update_fields=['state'])
+
+        # Now fetch the user with use_shard_for
+        with use_shard_for(org.id):
+            user = User.objects.get()  # Only one entry, so we can do this safely
+
+        # Now set the organization shard in maintenance
+        org_shard.state = State.MAINTENANCE
+        org_shard.save(update_fields=['state'])
+
+        with use_shard(other_shard):
+            with self.assertRaisesMessage(StateException, 'Mapping object OrganizationShards object state is '
+                                                          'Maintenance'):
+                user.get_organization_name()
