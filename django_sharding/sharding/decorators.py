@@ -41,7 +41,7 @@ def _use_shard_sharded_model():
 
             has_shard_attributes = hasattr(self, '_shard')
 
-            # If the shard attributes are set, both schema name and node name should be not null at all time
+            # If the shard attributes are set, both schema name and node name should never be null
             if has_shard_attributes and (not self._shard.schema_name or not self._shard.node_name):
                 raise ShardingError('Sharded model instance does not have node name and schema name set')
 
