@@ -31,6 +31,9 @@ def _use_shard_sharded_model():
     def outer(func):
         @functools.wraps(func)
         def inner(self, *args, **kwargs):
+            if connection.override_model_use_shard:
+                return func(self, *args, **kwargs)
+
             has_shard_attributes = hasattr(self, '_schema_name') and hasattr(self, '_node_name')
 
             if has_shard_attributes and (not self._schema_name or not self._node_name):
@@ -39,7 +42,7 @@ def _use_shard_sharded_model():
             if hasattr(self, '_state') and self._state.db and self._state.db != self._node_name:
                 raise ShardingError('Sharded model instance has a different node name than the Django state database')
 
-            if has_shard_attributes and not connection.override_model_use_shard:
+            if has_shard_attributes:
                 with use_shard(schema_name=self._schema_name, node_name=self._node_name):
                     return func(self, *args, **kwargs)
 
