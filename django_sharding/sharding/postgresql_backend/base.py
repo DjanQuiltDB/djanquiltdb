@@ -94,7 +94,6 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     """
 
     include_public_schema = True
-    override_model_use_shard = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -109,6 +108,12 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self.search_path_set = False
         self.set_schema_to_public()
 
+        # Parameters that are set to determine the use_shard parameters in sharded model methods
+        self._override_model_use_shard = False
+        self._shard_id = None
+        self._mapping_value = None
+        self._active_only_schemas = True
+
     def close(self):
         self.search_path_set = False
         super().close()
@@ -118,7 +123,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # Django's rollback clears the search path so we have to set it again the next time.
         self.search_path_set = False
 
-    def set_schema(self, schema_name, include_public=True, override_model_use_shard=False):
+    def set_schema(self, schema_name, include_public=True, override_model_use_shard=False, shard_id=None,
+                   mapping_value=None, active_only_schemas=True):
         """
         Main API method to tell the connection to use a different schema.
         The postgresql search_path will be changed when a new cursor is requested.
@@ -127,7 +133,12 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self.schema_name = schema_name
         self.include_public_schema = include_public
         self.search_path_set = False
-        self.override_model_use_shard = override_model_use_shard
+
+        # Parameters that are set to determine the use_shard parameters in sharded model methods
+        self._override_model_use_shard = override_model_use_shard
+        self._shard_id = shard_id
+        self._mapping_value = mapping_value
+        self._active_only_schemas = active_only_schemas
 
     def set_schema_to_public(self):
         """

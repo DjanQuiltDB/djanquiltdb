@@ -128,11 +128,13 @@ def _use_connection(node):
     return connections[node]
 
 
-def _set_schema(schema_name, _connection=None, include_public=True, override_model_use_shard=False):
+def _set_schema(schema_name, _connection=None, include_public=True, override_model_use_shard=False, shard_id=None,
+                mapping_value=None, active_only_schemas=True):
     if not _connection:
         _connection = connection
     _connection.set_schema(schema_name, include_public=include_public,
-                           override_model_use_shard=override_model_use_shard)
+                           override_model_use_shard=override_model_use_shard, shard_id=shard_id,
+                           mapping_value=mapping_value, active_only_schemas=active_only_schemas)
 
 
 class use_shard(object):
@@ -146,8 +148,9 @@ class use_shard(object):
         of the schema.
     :param str schema_name: Alternatively, you can provide the name of the database the schema can be found and the
         name of the schema.
-    :param bool active_only_schemas: True by default. Raises a StateException when any objects in the mapping table
-        has a non active state and links to this shard.
+    :param bool active_only_schemas: True by default. Raises a StateException when the shard has a non active state.
+    :param bool include_public: True by default. Includes the public schema in the cursor when set to True.
+    :param bool override_model_use_shard: False by default. Skips using use_shard in model methods by default.
 
     :returns: The context manager as an object with the following members:
 
@@ -169,6 +172,8 @@ class use_shard(object):
                 User.objects.create(name="John Snow")
 
     """
+    shard = None
+    mapping_value = None
 
     # Both node_name and schema_name are not documented.
     # They bypass the shard.state check, and are only there to for internal use.
@@ -177,6 +182,7 @@ class use_shard(object):
                  override_model_use_shard=False):
         self.include_public = include_public
         self.override_model_use_shard = override_model_use_shard
+        self.active_only_schemas = active_only_schemas
 
         shard_class = get_shard_class()
         if shard:
@@ -184,14 +190,8 @@ class use_shard(object):
                 raise ValueError("Shard value {} ({}) must of type {}".format(shard,
                                                                               type(shard).__name__,
                                                                               shard_class.__name__))
-            if active_only_schemas and shard.state != State.ACTIVE:
+            if self.active_only_schemas and shard.state != State.ACTIVE:
                 raise StateException("Shard {} state is {}".format(shard, shard.state), shard.state)
-
-            mapping_model = get_mapping_class()
-            if active_only_schemas and mapping_model:
-                if mapping_model.objects.for_shard(shard).in_maintenance().exists():
-                    raise StateException("Shard {} contains mapping objects that are in maintenance".format(shard),
-                                         State.MAINTENANCE)
 
             self.shard = shard
             self.schema_name = shard.schema_name
@@ -220,25 +220,39 @@ class use_shard(object):
         return inner
 
     def enable(self):
-        # first: set the connection
+        # First: set the connection
         self.old_connection_name = connection.settings_dict['NAME']
         self.connection = _use_connection(self.node_name)
 
-        # second: set the correct search_path for the requested schema
+        # Second: set the correct search_path for the requested schema
         self.old_schema_name = self.connection.get_schema()
-        self.old_override_model_use_shard = self.connection.override_model_use_shard
+        self.old_override_model_use_shard = self.connection._override_model_use_shard
+        self.old_shard_id = self.connection._shard_id
+        self.old_mapping_value = self.connection._mapping_value
+        self.old_active_only_schemas = self.connection._active_only_schemas
 
-        _set_schema(self.schema_name, self.connection, include_public=self.include_public,
-                    override_model_use_shard=self.override_model_use_shard)
+        _set_schema(
+            self.schema_name,
+            self.connection,
+            include_public=self.include_public,
+            override_model_use_shard=self.override_model_use_shard,
+            shard_id=self.shard.id if self.shard else None,
+            mapping_value=self.mapping_value,
+            active_only_schemas=self.active_only_schemas
+        )
+
         return self
 
     def disable(self):
-        # reset both the connection and the schema back to the old state
-        _set_schema(self.old_schema_name, self.connection, override_model_use_shard=self.old_override_model_use_shard)
+        # Reset both the connection and the schema back to the old state
+        _set_schema(self.old_schema_name, self.connection, override_model_use_shard=self.old_override_model_use_shard,
+                    shard_id=self.old_shard_id, mapping_value=self.old_mapping_value,
+                    active_only_schemas=self.old_active_only_schemas)
+
         if not THREAD_LOCAL.DB_OVERRIDE or THREAD_LOCAL.DB_OVERRIDE == [self.node_name]:
             THREAD_LOCAL.DB_OVERRIDE = None
         else:
-            THREAD_LOCAL.DB_OVERRIDE.pop()  # remove last entry, which is self.node
+            THREAD_LOCAL.DB_OVERRIDE.pop()  # Remove last entry, which is self.node
 
 
 def get_shard_for(target_value, active_only=False):
@@ -297,10 +311,12 @@ def get_shard_for(target_value, active_only=False):
     mapping_object = mapping_model.objects.select_related('shard').for_target(target_value)
     if active_only:
         if mapping_object.state != State.ACTIVE:
-            raise StateException("Mapping object {} state is {}".format(mapping_object, mapping_object.state),
+            raise StateException('Mapping object {} state is {}'.format(mapping_object,
+                                                                        mapping_object.get_state_display()),
                                  mapping_object.state)
         if mapping_object.shard.state != State.ACTIVE:
-            raise StateException("Shard {} state is {}".format(mapping_object.state, mapping_object.shard.state),
+            raise StateException('Shard {} state is {}'.format(mapping_object.state,
+                                                               mapping_object.shard.get_state_display()),
                                  mapping_object.shard.state)
     return mapping_object.shard
 
@@ -315,6 +331,9 @@ class use_shard_for(use_shard):
     :note: If the mapping model has a state, it will raise a StateException if the state is not State.ACTIVE.
 
     :param target_value: Value for mapping_field in your mapping table
+    :param bool active_only_schemas: True by default. Raises a StateException when the mapping table or the shard
+        has a non active state.
+    :param bool override_model_use_shard: False by default. Skips using use_shard in model methods by default.
 
     :returns: The context manager as an object with the following members:
 
@@ -324,7 +343,7 @@ class use_shard_for(use_shard):
     :Example:
         .. code-block:: python
 
-            # settings
+            # Settings
             SHARDING = {
                 'SHARD_CLASS': 'myapp.models.Shard',
                 'MAPPING_MODEL': 'myapp.models.MyMappingModel',
@@ -356,11 +375,13 @@ class use_shard_for(use_shard):
             from django_sharding.utils import use_shard_for
 
             with use_shard_for(user.organization.id):
-                # do things on my shard
+                # Do things on my shard
 
     """
-    def __init__(self, target_value):
-        super().__init__(shard=get_shard_for(target_value, active_only=True), active_only_schemas=False)
+    def __init__(self, target_value, active_only_schemas=True, override_model_use_shard=False):
+        self.mapping_value = target_value
+        super().__init__(shard=get_shard_for(target_value, active_only=active_only_schemas),
+                         active_only_schemas=active_only_schemas, override_model_use_shard=override_model_use_shard)
 
 
 def get_new_shard_node():
