@@ -4,6 +4,7 @@ from django.test import TestCase, SimpleTestCase, override_settings
 
 from example.models import Shard, Organization, User
 from sharding import ShardingMode, State
+from sharding.exceptions import ShardingError
 from sharding.models import BaseShard
 from sharding.tests.utils import ShardingTestCase
 from sharding.utils import get_shard_class, use_shard, create_template_schema
@@ -226,3 +227,45 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
             # Since we provided override_model_use_shard=True, this one now queries the organization that is living on
             # other_shard with the same ID as the organization that is living on shard.
             self.assertEqual(user.get_organization_name(), 'The Rebel Alliance')
+
+    def test_no_shard_set(self):
+        """
+        Case: Get a sharded model instance and try to call a method while having schema name or node name not set
+        Expected: ShardingError raises
+        """
+        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                     state=State.ACTIVE)
+
+        with use_shard(shard):
+            org = Organization.objects.create(name='The Empire')
+
+        org._schema_name = None
+
+        with self.assertRaises(ShardingError):
+            org.save()
+
+        org._node_name = None
+
+        with self.assertRaises(ShardingError):
+            org.save()
+
+        org._schema_name = 'empire_schema'
+
+        with self.assertRaises(ShardingError):
+            org.save()
+
+    def test_different_shard_set(self):
+        """
+        Case: Get a sharded model instance and have a node name that is different than the instance._state.db
+        Expected: ShardingError raises
+        """
+        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                     state=State.ACTIVE)
+
+        with use_shard(shard):
+            org = Organization.objects.create(name='The Empire')
+
+        org._node_name = 'not_default'
+
+        with self.assertRaises(ShardingError):
+            org.save()

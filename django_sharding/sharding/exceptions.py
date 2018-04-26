@@ -1,0 +1,2 @@
+class ShardingError(Exception):
+    pass
