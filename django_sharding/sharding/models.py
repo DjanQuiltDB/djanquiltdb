@@ -1,3 +1,4 @@
+from django.apps import apps
 from django.conf import settings
 from django.db import models, connections
 from django.db.models import Q
@@ -137,7 +138,7 @@ def store_initial_shard(sender, instance, **kwargs):
     model = sender.__base__ if sender._deferred else sender
 
     # Check if the sender is a sharded model
-    if get_model_sharding_mode(model) == ShardingMode.SHARDED:
+    if model in apps.get_models() and get_model_sharding_mode(model) == ShardingMode.SHARDED:
         from django.db import connection
 
         instance._shard = InstanceShardOptions(
