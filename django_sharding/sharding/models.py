@@ -6,7 +6,7 @@ from django.dispatch import receiver
 
 from sharding import State, STATES, ShardingMode
 from sharding.exceptions import ShardingError
-from sharding.utils import get_shard_class, use_shard_for, use_shard, get_all_sharded_models
+from sharding.utils import get_shard_class, use_shard_for, use_shard, get_model_sharding_mode
 
 
 class MappingQuerySet(models.QuerySet):
@@ -137,7 +137,7 @@ def store_initial_shard(sender, instance, **kwargs):
     model = sender.__base__ if sender._deferred else sender
 
     # Check if the sender is a sharded model
-    if model in get_all_sharded_models():
+    if get_model_sharding_mode(model) == ShardingMode.SHARDED:
         from django.db import connection
 
         instance._shard = InstanceShardOptions(

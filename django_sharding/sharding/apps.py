@@ -5,7 +5,6 @@ from django.apps import AppConfig, apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models.signals import post_init
 from django.utils.module_loading import import_string
 
 from sharding import ShardingMode
