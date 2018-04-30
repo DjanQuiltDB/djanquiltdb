@@ -2,7 +2,7 @@ from unittest import mock
 
 from django.test import TestCase, SimpleTestCase, override_settings
 
-from example.models import Shard, Organization, User, OrganizationShards
+from example.models import Shard, Organization, User, OrganizationShards, Type
 from sharding import ShardingMode, State
 from sharding.exceptions import ShardingError
 from sharding.models import BaseShard
@@ -158,6 +158,25 @@ class BaseShardTestCase(TestCase):
         with self.assertRaises(ValueError):
             Shard.objects.create(alias='test_shard', schema_name='test_schema')
         self.assertFalse(mock_create_schema.called)
+
+
+class MirroredModelTestCase(ShardingTestCase):
+    def setUp(self):
+        super().setUp()
+        create_template_schema()
+
+    def post_init(self):
+        """
+        Case: Create a mirrored model
+        Expected: _shard attribute is not set on the mirrored model
+        """
+        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                     state=State.ACTIVE)
+
+        with use_shard(shard):
+            type_ = Type.objects.create(name='test')
+
+        self.assertFalse(hasattr(type_, '_shard'))
 
 
 class ShardedModelMethodUseShardTestCase(ShardingTestCase):
