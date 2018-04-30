@@ -84,29 +84,15 @@ def _validate_override_sharding_mode_entry(key, value):
 
 def _initialize_sharded_models():
     """
-    Initialize sharded models by adding a signal that sets some attributes and overriding all methods to add a
-    use_shard context manager that makes sure all queries are done in that same shard as the object is living in.
+    Initialize sharded models by overriding all methods to add a use_shard context manager that makes sure all queries
+    are done in that same shard as the object is living in.
     """
-    from .signals import store_initial_shard
-
     for model in get_all_sharded_models():
-        # Connect a signal to all sharded model that set _schema_name and _node_name on the instance after initializing
-        # the object
-        post_init.connect(store_initial_shard, sender=model)
-
-        _decorate_sharded_model(model)
-
-
-def _decorate_sharded_model(model):
-    """
-    Add decorators to all class methods to use a use_shard context manager that makes sure all queries are done in that
-    same shard as the object is living in.
-    """
-    for attr, func in inspect.getmembers(model, inspect.isfunction):
-        # getattr(model, attr) will trigger dynamic lookup via the descriptor protocol,  __getattr__ or
-        # __getattribute__. Therefore, we use inspect.getattr_static to strip out staticmethods (which we don't want
-        # to decorate).
-        if isinstance(inspect.getattr_static(model, attr), types.FunctionType):
-            # And decorate all model methods so that the methods will all run in the same shard context as the
-            # instance is living in
-            setattr(model, attr, _use_shard_sharded_model()(func))
+        for attr, func in inspect.getmembers(model, inspect.isfunction):
+            # getattr(model, attr) will trigger dynamic lookup via the descriptor protocol,  __getattr__ or
+            # __getattribute__. Therefore, we use inspect.getattr_static to strip out staticmethods (which we don't want
+            # to decorate).
+            if isinstance(inspect.getattr_static(model, attr), types.FunctionType):
+                # And decorate all model methods so that the methods will all run in the same shard context as the
+                # instance is living in
+                setattr(model, attr, _use_shard_sharded_model()(func))
