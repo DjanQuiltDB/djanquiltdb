@@ -7,10 +7,9 @@ def a_function():
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("migration_tests", "0001_initial"),
+        ('migration_tests', '0001_run_python'),
     ]
 
     operations = [
-        # migrations.AddField("UnexistingModel", "some_field", models.IntegerField(default=0)),
         migrations.RunSQL('SET CONSTRAINTS ALL IMMEDIATE', reverse_sql=migrations.RunSQL.noop),
     ]

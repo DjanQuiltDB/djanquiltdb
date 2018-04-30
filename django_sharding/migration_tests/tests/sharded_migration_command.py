@@ -1119,5 +1119,10 @@ class UnroutableMigrationTestCase(TestCase):
         Case: Run a migration with a run_sql operation lacking hints.
         Expected: A ProgrammingError to be raised.
         """
+        # Mark migration 0001 as migrated, but don't actually perform it. Since it will raise an error.
+        executor = MigrationExecutor(connection)
+        executor.migrate([('migration_tests', '0001_run_python')], fake=True)
+        executor.loader.build_graph()
+
         with self.assertRaises(ProgrammingError):
-            call_command('migrate', 'migration_tests', '0002', verbosity=0)
+            executor.migrate([('migration_tests', '0002_run_sql')])
