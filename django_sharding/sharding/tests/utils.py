@@ -744,9 +744,10 @@ class DynamicDbRouterTestCase(ShardingTestCase):
     def test_allow_migrate_on_nonexisting_model(self):
         """
         Case: Call allow_migrate for a model that (no longer) exists.
-        Expected: False to be returned. Don't migrate this model any more.
+        Expected: Programming error to be raised
         """
-        self.assertFalse(self.router.allow_migrate('default', 'example', 'outer_space'))
+        with self.assertRaises(ProgrammingError):
+            self.router.allow_migrate('default', 'example', 'outer_space')
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
                                  'MAPPING_MODEL': 'example.models.OrganizationShards',
@@ -766,9 +767,10 @@ class DynamicDbRouterTestCase(ShardingTestCase):
     def test_allow_migrate_on_none(self):
         """
         Case: Call allow_migrate without a model_name
-        Expected: False to be returned
+        Expected: Programming error to be raised
         """
-        self.assertFalse(self.router.allow_migrate('default', 'example', model_name=None))
+        with self.assertRaises(ProgrammingError):
+            self.router.allow_migrate('default', 'example', model_name=None)
 
     def test_allow_migrate_with_hints(self):
         """

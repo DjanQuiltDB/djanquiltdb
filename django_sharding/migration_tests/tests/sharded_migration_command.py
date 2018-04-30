@@ -6,12 +6,13 @@ from django.db import connection, ProgrammingError
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.migration import Migration
 from django.db.migrations.recorder import MigrationRecorder
-from django.test import override_settings
+from django.test import override_settings, SimpleTestCase, TestCase
 from django.utils import six
 
 from example.models import Shard
 from migration_tests.tests.migration_base import MigrationTestBase
 from sharding.management.commands.migrate_shards import Command as MigrateShards
+from sharding.tests.utils import ShardingTestCase
 from sharding.utils import State, use_shard, get_template_name, get_all_databases
 
 
@@ -1099,3 +1100,24 @@ class SeparateDatabaseAndStateTestCase(MigrationTestBase):
             self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
             # allow_migrate not called because of the SeparateDatabaseAndState
             self.assertEqual(mock_allow_migrate.call_count, 0)
+
+
+@override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_unroutable'})
+class UnroutableMigrationTestCase(TestCase):
+    available_apps = ['migration_tests']
+
+    def test_run_python(self):
+        """
+        Case: Run a migration with a run_python operation lacking hints.
+        Expected: A ProgrammingError to be raised.
+        """
+        with self.assertRaises(ProgrammingError):
+            call_command('migrate', 'migration_tests', '0001', verbosity=0)
+
+    def test_run_sql(self):
+        """
+        Case: Run a migration with a run_sql operation lacking hints.
+        Expected: A ProgrammingError to be raised.
+        """
+        with self.assertRaises(ProgrammingError):
+            call_command('migrate', 'migration_tests', '0002', verbosity=0)

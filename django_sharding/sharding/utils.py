@@ -96,13 +96,16 @@ class DynamicDbRouter(object):
             # Where database_operations ask allow_migrate if they should proceed.
             # Creating and removing a model will therefore happen in state,
             # but if the model is unknown to apps no mutations will be performed on the database.
-            return False
+            raise ProgrammingError("Cannot determine sharding mode for this operation. "
+                                   "Are you sure the model for this migration still exists?")
 
         if sharding_mode is None:
             # This happens when no model_name is given.
             # We only know the sharding_mode when it is overridden in the settings.
             # If we get None from get_sharding_mode, there is nothing we can do with it.
-            return False
+            raise ProgrammingError("Cannot determine sharding mode for this operation. "
+                                   "Are you sure it is bound to an existing model or has hints?")
+
         elif sharding_mode == ShardingMode.SHARDED:
             # Sharded models should never reside in the public schema.
             # Only on templates and the shared schemas.
