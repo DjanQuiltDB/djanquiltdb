@@ -54,7 +54,6 @@ class ShardingTestCase(TestCase):
         THREAD_LOCAL.DB_OVERRIDE = None
 
         for con in connections.all():
-            con.clone_function_set = False
             con.set_schema_to_public()
 
             # remove all schemas made in tests.
@@ -92,8 +91,6 @@ class ShardingTransactionTestCase(TransactionTestCase):
         THREAD_LOCAL.DB_OVERRIDE = None
 
         for con in connections.all():
-            con.clone_function_set = False
-
             # Remove all schemas made in tests.
             for schema in con.get_all_pg_schemas():
                 schema = schema[0]
