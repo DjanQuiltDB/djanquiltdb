@@ -1,9 +1,13 @@
+from django.apps import apps
 from django.conf import settings
 from django.db import models, connections
 from django.db.models import Q
+from django.db.models.signals import post_init
+from django.dispatch import receiver
 
 from sharding import State, STATES, ShardingMode
-from sharding.utils import get_shard_class
+from sharding.exceptions import ShardingError
+from sharding.utils import get_shard_class, use_shard_for, use_shard, get_model_sharding_mode
 
 
 class MappingQuerySet(models.QuerySet):
@@ -77,3 +81,70 @@ class BaseShard(models.Model):
 
     def __str__(self):
         return "Shard {}({}|{})".format(self.alias, self.node_name, self.schema_name)
+
+
+class InstanceShardOptions:
+    def __init__(self, schema_name, node_name, id, mapping_value, active_only_schemas):
+        self.schema_name = schema_name
+        self.node_name = node_name
+        self.id = id
+        self.mapping_value = mapping_value
+        self.active_only_schemas = active_only_schemas
+
+    def get(self):
+        """
+        Lazy method that returns the shard the instance was retrieved from
+        """
+        if not self.id:
+            raise ShardingError('Shard ID is not known for this instance')
+
+        return get_shard_class().objects.get(id=self.id)
+
+    def use(self):
+        """
+        Returns the context manager to enter a shard with the same parameters the instance was fetched with
+        """
+        if self.mapping_value:
+            # It turns out we fetched the model instance with use_shard_for, so we know the mapping value.
+            # So let's use that value to target the shard in the model method. use_shard_for will do a DB query,
+            # which allows us to see if the mapping object still has state active.
+            use_shard_func = use_shard_for
+            use_shard_kwargs = {'target_value': self.mapping_value}
+        else:
+            # If we didn't use the mapping value to fetch the model instance, then we did it with use_shard.
+            # We could've done it with selecting the shard or by providing the node name and schema name.
+            # If we did it with providing the shard, then use that now to target the shard in the model methods.
+            # We do a new DB request to the shard to see if it still has state active.
+            use_shard_func = use_shard
+            use_shard_kwargs = {'shard': self.get()} if self.id else {'node_name': self.node_name,
+                                                                      'schema_name': self.schema_name}
+
+            # If the model instance has been fetched with active_only_schemas set to True, then we pass that to
+            # the model methods as well. This is needed for commands like move_data_to_shard, that do model
+            # methods like delete() when the shard is in maintenance.
+            use_shard_kwargs['active_only_schemas'] = self.active_only_schemas
+
+        return use_shard_func(**use_shard_kwargs)
+
+
+@receiver(post_init)
+def store_initial_shard(sender, instance, **kwargs):
+    """
+    Stores information about the shard we retrieved the model instance with
+    """
+
+    # Since we are going to check whether the sender is a sharded model, we need to take the base model when having a
+    # deferred model.
+    model = sender.__base__ if sender._deferred else sender
+
+    # Check if the sender is a sharded model
+    if model in apps.get_models() and get_model_sharding_mode(model) == ShardingMode.SHARDED:
+        from django.db import connection
+
+        instance._shard = InstanceShardOptions(
+            schema_name=connection.get_schema(),
+            node_name=connection.alias,
+            id=connection._shard_id,
+            mapping_value=connection._mapping_value,
+            active_only_schemas=connection._active_only_schemas
+        )
