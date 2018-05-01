@@ -103,7 +103,6 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # for the currently selected schema.
         self.introspection = DatabaseSchemaIntrospection(self)
 
-        self.clone_function_set = False
         self.schema_name = None
         self.search_path_set = False
         self.set_schema_to_public()
@@ -218,12 +217,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def set_clone_function(self, _cursor=None):
         cursor = _cursor or self.cursor()
-
-        if not self.clone_function_set:
-            cursor.execute(clone_function)
-            self.clone_function_set = True
-        else:
-            cursor.execute("SELECT pg_get_functiondef('clone_schema(text, text)'::regprocedure);")
+        cursor.execute(clone_function)
 
     def reset_sequence(self, model_list, _cursor=None):
         from django.db import models
