@@ -741,13 +741,14 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         self.assertFalse(self.router.allow_migrate('default', 'example', 'organization'))
         self.assertFalse(self.router.allow_migrate('other', 'example', 'organization'))
 
-    def test_allow_migrate_on_nonexisting_model(self):
+    @mock.patch('sharding.utils.logger.warning')
+    def test_allow_migrate_on_nonexisting_model(self, mock_logger_warning):
         """
         Case: Call allow_migrate for a model that (no longer) exists.
-        Expected: Programming error to be raised
+        Expected: Warning to be logged.
         """
-        with self.assertRaises(ProgrammingError):
-            self.router.allow_migrate('default', 'example', 'outer_space')
+        self.router.allow_migrate('default', 'example', 'outer_space')
+        self.assertEqual(mock_logger_warning.call_count, 1)
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
                                  'MAPPING_MODEL': 'example.models.OrganizationShards',

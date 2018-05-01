@@ -6,13 +6,12 @@ from django.db import connection, ProgrammingError
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.migration import Migration
 from django.db.migrations.recorder import MigrationRecorder
-from django.test import override_settings, SimpleTestCase, TestCase
+from django.test import override_settings, TestCase
 from django.utils import six
 
 from example.models import Shard
 from migration_tests.tests.migration_base import MigrationTestBase
 from sharding.management.commands.migrate_shards import Command as MigrateShards
-from sharding.tests.utils import ShardingTestCase
 from sharding.utils import State, use_shard, get_template_name, get_all_databases
 
 
@@ -1112,7 +1111,7 @@ class UnroutableMigrationTestCase(TestCase):
         Expected: A ProgrammingError to be raised.
         """
         with self.assertRaises(ProgrammingError):
-            call_command('migrate', 'migration_tests', '0001', verbosity=0)
+            call_command('migrate', 'migration_tests', '0001_run_python', verbosity=0)
 
     def test_run_sql(self):
         """
@@ -1126,3 +1125,20 @@ class UnroutableMigrationTestCase(TestCase):
 
         with self.assertRaises(ProgrammingError):
             executor.migrate([('migration_tests', '0002_run_sql')])
+
+
+@override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_removed_model'})
+class UnroutableMigrationTestCase2(TestCase):
+    available_apps = ['migration_tests']
+
+    @mock.patch('sharding.utils.logger.warning')
+    def test(self, mock_logger_warning):
+        """
+        Case: Run migrations for a model that no longer exists.
+        Expected: All operations to trigger a warning.
+        """
+        call_command('migrate', 'migration_tests', '0001', verbosity=0)
+        call_command('migrate', 'migration_tests', '0002', verbosity=0)
+        call_command('migrate', 'migration_tests', '0003', verbosity=0)
+
+        self.assertEqual(mock_logger_warning.call_count, 3)
