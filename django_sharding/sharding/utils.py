@@ -10,14 +10,15 @@
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
+import logging
 import threading
 
 from django.apps import apps
-from django.db.migrations.executor import MigrationExecutor
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.commands.migrate import Command as MigrateCommand
 from django.db import connections, connection, ProgrammingError
+from django.db.migrations.executor import MigrationExecutor
 from django.db.transaction import Atomic
 from django.utils.module_loading import import_string
 from functools import wraps
@@ -25,6 +26,8 @@ from functools import wraps
 from sharding import ShardingMode, State
 
 THREAD_LOCAL = threading.local()
+
+logger = logging.getLogger(__name__)
 
 
 class StateException(Exception):
@@ -96,13 +99,16 @@ class DynamicDbRouter(object):
             # Where database_operations ask allow_migrate if they should proceed.
             # Creating and removing a model will therefore happen in state,
             # but if the model is unknown to apps no mutations will be performed on the database.
-            return False
+            logger.warning('Migration operation for unknown models are ignored. Are you sure this model still exists?')
+            return False  # Don't execute operations on missing models.
 
         if sharding_mode is None:
             # This happens when no model_name is given.
             # We only know the sharding_mode when it is overridden in the settings.
             # If we get None from get_sharding_mode, there is nothing we can do with it.
-            return False
+            raise ProgrammingError('Cannot determine sharding mode for this operation. '
+                                   'Are you sure it is bound to an existing model or has hints?')
+
         elif sharding_mode == ShardingMode.SHARDED:
             # Sharded models should never reside in the public schema.
             # Only on templates and the shared schemas.

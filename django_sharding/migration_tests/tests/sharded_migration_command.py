@@ -6,7 +6,7 @@ from django.db import connection, ProgrammingError
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.migration import Migration
 from django.db.migrations.recorder import MigrationRecorder
-from django.test import override_settings
+from django.test import override_settings, TestCase
 from django.utils import six
 
 from example.models import Shard
@@ -1099,3 +1099,46 @@ class SeparateDatabaseAndStateTestCase(MigrationTestBase):
             self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
             # allow_migrate not called because of the SeparateDatabaseAndState
             self.assertEqual(mock_allow_migrate.call_count, 0)
+
+
+@override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_unroutable'})
+class UnroutableMigrationTestCase(TestCase):
+    available_apps = ['migration_tests']
+
+    def test_run_python(self):
+        """
+        Case: Run a migration with a run_python operation lacking hints.
+        Expected: A ProgrammingError to be raised.
+        """
+        with self.assertRaises(ProgrammingError):
+            call_command('migrate', 'migration_tests', '0001_run_python', verbosity=0)
+
+    def test_run_sql(self):
+        """
+        Case: Run a migration with a run_sql operation lacking hints.
+        Expected: A ProgrammingError to be raised.
+        """
+        # Mark migration 0001 as migrated, but don't actually perform it. Since it will raise an error.
+        executor = MigrationExecutor(connection)
+        executor.migrate([('migration_tests', '0001_run_python')], fake=True)
+        executor.loader.build_graph()
+
+        with self.assertRaises(ProgrammingError):
+            executor.migrate([('migration_tests', '0002_run_sql')])
+
+
+@override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_removed_model'})
+class UnroutableMigrationTestCase2(TestCase):
+    available_apps = ['migration_tests']
+
+    @mock.patch('sharding.utils.logger.warning')
+    def test(self, mock_logger_warning):
+        """
+        Case: Run migrations for a model that no longer exists.
+        Expected: All operations to trigger a warning.
+        """
+        call_command('migrate', 'migration_tests', '0001', verbosity=0)
+        call_command('migrate', 'migration_tests', '0002', verbosity=0)
+        call_command('migrate', 'migration_tests', '0003', verbosity=0)
+
+        self.assertEqual(mock_logger_warning.call_count, 3)
