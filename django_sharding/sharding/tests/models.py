@@ -6,6 +6,7 @@ from example.models import Shard, Organization, User, OrganizationShards, Type
 from sharding import ShardingMode, State
 from sharding.exceptions import ShardingError
 from sharding.models import BaseShard
+from sharding.options import get_shard_from_instance_options
 from sharding.tests.utils import ShardingTestCase
 from sharding.utils import get_shard_class, use_shard, create_template_schema, use_shard_for, StateException
 from sharding.tests.app_config import DummyShard
@@ -263,10 +264,10 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         self.assertEqual(user._shard.active_only_schemas, True)
 
         with self.assertRaisesMessage(ShardingError, 'Shard ID is not known for this instance'):
-            org._shard.get()
+            get_shard_from_instance_options(org._shard)
 
         with self.assertRaisesMessage(ShardingError, 'Shard ID is not known for this instance'):
-            user._shard.get()
+            get_shard_from_instance_options(user._shard)
 
     def test_model_method(self):
         """
@@ -393,3 +394,19 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
             with self.assertRaisesMessage(StateException, 'Mapping object OrganizationShards object state is '
                                                           'Maintenance'):
                 user.get_organization_name()
+
+    def test_already_in_shard(self):
+        """
+        Case: Call a sharded model instance method in the same use_shard context as the user was retrieved with
+        Expected: use_shard for the model method not called, since we are already in that shard
+        """
+        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                     state=State.ACTIVE)
+
+        with use_shard(shard):
+            org = Organization.objects.create(name='The Empire')
+            user = User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw', organization=org)
+
+            with mock.patch('sharding.options.use_shard') as mock_use_shard:
+                user.get_organization_name()
+                self.assertFalse(mock_use_shard.called)
