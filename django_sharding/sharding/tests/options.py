@@ -88,7 +88,6 @@ class UseShardFromInstanceOptions(TestCase):
         super().setUp()
 
         create_template_schema()
-
         self.shard = Shard.objects.create(alias='tartaros', node_name='default', schema_name='test_tartaros',
                                           state=State.ACTIVE)
 
@@ -132,23 +131,25 @@ class UseShardFromInstanceOptions(TestCase):
             active_only_schemas=True
         )
 
-        use_shard_from_instance_options(shard_options)
+        with self.subTest('Active only schemas to True'):
+            use_shard_from_instance_options(shard_options)
 
-        mock_use_shard.assert_called_once_with(
-            shard=self.shard,
-            active_only_schemas=True
-        )
-
-        shard_options.active_only_schemas = False
+            mock_use_shard.assert_called_once_with(
+                shard=self.shard,
+                active_only_schemas=True
+            )
 
         mock_use_shard.reset_mock()
 
-        use_shard_from_instance_options(shard_options)
+        with self.subTest('Active only schemas to False'):
+            shard_options.active_only_schemas = False
 
-        mock_use_shard.assert_called_once_with(
-            shard=self.shard,
-            active_only_schemas=False
-        )
+            use_shard_from_instance_options(shard_options)
+
+            mock_use_shard.assert_called_once_with(
+                shard=self.shard,
+                active_only_schemas=False
+            )
 
     @mock.patch('sharding.options.use_shard')
     def test_schema_name(self, mock_use_shard):
@@ -164,22 +165,24 @@ class UseShardFromInstanceOptions(TestCase):
             active_only_schemas=True
         )
 
-        use_shard_from_instance_options(shard_options)
+        with self.subTest('Active only schemas to True'):
+            use_shard_from_instance_options(shard_options)
 
-        mock_use_shard.assert_called_once_with(
-            node_name=self.shard.node_name,
-            schema_name=self.shard.schema_name,
-            active_only_schemas=True
-        )
-
-        shard_options.active_only_schemas = False
+            mock_use_shard.assert_called_once_with(
+                node_name=self.shard.node_name,
+                schema_name=self.shard.schema_name,
+                active_only_schemas=True
+            )
 
         mock_use_shard.reset_mock()
 
-        use_shard_from_instance_options(shard_options)
+        with self.subTest('Active only schemas to False'):
+            shard_options.active_only_schemas = False
 
-        mock_use_shard.assert_called_once_with(
-            node_name=self.shard.node_name,
-            schema_name=self.shard.schema_name,
-            active_only_schemas=False
-        )
+            use_shard_from_instance_options(shard_options)
+
+            mock_use_shard.assert_called_once_with(
+                node_name=self.shard.node_name,
+                schema_name=self.shard.schema_name,
+                active_only_schemas=False
+            )

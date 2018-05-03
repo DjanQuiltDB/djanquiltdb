@@ -24,8 +24,10 @@ def get_shard_from_instance_options(options):
 def connection_has_same_shard_options(options):
     from django.db import connection
 
-    return connection._mapping_value == options.mapping_value and connection._shard_id == options.id \
-        and connection.schema_name == options.schema_name and connection.alias == options.node_name \
+    return connection._mapping_value == options.mapping_value \
+        and connection._shard_id == options.id \
+        and connection.schema_name == options.schema_name \
+        and connection.alias == options.node_name \
         and connection._active_only_schemas == options.active_only_schemas
 
 
