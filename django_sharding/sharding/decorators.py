@@ -7,6 +7,7 @@ from django.db import models, connection
 
 from sharding import ShardingMode, STATES
 from sharding.exceptions import ShardingError
+from sharding.options import connection_has_same_shard_options, use_shard_from_instance_options
 from sharding.utils import transaction_for_every_node, get_all_databases, use_shard
 
 shard_mapping_models = False
@@ -49,8 +50,10 @@ def _use_shard_sharded_model():
             if hasattr(self, '_state') and self._state.db and self._state.db != self._shard.node_name:
                 raise ShardingError('Sharded model instance has a different node name than the Django state database')
 
-            if has_shard_attributes:
-                with self._shard.use():
+            # Check if we have the shard attributes and also check if we are not already in the shard we want to enter.
+            # It doesn't make sense to enter a shard where we already are in, so we just return the function then.
+            if has_shard_attributes and not connection_has_same_shard_options(self._shard):
+                with use_shard_from_instance_options(self._shard):
                     return func(self, *args, **kwargs)
 
             # Schema name and node name are not set when creating an object (post_init didn't fire at that point),
