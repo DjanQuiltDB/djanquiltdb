@@ -8,7 +8,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connection, connections, models, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings, TransactionTestCase
 
-from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement
+from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement, Suborganization
 from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_every_node
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
@@ -709,7 +709,8 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         # The tables present on all non-default public schema's are all the mirrored tables.
         other_public_tables = ['django_migrations',  'example_type', 'example_supertype']
         # The tables present on the template schema's are all the sharded tables.
-        template_tables = ['django_migrations', 'example_organization', 'example_user', 'example_statement']
+        template_tables = ['django_migrations', 'example_organization', 'example_suborganization', 'example_user',
+                           'example_statement']
 
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'),
                               default_public_tables)
@@ -796,7 +797,8 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         template_tables = [table[1] for table in cursor.fetchall()]
         # Filter test models
         template_tables = [table for table in template_tables if not re.search(r'_[t|T]est', table)]
-        self.assertCountEqual(sorted(template_tables), ['django_migrations', 'example_organization', 'example_user',
+        self.assertCountEqual(sorted(template_tables), ['django_migrations', 'example_organization',
+                                                        'example_suborganization', 'example_user',
                                                         'example_statement'])
 
     def test_create_template_schema_invalid_node(self):
@@ -879,8 +881,9 @@ class GetAllShardedModels(TestCase):
         Note: System test
         """
         with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'organization'): ShardingMode.MIRRORED, }}):
-            self.assertCountEqual(get_all_sharded_models(), [User, Statement])
+                SHARDING={'OVERRIDE_SHARDING_MODE':
+                          {('example', 'organization'): ShardingMode.MIRRORED, }}):
+            self.assertCountEqual(get_all_sharded_models(), [User, Statement, Suborganization])
 
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):

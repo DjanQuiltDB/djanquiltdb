@@ -230,6 +230,7 @@ class PostgresBackendTestCase(ShardingTestCase):
         self.assertNotEqual(template_defaults, new_schema_defaults)
         self.assertCountEqual(new_schema_defaults,
                               ["nextval('test_schema.example_organization_id_seq'::regclass)",
+                               "nextval('test_schema.example_suborganization_id_seq'::regclass)",
                                "nextval('test_schema.example_user_id_seq'::regclass)",
                                "nextval('test_schema.example_statement_id_seq'::regclass)",
                                "nextval('test_schema.django_migrations_id_seq'::regclass)"])

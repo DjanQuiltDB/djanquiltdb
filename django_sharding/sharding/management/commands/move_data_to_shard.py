@@ -1,3 +1,4 @@
+import collections
 import filecmp
 from io import StringIO
 from tempfile import NamedTemporaryFile
@@ -137,16 +138,17 @@ class Command(BaseCommand):
         We also filter on Sharded models only.
         """
         sharded_models = get_all_sharded_models()
+        objects = root_object if isinstance(root_object, collections.Iterable) else [root_object]
 
         with use_shard(source_shard, active_only_schemas=False) as env:
             if use_original_collector:
                 collector = NestedObjects(using=source_shard.node_name)
-                collector.collect([root_object])
+                collector.collect(objects)
                 return {model: {i.pk for i in instances} for model, instances in collector.data.items()
                         if model in sharded_models}
             else:
                 collector = SimpleCollector(connection=env.connection, verbose=(not self.quiet))
-                collector.collect([root_object])
+                collector.collect(objects)
                 return {model: pk_set for model, pk_set in collector.data.items() if model in sharded_models}
 
     def move_data(self, data, source_shard, target_shard):

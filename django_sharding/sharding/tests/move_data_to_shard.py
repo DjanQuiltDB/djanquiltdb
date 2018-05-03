@@ -4,7 +4,7 @@ from django.core.management import call_command, CommandError
 from django.db import DatabaseError, IntegrityError
 from django.test import override_settings
 
-from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards
+from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Suborganization
 from sharding.tests.utils import ShardingTestCase, ShardingTransactionTestCase
 from sharding.utils import use_shard, create_template_schema, State
 from sharding.management.commands.move_data_to_shard import Command as MoveCommand
@@ -73,32 +73,42 @@ class MoveDataToShard(ShardingTestCase):
         self.command.quiet = True
 
         create_template_schema()
-        self.source_shard = Shard.objects.create(alias='court', node_name='default', schema_name='test_source',
-                                                 state=State.ACTIVE)
-        self.target_shard = Shard.objects.create(alias='Curious Village', node_name='default',
+        self.source_shard = Shard.objects.create(alias='Curious Village', node_name='default',
+                                                 schema_name='test_source', state=State.ACTIVE)
+        self.target_shard = Shard.objects.create(alias='Court', node_name='default',
                                                  schema_name='test_target', state=State.ACTIVE)
 
         with use_shard(self.source_shard):
             self.super = SuperType.objects.create(name='Character')
-            self.type_1 = Type.objects.create(name='Attorney', super=self.super)
-            self.organization_1 = Organization.objects.create(name='Ace')
-            self.user_1 = User.objects.create(name='Phoenix Wright', email='p@wright.cap',
+            self.type_1 = Type.objects.create(name='Professor', super=self.super)
+            self.type_2 = Type.objects.create(name='Child', super=self.super)
+            self.organization_1 = Organization.objects.create(name='Layton inc.')
+            self.organization_2 = Organization.objects.create(name='Curious Village')
+            self.suborganization = Suborganization.objects.create(parent=self.organization_1,
+                                                                  child=self.organization_2)
+            self.user_1 = User.objects.create(name='Layton', email='professor@layton.l5',
                                               organization=self.organization_1, type=self.type_1)
-            self.statement_1 = Statement.objects.create(content='Objection!', user=self.user_1)
-            self.statement_2 = Statement.objects.create(content='discrepancy', user=self.user_1)
+            self.user_2 = User.objects.create(name='Luke', email='luke@layton.l5',
+                                              organization=self.organization_1, type=self.type_2)
+            self.user_3 = User.objects.create(name='Flora', email='f@reinhold.cap',
+                                              organization=self.organization_2, type=self.type_2)
+            self.statement_1 = Statement.objects.create(content='Luke!', user=self.user_1)
+            self.statement_2 = Statement.objects.create(content='Try to solve this puzzle.', user=self.user_1)
+            self.statement_3 = Statement.objects.create(content='Do you see the sun?', user=self.user_3)
             self.organization_shard = OrganizationShards.objects.create(shard=self.source_shard,
                                                                         organization_id=self.organization_1.id,
                                                                         state=State.ACTIVE)
 
-            self.type_2 = Type.objects.create(name='Professor', super=self.super)
-            self.organization_2 = Organization.objects.create(name='Layton inc.',)
-            self.user_2 = User.objects.create(name='Layton', email='professor@layton.l5',
-                                              organization=self.organization_2, type=self.type_2)
-            self.statement_3 = Statement.objects.create(content='Luke!', user=self.user_2)
-            self.statement_4 = Statement.objects.create(content='Try to solve this puzzle', user=self.user_2)
+            self.type_3 = Type.objects.create(name='Attorney', super=self.super)
+            self.organization_3 = Organization.objects.create(name='Ace',)
+            self.user_4 = User.objects.create(name='Phoenix Wright', email='p@wright.cap',
+                                              organization=self.organization_3, type=self.type_3)
+            self.statement_4 = Statement.objects.create(content='Objection!', user=self.user_4)
+            self.statement_5 = Statement.objects.create(content='discrepancy', user=self.user_4)
 
         self.data = {Organization: {self.organization_1.id},
-                     User: {self.user_1.id},
+                     Suborganization: {self.suborganization.id},
+                     User: {self.user_1.id, self.user_2.id},
                      Statement: {self.statement_1.id, self.statement_2.id}}
 
         self.options = {'source_shard_alias': self.source_shard.alias,
@@ -111,24 +121,54 @@ class MoveDataToShard(ShardingTestCase):
     def test(self):
         """
         Case: Move an organization to another shard using the move_data_to_shard command.
-        Expected: Only that organization and all associated data to be moved over.
+        Expected: Only that organization and all associated data, except suborganziations, to be moved over.
         Note: System test
         """
         call_command('move_data_to_shard', **self.options)
 
         with use_shard(self.source_shard):
-            self.assertCountEqual(Organization.objects.all(), [self.organization_2])
-            self.assertCountEqual(User.objects.all(), [self.user_2])
-            self.assertCountEqual(Statement.objects.all(), [self.statement_3, self.statement_4])
+            self.assertCountEqual(Organization.objects.all(), [self.organization_2, self.organization_3])
+            self.assertCountEqual(User.objects.all(), [self.user_3, self.user_4])
+            self.assertCountEqual(Statement.objects.all(), [self.statement_3, self.statement_4, self.statement_5])
             self.organization_2.refresh_from_db()
+            self.organization_3.refresh_from_db()
 
         with use_shard(self.target_shard):
             self.assertCountEqual(Organization.objects.all(), [self.organization_1])
-            self.assertCountEqual(User.objects.all(), [self.user_1])
+            self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2])
 
         with use_shard(self.target_shard, override_model_use_shard=True):
             self.organization_1.refresh_from_db()
+
+    def test_sub_organization(self):
+        """
+        Case: Move an organization to another shard using an altered move_data_to_shard command,
+              which takes suborganizations into account.
+        Expected: The organization, it's suborganization and all associated data to be moved over.
+        Note: System test
+        """
+        class AlteredCommand(MoveCommand):
+            def get_data(self, source_shard, root_object, use_original_collector=False):
+                root_object = [root_object] + root_object.get_sub_organizations()
+                return super().get_data(source_shard, root_object, use_original_collector)
+
+        AlteredCommand().handle(**self.options)
+
+        with use_shard(self.source_shard):
+            self.assertCountEqual(Organization.objects.all(), [self.organization_3])
+            self.assertCountEqual(User.objects.all(), [self.user_4])
+            self.assertCountEqual(Statement.objects.all(), [self.statement_4, self.statement_5])
+            self.organization_3.refresh_from_db()
+
+        with use_shard(self.target_shard):
+            self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2])
+            self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3])
+            self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3])
+
+        with use_shard(self.target_shard, override_model_use_shard=True):
+            self.organization_1.refresh_from_db()
+            self.organization_2.refresh_from_db()
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert', side_effect=DatabaseError)
     def test_failure_on_move(self, mock_copy_expert):
@@ -142,10 +182,11 @@ class MoveDataToShard(ShardingTestCase):
 
         with use_shard(self.source_shard):
             # Fails at the moment: The data is not removed from the source yet.
-            self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2])
-            self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2])
+            self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2,
+                                                               self.organization_3])
+            self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3, self.user_4])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3,
-                                                            self.statement_4])
+                                                            self.statement_4, self.statement_5])
 
         with use_shard(self.target_shard):
             self.assertFalse(Organization.objects.all().exists())
@@ -166,10 +207,11 @@ class MoveDataToShard(ShardingTestCase):
 
         with use_shard(self.source_shard):
             # Fails at the moment: The data is not removed from the source yet.
-            self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2])
-            self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2])
+            self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2,
+                                                               self.organization_3])
+            self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3, self.user_4])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3,
-                                                            self.statement_4])
+                                                            self.statement_4, self.statement_5])
 
         with use_shard(self.target_shard):
             self.assertFalse(Organization.objects.all().exists())
@@ -190,10 +232,11 @@ class MoveDataToShard(ShardingTestCase):
 
         with use_shard(self.source_shard):
             # Fails at the moment: The data is not removed from the source yet.
-            self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2])
-            self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2])
+            self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2,
+                                                               self.organization_3])
+            self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3, self.user_4])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3,
-                                                            self.statement_4])
+                                                            self.statement_4, self.statement_5])
 
         with use_shard(self.target_shard):
             self.assertFalse(Organization.objects.all().exists())
@@ -311,7 +354,7 @@ class MoveDataToShard(ShardingTestCase):
         Case: Call get_shard.
         Expected: The correct shard object to be returned.
         """
-        self.assertEqual(self.command.get_shard(alias='court'), self.source_shard)
+        self.assertEqual(self.command.get_shard(alias='Curious Village'), self.source_shard)
 
     def test_get_shard_for_nonexistent_model(self):
         """
@@ -335,7 +378,7 @@ class MoveDataToShard(ShardingTestCase):
         Expected: The shard for the target_shard_alias option to be returned.
         """
         self.assertEqual(self.command.get_target_shard(root_object=self.organization_1,
-                                                       options={'target_shard_alias': 'Curious Village'}),
+                                                       options={'target_shard_alias': 'Court'}),
                          self.target_shard)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.SimpleCollector')
@@ -415,6 +458,7 @@ class MoveDataToShard(ShardingTestCase):
         self.assertEqual(
             self.command.move_data(data=self.data, source_shard=self.source_shard, target_shard=self.target_shard),
             {Organization: 'id,name,created_at',
+             Suborganization: 'id,parent_id,child_id',
              User: 'id,password,last_login,name,email,created_at,organization_id,type_id',
              Statement: 'id,content,user_id'}
         )
@@ -426,7 +470,8 @@ class MoveDataToShard(ShardingTestCase):
         Expected: reset_sequence on the connection to be called with the correct model list.
         """
         self.command.reset_sequencers(data=self.data, target_shard=self.target_shard)
-        self.assertCountEqual(mock_reset_sequence.call_args[1]['model_list'], [User, Statement, Organization])
+        self.assertCountEqual(mock_reset_sequence.call_args[1]['model_list'], [User, Statement, Organization,
+                                                                               Suborganization])
 
     @mock.patch('sharding.management.commands.move_data_to_shard.filecmp.cmp', return_value=True)
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
