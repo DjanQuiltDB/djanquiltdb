@@ -157,12 +157,14 @@ class MoveDataToShard(ShardingTestCase):
 
         with use_shard(self.source_shard):
             self.assertCountEqual(Organization.objects.all(), [self.organization_3])
+            self.assertFalse(Suborganization.objects.all().exists())
             self.assertCountEqual(User.objects.all(), [self.user_4])
             self.assertCountEqual(Statement.objects.all(), [self.statement_4, self.statement_5])
             self.organization_3.refresh_from_db()
 
         with use_shard(self.target_shard):
             self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2])
+            self.assertCountEqual(Suborganization.objects.all(), [self.suborganization])
             self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3])
 
@@ -184,12 +186,14 @@ class MoveDataToShard(ShardingTestCase):
             # Fails at the moment: The data is not removed from the source yet.
             self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2,
                                                                self.organization_3])
+            self.assertCountEqual(Suborganization.objects.all(), [self.suborganization])
             self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3, self.user_4])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3,
                                                             self.statement_4, self.statement_5])
 
         with use_shard(self.target_shard):
             self.assertFalse(Organization.objects.all().exists())
+            self.assertFalse(Suborganization.objects.all().exists())
             self.assertFalse(User.objects.all().exists())
             self.assertFalse(Statement.objects.all().exists())
 
@@ -209,12 +213,14 @@ class MoveDataToShard(ShardingTestCase):
             # Fails at the moment: The data is not removed from the source yet.
             self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2,
                                                                self.organization_3])
+            self.assertCountEqual(Suborganization.objects.all(), [self.suborganization])
             self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3, self.user_4])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3,
                                                             self.statement_4, self.statement_5])
 
         with use_shard(self.target_shard):
             self.assertFalse(Organization.objects.all().exists())
+            self.assertFalse(Suborganization.objects.all().exists())
             self.assertFalse(User.objects.all().exists())
             self.assertFalse(Statement.objects.all().exists())
 
@@ -234,12 +240,14 @@ class MoveDataToShard(ShardingTestCase):
             # Fails at the moment: The data is not removed from the source yet.
             self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2,
                                                                self.organization_3])
+            self.assertCountEqual(Suborganization.objects.all(), [self.suborganization])
             self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3, self.user_4])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3,
                                                             self.statement_4, self.statement_5])
 
         with use_shard(self.target_shard):
             self.assertFalse(Organization.objects.all().exists())
+            self.assertFalse(Suborganization.objects.all().exists())
             self.assertFalse(User.objects.all().exists())
             self.assertFalse(Statement.objects.all().exists())
 

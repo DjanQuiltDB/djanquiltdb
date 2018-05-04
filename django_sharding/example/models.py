@@ -40,7 +40,7 @@ class Type(models.Model):
         app_label = 'example'
 
 
-# lead sharded table
+# Lead sharded table
 @sharded_model()
 class Organization(models.Model):
     name = models.CharField('name', max_length=100)
@@ -67,7 +67,7 @@ class Suborganization(models.Model):
     class Meta:
         app_label = 'example'
 
-# child sharded table
+
 @sharded_model()
 class User(AbstractBaseUser):
     def get_full_name(self):
