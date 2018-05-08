@@ -40,7 +40,7 @@ class Type(models.Model):
         app_label = 'example'
 
 
-# lead sharded table
+# Lead sharded table
 @sharded_model()
 class Organization(models.Model):
     name = models.CharField('name', max_length=100)
@@ -49,8 +49,25 @@ class Organization(models.Model):
     class Meta:
         app_label = 'example'
 
+    def __str__(self):
+        return self.name
 
-# child sharded table
+    def get_sub_organizations(self):
+        sub_organizations = list(Organization.objects.filter(suborganization__parent=self))
+        for s in sub_organizations:
+            sub_organizations.extend(list(Organization.objects.filter(suborganization__parent=s)))
+        return sub_organizations
+
+
+@sharded_model()
+class Suborganization(models.Model):
+    parent = models.ForeignKey('Organization', verbose_name='organization')
+    child = models.OneToOneField('Organization', verbose_name='organization')
+
+    class Meta:
+        app_label = 'example'
+
+
 @sharded_model()
 class User(AbstractBaseUser):
     def get_full_name(self):

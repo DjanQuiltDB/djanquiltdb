@@ -1,3 +1,4 @@
+import collections
 import filecmp
 from io import StringIO
 from tempfile import NamedTemporaryFile
@@ -56,7 +57,7 @@ class Command(BaseCommand):
         root_object = self.get_object(model_name, root_object_id, source_shard)
         target_shard = self.get_target_shard(root_object=root_object, options=options)
 
-        data = self.get_data(source_shard=source_shard, root_object=root_object)
+        data = self.get_data(source_shard=source_shard, root_objects=root_object)
 
         if not options.get('no_input'):
             print()
@@ -89,7 +90,7 @@ class Command(BaseCommand):
                 else:
                     # Use Django's original collector to get the data to delete
                     self.delete_data(
-                        data=self.get_data(source_shard=source_shard, root_object=root_object,
+                        data=self.get_data(source_shard=source_shard, root_objects=root_object,
                                            use_original_collector=True),
                         source_shard=source_shard)
 
@@ -130,23 +131,24 @@ class Command(BaseCommand):
         """
         return Command.get_shard(alias=options.get('target_shard_alias'))
 
-    def get_data(self, source_shard, root_object, use_original_collector=False):
+    def get_data(self, source_shard, root_objects, use_original_collector=False):
         """
         Use the simple collector or Django's delete collector to gather all data belonging to the given object.
         Return only the data dict.
         We also filter on Sharded models only.
         """
         sharded_models = get_all_sharded_models()
+        objects = root_objects if isinstance(root_objects, collections.Iterable) else [root_objects]
 
         with use_shard(source_shard, active_only_schemas=False) as env:
             if use_original_collector:
                 collector = NestedObjects(using=source_shard.node_name)
-                collector.collect([root_object])
+                collector.collect(objects)
                 return {model: {i.pk for i in instances} for model, instances in collector.data.items()
                         if model in sharded_models}
             else:
                 collector = SimpleCollector(connection=env.connection, verbose=(not self.quiet))
-                collector.collect([root_object])
+                collector.collect(objects)
                 return {model: pk_set for model, pk_set in collector.data.items() if model in sharded_models}
 
     def move_data(self, data, source_shard, target_shard):
