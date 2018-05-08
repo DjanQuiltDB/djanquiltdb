@@ -149,9 +149,9 @@ class MoveDataToShard(ShardingTestCase):
         Note: System test
         """
         class AlteredCommand(MoveCommand):
-            def get_data(self, source_shard, root_object, use_original_collector=False):
-                root_object = [root_object] + root_object.get_sub_organizations()
-                return super().get_data(source_shard, root_object, use_original_collector)
+            def get_data(self, source_shard, root_objects, use_original_collector=False):
+                root_objects = [root_objects] + root_objects.get_sub_organizations()
+                return super().get_data(source_shard, root_objects, use_original_collector)
 
         AlteredCommand().handle(**self.options)
 
@@ -279,8 +279,8 @@ class MoveDataToShard(ShardingTestCase):
         mock_get_target_shard.assert_called_once_with(root_object=self.organization_1, options=self.options)
         mock_get_object.assert_called_once_with('example.organization', self.organization_1.id, self.source_shard)
         self.assertEqual(mock_pre_execution.call_count, 1)
-        mock_get_data.assert_any_call(source_shard=self.source_shard, root_object=self.organization_1)
-        mock_get_data.assert_any_call(source_shard=self.source_shard, root_object=self.organization_1,
+        mock_get_data.assert_any_call(source_shard=self.source_shard, root_objects=self.organization_1)
+        mock_get_data.assert_any_call(source_shard=self.source_shard, root_objects=self.organization_1,
                                       use_original_collector=True)
         mock_move_data.assert_called_once_with(data=data, source_shard=self.source_shard,
                                                target_shard=self.target_shard)
@@ -320,7 +320,7 @@ class MoveDataToShard(ShardingTestCase):
         mock_get_target_shard.assert_called_once_with(root_object=self.organization_1, options=self.options)
         mock_get_object.assert_called_once_with('example.organization', self.organization_1.id, self.source_shard)
         self.assertEqual(mock_pre_execution.call_count, 1)
-        mock_get_data.assert_called_once_with(source_shard=self.source_shard, root_object=self.organization_1)
+        mock_get_data.assert_called_once_with(source_shard=self.source_shard, root_objects=self.organization_1)
         mock_move_data.assert_called_once_with(data=data, source_shard=self.source_shard,
                                                target_shard=self.target_shard)
         mock_confirm.assert_called_once_with(data=data, source_shard=self.source_shard, target_shard=self.target_shard,
@@ -398,7 +398,7 @@ class MoveDataToShard(ShardingTestCase):
         """
         with use_shard(self.source_shard) as env:
             mock_use_shard.return_value = env
-            self.command.get_data(source_shard=self.source_shard, root_object=self.organization_1)
+            self.command.get_data(source_shard=self.source_shard, root_objects=self.organization_1)
 
         mock_use_shard.assert_called_once_with(self.source_shard, active_only_schemas=False)
         mock_collector.assert_called_once_with(connection=env.connection, verbose=False)
@@ -412,7 +412,7 @@ class MoveDataToShard(ShardingTestCase):
         """
         with use_shard(self.source_shard) as env:
             mock_use_shard.return_value = env
-            self.command.get_data(source_shard=self.source_shard, root_object=self.organization_1,
+            self.command.get_data(source_shard=self.source_shard, root_objects=self.organization_1,
                                   use_original_collector=True)
 
         mock_use_shard.assert_called_once_with(self.source_shard, active_only_schemas=False)
@@ -424,7 +424,7 @@ class MoveDataToShard(ShardingTestCase):
         Case: Call get_data using the simple collector.
         Expected: Collector called.
         """
-        self.command.get_data(source_shard=self.source_shard, root_object=self.organization_1)
+        self.command.get_data(source_shard=self.source_shard, root_objects=self.organization_1)
         mock_collect.assert_called_once_with([self.organization_1])
 
     def test_get_data_result(self):
@@ -432,7 +432,7 @@ class MoveDataToShard(ShardingTestCase):
         Case: Call get_data using the simple collector.
         Expected: A dict with the correct data to be returned.
         """
-        self.assertEqual(self.command.get_data(source_shard=self.source_shard, root_object=self.organization_1),
+        self.assertEqual(self.command.get_data(source_shard=self.source_shard, root_objects=self.organization_1),
                          self.data)
 
     def test_get_data_result_native_collector(self):
@@ -440,7 +440,7 @@ class MoveDataToShard(ShardingTestCase):
         Case: Call get_data, with use_original_collector set to True.
         Expected: A dict with the correct data to be returned.
         """
-        self.assertEqual(self.command.get_data(source_shard=self.source_shard, root_object=self.organization_1,
+        self.assertEqual(self.command.get_data(source_shard=self.source_shard, root_objects=self.organization_1,
                                                use_original_collector=True),
                          self.data)
 
