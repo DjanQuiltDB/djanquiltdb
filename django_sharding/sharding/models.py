@@ -7,7 +7,7 @@ from django.dispatch import receiver
 
 from sharding import State, STATES, ShardingMode
 from sharding.options import InstanceShardOptions
-from sharding.utils import get_shard_class, get_model_sharding_mode
+from sharding.utils import get_shard_class, get_model_sharding_mode, use_shard
 
 
 class MappingQuerySet(models.QuerySet):
