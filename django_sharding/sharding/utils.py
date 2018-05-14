@@ -185,10 +185,11 @@ class use_shard(object):
     # They bypass the shard.state check, and are only there to for internal use.
     # (Situations where the schema is made, but the shard object is not saved yet.)
     def __init__(self, shard=None, node_name=None, schema_name=None, active_only_schemas=True, include_public=True,
-                 override_model_use_shard=False):
+                 override_model_use_shard=False, lock=True):
         self.include_public = include_public
         self.override_model_use_shard = override_model_use_shard
         self.active_only_schemas = active_only_schemas
+        self.lock = lock
 
         shard_class = get_shard_class()
         if shard:
@@ -203,6 +204,7 @@ class use_shard(object):
             self.schema_name = shard.schema_name
             self.node_name = shard.node_name
         else:
+            self.shard = None
             self.schema_name = schema_name
             self.node_name = node_name
 
@@ -225,6 +227,14 @@ class use_shard(object):
 
         return inner
 
+    def set_lock(self):
+        if self.shard:
+            self.connection.set_advisory_lock(key='shard_{}'.format(self.shard.id), shared=True)
+
+    def release_lock(self):
+        if self.shard:
+            self.connection.release_advisory_lock(key='shard_{}'.format(self.shard.id), shared=True)
+
     def enable(self):
         # First: set the connection
         self.old_connection_name = connection.settings_dict['NAME']
@@ -236,6 +246,9 @@ class use_shard(object):
         self.old_shard_id = self.connection._shard_id
         self.old_mapping_value = self.connection._mapping_value
         self.old_active_only_schemas = self.connection._active_only_schemas
+
+        if self.lock:
+            self.set_lock()
 
         _set_schema(
             self.schema_name,
@@ -250,6 +263,9 @@ class use_shard(object):
         return self
 
     def disable(self):
+        if self.lock:
+            self.release_lock()
+
         # Reset both the connection and the schema back to the old state
         _set_schema(self.old_schema_name, self.connection, override_model_use_shard=self.old_override_model_use_shard,
                     shard_id=self.old_shard_id, mapping_value=self.old_mapping_value,
@@ -384,10 +400,19 @@ class use_shard_for(use_shard):
                 # Do things on my shard
 
     """
-    def __init__(self, target_value, active_only_schemas=True, override_model_use_shard=False):
+    def __init__(self, target_value, active_only_schemas=True, override_model_use_shard=False, lock=False):
         self.mapping_value = target_value
         super().__init__(shard=get_shard_for(target_value, active_only=active_only_schemas),
-                         active_only_schemas=active_only_schemas, override_model_use_shard=override_model_use_shard)
+                         active_only_schemas=active_only_schemas, override_model_use_shard=override_model_use_shard,
+                         lock=lock)
+
+    def set_lock(self):
+        self.connection.set_advisory_lock(key='mapping_{}'.format(self.mapping_value), shared=True)
+        self.connection.set_advisory_lock(key='shard_{}'.format(self.shard.id), shared=True)
+
+    def release_lock(self):
+        self.connection.release_advisory_lock(key='mapping_{}'.format(self.mapping_value), shared=True)
+        self.connection.release_advisory_lock(key='shard_{}'.format(self.shard.id), shared=True)
 
 
 def get_new_shard_node():

@@ -11,8 +11,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 """
-
+import hashlib
 import re
+import struct
 
 from django.db.backends.postgresql_psycopg2.base import DatabaseWrapper as BaseDatabaseWrapper
 from django.db.backends.base.base import NO_DB_ALIAS
@@ -252,6 +253,32 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                         )
                     )
         cursor.execute(';\n'.join(statements))
+
+    @staticmethod
+    def get_int_from_key(key):
+        """
+        Turn the given id to a md5 hash.
+        And make an int from the first 60 bits of the hash
+        """
+        m = hashlib.md5()
+        m.update(key.encode())
+        return int(m.hexdigest()[:15], 16)
+
+    def set_advisory_lock(self, key, shared=True, _cursor=None):
+        """
+        Set a shared or exclusive advisory lock on a given key.
+        """
+        cursor = _cursor or self.cursor()
+        key = self.get_int_from_key(key)
+        cursor.execute('SELECT pg_advisory_lock{}({});'.format('_shared' if shared else '', key))
+
+    def release_advisory_lock(self, key, shared=True, _cursor=None):
+        """
+        Release a shared or exclusive advisory lock on a given key.
+        """
+        cursor = _cursor or self.cursor()
+        key = self.get_int_from_key(key)
+        cursor.execute('SELECT pg_advisory_unlock{}({});'.format('_shared' if shared else '', key))
 
     def _cursor(self, name=None):
         """Database cursor to write whatever we want.
