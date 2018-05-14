@@ -159,6 +159,16 @@ class BaseShardTestCase(TestCase):
             Shard.objects.create(alias='test_shard', schema_name='test_schema')
         self.assertFalse(mock_create_schema.called)
 
+    def test_use(self):
+        """
+        Case: Call Shard.use()
+        Expected: Get use_shard context manager with the correct shard
+        """
+        shard = Shard(alias='test_shard', schema_name='test_schema', node_name='default', state=State.ACTIVE)
+        use_shard_context_manager = shard.use()
+        self.assertIsInstance(use_shard_context_manager, use_shard)
+        self.assertEqual(use_shard_context_manager.shard, shard)
+
 
 class MirroredModelTestCase(ShardingTestCase):
     def setUp(self):

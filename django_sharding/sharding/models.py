@@ -82,6 +82,9 @@ class BaseShard(models.Model):
     def __str__(self):
         return "Shard {}({}|{})".format(self.alias, self.node_name, self.schema_name)
 
+    def use(self, *args, **kwargs):
+        return use_shard(self, *args, **kwargs)
+
 
 class InstanceShardOptions:
     def __init__(self, schema_name, node_name, id, mapping_value, active_only_schemas):
