@@ -102,5 +102,6 @@ def store_initial_shard(sender, instance, **kwargs):
             node_name=connection.alias,
             id_=connection._shard_id,
             mapping_value=connection._mapping_value,
-            active_only_schemas=connection._active_only_schemas
+            active_only_schemas=connection._active_only_schemas,
+            lock=connection._lock
         )

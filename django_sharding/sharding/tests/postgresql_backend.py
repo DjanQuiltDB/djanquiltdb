@@ -388,7 +388,7 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
     def test_get_int_from_key(self, mock_md5):
         """
         Case: Call get_int_from_key
-        Expected: hashlib.md5 to be called and the correct int to bre returned
+        Expected: hashlib.md5 to be called and the correct int to be returned
         """
         mock_md5.return_value = mock.Mock()
         mock_md5.return_value.update = mock.Mock()

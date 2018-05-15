@@ -13,7 +13,6 @@ IN THE SOFTWARE.
 """
 import hashlib
 import re
-import struct
 
 from django.db.backends.postgresql_psycopg2.base import DatabaseWrapper as BaseDatabaseWrapper
 from django.db.backends.base.base import NO_DB_ALIAS
@@ -113,6 +112,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self._shard_id = None
         self._mapping_value = None
         self._active_only_schemas = True
+        self._lock = True
 
     def close(self):
         self.search_path_set = False
@@ -124,7 +124,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self.search_path_set = False
 
     def set_schema(self, schema_name, include_public=True, override_model_use_shard=False, shard_id=None,
-                   mapping_value=None, active_only_schemas=True):
+                   mapping_value=None, active_only_schemas=True, lock=True):
         """
         Main API method to tell the connection to use a different schema.
         The postgresql search_path will be changed when a new cursor is requested.
@@ -139,6 +139,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self._shard_id = shard_id
         self._mapping_value = mapping_value
         self._active_only_schemas = active_only_schemas
+        self._lock = lock
 
     def set_schema_to_public(self):
         """
@@ -260,7 +261,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         Turn the given id to a md5 hash.
         And make an int from the first 60 bits of the hash
         """
-        m = hashlib.md5()
+        m = hashlib.md5()  # nosec
         m.update(key.encode())
         return int(m.hexdigest()[:15], 16)
 

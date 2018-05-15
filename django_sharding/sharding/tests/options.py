@@ -26,7 +26,8 @@ class GetShardFromInstanceOptionsTestCase(TestCase):
             node_name=shard.node_name,
             id_=shard.id,
             mapping_value=None,
-            active_only_schemas=None
+            active_only_schemas=None,
+            lock=True
         )
 
         self.assertEqual(get_shard_from_instance_options(shard_options), shard)
@@ -42,7 +43,8 @@ class GetShardFromInstanceOptionsTestCase(TestCase):
             node_name='default',
             id_=None,
             mapping_value=None,
-            active_only_schemas=None
+            active_only_schemas=None,
+            lock=True
         )
 
         with self.assertRaisesMessage(ShardingError, 'Shard ID is not known for this instance'):
@@ -63,7 +65,8 @@ class ConnectionHasSameShardOptionsTestCase(TestCase):
             node_name=self.shard.node_name,
             id_=self.shard.id,
             mapping_value=None,
-            active_only_schemas=True
+            active_only_schemas=True,
+            lock=True
         )
 
     def test_same_shard_options(self):
@@ -108,7 +111,8 @@ class UseShardFromInstanceOptions(TestCase):
             node_name=self.shard.node_name,
             id_=self.shard.id,
             mapping_value=self.organization.id,
-            active_only_schemas=True
+            active_only_schemas=True,
+            lock=True
         )
 
         use_shard_from_instance_options(shard_options)
@@ -128,7 +132,8 @@ class UseShardFromInstanceOptions(TestCase):
             node_name=self.shard.node_name,
             id_=self.shard.id,
             mapping_value=None,
-            active_only_schemas=True
+            active_only_schemas=True,
+            lock=True
         )
 
         with self.subTest('Active only schemas to True'):
@@ -136,7 +141,8 @@ class UseShardFromInstanceOptions(TestCase):
 
             mock_use_shard.assert_called_once_with(
                 shard=self.shard,
-                active_only_schemas=True
+                active_only_schemas=True,
+                lock=True
             )
 
         mock_use_shard.reset_mock()
@@ -148,7 +154,8 @@ class UseShardFromInstanceOptions(TestCase):
 
             mock_use_shard.assert_called_once_with(
                 shard=self.shard,
-                active_only_schemas=False
+                active_only_schemas=False,
+                lock=True
             )
 
     @mock.patch('sharding.options.use_shard')
@@ -162,7 +169,8 @@ class UseShardFromInstanceOptions(TestCase):
             node_name=self.shard.node_name,
             id_=None,
             mapping_value=None,
-            active_only_schemas=True
+            active_only_schemas=True,
+            lock=True
         )
 
         with self.subTest('Active only schemas to True'):
@@ -171,7 +179,8 @@ class UseShardFromInstanceOptions(TestCase):
             mock_use_shard.assert_called_once_with(
                 node_name=self.shard.node_name,
                 schema_name=self.shard.schema_name,
-                active_only_schemas=True
+                active_only_schemas=True,
+                lock=True
             )
 
         mock_use_shard.reset_mock()
@@ -184,5 +193,42 @@ class UseShardFromInstanceOptions(TestCase):
             mock_use_shard.assert_called_once_with(
                 node_name=self.shard.node_name,
                 schema_name=self.shard.schema_name,
-                active_only_schemas=False
+                active_only_schemas=False,
+                lock=True
+            )
+
+    @mock.patch('sharding.options.use_shard')
+    def test_lock(self, mock_use_shard):
+        """
+        Case: Have sharding options with a shard id provided, and a given lock argument
+        Expected: use_shard_from_instance_options calls use_shard with the correct parameters
+        """
+        shard_options = InstanceShardOptions(
+            schema_name=self.shard.schema_name,
+            node_name=self.shard.node_name,
+            id_=self.shard.id,
+            mapping_value=None,
+            active_only_schemas=True,
+            lock=True
+        )
+
+        with self.subTest('Lock to True'):
+            use_shard_from_instance_options(shard_options)
+
+            mock_use_shard.assert_called_once_with(
+                shard=self.shard,
+                active_only_schemas=True,
+                lock=True
+            )
+
+        mock_use_shard.reset_mock()
+
+        with self.subTest('Lock to False'):
+            shard_options.lock = False
+            use_shard_from_instance_options(shard_options)
+
+            mock_use_shard.assert_called_once_with(
+                shard=self.shard,
+                active_only_schemas=True,
+                lock=False
             )

@@ -135,12 +135,12 @@ def _use_connection(node):
 
 
 def _set_schema(schema_name, _connection=None, include_public=True, override_model_use_shard=False, shard_id=None,
-                mapping_value=None, active_only_schemas=True):
+                mapping_value=None, active_only_schemas=True, lock=True):
     if not _connection:
         _connection = connection
     _connection.set_schema(schema_name, include_public=include_public,
                            override_model_use_shard=override_model_use_shard, shard_id=shard_id,
-                           mapping_value=mapping_value, active_only_schemas=active_only_schemas)
+                           mapping_value=mapping_value, active_only_schemas=active_only_schemas, lock=lock)
 
 
 class use_shard(object):
@@ -236,20 +236,23 @@ class use_shard(object):
             self.connection.release_advisory_lock(key='shard_{}'.format(self.shard.id), shared=True)
 
     def enable(self):
-        # First: set the connection
+        # First: Set the connection
         self.old_connection_name = connection.settings_dict['NAME']
         self.connection = _use_connection(self.node_name)
 
-        # Second: set the correct search_path for the requested schema
+        # Second: Note current connection settings
         self.old_schema_name = self.connection.get_schema()
         self.old_override_model_use_shard = self.connection._override_model_use_shard
         self.old_shard_id = self.connection._shard_id
         self.old_mapping_value = self.connection._mapping_value
         self.old_active_only_schemas = self.connection._active_only_schemas
+        self.old_lock = self.connection._lock
 
+        # Third: Set an advisory lock on the shard and mapping object (if available)
         if self.lock:
             self.set_lock()
 
+        # Fourth: Tell the connection to switch schema, and give the data to the connection as well.
         _set_schema(
             self.schema_name,
             self.connection,
@@ -257,7 +260,8 @@ class use_shard(object):
             override_model_use_shard=self.override_model_use_shard,
             shard_id=self.shard.id if self.shard else None,
             mapping_value=self.mapping_value,
-            active_only_schemas=self.active_only_schemas
+            active_only_schemas=self.active_only_schemas,
+            lock=self.lock
         )
 
         return self
@@ -269,7 +273,7 @@ class use_shard(object):
         # Reset both the connection and the schema back to the old state
         _set_schema(self.old_schema_name, self.connection, override_model_use_shard=self.old_override_model_use_shard,
                     shard_id=self.old_shard_id, mapping_value=self.old_mapping_value,
-                    active_only_schemas=self.old_active_only_schemas)
+                    active_only_schemas=self.old_active_only_schemas, lock=self.old_lock)
 
         if not THREAD_LOCAL.DB_OVERRIDE or THREAD_LOCAL.DB_OVERRIDE == [self.node_name]:
             THREAD_LOCAL.DB_OVERRIDE = None
@@ -400,7 +404,7 @@ class use_shard_for(use_shard):
                 # Do things on my shard
 
     """
-    def __init__(self, target_value, active_only_schemas=True, override_model_use_shard=False, lock=False):
+    def __init__(self, target_value, active_only_schemas=True, override_model_use_shard=False, lock=True):
         self.mapping_value = target_value
         super().__init__(shard=get_shard_for(target_value, active_only=active_only_schemas),
                          active_only_schemas=active_only_schemas, override_model_use_shard=override_model_use_shard,
