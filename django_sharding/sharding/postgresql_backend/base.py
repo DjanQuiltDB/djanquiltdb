@@ -265,13 +265,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         m.update(key.encode())
         return int(m.hexdigest()[:15], 16)
 
-    def set_advisory_lock(self, key, shared=True, _cursor=None):
+    def acquire_advisory_lock(self, key, shared=True, _cursor=None):
         """
         Set a shared or exclusive advisory lock on a given key.
         """
         cursor = _cursor or self.cursor()
         key = self.get_int_from_key(key)
-        cursor.execute('SELECT pg_advisory_lock{}({});'.format('_shared' if shared else '', key))
+        cursor.execute('SELECT pg_advisory_lock{}(%s);'.format('_shared' if shared else ''), [key])
 
     def release_advisory_lock(self, key, shared=True, _cursor=None):
         """
@@ -279,7 +279,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         """
         cursor = _cursor or self.cursor()
         key = self.get_int_from_key(key)
-        cursor.execute('SELECT pg_advisory_unlock{}({});'.format('_shared' if shared else '', key))
+        cursor.execute('SELECT pg_advisory_unlock{}(%s);'.format('_shared' if shared else ''), [key])
 
     def _cursor(self, name=None):
         """Database cursor to write whatever we want.

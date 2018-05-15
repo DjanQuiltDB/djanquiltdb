@@ -512,7 +512,8 @@ class MoveDataToShard(ShardingTestCase):
         mock_delete_query.mock_delete_batch([self.statement_1.id, self.statement_2.id], using='default')
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
-    def test_pre_execution_non_mapping(self):
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    def test_pre_execution_non_mapping(self, mock_acquire_lock):
         """
         Case: Call pre_execution without a mapping_model.
         Expected: The source shard to be put into maintenance, old state saved.
@@ -528,9 +529,12 @@ class MoveDataToShard(ShardingTestCase):
         self.assertEqual(self.source_shard.state, State.MAINTENANCE)
         self.assertEqual(self.command.old_source_state, State.ACTIVE)
 
+        mock_acquire_lock.assert_called_once_with(key='shard_{}'.format(self.source_shard.id), shared=False)
+
     @override_settings(SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards',
                                  'SHARD_CLASS': 'example.models.Shard'})
-    def test_pre_execution_with_mapping(self):
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    def test_pre_execution_with_mapping(self, mock_acquire_lock):
         """
         Case: Call pre_execution with a mapping_model.
         Expected: The organization's mapping object to be put into maintenance, old state saved.
@@ -543,8 +547,11 @@ class MoveDataToShard(ShardingTestCase):
         self.assertEqual(self.organization_shard.state, State.MAINTENANCE)
         self.assertEqual(self.command.old_source_state, State.ACTIVE)
 
+        mock_acquire_lock.assert_called_once_with(key='mapping_{}'.format(self.organization_1.id), shared=False)
+
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
-    def test_post_execution_non_mapping(self):
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
+    def test_post_execution_non_mapping(self, mock_release_lock):
         """
         Case: Call post_execution without a mapping_model.
         Expected: The source shard's state to be restored.
@@ -558,10 +565,12 @@ class MoveDataToShard(ShardingTestCase):
 
         self.source_shard.refresh_from_db()
         self.assertEqual(self.source_shard.state, State.ACTIVE)
+        mock_release_lock.assert_called_once_with(key='shard_{}'.format(self.source_shard.id), shared=False)
 
     @override_settings(SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards',
                                  'SHARD_CLASS': 'example.models.Shard'})
-    def test_post_execution_with_mapping(self):
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
+    def test_post_execution_with_mapping(self, mock_release_lock):
         """
         Case: Call post_execution with a mapping_model.
         Expected: The organization's mapping object's state to be restored.
@@ -578,6 +587,8 @@ class MoveDataToShard(ShardingTestCase):
         self.organization_shard.refresh_from_db()
         self.assertEqual(self.organization_shard.state, State.ACTIVE)
         self.assertEqual(self.organization_shard.shard, self.target_shard)
+
+        mock_release_lock.assert_called_once_with(key='mapping_{}'.format(self.organization_1.id), shared=False)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.move_data', side_effect=DatabaseError)
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')

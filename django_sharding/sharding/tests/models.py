@@ -417,8 +417,8 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
                 user.get_organization_name()
                 self.assertFalse(mock_use_shard.called)
 
-    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.set_advisory_lock')
-    def test_no_lock(self, mock_set_lock):
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    def test_no_lock(self, mock_acquire_lock):
         """
         Case: Use a model method while being a shard with lock=False
         Expected: No lock is set when calling the model function
@@ -437,4 +437,4 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
             user.get_organization_name()  # Should not set a lock
 
         # Only the use_shard(other_shard) should have set a lock.
-        mock_set_lock.assert_called_once_with(key='shard_{}'.format(other_shard.id), shared=True)
+        mock_acquire_lock.assert_called_once_with(key='shard_{}'.format(other_shard.id), shared=True)

@@ -401,26 +401,26 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.assertEqual(result, 43055487337504055)
 
     @mock.patch('django.db.backends.utils.CursorWrapper.execute')
-    def test_get_shard_lock(self, mock_execute):
+    def test_acquire_shard_lock(self, mock_execute):
         """
-        Case: Call set_advisory_lock for a shared lock.
+        Case: Call acquire_advisory_lock for a shared lock.
         Expected: The correct SQL to be executed.
         """
-        self.connection1.set_advisory_lock(key='test', shared=True)
+        self.connection1.acquire_advisory_lock(key='test', shared=True)
 
         mock_execute.assert_called_once_with(
-            'SELECT pg_advisory_lock_shared({});'.format(self.connection1.get_int_from_key('test')))
+            'SELECT pg_advisory_lock_shared(%s);', [self.connection1.get_int_from_key('test')])
 
     @mock.patch('django.db.backends.utils.CursorWrapper.execute')
-    def test_get_exclusive_lock(self, mock_execute):
+    def test_acquire_exclusive_lock(self, mock_execute):
         """
-        Case: Call set_advisory_lock for an exclusive lock.
+        Case: Call acquire_advisory_lock for an exclusive lock.
         Expected: The correct SQL to be executed.
         """
-        self.connection1.set_advisory_lock(key='test', shared=False)
+        self.connection1.acquire_advisory_lock(key='test', shared=False)
 
         mock_execute.assert_called_once_with(
-            'SELECT pg_advisory_lock({});'.format(self.connection1.get_int_from_key('test')))
+            'SELECT pg_advisory_lock(%s);', [self.connection1.get_int_from_key('test')])
 
     @mock.patch('django.db.backends.utils.CursorWrapper.execute')
     def test_release_shard_lock(self, mock_execute):
@@ -431,7 +431,7 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.connection1.release_advisory_lock(key='test', shared=True)
 
         mock_execute.assert_called_once_with(
-            'SELECT pg_advisory_unlock_shared({});'.format(self.connection1.get_int_from_key('test')))
+            'SELECT pg_advisory_unlock_shared(%s);', [self.connection1.get_int_from_key('test')])
 
     @mock.patch('django.db.backends.utils.CursorWrapper.execute')
     def test_release_exclusive_lock(self, mock_execute):
@@ -442,14 +442,14 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.connection1.release_advisory_lock(key='test', shared=False)
 
         mock_execute.assert_called_once_with(
-            'SELECT pg_advisory_unlock({});'.format(self.connection1.get_int_from_key('test')))
+            'SELECT pg_advisory_unlock(%s);', [self.connection1.get_int_from_key('test')])
 
     def test_shared_blocks_exclusive_lock(self):
         """
         Case: Set a shared advisory lock and then try to set an exclusive one.
         Expected: Exclusive lock not given at first, but is given when the shared lock is released.
         """
-        self.connection1.set_advisory_lock(key='test', shared=True)
+        self.connection1.acquire_advisory_lock(key='test', shared=True)
         self.assertFalse(self.get_lock(self.connection2, 'test'))
 
         self.connection1.release_advisory_lock(key='test', shared=True)
@@ -460,8 +460,8 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         Case: Calling for two exclusive locks on different keys.
         Expected: Both locks to be given.
         """
-        self.connection1.set_advisory_lock(key='test', shared=False)
-        self.connection2.set_advisory_lock(key='test2', shared=False)
+        self.connection1.acquire_advisory_lock(key='test', shared=False)
+        self.connection2.acquire_advisory_lock(key='test2', shared=False)
 
         self.assertTrue(self.get_lock(self.connection1, 'test'))
         self.assertTrue(self.get_lock(self.connection2, 'test2'))

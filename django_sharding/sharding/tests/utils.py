@@ -330,16 +330,16 @@ class UseShardTestCase(ShardingTestCase):
 
     @mock.patch('sharding.utils._set_schema', mock.Mock)
     @mock.patch('sharding.utils._use_connection')
-    @mock.patch('sharding.utils.use_shard.set_lock')
-    def test_enable_set_advisory_lock(self, mock_set_lock, mock_use_connection):
+    @mock.patch('sharding.utils.use_shard.acquire_lock')
+    def test_enable_acquire_advisory_lock(self, mock_acquire_lock, mock_use_connection):
         """
         Case: Use use_shard.enable()
-        Expected: set_lock to be called.
+        Expected: acquire_lock to be called.
         """
         mock_use_connection.return_value = connection
 
         use_shard(self.shard).enable()
-        mock_set_lock.assert_called_once_with()
+        mock_acquire_lock.assert_called_once_with()
 
     @mock.patch('sharding.utils._set_schema', mock.Mock)
     @mock.patch('sharding.utils.use_shard.release_lock')
@@ -360,16 +360,16 @@ class UseShardTestCase(ShardingTestCase):
         env.disable()
         mock_release_lock.assert_called_once_with()
 
-    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.set_advisory_lock')
-    def test_set_lock(self, mock_set_advisory_lock):
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    def test_acquire_lock(self, mock_acquire_lock):
         """
-        Case: Call use_shard.set_lock().
-        Expected: Connection's set_advisory_lock to be called with the correct arguments.
+        Case: Call use_shard.acquire_lock().
+        Expected: Connection's acquire_advisory_lock to be called with the correct arguments.
         """
         env = use_shard(self.shard)
         env.connection = connection
-        env.set_lock()
-        mock_set_advisory_lock.assert_called_once_with(key='shard_{}'.format(self.shard.id), shared=True)
+        env.acquire_lock()
+        mock_acquire_lock.assert_called_once_with(key='shard_{}'.format(self.shard.id), shared=True)
 
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_release_lock(self, mock_release_advisory_lock):
@@ -457,13 +457,13 @@ class UseShardForTestCase(TestCase):
             self.assertEqual(env.connection._override_model_use_shard, False)
             self.assertEqual(env.connection._lock, False)
 
-    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.set_advisory_lock')
-    def test_set_lock(self, mock_set_advisory_lock):
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    def test_acquire_lock(self, mock_acquire_lock):
         env = use_shard_for(self.org_shard1.organization_id)
         env.connection = connection
-        env.set_lock()
-        mock_set_advisory_lock.assert_any_call(key='mapping_{}'.format(self.org_shard1.organization_id), shared=True)
-        mock_set_advisory_lock.assert_any_call(key='shard_{}'.format(self.shard1.id), shared=True)
+        env.acquire_lock()
+        mock_acquire_lock.assert_any_call(key='mapping_{}'.format(self.org_shard1.organization_id), shared=True)
+        mock_acquire_lock.assert_any_call(key='shard_{}'.format(self.shard1.id), shared=True)
 
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_release_lock(self, mock_release_advisory_lock):

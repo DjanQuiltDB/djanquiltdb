@@ -227,9 +227,9 @@ class use_shard(object):
 
         return inner
 
-    def set_lock(self):
+    def acquire_lock(self):
         if self.shard:
-            self.connection.set_advisory_lock(key='shard_{}'.format(self.shard.id), shared=True)
+            self.connection.acquire_advisory_lock(key='shard_{}'.format(self.shard.id), shared=True)
 
     def release_lock(self):
         if self.shard:
@@ -250,7 +250,7 @@ class use_shard(object):
 
         # Third: Set an advisory lock on the shard and mapping object (if available)
         if self.lock:
-            self.set_lock()
+            self.acquire_lock()
 
         # Fourth: Tell the connection to switch schema, and give the data to the connection as well.
         _set_schema(
@@ -410,9 +410,9 @@ class use_shard_for(use_shard):
                          active_only_schemas=active_only_schemas, override_model_use_shard=override_model_use_shard,
                          lock=lock)
 
-    def set_lock(self):
-        self.connection.set_advisory_lock(key='mapping_{}'.format(self.mapping_value), shared=True)
-        self.connection.set_advisory_lock(key='shard_{}'.format(self.shard.id), shared=True)
+    def acquire_lock(self):
+        self.connection.acquire_advisory_lock(key='mapping_{}'.format(self.mapping_value), shared=True)
+        self.connection.acquire_advisory_lock(key='shard_{}'.format(self.shard.id), shared=True)
 
     def release_lock(self):
         self.connection.release_advisory_lock(key='mapping_{}'.format(self.mapping_value), shared=True)
