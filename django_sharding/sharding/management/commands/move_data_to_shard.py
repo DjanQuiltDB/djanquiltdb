@@ -256,7 +256,7 @@ class Command(BaseCommand):
             mapping_object = mapping_model.objects.select_related('shard').for_target(root_object.id)
 
             # Get exclusive advisory lock on the mapping object.
-            source_connection.acquire_advisory_lock(key='mapping_{}'.format(mapping_object.id), shared=False)
+            source_connection.acquire_advisory_lock(key='mapping_{}'.format(root_object.id), shared=False)
 
             self.old_source_state = mapping_object.state
             mapping_object.state = State.MAINTENANCE
@@ -284,7 +284,7 @@ class Command(BaseCommand):
             mapping_object.save(update_fields=['state', 'shard'])
 
             # Release the exclusive advisory lock
-            source_connection.release_advisory_lock(key='mapping_{}'.format(mapping_object.id), shared=False)
+            source_connection.release_advisory_lock(key='mapping_{}'.format(root_object.id), shared=False)
         else:
             source_shard.state = self.old_source_state
             source_shard.save(update_fields=['state'])
