@@ -262,7 +262,7 @@ class Command(BaseCommand):
             mapping_object.state = State.MAINTENANCE
             mapping_object.save(update_fields=['state'])
         else:
-            # Get exclusive advisory lock on the mapping object.
+            # Get exclusive advisory lock on the sharding object.
             source_connection.acquire_advisory_lock(key='shard_{}'.format(source_shard.id), shared=False)
 
             self.old_source_state = source_shard.state
