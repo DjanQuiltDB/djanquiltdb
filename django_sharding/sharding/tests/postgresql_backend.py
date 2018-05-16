@@ -2,7 +2,7 @@ import copy
 from unittest import mock
 
 from django.db import connection, ProgrammingError, connections
-from django.test import override_settings, TestCase, TransactionTestCase
+from django.test import override_settings, TestCase
 from psycopg2 import InternalError
 
 from example.models import Type, Organization, User, Statement, Shard
