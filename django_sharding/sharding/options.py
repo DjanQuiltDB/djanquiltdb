@@ -3,12 +3,13 @@ from sharding.utils import use_shard_for, use_shard, get_shard_class
 
 
 class InstanceShardOptions:
-    def __init__(self, schema_name, node_name, id_, mapping_value, active_only_schemas):
+    def __init__(self, schema_name, node_name, id_, mapping_value, active_only_schemas, lock):
         self.schema_name = schema_name
         self.node_name = node_name
         self.id = id_
         self.mapping_value = mapping_value
         self.active_only_schemas = active_only_schemas
+        self.lock = lock
 
 
 def get_shard_from_instance_options(options):
@@ -28,7 +29,8 @@ def connection_has_same_shard_options(options):
         and connection._shard_id == options.id \
         and connection.schema_name == options.schema_name \
         and connection.alias == options.node_name \
-        and connection._active_only_schemas == options.active_only_schemas
+        and connection._active_only_schemas == options.active_only_schemas \
+        and connection._lock == options.lock
 
 
 def use_shard_from_instance_options(options):
@@ -54,5 +56,9 @@ def use_shard_from_instance_options(options):
         # the model methods as well. This is needed for commands like move_data_to_shard, that do model
         # methods like delete() when the shard is in maintenance.
         use_shard_kwargs['active_only_schemas'] = options.active_only_schemas
+
+        # Pass the lock argument as well. If an object was fetched during a use_shard with lock=False
+        # we don't want a lock to be set because we used a function on that object.
+        use_shard_kwargs['lock'] = options.lock
 
     return use_shard_func(**use_shard_kwargs)

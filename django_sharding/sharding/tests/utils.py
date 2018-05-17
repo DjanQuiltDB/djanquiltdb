@@ -196,7 +196,7 @@ class UseShardTestCase(ShardingTestCase):
             self.assertEqual(connection.alias, 'default')
             mock_set_schema.assert_called_once_with('test_schema', env.connection, include_public=True,
                                                     override_model_use_shard=False, shard_id=self.shard.id,
-                                                    mapping_value=None, active_only_schemas=True)
+                                                    mapping_value=None, active_only_schemas=True, lock=True)
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard_on_other_node(self, mock_set_schema):
@@ -208,7 +208,7 @@ class UseShardTestCase(ShardingTestCase):
             self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['other'])
             mock_set_schema.assert_called_once_with('test_other_schema', env.connection,  include_public=True,
                                                     override_model_use_shard=False, shard_id=self.other_shard.id,
-                                                    mapping_value=None, active_only_schemas=True)
+                                                    mapping_value=None, active_only_schemas=True, lock=True)
 
     @mock.patch("sharding.utils.connection.set_schema")
     def test_use_shard_with_invalid_argument(self, mock_set_schema):
@@ -261,26 +261,26 @@ class UseShardTestCase(ShardingTestCase):
 
         mock_set_schema.assert_any_call(self.shard.schema_name, connection_1, include_public=False,
                                         override_model_use_shard=False, shard_id=self.shard.id,
-                                        mapping_value=None, active_only_schemas=True)
+                                        mapping_value=None, active_only_schemas=True, lock=True)
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard_inception(self, mock_set_schema):
         """
-        Case: Call use_shard within a use_shard enviorment
+        Case: Call use_shard within a use_shard environment
         Expected: Connection to switch twice and set_schema to be called accordingly
         """
         with use_shard(self.shard) as env_1:
             connection_1 = env_1.connection
             mock_set_schema.assert_any_call(self.shard.schema_name, connection_1, include_public=True,
                                             override_model_use_shard=False, shard_id=self.shard.id,
-                                            mapping_value=None, active_only_schemas=True)
+                                            mapping_value=None, active_only_schemas=True, lock=True)
             self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['default'])
 
             with use_shard(self.other_shard) as env_2:
                 connection_2 = env_2.connection
                 mock_set_schema.assert_any_call(self.other_shard.schema_name, connection_2, include_public=True,
                                                 override_model_use_shard=False, shard_id=self.other_shard.id,
-                                                mapping_value=None, active_only_schemas=True)
+                                                mapping_value=None, active_only_schemas=True, lock=True)
                 self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['default', 'other'])
 
         self.assertIsNone(THREAD_LOCAL.DB_OVERRIDE)
@@ -326,6 +326,61 @@ class UseShardTestCase(ShardingTestCase):
             self.assertEqual(env.connection._mapping_value, None)
             self.assertEqual(env.connection._active_only_schemas, True)
             self.assertEqual(env.connection._override_model_use_shard, False)
+            self.assertEqual(env.connection._lock, True)
+
+    @mock.patch('sharding.utils._set_schema', mock.Mock)
+    @mock.patch('sharding.utils._use_connection')
+    @mock.patch('sharding.utils.use_shard.acquire_lock')
+    def test_enable_acquire_advisory_lock(self, mock_acquire_lock, mock_use_connection):
+        """
+        Case: Use use_shard.enable()
+        Expected: acquire_lock to be called.
+        """
+        mock_use_connection.return_value = connection
+
+        use_shard(self.shard).enable()
+        mock_acquire_lock.assert_called_once_with()
+
+    @mock.patch('sharding.utils._set_schema', mock.Mock)
+    @mock.patch('sharding.utils.use_shard.release_lock')
+    def test_disable_release_advisory_lock(self, mock_release_lock):
+        """
+        Case: Use use_shard.disable()
+        Expected: release_lock to be called.
+        """
+        env = use_shard(self.shard)
+        env.old_schema_name = 'public'
+        env.old_override_model_use_shard = False
+        env.old_active_only_schemas = False
+        env.old_shard_id = None
+        env.old_mapping_value = None
+        env.old_lock = True
+        env.connection = connection
+
+        env.disable()
+        mock_release_lock.assert_called_once_with()
+
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    def test_acquire_lock(self, mock_acquire_lock):
+        """
+        Case: Call use_shard.acquire_lock().
+        Expected: Connection's acquire_advisory_lock to be called with the correct arguments.
+        """
+        env = use_shard(self.shard)
+        env.connection = connection
+        env.acquire_lock()
+        mock_acquire_lock.assert_called_once_with(key='shard_{}'.format(self.shard.id), shared=True)
+
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
+    def test_release_lock(self, mock_release_advisory_lock):
+        """
+        Case: Call use_shard.release_lock().
+        Expected: Connection's release_advisory_lock to be called with the correct arguments.
+        """
+        env = use_shard(self.shard)
+        env.connection = connection
+        env.release_lock()
+        mock_release_advisory_lock.assert_called_once_with(key='shard_{}'.format(self.shard.id), shared=True)
 
 
 class UseShardForTestCase(TestCase):
@@ -349,7 +404,8 @@ class UseShardForTestCase(TestCase):
         with use_shard_for(1):
             mock_set_schema.assert_called_once_with(self.shard1.schema_name, connections[self.shard1.node_name],
                                                     include_public=True, override_model_use_shard=False,
-                                                    shard_id=self.shard1.id, mapping_value=1, active_only_schemas=True)
+                                                    shard_id=self.shard1.id, mapping_value=1, active_only_schemas=True,
+                                                    lock=True)
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard_for_inactive_object(self, mock_set_schema):
@@ -385,19 +441,38 @@ class UseShardForTestCase(TestCase):
         with use_shard_for(2, active_only_schemas=False):
             mock_set_schema.assert_called_once_with(self.shard1.schema_name, connections[self.shard1.node_name],
                                                     include_public=True, override_model_use_shard=False,
-                                                    shard_id=self.shard1.id, mapping_value=2, active_only_schemas=False)
+                                                    shard_id=self.shard1.id, mapping_value=2, active_only_schemas=False,
+                                                    lock=True)
 
     def test_use_shard_set_parameters_on_connection(self):
         """
         Case: Use use_shard_for
         Expected: Parameters from use_shard_for are correctly set on the connection for re-use later
         """
-        with use_shard_for(1) as env:
+        with use_shard_for(1, lock=False) as env:
             self.assertEqual(env.connection.schema_name, self.shard1.schema_name)
             self.assertEqual(env.connection._shard_id, self.shard1.id)
             self.assertEqual(env.connection._mapping_value, 1)
             self.assertEqual(env.connection._active_only_schemas, True)
             self.assertEqual(env.connection._override_model_use_shard, False)
+            self.assertEqual(env.connection._lock, False)
+
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    def test_acquire_lock(self, mock_acquire_lock):
+        env = use_shard_for(self.org_shard1.organization_id)
+        env.connection = connection
+        env.acquire_lock()
+        mock_acquire_lock.assert_any_call(key='mapping_{}'.format(self.org_shard1.organization_id), shared=True)
+        mock_acquire_lock.assert_any_call(key='shard_{}'.format(self.shard1.id), shared=True)
+
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
+    def test_release_lock(self, mock_release_advisory_lock):
+        env = use_shard_for(self.org_shard1.organization_id)
+        env.connection = connection
+        env.release_lock()
+        mock_release_advisory_lock.assert_any_call(key='mapping_{}'.format(self.org_shard1.organization_id),
+                                                   shared=True)
+        mock_release_advisory_lock.assert_any_call(key='shard_{}'.format(self.shard1.id), shared=True)
 
 
 class GetShardForTestCase(TestCase):

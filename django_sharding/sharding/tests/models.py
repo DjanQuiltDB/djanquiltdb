@@ -212,12 +212,14 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         self.assertEqual(org._shard.id, shard.id)
         self.assertEqual(org._shard.mapping_value, None)
         self.assertEqual(org._shard.active_only_schemas, True)
+        self.assertEqual(org._shard.lock, True)
 
         self.assertEqual(user._shard.schema_name, 'empire_schema')
         self.assertEqual(user._shard.node_name, 'default')
         self.assertEqual(user._shard.id, shard.id)
         self.assertEqual(user._shard.mapping_value, None)
         self.assertEqual(user._shard.active_only_schemas, True)
+        self.assertEqual(user._shard.lock, True)
 
     def test_post_init_use_shard_for(self):
         """
@@ -242,12 +244,14 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         self.assertEqual(org._shard.id, shard.id)
         self.assertEqual(org._shard.mapping_value, org.id)
         self.assertEqual(org._shard.active_only_schemas, True)
+        self.assertEqual(org._shard.lock, True)
 
         self.assertEqual(user._shard.schema_name, 'empire_schema')
         self.assertEqual(user._shard.node_name, 'default')
         self.assertEqual(user._shard.id, shard.id)
         self.assertEqual(user._shard.mapping_value, org.id)
         self.assertEqual(user._shard.active_only_schemas, True)
+        self.assertEqual(user._shard.lock, True)
 
     def test_post_init_schema_name(self):
         """
@@ -266,12 +270,14 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         self.assertEqual(org._shard.id, None)
         self.assertEqual(org._shard.mapping_value, None)
         self.assertEqual(org._shard.active_only_schemas, True)
+        self.assertEqual(org._shard.lock, True)
 
         self.assertEqual(user._shard.schema_name, 'empire_schema')
         self.assertEqual(user._shard.node_name, 'default')
         self.assertEqual(user._shard.id, None)
         self.assertEqual(user._shard.mapping_value, None)
         self.assertEqual(user._shard.active_only_schemas, True)
+        self.assertEqual(org._shard.lock, True)
 
         with self.assertRaisesMessage(ShardingError, 'Shard ID is not known for this instance'):
             get_shard_from_instance_options(org._shard)
@@ -420,3 +426,25 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
             with mock.patch('sharding.options.use_shard') as mock_use_shard:
                 user.get_organization_name()
                 self.assertFalse(mock_use_shard.called)
+
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    def test_no_lock(self, mock_acquire_lock):
+        """
+        Case: Use a model method while being a shard with lock=False
+        Expected: No lock is set when calling the model function
+        """
+        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                     state=State.ACTIVE)
+        other_shard = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default',
+                                           state=State.ACTIVE)
+
+        with use_shard(shard, lock=False):  # No lock
+            org = Organization.objects.create(name='The Empire')
+            user = User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw', organization=org)
+
+        # Now switch to another shard where the user and organization are not living
+        with use_shard(other_shard):
+            user.get_organization_name()  # Should not set a lock
+
+        # Only the use_shard(other_shard) should have set a lock.
+        mock_acquire_lock.assert_called_once_with(key='shard_{}'.format(other_shard.id), shared=True)

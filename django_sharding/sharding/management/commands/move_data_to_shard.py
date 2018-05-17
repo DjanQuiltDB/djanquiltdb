@@ -5,7 +5,7 @@ from tempfile import NamedTemporaryFile
 
 from django.contrib.admin.utils import NestedObjects
 from django.core.management import BaseCommand, CommandError
-from django.db import IntegrityError
+from django.db import IntegrityError, connections
 from django.db.models import sql
 from django.db.models.loading import get_model
 
@@ -242,16 +242,29 @@ class Command(BaseCommand):
     def pre_execution(self, options, source_shard, target_shard, root_object, data):
         """
         Called before we enter the transaction.
+
+        Before we set something into maintenance, we acquire an exclusive advisory lock.
+        We do this so we wait until all current usages of the shard are done (since they set a shared lock),
+        and cause all new usages to wait for this lock the be released.
+
         If there is a mapping model, we can set that into maintenance.
         If not, we set the source shard into maintenance.
         """
+        source_connection = connections[source_shard.node_name]
         mapping_model = get_mapping_class()
         if mapping_model:
             mapping_object = mapping_model.objects.select_related('shard').for_target(root_object.id)
+
+            # Get exclusive advisory lock on the mapping object.
+            source_connection.acquire_advisory_lock(key='mapping_{}'.format(root_object.id), shared=False)
+
             self.old_source_state = mapping_object.state
             mapping_object.state = State.MAINTENANCE
             mapping_object.save(update_fields=['state'])
         else:
+            # Get exclusive advisory lock on the sharding object.
+            source_connection.acquire_advisory_lock(key='shard_{}'.format(source_shard.id), shared=False)
+
             self.old_source_state = source_shard.state
             source_shard.state = State.MAINTENANCE
             source_shard.save(update_fields=['state'])
@@ -262,15 +275,20 @@ class Command(BaseCommand):
         Set both shards in maintenance.
         Update the mapping object's Shard field, if available.
         """
+        source_connection = connections[source_shard.node_name]
         mapping_model = get_mapping_class()
         if mapping_model:
             mapping_object = mapping_model.objects.select_related('shard').for_target(root_object.id)
             mapping_object.state = self.old_source_state
             mapping_object.shard = target_shard
             mapping_object.save(update_fields=['state', 'shard'])
+
+            # Release the exclusive advisory lock
+            source_connection.release_advisory_lock(key='mapping_{}'.format(root_object.id), shared=False)
         else:
             source_shard.state = self.old_source_state
             source_shard.save(update_fields=['state'])
+            source_connection.release_advisory_lock(key='shard_{}'.format(source_shard.id), shared=False)
 
     @staticmethod
     def copy_expert(cursor, *args, **kwargs):

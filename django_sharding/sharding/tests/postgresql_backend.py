@@ -1,6 +1,7 @@
+import copy
 from unittest import mock
 
-from django.db import connection, ProgrammingError
+from django.db import connection, ProgrammingError, connections
 from django.test import override_settings, TestCase
 from psycopg2 import InternalError
 
@@ -8,7 +9,7 @@ from example.models import Type, Organization, User, Statement, Shard
 from sharding import State
 from sharding.postgresql_backend.base import get_validated_schema_name
 from sharding.utils import create_schema_on_node, create_template_schema, use_shard
-from sharding.tests.utils import ShardingTestCase
+from sharding.tests.utils import ShardingTestCase, ShardingTransactionTestCase
 
 
 class GetValidatedSchemaNameTestCase(TestCase):
@@ -355,3 +356,112 @@ class CursorTestCase(TestCase):
                     with self.assertRaises(ProgrammingError):
                         cursor.execute('SELECT * FROM example_type;')  # some query that will fail on __no_db__.
                     self.assertEqual(mock_get_ps_schema.call_count, 0)
+
+
+class AdvisoryLockingTestCase(ShardingTransactionTestCase):
+    """
+    We don't write anything to the database (other than advisory locks),
+    so we can just use the vanilla TransactionTestCase here.
+    """
+    def close_connections(self):
+        if hasattr(self, 'connection2'):
+            self.connection2.close()
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self.close_connections)
+
+        self.connection1 = connections['default']
+
+        # Create second connection to the same database
+        self.connection2 = copy.copy(self.connection1)
+        self.connection2.connection = self.connection2.get_new_connection(self.connection2.get_connection_params())
+
+    @staticmethod
+    def get_lock(connection_, key):
+        key = connection_.get_int_from_key(key)
+        cursor = connection_.cursor()
+        cursor.execute('SELECT pg_try_advisory_lock({});'.format(key))
+        return cursor.fetchall()[0][0]
+
+    @mock.patch('hashlib.md5')
+    def test_get_int_from_key(self, mock_md5):
+        """
+        Case: Call get_int_from_key
+        Expected: hashlib.md5 to be called and the correct int to be returned
+        """
+        mock_md5.return_value = mock.Mock()
+        mock_md5.return_value.update = mock.Mock()
+        mock_md5.return_value.hexdigest = mock.Mock(return_value='098f6bcd4621d373cade4e832627b4f6')
+
+        result = self.connection1.get_int_from_key('test')
+
+        mock_md5.assert_called_once_with()
+        mock_md5.return_value.update.assert_called_once_with(b'test')
+        self.assertEqual(result, 43055487337504055)
+
+    @mock.patch('django.db.backends.utils.CursorWrapper.execute')
+    def test_acquire_shard_lock(self, mock_execute):
+        """
+        Case: Call acquire_advisory_lock for a shared lock.
+        Expected: The correct SQL to be executed.
+        """
+        self.connection1.acquire_advisory_lock(key='test', shared=True)
+
+        mock_execute.assert_called_once_with(
+            'SELECT pg_advisory_lock_shared(%s);', [self.connection1.get_int_from_key('test')])
+
+    @mock.patch('django.db.backends.utils.CursorWrapper.execute')
+    def test_acquire_exclusive_lock(self, mock_execute):
+        """
+        Case: Call acquire_advisory_lock for an exclusive lock.
+        Expected: The correct SQL to be executed.
+        """
+        self.connection1.acquire_advisory_lock(key='test', shared=False)
+
+        mock_execute.assert_called_once_with(
+            'SELECT pg_advisory_lock(%s);', [self.connection1.get_int_from_key('test')])
+
+    @mock.patch('django.db.backends.utils.CursorWrapper.execute')
+    def test_release_shard_lock(self, mock_execute):
+        """
+        Case: Call release_advisory_lock for a shared lock.
+        Expected: The correct SQL to be executed.
+        """
+        self.connection1.release_advisory_lock(key='test', shared=True)
+
+        mock_execute.assert_called_once_with(
+            'SELECT pg_advisory_unlock_shared(%s);', [self.connection1.get_int_from_key('test')])
+
+    @mock.patch('django.db.backends.utils.CursorWrapper.execute')
+    def test_release_exclusive_lock(self, mock_execute):
+        """
+        Case: Call release_advisory_lock for an exclusive lock.
+        Expected: The correct SQL to be executed.
+        """
+        self.connection1.release_advisory_lock(key='test', shared=False)
+
+        mock_execute.assert_called_once_with(
+            'SELECT pg_advisory_unlock(%s);', [self.connection1.get_int_from_key('test')])
+
+    def test_shared_blocks_exclusive_lock(self):
+        """
+        Case: Set a shared advisory lock and then try to set an exclusive one.
+        Expected: Exclusive lock not given at first, but is given when the shared lock is released.
+        """
+        self.connection1.acquire_advisory_lock(key='test', shared=True)
+        self.assertFalse(self.get_lock(self.connection2, 'test'))
+
+        self.connection1.release_advisory_lock(key='test', shared=True)
+        self.assertTrue(self.get_lock(self.connection2, 'test'))
+
+    def test_locks_for_two_keys_dont_block(self):
+        """
+        Case: Calling for two exclusive locks on different keys.
+        Expected: Both locks to be given.
+        """
+        self.connection1.acquire_advisory_lock(key='test', shared=False)
+        self.connection2.acquire_advisory_lock(key='test2', shared=False)
+
+        self.assertTrue(self.get_lock(self.connection1, 'test'))
+        self.assertTrue(self.get_lock(self.connection2, 'test2'))

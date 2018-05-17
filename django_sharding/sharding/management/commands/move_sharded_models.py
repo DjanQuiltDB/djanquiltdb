@@ -56,7 +56,7 @@ class Command(BaseCommand):
                                                      schema_name=target_schema_name, state=State.ACTIVE)
 
             # Flush the shard
-            with use_shard(shard) as env:
+            with use_shard(shard, lock=False) as env:
                 env.connection.flush_schema(shard.schema_name)
 
             # Move the tables over
