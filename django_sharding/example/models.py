@@ -52,20 +52,42 @@ class Organization(models.Model):
     def __str__(self):
         return self.name
 
-    def get_sub_organizations(self):
-        sub_organizations = list(Organization.objects.filter(suborganization__parent=self))
-        for s in sub_organizations:
-            sub_organizations.extend(list(Organization.objects.filter(suborganization__parent=s)))
-        return sub_organizations
+    def get_all_descendants(self):
+        result = []
+        suborganizations = list(Suborganization.objects.filter(parent=self))
+        for suborganization in suborganizations:
+            suborganizations.extend(list(Suborganization.objects.filter(parent=suborganization.child)))
+            result.append(suborganization.child)
+
+        return result
 
 
 @sharded_model()
 class Suborganization(models.Model):
-    parent = models.ForeignKey('Organization', verbose_name='organization')
-    child = models.OneToOneField('Organization', verbose_name='organization')
+    parent = models.ForeignKey('Organization', verbose_name='organization', related_name='parent')
+    child = models.OneToOneField('Organization', verbose_name='organization', related_name='children')
 
     class Meta:
         app_label = 'example'
+
+
+@sharded_model()
+class Cake(models.Model):
+    name = models.CharField('name', max_length=128)
+
+    class Meta:
+        app_label = 'example'
+
+    def __str__(self):
+        return self.name
+
+
+@sharded_model()
+class ProxyCake(Cake):
+    kind = models.CharField('name', max_length=100)
+
+    class Meta:
+        proxy = True
 
 
 @sharded_model()
@@ -81,6 +103,7 @@ class User(AbstractBaseUser):
     created_at = models.DateTimeField('date joined', default=timezone.now)
     organization = models.ForeignKey('Organization', verbose_name='organization')
     type = models.ForeignKey('Type', on_delete=models.DO_NOTHING, verbose_name='type', null=True)
+    cake = models.ManyToManyField('Cake', verbose_name='cakes', null=True)
 
     USERNAME_FIELD = 'email'
 

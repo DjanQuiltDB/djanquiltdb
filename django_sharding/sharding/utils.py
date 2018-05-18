@@ -470,6 +470,8 @@ def create_template_schema(node_name='default'):
 
     Since this only needs to happen once on each node, you can just run it in the shell.
 
+    If the template schema already exists, this does nothing.
+
     :param str node_name: Provide the name of the database connection to be used. If empty it will use the current.
 
     :returns: None
@@ -483,6 +485,9 @@ def create_template_schema(node_name='default'):
     """
     schema_name = get_template_name()
     _node_exists(node_name)
+
+    if connections[node_name].get_ps_schema(schema_name):
+        return
 
     connections[node_name].create_schema(schema_name, is_template=True)  # if it already exists, it's no problem
     migrate_schema(node_name, schema_name)
@@ -594,17 +599,25 @@ def get_sharding_mode(app_label, model_name):
         return None
 
     model = apps.get_model(app_label, model_name)
+
+    # If this model is created automatically (for many-to-many relations for example)
+    # Return the sharding mode of the model responsible for its creation.
+    if model._meta.auto_created:
+        return get_sharding_mode(model._meta.auto_created._meta.app_label, model._meta.auto_created._meta.model_name)
+
     return getattr(model, 'sharding_mode', False)
 
 
-def get_all_sharded_models():
-    models = apps.get_models()
-    return [model for model in models if get_model_sharding_mode(model) == ShardingMode.SHARDED]
+def get_all_sharded_models(include_auto_created=False):
+    models = apps.get_models(include_auto_created=include_auto_created)
+    return [model for model in models
+            if not model._meta.proxy and get_model_sharding_mode(model) == ShardingMode.SHARDED]
 
 
 def get_all_mirrored_models():
     models = apps.get_models()
-    return [model for model in models if get_model_sharding_mode(model) == ShardingMode.MIRRORED]
+    return [model for model in models
+            if not model._meta.proxy and get_model_sharding_mode(model) == ShardingMode.MIRRORED]
 
 
 def get_all_databases():

@@ -200,6 +200,12 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                        [model._meta.db_table])
         return cursor.fetchall()
 
+    def get_schema_for_sequence(self, sequence_name, _cursor=None):
+        cursor = _cursor or self.cursor()
+        cursor.execute('SELECT sequence_schema FROM information_schema.sequences WHERE sequence_name=%s;',
+                       [sequence_name])
+        return cursor.fetchall()
+
     def create_schema(self, schema_name, is_template=False):
         schema_name = get_validated_schema_name(schema_name, is_template)
         cursor = self.cursor()

@@ -234,6 +234,8 @@ class PostgresBackendTestCase(ShardingTestCase):
                                "nextval('test_schema.example_suborganization_id_seq'::regclass)",
                                "nextval('test_schema.example_user_id_seq'::regclass)",
                                "nextval('test_schema.example_statement_id_seq'::regclass)",
+                               "nextval('test_schema.example_cake_id_seq'::regclass)",
+                               "nextval('test_schema.example_user_cake_id_seq'::regclass)",
                                "nextval('test_schema.django_migrations_id_seq'::regclass)"])
 
     def test_sequencers_of_cloned_schema(self):
@@ -305,6 +307,13 @@ class PostgresBackendTestCase(ShardingTestCase):
         Expected: The correct schema name to be returned.
         """
         self.assertEquals(connection.get_schema_for_model(Type), [('public',)])
+
+    def test_get_schema_for_sequence(self):
+        """
+        Case: Call get_schema_for_sequence for a sequence name.
+        Expected: The correct schema name to be returned.
+        """
+        self.assertEquals(connection.get_schema_for_sequence('example_type_id_seq'), [('public',)])
 
     def test_reset_sequence_for_local_field(self):
         """
