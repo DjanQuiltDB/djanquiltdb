@@ -6,6 +6,7 @@ from django.db.models.signals import post_init
 from django.dispatch import receiver
 
 from sharding import State, STATES, ShardingMode
+from sharding.db import connection
 from sharding.options import InstanceShardOptions
 from sharding.utils import get_shard_class, get_model_sharding_mode, use_shard
 
@@ -98,8 +99,6 @@ def store_initial_shard(sender, instance, **kwargs):
 
     # Check if the sender is a sharded model
     if model in apps.get_models() and get_model_sharding_mode(model) == ShardingMode.SHARDED:
-        from django.db import connection
-
         instance._shard = InstanceShardOptions(
             schema_name=connection.get_schema(),
             node_name=connection.alias,

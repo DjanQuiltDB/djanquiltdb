@@ -3,10 +3,11 @@ from unittest import mock
 
 import os
 
-from django.db import connection, connections
+from django.db import connections
 from django.db.migrations.recorder import MigrationRecorder
 from django.utils._os import upath
 
+from sharding.db import connection
 from sharding.tests.utils import ShardingTestCase
 from sharding.utils import create_template_schema
 
