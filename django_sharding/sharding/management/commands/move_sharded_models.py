@@ -3,7 +3,7 @@ from django.core.management import BaseCommand, CommandError
 from django.db import transaction
 
 from sharding.utils import use_shard, get_all_databases, move_model_to_schema, State, \
-    create_template_schema, get_shard_class, get_all_sharded_models, get_template_name
+    create_template_schema, get_shard_class, get_all_sharded_models, get_template_name, create_schema_on_node
 
 
 class Command(BaseCommand):
@@ -59,6 +59,11 @@ class Command(BaseCommand):
                 if confirm != 'yes':
                     return
 
+            # Ensure schema exists. If it does so already, this is a no-op.
+            # We do this, for people might use a dummy object in the Shard model as target.
+            # No need to migrate, since it has to be empty, and will be flushed anyway.
+            create_schema_on_node(node_name=self.shard.node_name, schema_name=self.shard.schema_name, migrate=False)
+
             self.move_models(target_shard=self.shard, sharded_models=sharded_models)
             self.copy_migration_table(target_shard=self.shard)
             self.validate(target_shard=self.shard)
@@ -97,7 +102,7 @@ class Command(BaseCommand):
                           (SELECT is_called FROM "{source_schema}"."{sequence}"));
             CREATE TABLE "{target_schema}"."{table_name}" (LIKE "{source_schema}"."{table_name}" INCLUDING ALL);
             INSERT INTO "{target_schema}"."{table_name}" (SELECT * FROM "{source_schema}"."{table_name}");
-            ALTER TABLE "{target_schema}"."{table_name}" ALTER COLUMN "id" 
+            ALTER TABLE "{target_schema}"."{table_name}" ALTER COLUMN "id"
             SET DEFAULT nextval('{target_schema}.{sequence}');
             """.format(target_schema=target_shard.schema_name,  # nosec
                        source_schema='public',

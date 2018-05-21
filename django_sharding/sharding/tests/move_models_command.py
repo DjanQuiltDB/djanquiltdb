@@ -146,10 +146,11 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
             self.assertCountEqual(connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)),
                                   [('public',)])
 
+    @mock.patch('sharding.management.commands.move_sharded_models.create_schema_on_node',)
     @mock.patch('sharding.management.commands.move_sharded_models.Command.move_models')
     @mock.patch('sharding.management.commands.move_sharded_models.Command.copy_migration_table')
     @mock.patch('sharding.management.commands.move_sharded_models.Command.validate')
-    def test_handle(self, mock_validate, mock_copy_migration_table, mock_move_models):
+    def test_handle(self, mock_validate, mock_copy_migration_table, mock_move_models, mock_create_schema):
         """
         Case: Call the handle function of the command.
         Expected: Various functions to be called with the correct arguments.
@@ -163,6 +164,8 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         shard = Shard.objects.get(alias='test_target_schema')
 
         mock_create_template.assert_called_once_with('default')
+        mock_create_schema.assert_called_once_with(node_name=shard.node_name, schema_name=shard.schema_name,
+                                                   migrate=False)
         mock_move_models.assert_called_once_with(target_shard=shard,
                                                  sharded_models=get_all_sharded_models(include_auto_created=True))
         mock_copy_migration_table.assert_called_once_with(target_shard=shard)
@@ -172,7 +175,8 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
     @mock.patch('sharding.management.commands.move_sharded_models.Command.validate', mock.Mock())
     @mock.patch('sharding.management.commands.move_sharded_models.move_model_to_schema', mock.Mock())
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.flush_schema')
-    def test_on_existing_shard(self, mock_flush_schema):
+    @mock.patch('sharding.management.commands.move_sharded_models.create_schema_on_node',)
+    def test_on_existing_shard(self, mock_create_schema, mock_flush_schema):
         """
         Case: Call move_sharded_models while the target schema already exists.
         Expected: flush_shard to be called.
@@ -186,6 +190,8 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # The User table is already on the sharded schema.
         MoveCommand().handle(database='default', target_schema_name='test_target_schema', no_input=True)
 
+        mock_create_schema.assert_called_once_with(node_name=shard.node_name, schema_name=shard.schema_name,
+                                                   migrate=False)
         mock_flush_schema.assert_called_once_with(shard.schema_name)
 
     @mock.patch('sharding.management.commands.move_sharded_models.Command.copy_migration_table', mock.Mock())
