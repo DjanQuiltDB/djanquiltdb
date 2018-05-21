@@ -950,7 +950,7 @@ class GetShardingModeTestCase(SimpleTestCase):
     def test_get_sharding_mode_for_auto_created_model(self):
         """
         Case: Call get_sharding_mode for a model that is created automatically for a many-to-many field.
-        Expected: Mode returned as defined byt he model who is responsible for the many-to-many relation.
+        Expected: Mode returned as defined by the model which is responsible for the many-to-many relation.
         """
         self.assertEqual(get_sharding_mode('example', 'user_cake'), ShardingMode.SHARDED)
 
@@ -982,7 +982,7 @@ class GetAllShardedModels(TestCase):
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test_include_auto_created(self, mock_get_model_sharding_mode):
         """
-        Case: Call get_all_sharded_models, with include_auto_crated.
+        Case: Call get_all_sharded_models, with include_auto_created.
         Expected: get_model_sharding_mode called for each model.
         """
         get_all_sharded_models(include_auto_created=True)
@@ -991,7 +991,7 @@ class GetAllShardedModels(TestCase):
 
     def test_include_auto_created_result(self):
         """
-        Case: Call get_all_sharded_models, with include_auto_crated.
+        Case: Call get_all_sharded_models, with include_auto_created.
         Expected: All sharded models and auto created fields to be returned.
         """
         # We compare it string based, since we cannot import the auto created fields as classes.

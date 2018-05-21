@@ -600,8 +600,8 @@ def get_sharding_mode(app_label, model_name):
 
     model = apps.get_model(app_label, model_name)
 
-    # If this model is created automatically (for many-to-many relations for example)
-    # Return the sharding mode of the model responsible for its creation.
+    # If this model is created automatically (for many-to-many relations for example),
+    # return the sharding mode of the model responsible for its creation.
     if model._meta.auto_created:
         return get_sharding_mode(model._meta.auto_created._meta.app_label, model._meta.auto_created._meta.model_name)
 

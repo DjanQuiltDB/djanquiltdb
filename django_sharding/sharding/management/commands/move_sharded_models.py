@@ -19,7 +19,7 @@ class Command(BaseCommand):
                             choices=get_all_databases())
         parser.add_argument('--target_schema_name', action='store', dest='target_schema_name', default='default_shard',
                             help='Name of the to be created schema which will receive the moved tables.')
-        parser.add_argument('--no_input', action='store', dest='no_input', default=False, help='Skips confirmations.')
+        parser.add_argument('--no-input', action='store', dest='no_input', default=False, help='Skips confirmations.')
 
     def handle(self, *args, **options):
         self.no_input = options.get('no_input')
@@ -37,18 +37,18 @@ class Command(BaseCommand):
         create_template_schema(database)
         with transaction.atomic():
             # Create or get target shard
-            self.shard, shard_created = get_shard_class().objects.get_or_create(alias=target_schema_name,
-                                                                                node_name=database,
-                                                                                schema_name=target_schema_name)
+            self.shard, shard_created = get_shard_class().objects.get_or_create(node_name=database,
+                                                                                schema_name=target_schema_name,
+                                                                                defaults={'alias': target_schema_name})
 
             if shard_created and not self.no_input:
-                confirm = input("Type 'yes' if you are sure if you want to remove all data of existing shard {}|{} "
+                confirm = input("Type 'yes' if you are sure that you want to remove all data of existing shard {}|{} "
                                 "to prepare to receive the tables from public: "
                                 .format(self.shard.node_name, self.shard.schema_name))
                 if confirm != 'yes':
                     return
 
-            sharded_models = get_all_sharded_models(include_auto_created=True)  # include many-to-many models
+            sharded_models = get_all_sharded_models(include_auto_created=True)  # Include many-to-many models
 
             if not self.no_input:
                 confirm = input("Type 'yes' if you are sure if you want to move the following models "
@@ -81,39 +81,31 @@ class Command(BaseCommand):
                                      to_schema_name=target_shard.schema_name)
 
     def copy_migration_table(self, target_shard):
+        """
+        Copy the django_migrations table by performing the following steps:
+        - Copy Sequence
+        - Create table
+        - Copy contents
+        - Copy sequence
+        - Set default value for id to the new sequence
+        """
         with use_shard(target_shard, include_public=False, lock=False, active_only_schemas=False) as env:
+            sql = """
+            CREATE SEQUENCE django_migrations_id_seq;
+            SELECT setval('{sequence}',
+                          (SELECT last_value FROM "{source_schema}"."{sequence}"),
+                          (SELECT is_called FROM "{source_schema}"."{sequence}"));
+            CREATE TABLE "{target_schema}"."{table_name}" (LIKE "{source_schema}"."{table_name}" INCLUDING ALL);
+            INSERT INTO "{target_schema}"."{table_name}" (SELECT * FROM "{source_schema}"."{table_name}");
+            ALTER TABLE "{target_schema}"."{table_name}" ALTER COLUMN "id" 
+            SET DEFAULT nextval('{target_schema}.{sequence}');
+            """.format(target_schema=target_shard.schema_name,
+                       source_schema='public',
+                       sequence='django_migrations_id_seq',
+                       table_name='django_migrations')
+
             cursor = env.connection.cursor()
-
-            # Copy sequence
-            cursor.execute('CREATE SEQUENCE {};'.format('django_migrations_id_seq'))  # nosec
-            cursor.execute('SELECT * FROM "{}"."django_migrations_id_seq";'.format(target_shard.schema_name))  # nosec
-            cursor.execute('SELECT setval(\'{object}\', '  # nosec
-                           '(SELECT last_value FROM "{source_schema}"."{object}"), '  # nosec
-                           '(SELECT is_called FROM "{source_schema}"."{object}"));'  # nosec
-                           .format(target_schema=target_shard.schema_name,
-                                   source_schema='public',
-                                   object='django_migrations_id_seq'))
-
-            # Create table
-            cursor.execute('CREATE TABLE "{target_schema}"."{object}" (LIKE "{source_schema}"."{object}" '  # nosec
-                           'INCLUDING CONSTRAINTS INCLUDING INDEXES INCLUDING DEFAULTS);'  # nosec
-                           .format(target_schema=target_shard.schema_name,
-                                   source_schema='public',
-                                   object='django_migrations'))
-            # Copy contents
-            cursor.execute('INSERT INTO "{target_schema}"."{object}" '  # nosec
-                           '(SELECT * FROM "{source_schema}"."{object}");'  # nosec
-                           .format(target_schema=target_shard.schema_name,
-                                   source_schema='public',
-                                   object='django_migrations')
-                           )
-            # Set id sequence
-            cursor.execute('ALTER TABLE "{target_schema}"."{object}" '  # nosec
-                           'ALTER COLUMN "id" SET DEFAULT nextval(\'{target_schema}.{seq}\');'  # nosec
-                           .format(target_schema=target_shard.schema_name,
-                                   object='django_migrations',
-                                   seq='django_migrations_id_seq')
-                           )
+            cursor.execute(sql)
 
     def validate(self, target_shard):
         """Validate against template schema"""

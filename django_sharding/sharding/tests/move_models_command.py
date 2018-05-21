@@ -64,7 +64,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
                                   [('public',)])
 
     @mock.patch('sharding.management.commands.move_sharded_models.Command.validate')
-    def test_rollback(self, mock_validate):
+    def test_rollback_on_validation(self, mock_validate):
         """
         Case: Run move_sharded_models command, and let the validator raise an error.
         Expected: The transaction to be rolled back, no data is modified.
@@ -105,9 +105,9 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
                                   [('public',)])
 
     @mock.patch('sharding.management.commands.move_sharded_models.move_model_to_schema')
-    def test_rollback2(self, mock_move_model_to_schema):
+    def test_rollback_on_error_during_move(self, mock_move_model_to_schema):
         """
-        Case: Run move_sharded_models command, and let the validator raise an error.
+        Case: Run move_sharded_models command, and let the move_model_to_schema util raise an error.
         Expected: The transaction to be rolled back, no data is modified.
         """
         def fake_move_model(*args, **kwargs):
@@ -245,7 +245,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
     def test_copy_migration_table(self):
         """
         Case: Make a shard and purge it of all tables, then call copy_migration_table.
-        Expected: An exact copy of the django_mirgation table is created on the target shard.
+        Expected: An exact copy of the django_migration table is created on the target shard.
         """
         # Save contents of public.django_migrations
         with use_shard(node_name='default', schema_name='public') as env:
@@ -267,10 +267,22 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
             self.assertCountEqual(env.connection.get_all_table_sequences(schema_name=shard.schema_name),
                                   ['django_migrations_id_seq'])
 
-            # check contents vs public.django_migrations
+            # Check contents vs public.django_migrations
             cursor = env.connection.cursor()
             cursor.execute('SELECT * FROM "django_migrations";')
             self.assertCountEqual(cursor.fetchall(), public_migration_table_contents)
+
+        # Check if the default value for django_mirgations.id is set to the correct sequence.
+        # We do this from the template schema so the schema name is added to the column's default value.
+        with use_shard(node_name='default', schema_name='template') as env:
+            cursor = env.connection.cursor()
+            cursor.execute("SELECT column_default FROM information_schema.columns "
+                           "WHERE table_schema='{}' AND table_name='django_migrations' AND column_name='id';"
+                           .format(shard.schema_name))
+            self.assertCountEqual(cursor.fetchall(),
+                                  [("nextval('test_target.django_migrations_id_seq'::regclass)", )])
+            # This would be "nextval('django_migrations_id_seq'::regclass)" if we're on the test_target schema.
+            # And "nextval('public.django_migrations_id_seq'::regclass)" if the command failed to set the default.
 
     def test_validate(self):
         """
