@@ -17,13 +17,14 @@ from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management.commands.migrate import Command as MigrateCommand
-from django.db import connections, connection, ProgrammingError
+from django.db import connections, ProgrammingError
 from django.db.migrations.executor import MigrationExecutor
 from django.db.transaction import Atomic
 from django.utils.module_loading import import_string
 from functools import wraps
 
 from sharding import ShardingMode, State
+from sharding.db import connection
 
 THREAD_LOCAL = threading.local()
 

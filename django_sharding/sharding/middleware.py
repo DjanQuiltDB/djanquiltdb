@@ -29,6 +29,10 @@ class BaseUseShardMiddleware(StateExceptionMiddleware):
         )
 
     def process_request(self, request):
+        # Make sure that we don't use the previous context manager in the next request. Django does that when we
+        # are using 'runserver'.
+        self.shard_context_manager = None
+
         try:
             request._shard_id = self.get_shard_id(request)
             if request._shard_id:
@@ -37,14 +41,20 @@ class BaseUseShardMiddleware(StateExceptionMiddleware):
             return self.process_exception(request, exception)
 
     def process_exception(self, request, exception):
-        if self.shard_context_manager:
-            self.shard_context_manager.disable()
+        self._disable_shard()
         return super().process_exception(request, exception)
 
     def process_response(self, request, response):
+        self._disable_shard()
+        return response
+
+    def _disable_shard(self):
         if self.shard_context_manager:
             self.shard_context_manager.disable()
-        return response
+
+            # Make sure that we don't use the previous context manager in the next request. Django does that when we
+            # are using 'runserver'.
+            self.shard_context_manager = None
 
     def _enable_shard(self, shard_id):
         shard = get_shard_class().objects.get(id=shard_id)

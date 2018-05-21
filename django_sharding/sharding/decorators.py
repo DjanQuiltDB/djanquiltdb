@@ -3,9 +3,10 @@ import inspect
 
 from django.core.exceptions import ImproperlyConfigured, FieldDoesNotExist
 from django.conf import settings
-from django.db import models, connection
+from django.db import models
 
 from sharding import ShardingMode, STATES
+from sharding.db import connection
 from sharding.exceptions import ShardingError
 from sharding.options import connection_has_same_shard_options, use_shard_from_instance_options
 from sharding.utils import transaction_for_every_node, get_all_databases, use_shard

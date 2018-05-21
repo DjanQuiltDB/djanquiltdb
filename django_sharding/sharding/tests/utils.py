@@ -5,10 +5,11 @@ from unittest import mock
 
 from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
-from django.db import connection, connections, models, ProgrammingError, InterfaceError, OperationalError, transaction
+from django.db import connections, models, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings, TransactionTestCase
 
 from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement, Suborganization
+from sharding.db import connection
 from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_every_node
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \

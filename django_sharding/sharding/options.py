@@ -1,3 +1,4 @@
+from sharding.db import connection
 from sharding.exceptions import ShardingError
 from sharding.utils import use_shard_for, use_shard, get_shard_class
 
@@ -23,8 +24,6 @@ def get_shard_from_instance_options(options):
 
 
 def connection_has_same_shard_options(options):
-    from django.db import connection
-
     return connection._mapping_value == options.mapping_value \
         and connection._shard_id == options.id \
         and connection.schema_name == options.schema_name \

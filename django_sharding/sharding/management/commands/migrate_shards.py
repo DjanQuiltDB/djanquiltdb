@@ -4,13 +4,14 @@ from django.apps import apps
 from django.core.management.base import CommandError
 from django.core.management.commands.migrate import Command as MigrateCommand
 from django.core.management.sql import emit_post_migrate_signal, emit_pre_migrate_signal
-from django.db import connections, connection
+from django.db import connections
 from django.db.migrations.autodetector import MigrationAutodetector
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import AmbiguityError
 from django.db.migrations.state import ProjectState
 from django.utils.module_loading import module_has_submodule
 
+from sharding.db import connection
 from sharding.utils import get_shard_class, use_shard, get_template_name, get_all_databases
 
 

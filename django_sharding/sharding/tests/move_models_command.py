@@ -1,9 +1,9 @@
 from unittest import mock
 
 from django.core.management import call_command, CommandError
-from django.db import connection
 
 from example.models import Type, User, SuperType, Organization, Shard
+from sharding.db import connection
 from sharding.management.commands.move_sharded_models import Command as MoveCommand
 from sharding.tests.utils import ShardingTransactionTestCase
 from sharding.utils import migrate_schema, use_shard, create_template_schema, State, get_all_sharded_models, \
