@@ -14,6 +14,6 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='user',
             name='cake',
-            field=models.ManyToManyField(null=True, to='example.Cake', verbose_name='cakes'),
+            field=models.ManyToManyField(to='example.Cake', verbose_name='cakes'),
         ),
     ]

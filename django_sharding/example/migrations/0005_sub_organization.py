@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.AutoField(serialize=False, primary_key=True, verbose_name='ID', auto_created=True)),
                 ('child', models.OneToOneField(verbose_name='organization', to='example.Organization',
-                                               related_name='child')),
+                                               related_name='children')),
                 ('parent', models.ForeignKey(verbose_name='organization', to='example.Organization',
                                              related_name='parent')),
             ],

@@ -786,7 +786,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         other_public_tables = ['django_migrations',  'example_type', 'example_supertype']
         # The tables present on the template schema's are all the sharded tables.
         template_tables = ['django_migrations', 'example_organization', 'example_suborganization', 'example_user',
-                           'example_statement', 'example_cake', 'example_user_cake']
+                           'example_statement', 'example_cake', 'example_user_cake', 'example_statement_type']
 
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'),
                               default_public_tables)
@@ -875,7 +875,8 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         template_tables = [table for table in template_tables if not re.search(r'_[t|T]est', table)]
         self.assertCountEqual(sorted(template_tables), ['django_migrations', 'example_organization',
                                                         'example_suborganization', 'example_user',
-                                                        'example_statement', 'example_cake', 'example_user_cake'])
+                                                        'example_statement', 'example_cake', 'example_user_cake',
+                                                        'example_statement_type'])
 
     def test_create_template_schema_invalid_node(self):
         """
@@ -987,6 +988,22 @@ class GetAllShardedModels(TestCase):
         get_all_sharded_models(include_auto_created=True)
         for model in apps.get_models(include_auto_created=True):
             mock_get_model_sharding_mode.assert_has_call(model=model)
+
+    def test_include_auto_created_result(self):
+        """
+        Case: Call get_all_sharded_models, with include_auto_crated.
+        Expected: All sharded models and auto created fields to be returned.
+        """
+        # We compare it string based, since we cannot import the auto created fields as classes.
+        result = [str(model) for model in get_all_sharded_models(include_auto_created=True)]
+        self.assertCountEqual(result,
+                              ["<class 'example.models.Organization'>",
+                               "<class 'example.models.Suborganization'>",
+                               "<class 'example.models.Cake'>",
+                               "<class 'example.models.User_cake'>",
+                               "<class 'example.models.User'>",
+                               "<class 'example.models.Statement_type'>",
+                               "<class 'example.models.Statement'>"])
 
 
 class GetAllMirroredModels(TestCase):

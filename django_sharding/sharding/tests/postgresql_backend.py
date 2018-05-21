@@ -236,6 +236,7 @@ class PostgresBackendTestCase(ShardingTestCase):
                                "nextval('test_schema.example_statement_id_seq'::regclass)",
                                "nextval('test_schema.example_cake_id_seq'::regclass)",
                                "nextval('test_schema.example_user_cake_id_seq'::regclass)",
+                               "nextval('test_schema.example_statement_type_id_seq'::regclass)",
                                "nextval('test_schema.django_migrations_id_seq'::regclass)"])
 
     def test_sequencers_of_cloned_schema(self):

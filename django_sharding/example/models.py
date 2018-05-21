@@ -84,8 +84,6 @@ class Cake(models.Model):
 
 @sharded_model()
 class ProxyCake(Cake):
-    kind = models.CharField('name', max_length=100)
-
     class Meta:
         proxy = True
 
@@ -103,7 +101,7 @@ class User(AbstractBaseUser):
     created_at = models.DateTimeField('date joined', default=timezone.now)
     organization = models.ForeignKey('Organization', verbose_name='organization')
     type = models.ForeignKey('Type', on_delete=models.DO_NOTHING, verbose_name='type', null=True)
-    cake = models.ManyToManyField('Cake', verbose_name='cakes', null=True)
+    cake = models.ManyToManyField('Cake', verbose_name='cakes')
 
     USERNAME_FIELD = 'email'
 
@@ -124,6 +122,7 @@ class User(AbstractBaseUser):
 class Statement(models.Model):
     content = models.CharField('content', max_length=300)
     user = models.ForeignKey('User', verbose_name='user')
+    type = models.ManyToManyField('Type', verbose_name='types')
 
     class Meta:
         app_label = 'example'

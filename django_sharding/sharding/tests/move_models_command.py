@@ -35,7 +35,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         with mock.patch('sharding.utils.DynamicDbRouter.allow_migrate', side_effect=self.fake_allow_migrate):
             migrate_schema(node_name='default', schema_name='public')
 
-        all_models = apps.get_models(include_auto_created=True)
+        all_models = [m for m in apps.get_models(include_auto_created=True) if not m._meta.proxy]
         sharded_models = get_all_sharded_models(include_auto_created=True)
         non_sharded_models = set(all_models) - set(sharded_models)
 
