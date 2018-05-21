@@ -3,9 +3,10 @@ from unittest import mock
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.core.management import CommandError
-from django.db import connection, ProgrammingError
+from django.db import ProgrammingError
 
 from example.models import Organization, Shard, Statement
+from sharding.db import connection
 from sharding.management.commands.move_sharded_models import Command as MoveCommand
 from sharding.tests.utils import ShardingTransactionTestCase
 from sharding.utils import migrate_schema, use_shard, create_template_schema, State, get_all_sharded_models, \

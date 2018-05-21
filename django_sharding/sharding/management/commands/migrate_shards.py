@@ -4,13 +4,14 @@ from django.apps import apps
 from django.core.management.base import CommandError
 from django.core.management.commands.migrate import Command as MigrateCommand
 from django.core.management.sql import emit_post_migrate_signal, emit_pre_migrate_signal
-from django.db import connections, connection
+from django.db import connections
 from django.db.migrations.autodetector import MigrationAutodetector
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import AmbiguityError
 from django.db.migrations.state import ProjectState
 from django.utils.module_loading import module_has_submodule
 
+from sharding.db import connection
 from sharding.utils import get_shard_class, use_shard, get_template_name, get_all_databases
 
 
@@ -276,7 +277,7 @@ class Command(MigrateCommand):
 
     def check_or_migrate_shard(self, shard, plan_node, fake, fake_initial):
         with use_shard(shard, active_only_schemas=False, include_public=False) as env:
-            shard_executor = MigrationExecutor(env.connection)
+            shard_executor = MigrationExecutor(env.connection, self.migration_progress_callback)
             migration, backwards = plan_node
 
             # if the node is applied and we're going backwards,
@@ -305,3 +306,12 @@ class Command(MigrateCommand):
                     )
                     return True  # report failure
         return False  # report migration went without troubles
+
+    def migration_progress_callback(self, action, migration=None, fake=False):
+        """ Appends the current shard details to the migration output """
+
+        if self.verbosity >= 1:
+            if action in ('apply_start', 'unapply_start', 'render_start'):
+                self.stdout.write('[{}|{}] '.format(connection.alias, connection.schema_name), ending='')
+
+        return super().migration_progress_callback(action, migration=migration, fake=fake)

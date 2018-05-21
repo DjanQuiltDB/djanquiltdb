@@ -1,12 +1,13 @@
 import copy
 from unittest import mock
 
-from django.db import connection, ProgrammingError, connections
+from django.db import ProgrammingError, connections
 from django.test import override_settings, TestCase
 from psycopg2 import InternalError
 
 from example.models import Type, Organization, User, Statement, Shard
 from sharding import State
+from sharding.db import connection
 from sharding.postgresql_backend.base import get_validated_schema_name
 from sharding.utils import create_schema_on_node, create_template_schema, use_shard
 from sharding.tests.utils import ShardingTestCase, ShardingTransactionTestCase

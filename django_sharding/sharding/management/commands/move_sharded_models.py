@@ -99,7 +99,7 @@ class Command(BaseCommand):
             INSERT INTO "{target_schema}"."{table_name}" (SELECT * FROM "{source_schema}"."{table_name}");
             ALTER TABLE "{target_schema}"."{table_name}" ALTER COLUMN "id" 
             SET DEFAULT nextval('{target_schema}.{sequence}');
-            """.format(target_schema=target_shard.schema_name,
+            """.format(target_schema=target_shard.schema_name,  # nosec
                        source_schema='public',
                        sequence='django_migrations_id_seq',
                        table_name='django_migrations')
