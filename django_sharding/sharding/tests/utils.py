@@ -8,7 +8,8 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connections, models, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.test import SimpleTestCase, TestCase, override_settings, TransactionTestCase
 
-from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement, Suborganization
+from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement, Suborganization, \
+    Cake
 from sharding.db import connection
 from sharding.decorators import sharded_model, mirrored_model, atomic_write_to_every_node
 from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, THREAD_LOCAL, \
@@ -786,7 +787,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         other_public_tables = ['django_migrations',  'example_type', 'example_supertype']
         # The tables present on the template schema's are all the sharded tables.
         template_tables = ['django_migrations', 'example_organization', 'example_suborganization', 'example_user',
-                           'example_statement']
+                           'example_statement', 'example_cake', 'example_user_cake', 'example_statement_type']
 
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'),
                               default_public_tables)
@@ -875,7 +876,8 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         template_tables = [table for table in template_tables if not re.search(r'_[t|T]est', table)]
         self.assertCountEqual(sorted(template_tables), ['django_migrations', 'example_organization',
                                                         'example_suborganization', 'example_user',
-                                                        'example_statement'])
+                                                        'example_statement', 'example_cake', 'example_user_cake',
+                                                        'example_statement_type'])
 
     def test_create_template_schema_invalid_node(self):
         """
@@ -946,6 +948,13 @@ class GetShardingModeTestCase(SimpleTestCase):
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('example',): ShardingMode.MIRRORED, }}):
             self.assertEqual(get_sharding_mode('example', None), ShardingMode.MIRRORED)
 
+    def test_get_sharding_mode_for_auto_created_model(self):
+        """
+        Case: Call get_sharding_mode for a model that is created automatically for a many-to-many field.
+        Expected: Mode returned as defined by the model which is responsible for the many-to-many relation.
+        """
+        self.assertEqual(get_sharding_mode('example', 'user_cake'), ShardingMode.SHARDED)
+
 
 class GetAllShardedModels(TestCase):
     available_apps = ['example']
@@ -953,13 +962,13 @@ class GetAllShardedModels(TestCase):
     def test_with_override(self):
         """
         Case: Call get_all_sharded_models.
-        Expected: Only the User and the Statement models to be returned. The rest is mirrored or not sharded.
+        Expected: Only the User and the Statement models to be returned. The rest is a proxy, mirrored or not sharded.
         Note: System test
         """
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE':
                           {('example', 'organization'): ShardingMode.MIRRORED, }}):
-            self.assertCountEqual(get_all_sharded_models(), [User, Statement, Suborganization])
+            self.assertCountEqual(get_all_sharded_models(), [User, Statement, Suborganization, Cake])
 
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):
@@ -968,8 +977,34 @@ class GetAllShardedModels(TestCase):
         Expected: get_model_sharding_mode called for each model.
         """
         get_all_sharded_models()
-        for model in apps.get_models():
+        for model in apps.get_models(include_auto_created=False):
             mock_get_model_sharding_mode.assert_has_call(model=model)
+
+    @mock.patch('sharding.utils.get_model_sharding_mode')
+    def test_include_auto_created(self, mock_get_model_sharding_mode):
+        """
+        Case: Call get_all_sharded_models, with include_auto_created.
+        Expected: get_model_sharding_mode called for each model.
+        """
+        get_all_sharded_models(include_auto_created=True)
+        for model in apps.get_models(include_auto_created=True):
+            mock_get_model_sharding_mode.assert_has_call(model=model)
+
+    def test_include_auto_created_result(self):
+        """
+        Case: Call get_all_sharded_models, with include_auto_created.
+        Expected: All sharded models and auto created fields to be returned.
+        """
+        # We compare it string based, since we cannot import the auto created fields as classes.
+        result = [str(model) for model in get_all_sharded_models(include_auto_created=True)]
+        self.assertCountEqual(result,
+                              ["<class 'example.models.Organization'>",
+                               "<class 'example.models.Suborganization'>",
+                               "<class 'example.models.Cake'>",
+                               "<class 'example.models.User_cake'>",
+                               "<class 'example.models.User'>",
+                               "<class 'example.models.Statement_type'>",
+                               "<class 'example.models.Statement'>"])
 
 
 class GetAllMirroredModels(TestCase):

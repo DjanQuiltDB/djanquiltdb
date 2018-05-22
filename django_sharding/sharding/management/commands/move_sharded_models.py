@@ -1,8 +1,9 @@
+from django.core.exceptions import ValidationError
 from django.core.management import BaseCommand, CommandError
-from django.db import ProgrammingError
+from django.db import transaction
 
 from sharding.utils import use_shard, get_all_databases, move_model_to_schema, State, \
-    create_template_schema, get_shard_class, get_all_sharded_models, get_template_name
+    create_template_schema, get_shard_class, get_all_sharded_models, get_template_name, create_schema_on_node
 
 
 class Command(BaseCommand):
@@ -18,9 +19,11 @@ class Command(BaseCommand):
                             choices=get_all_databases())
         parser.add_argument('--target_schema_name', action='store', dest='target_schema_name', default='default_shard',
                             help='Name of the to be created schema which will receive the moved tables.')
-        parser.add_argument('--no_input', action='store', dest='no_input', default=False, help='Skip confirmation.')
+        parser.add_argument('--no-input', action='store', dest='no_input', default=False, help='Skips confirmations.')
 
     def handle(self, *args, **options):
+        self.no_input = options.get('no_input')
+
         # Make list of databases
         database = options.get('database')
         if database not in get_all_databases():
@@ -31,38 +34,95 @@ class Command(BaseCommand):
         if target_schema_name in ['public', get_template_name()]:
             raise CommandError("Target schema name cannot be 'public' nor '{}'.".format(get_template_name()))
 
-        # Check if the target_schema does not already exist
-        if get_shard_class().objects.filter(node_name=database, schema_name=target_schema_name).exists():
-            raise ValueError("The target schema '{}' on node '{}' already exist.".format(target_schema_name, database))
+        create_template_schema(database)
+        with transaction.atomic():
+            # Create or get target shard
+            self.shard, shard_created = get_shard_class().objects.get_or_create(node_name=database,
+                                                                                schema_name=target_schema_name,
+                                                                                defaults={'alias': target_schema_name})
 
-        sharded_models = get_all_sharded_models()
+            if shard_created and not self.no_input:
+                confirm = input("Type 'yes' if you are sure that you want to remove all data of existing shard {}|{} "
+                                "to prepare to receive the tables from public: "
+                                .format(self.shard.node_name, self.shard.schema_name))
+                if confirm != 'yes':
+                    return
 
-        if not options.get('no_input'):
-            confirm = input("Type 'yes' if you are sure if you want to move the following models from {} to {}:\n{}: "
-                            .format('public', target_schema_name, [model._meta.db_table for model in sharded_models]))
-            if confirm != 'yes':
-                return
+            sharded_models = get_all_sharded_models(include_auto_created=True)  # Include many-to-many models
 
-        self.move_models(node_name=database, target_schema_name=target_schema_name, sharded_models=sharded_models)
+            if not self.no_input:
+                confirm = input("Type 'yes' if you are sure if you want to move the following models "
+                                "from {} to {}:\n{}: "
+                                .format('public',
+                                        target_schema_name,
+                                        [model._meta.db_table for model in sharded_models]))
+                if confirm != 'yes':
+                    return
 
-    def move_models(self, node_name, target_schema_name, sharded_models):
+            # Ensure schema exists. If it does so already, this is a no-op.
+            # We do this, for people might use a dummy object in the Shard model as target.
+            # No need to migrate, since it has to be empty, and will be flushed anyway.
+            create_schema_on_node(node_name=self.shard.node_name, schema_name=self.shard.schema_name, migrate=False)
+
+            self.move_models(target_shard=self.shard, sharded_models=sharded_models)
+            self.copy_migration_table(target_shard=self.shard)
+            self.validate(target_shard=self.shard)
+
+            self.shard.state = State.ACTIVE
+            self.shard.save(update_fields=['state'])
+
+    def move_models(self, target_shard, sharded_models):
         """
         Move all given models from public to the target schema
         """
-        # Create a new shard
-        with use_shard(node_name=node_name, schema_name='public'):
-            create_template_schema(node_name)
-            shard = get_shard_class().objects.create(alias=target_schema_name, node_name=node_name,
-                                                     schema_name=target_schema_name, state=State.ACTIVE)
-
+        with use_shard(node_name=target_shard.node_name, schema_name='public'):
             # Flush the shard
-            with use_shard(shard, lock=False) as env:
-                env.connection.flush_schema(shard.schema_name)
+            with use_shard(target_shard, lock=False, active_only_schemas=False) as env:
+                env.connection.flush_schema(target_shard.schema_name)
 
             # Move the tables over
             for model in sharded_models:
-                try:
-                    move_model_to_schema(model=model, node_name='default', from_schema_name='public',
-                                         to_schema_name=shard.schema_name)
-                except ProgrammingError:
-                    print('Model {} already on schema {}'.format(model, shard.schema_name))
+                move_model_to_schema(model=model, node_name='default', from_schema_name='public',
+                                     to_schema_name=target_shard.schema_name)
+
+    def copy_migration_table(self, target_shard):
+        """
+        Copy the django_migrations table by performing the following steps:
+        - Copy Sequence
+        - Create table
+        - Copy contents
+        - Copy sequence
+        - Set default value for id to the new sequence
+        """
+        with use_shard(target_shard, include_public=False, lock=False, active_only_schemas=False) as env:
+            sql = """
+            CREATE SEQUENCE django_migrations_id_seq;
+            SELECT setval('{sequence}',
+                          (SELECT last_value FROM "{source_schema}"."{sequence}"),
+                          (SELECT is_called FROM "{source_schema}"."{sequence}"));
+            CREATE TABLE "{target_schema}"."{table_name}" (LIKE "{source_schema}"."{table_name}" INCLUDING ALL);
+            INSERT INTO "{target_schema}"."{table_name}" (SELECT * FROM "{source_schema}"."{table_name}");
+            ALTER TABLE "{target_schema}"."{table_name}" ALTER COLUMN "id"
+            SET DEFAULT nextval('{target_schema}.{sequence}');
+            """.format(target_schema=target_shard.schema_name,  # nosec
+                       source_schema='public',
+                       sequence='django_migrations_id_seq',
+                       table_name='django_migrations')
+
+            cursor = env.connection.cursor()
+            cursor.execute(sql)
+
+    def validate(self, target_shard):
+        """Validate against template schema"""
+
+        template_schema_name = get_template_name()
+        with use_shard(node_name=target_shard.node_name, schema_name=template_schema_name, lock=False,
+                       include_public=False) as env:
+            template_tables = sorted(env.connection.get_all_table_headers())
+
+        with use_shard(target_shard, lock=False, active_only_schemas=False, include_public=False) as env:
+            target_tables = sorted(env.connection.get_all_table_headers())
+
+        if target_tables != template_tables:
+            raise(ValidationError('The following tables are not moved: {}'
+                                  .format(set(template_tables) - set(target_tables))))

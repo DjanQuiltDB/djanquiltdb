@@ -150,7 +150,7 @@ class MoveDataToShard(ShardingTestCase):
         """
         class AlteredCommand(MoveCommand):
             def get_data(self, source_shard, root_objects, use_original_collector=False):
-                root_objects = [root_objects] + root_objects.get_sub_organizations()
+                root_objects = [root_objects] + root_objects.get_all_descendants()
                 return super().get_data(source_shard, root_objects, use_original_collector)
 
         AlteredCommand().handle(**self.options)
