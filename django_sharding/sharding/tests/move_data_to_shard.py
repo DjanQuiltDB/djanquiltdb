@@ -92,9 +92,10 @@ class MoveDataToShard(ShardingTestCase):
                                               organization=self.organization_1, type=self.type_2)
             self.user_3 = User.objects.create(name='Flora', email='f@reinhold.cap',
                                               organization=self.organization_2, type=self.type_2)
-            self.statement_1 = Statement.objects.create(content='Luke!', user=self.user_1)
-            self.statement_2 = Statement.objects.create(content='Try to solve this puzzle.', user=self.user_1)
-            self.statement_3 = Statement.objects.create(content='Do you see the sun?', user=self.user_3)
+            self.statement_1 = Statement.objects.create(content="'Luke'!", user=self.user_1, offset=1)
+            self.statement_2 = Statement.objects.create(content='Try to; solve this "puzzle."', user=self.user_1,
+                                                        offset=2)
+            self.statement_3 = Statement.objects.create(content='Do you see the sun?', user=self.user_3, offset=3)
             self.organization_shard = OrganizationShards.objects.create(shard=self.source_shard,
                                                                         organization_id=self.organization_1.id,
                                                                         state=State.ACTIVE)
@@ -103,8 +104,8 @@ class MoveDataToShard(ShardingTestCase):
             self.organization_3 = Organization.objects.create(name='Ace',)
             self.user_4 = User.objects.create(name='Phoenix Wright', email='p@wright.cap',
                                               organization=self.organization_3, type=self.type_3)
-            self.statement_4 = Statement.objects.create(content='Objection!', user=self.user_4)
-            self.statement_5 = Statement.objects.create(content='discrepancy', user=self.user_4)
+            self.statement_4 = Statement.objects.create(content='Objection!', user=self.user_4, offset=4)
+            self.statement_5 = Statement.objects.create(content='discrepancy', user=self.user_4, offset=5)
 
         self.data = {Organization: {self.organization_1.id},
                      Suborganization: {self.suborganization.id},
@@ -137,6 +138,10 @@ class MoveDataToShard(ShardingTestCase):
             self.assertCountEqual(Organization.objects.all(), [self.organization_1])
             self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2])
+
+            # Check if the content is still in tact, due to escaping and what not.
+            self.assertEqual(Statement.objects.get(id=self.statement_1.id).content, "'Luke'!")
+            self.assertEqual(Statement.objects.get(id=self.statement_2.id).content, 'Try to; solve this "puzzle."')
 
         with use_shard(self.target_shard, override_model_use_shard=True):
             self.organization_1.refresh_from_db()

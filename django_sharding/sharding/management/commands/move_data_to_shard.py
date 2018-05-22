@@ -175,7 +175,8 @@ class Command(BaseCommand):
             # Read the csv headers from the output, and save them as a list of field names.
             # We will use this for importing and validation.
             io.seek(0)
-            fields = str.replace(str.replace(io.readline(), ';', ','), '\n', '')
+            fields = str.replace(io.readline(), '\n', '').split(';')
+            fields = ','.join('"{}"'.format(f) for f in fields)
             model_fields[model] = fields
 
             # Import
