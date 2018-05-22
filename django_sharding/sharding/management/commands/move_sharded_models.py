@@ -41,7 +41,7 @@ class Command(BaseCommand):
                                                                                 schema_name=target_schema_name,
                                                                                 defaults={'alias': target_schema_name})
 
-            if shard_created and not self.no_input:
+            if not shard_created and not self.no_input:
                 confirm = input("Type 'yes' if you are sure that you want to remove all data of existing shard {}|{} "
                                 "to prepare to receive the tables from public: "
                                 .format(self.shard.node_name, self.shard.schema_name))
