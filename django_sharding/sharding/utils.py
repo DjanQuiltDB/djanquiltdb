@@ -213,6 +213,8 @@ class use_shard(object):
             raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?"
                              .format(self.node_name))
 
+        self._enabled = False
+
     def __enter__(self):
         return self.enable()
 
@@ -238,7 +240,6 @@ class use_shard(object):
 
     def enable(self):
         # First: Set the connection
-        self.old_connection_name = connection.settings_dict['NAME']
         self.connection = _use_connection(self.node_name)
 
         # Second: Note current connection settings
@@ -265,9 +266,14 @@ class use_shard(object):
             lock=self.lock
         )
 
+        self._enabled = True
+
         return self
 
     def disable(self):
+        if not self._enabled:
+            return
+
         if self.lock:
             self.release_lock()
 
@@ -280,6 +286,8 @@ class use_shard(object):
             THREAD_LOCAL.DB_OVERRIDE = None
         else:
             THREAD_LOCAL.DB_OVERRIDE.pop()  # Remove last entry, which is self.node
+
+        self._enabled = False  # Make sure we cannot call disable multiple times
 
 
 def get_shard_for(target_value, active_only=False):
