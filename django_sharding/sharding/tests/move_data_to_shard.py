@@ -454,23 +454,23 @@ class MoveDataToShard(ShardingTestCase):
                                                use_original_collector=True),
                          self.data)
 
+    @mock.patch('sharding.management.commands.move_data_to_shard.csv.reader')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
-    def test_move_data(self, mock_copy_expert):
+    def test_move_data(self, mock_copy_expert, mock_csv_reader):
         """
         Case: Call move_data.
         Expected: copy_expert and copy_from to be called twice for each model. (One for export, one for import.)
-                  A dict with <model>:[<fields>] to be returned.
         """
         self.command.move_data(data=self.data, source_shard=self.source_shard, target_shard=self.target_shard),
 
         # Since a cursor object is given, we cannot assert the calls specifically.
         self.assertEqual(mock_copy_expert.call_count, len(self.data)*2)
+        self.assertEqual(mock_csv_reader.call_count, 4)  # Once for each model
 
     def test_move_data_return_value(self):
         """
         Case: Call move_data.
-        Expected: copy_expert and copy_from to be called twice for each model. (One for export, one for import.)
-                  A dict with <model>:'<field>,<field>,<etc>' to be returned.
+        Expected: A dict with <model>:'<field>,<field>,<etc>' to be returned.
         """
         self.maxDiff = 2000
         self.assertEqual(
