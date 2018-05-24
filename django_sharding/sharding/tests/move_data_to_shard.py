@@ -602,23 +602,6 @@ class MoveDataToShard(ShardingTestCase):
 
         mock_release_lock.assert_called_once_with(key='mapping_{}'.format(self.organization_1.id), shared=False,)
 
-    @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
-    def test_post_execution_on_failure(self, mock_post_execution, mock_move_data):
-        """
-        Case: Call the handle while move_data will raise an exception.
-        Expected: post_execution called with succeeded=False.
-        """
-        with self.assertRaises(DatabaseError):
-            self.command.handle(**self.options)
-
-        self.assertEqual(mock_move_data.call_count, 1)
-        mock_post_execution.assert_called_once_with(options=self.options,
-                                                    source_shard=self.source_shard,
-                                                    target_shard=self.target_shard,
-                                                    root_object=self.organization_1,
-                                                    data=self.data,
-                                                    succeeded=False)
-
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.move_data', side_effect=DatabaseError)
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
     def test_post_execution_on_failure(self, mock_post_execution, mock_move_data):

@@ -73,18 +73,7 @@ class Command(BaseCommand):
             print('Gathering data:')
         data = self.get_data(source_shard=source_shard, root_objects=root_object)
 
-        if not options.get('no_input') or not self.quiet:
-            print()
-            print('Data:')
-            for model, instances in data.items():
-                print(magenta(model))
-                print('    {} datapoints'.format(len(instances)))
-
-            if not options.get('no_input'):
-                confirm = input("Type 'yes' if you are sure if you want to move this data from {} to {}: "
-                                .format(bold(source_shard), bold(target_shard)))
-                if confirm != 'yes':
-                    return
+        self.confirm(options, data, source_shard, target_shard)
 
         self.pre_execution(options=options, source_shard=source_shard, target_shard=target_shard,
                            root_object=root_object, data=data)
@@ -120,6 +109,20 @@ class Command(BaseCommand):
         if not self.quiet:
             data_points = sum(map(len, data.values()))
             print(green('Done. Moved {} data points'.format(data_points)))
+
+    def confirm(self, options, data, source_shard, target_shard):
+        if not options.get('no_input') or not self.quiet:
+            print()
+            print('Data:')
+            for model, instances in data.items():
+                print(magenta(model))
+                print('    {} datapoints'.format(len(instances)))
+
+            if not options.get('no_input'):
+                confirm = input("Type 'yes' if you are sure if you want to move this data from {} to {}: "
+                                .format(bold(source_shard), bold(target_shard)))
+                if confirm != 'yes':
+                    return
 
     @staticmethod
     def get_object(model_name, root_object_id, source_shard):
@@ -187,8 +190,9 @@ class Command(BaseCommand):
             io = StringIO()
             with use_shard(source_shard, active_only_schemas=False) as env:
                 query = env.connection.cursor().mogrify(
-                    'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT WITH CSV DELIMITER \';\' HEADER'  # nosec
-                        .format(t=model._meta.db_table),
+                    'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) '  # nosec
+                    'TO STDOUT WITH CSV DELIMITER \';\' HEADER'.format(  # nosec
+                        t=model._meta.db_table),
                     [list(pk_set)])
                 self.copy_expert(env.connection.cursor(), query, io)
 

@@ -90,6 +90,10 @@ class SimpleCollector(object):
         else:
             return [objs]
 
+    def finish_bar(self):
+        if self.verbose:
+            self.bar.finish()
+
     def collect(self, objs, source=None, collect_related=True, source_attr=None):
         """
         Adds the pk of 'objs' to the collection of objects given as well as all parent instances.
@@ -98,8 +102,7 @@ class SimpleCollector(object):
         """
         new_objs = self.add(objs, source)
         if not new_objs:
-            if self.verbose:
-                self.bar.finish()
+            self.finish_bar()
 
             return
 
