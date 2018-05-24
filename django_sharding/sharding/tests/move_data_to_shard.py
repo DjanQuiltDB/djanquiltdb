@@ -293,7 +293,12 @@ class MoveDataToShard(ShardingTestCase):
         mock_confirm.assert_called_once_with(data=data, source_shard=self.source_shard, target_shard=self.target_shard,
                                              model_fields=mock_move_data.return_value)
         mock_delete_data.assert_called_once_with(data=data, source_shard=self.source_shard)
-        self.assertEqual(mock_post_execution.call_count, 1)
+        mock_post_execution.assert_called_once_with(options=self.options,
+                                                    source_shard=self.source_shard,
+                                                    target_shard=self.target_shard,
+                                                    root_object=self.organization_1,
+                                                    data=data,
+                                                    succeeded=True)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_target_shard')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.pre_execution')
@@ -470,10 +475,10 @@ class MoveDataToShard(ShardingTestCase):
         self.maxDiff = 2000
         self.assertEqual(
             self.command.move_data(data=self.data, source_shard=self.source_shard, target_shard=self.target_shard),
-            {Organization: 'id,name,created_at',
-             Suborganization: 'id,parent_id,child_id',
-             User: 'id,password,last_login,name,email,created_at,organization_id,type_id',
-             Statement: 'id,content,user_id'}
+            {Organization: '"id","name","created_at"',
+             Suborganization: '"id","parent_id","child_id"',
+             User: '"id","password","last_login","name","email","created_at","organization_id","type_id"',
+             Statement: '"id","content","user_id","offset"'}
         )
 
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.reset_sequence')
@@ -566,7 +571,8 @@ class MoveDataToShard(ShardingTestCase):
         self.source_shard.save()
 
         self.command.post_execution(options=self.options, source_shard=self.source_shard,
-                                    target_shard=self.target_shard, data=self.data, root_object=self.organization_1)
+                                    target_shard=self.target_shard, data=self.data, root_object=self.organization_1,
+                                    succeeded=True)
 
         self.source_shard.refresh_from_db()
         self.assertEqual(self.source_shard.state, State.ACTIVE)
@@ -587,23 +593,59 @@ class MoveDataToShard(ShardingTestCase):
         self.assertEqual(self.organization_shard.shard, self.source_shard)
 
         self.command.post_execution(options=self.options, source_shard=self.source_shard,
-                                    target_shard=self.target_shard, data=self.data, root_object=self.organization_1)
+                                    target_shard=self.target_shard, data=self.data, root_object=self.organization_1,
+                                    succeeded=True)
 
         self.organization_shard.refresh_from_db()
         self.assertEqual(self.organization_shard.state, State.ACTIVE)
         self.assertEqual(self.organization_shard.shard, self.target_shard)
 
-        mock_release_lock.assert_called_once_with(key='mapping_{}'.format(self.organization_1.id), shared=False)
+        mock_release_lock.assert_called_once_with(key='mapping_{}'.format(self.organization_1.id), shared=False,)
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
+    def test_post_execution_on_failure(self, mock_post_execution, mock_move_data):
+        """
+        Case: Call the handle while move_data will raise an exception.
+        Expected: post_execution called with succeeded=False.
+        """
+        with self.assertRaises(DatabaseError):
+            self.command.handle(**self.options)
+
+        self.assertEqual(mock_move_data.call_count, 1)
+        mock_post_execution.assert_called_once_with(options=self.options,
+                                                    source_shard=self.source_shard,
+                                                    target_shard=self.target_shard,
+                                                    root_object=self.organization_1,
+                                                    data=self.data,
+                                                    succeeded=False)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.move_data', side_effect=DatabaseError)
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
     def test_post_execution_on_failure(self, mock_post_execution, mock_move_data):
         """
         Case: Call the handle while move_data will raise an exception.
-        Expected: post_execution still called.
+        Expected: post_execution called with succeeded=False.
         """
         with self.assertRaises(DatabaseError):
             self.command.handle(**self.options)
 
         self.assertEqual(mock_move_data.call_count, 1)
-        self.assertEqual(mock_post_execution.call_count, 1)
+        mock_post_execution.assert_called_once_with(options=self.options,
+                                                    source_shard=self.source_shard,
+                                                    target_shard=self.target_shard,
+                                                    root_object=self.organization_1,
+                                                    data=self.data,
+                                                    succeeded=False)
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.move_data', side_effect=DatabaseError)
+    def test_no_change_on_failure(self, mock_move_data):
+        """
+        Case: Call the handle while move_data will raise an exception.
+        Expected: Mapping object not altered.
+        """
+        with self.assertRaises(DatabaseError):
+            self.command.handle(**self.options)
+
+        self.organization_shard.refresh_from_db()
+        self.assertEqual(self.organization_shard.shard, self.source_shard)
+        self.assertEqual(mock_move_data.call_count, 1)
