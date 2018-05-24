@@ -231,7 +231,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
         mock_use_shard_context_manager = \
-            mock.patch('sharding.tests.middleware.UseShardMiddleware.shard_context_manager').start()
+            mock.patch('sharding.tests.middleware.UseShardMiddleware.get_shard_context_manager').start()
         mock_return_value = mock.Mock()
         mock_return_value.return_value.disable = mock.Mock()
         mock_use_shard_context_manager.return_value = mock_return_value
@@ -246,7 +246,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
             )
 
         self.assertFalse(mock_process_state_exception.called)
-        self.assertTrue(mock_use_shard_context_manager.disable.called)
+        self.assertTrue(mock_use_shard_context_manager.return_value.disable.called)
 
     @mock.patch('sharding.middleware.use_shard_for')
     def test_enable_shard_for(self, mock_use_shard_for):
@@ -258,10 +258,42 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
         mock_use_shard_for_value.return_value.enable = mock.Mock()
         mock_use_shard_for.return_value = mock_use_shard_for_value
 
-        middleware = UseShardMiddleware()
-        middleware._enable_shard_for(1)
+        request = RequestFactory().get('/')
 
-        self.assertEqual(middleware.shard_context_manager, mock_use_shard_for_value)
+        middleware = UseShardMiddleware()
+        middleware._enable_shard_for(request, 1)
+
+        self.assertEqual(middleware.get_shard_context_manager(request), mock_use_shard_for_value)
+        self.assertEqual(request._middleware_shard_context_manager[UseShardMiddleware], mock_use_shard_for_value)
 
         mock_use_shard_for.assert_called_once_with(1)
         self.assertTrue(mock_use_shard_for.return_value.enable.called)
+
+    @mock.patch('sharding.middleware.use_shard')
+    def test_shard_context_manager(self, mock_use_shard):
+        """
+        Case: Test keeping the shard context manager state on the request
+        Expected: shard context manager has been saved on the request, in a class context to be able to use
+                  BaseUseShardMiddleware for multiple middleware
+        """
+        mock_use_shard_value = mock.Mock()
+        mock_use_shard_value.return_value.enable = mock.Mock()
+        mock_use_shard.return_value = mock_use_shard_value
+
+        request = RequestFactory().get('/')
+
+        middleware = UseShardMiddleware()
+        middleware.process_request(request)
+
+        self.assertEqual(request._middleware_shard_context_manager[UseShardMiddleware], mock_use_shard_value)
+
+        class SecondUseShardMiddleware(UseShardMiddleware):
+            pass
+
+        middleware = SecondUseShardMiddleware()
+        middleware.process_request(request)
+
+        self.assertEqual(request._middleware_shard_context_manager, {
+            UseShardMiddleware: mock_use_shard_value,
+            SecondUseShardMiddleware: mock_use_shard_value,
+        })

@@ -358,6 +358,7 @@ class UseShardTestCase(ShardingTestCase):
         env.old_mapping_value = None
         env.old_lock = True
         env.connection = connection
+        env._enabled = True
 
         env.disable()
         mock_release_lock.assert_called_once_with()
@@ -383,6 +384,36 @@ class UseShardTestCase(ShardingTestCase):
         env.connection = connection
         env.release_lock()
         mock_release_advisory_lock.assert_called_once_with(key='shard_{}'.format(self.shard.id), shared=True)
+
+    def test_multiple_disable(self):
+        """
+        Case: Try to disable a use shard context manager twice
+        Expected: It will only be disabled if the use shard context manager is enabled
+        """
+        env = use_shard(self.shard)
+        env.enable()
+
+        with mock.patch('sharding.utils._set_schema') as mock_set_schema:
+            env.disable()
+
+        self.assertTrue(mock_set_schema.called)
+
+        with mock.patch('sharding.utils._set_schema') as mock_set_schema:
+            env.disable()
+
+        self.assertFalse(mock_set_schema.called)
+
+    def test_disable_but_no_enable(self):
+        """
+        Case: Try to disable a use shard context manager without enabling it
+        Expected: Disabling is a noop
+        """
+        env = use_shard(self.shard)
+
+        with mock.patch('sharding.utils._set_schema') as mock_set_schema:
+            env.disable()
+
+        self.assertFalse(mock_set_schema.called)
 
 
 class UseShardForTestCase(TestCase):
