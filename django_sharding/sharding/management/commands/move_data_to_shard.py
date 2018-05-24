@@ -1,5 +1,7 @@
 import collections
+import csv
 import filecmp
+import functools
 from io import StringIO
 from tempfile import NamedTemporaryFile
 import progressbar
@@ -16,17 +18,13 @@ from sharding.utils import use_shard, get_shard_class, get_all_sharded_models, g
     get_model_sharding_mode, transaction_for_nodes
 
 
-def _wrap_with(code):
-    def inner(text):
-        c = code
-        return "\033[{}m{}\033[0m".format(c, text)
-
-    return inner
+def color(text, code):
+    return '\033[{}m{}\033[0m'.format(code, text)
 
 
-green = _wrap_with('32')
-magenta = _wrap_with('35')
-bold = _wrap_with('1')
+green = functools.partial(color, code='32')
+magenta = functools.partial(color, code='35')
+bold = functools.partial(color, code='1')
 
 
 class Command(BaseCommand):
@@ -39,21 +37,21 @@ class Command(BaseCommand):
     help = 'Move all data belonging to a single root_object from one shard to another.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--source_shard_alias', action='store', dest='source_shard_alias',
+        parser.add_argument('--source-shard-alias', action='store', dest='source_shard_alias',
                             help='Name of the shard where the root_object will be migrated from.')
-        parser.add_argument('--target_shard_alias', action='store', dest='target_shard_alias',
+        parser.add_argument('--target-shard-alias', action='store', dest='target_shard_alias',
                             help='Name of the shard which will receive the data.')
-        parser.add_argument('--model_name', action='store', dest='model_name',
+        parser.add_argument('--model-name', action='store', dest='model_name',
                             help='app_label.model_name of the root object.')
-        parser.add_argument('--root_object_id', action='store', dest='root_object_id', help='ID of the root object.')
-        parser.add_argument('--reuse_simple_collector_for_delete',
+        parser.add_argument('--root-object-id', action='store', dest='root_object_id', help='ID of the root object.')
+        parser.add_argument('--reuse-simple-collector-for-delete',
                             action='store',
                             dest='reuse_simple_collector_for_delete',
                             help="Do not use Django's original delete collector to determine what needs to be "
                                  "deleted from the source_shard, but reuse the data collector for copy.",
                             default=False)
-        parser.add_argument("-q", "--quiet", "--silent", action="store_false", dest="quiet", help='Suppress output.')
-        parser.add_argument('--no_input', action='store_false', dest='no_input', help='Skip confirmation.')
+        parser.add_argument('-q', '--quiet', '--silent', action='store_false', dest='quiet', help='Suppress output.')
+        parser.add_argument('--no-input', action='store_false', dest='no_input', help='Skip confirmation.')
 
     def handle(self, *args, **options):
         """
@@ -72,7 +70,7 @@ class Command(BaseCommand):
         target_shard = self.get_target_shard(root_object=root_object, options=options)
 
         if not self.quiet:
-            print("Gathering data:")
+            print('Gathering data:')
         data = self.get_data(source_shard=source_shard, root_objects=root_object)
 
         if not options.get('no_input') or not self.quiet:
@@ -184,7 +182,6 @@ class Command(BaseCommand):
                 widgets=[progressbar.RotatingMarker(),
                          ' Moving data from {} to {}; '.format(source_shard, target_shard),
                          progressbar.Timer()])
-            # print('Moving data from {} to {}'.format(source_shard, target_shard))
         for model, pk_set in data.items():
             # Export
             io = StringIO()
@@ -198,7 +195,8 @@ class Command(BaseCommand):
             # Read the csv headers from the output, and save them as a list of field names.
             # We will use this for importing and validation.
             io.seek(0)
-            fields = str.replace(io.readline(), '\n', '').split(';')
+            reader = csv.reader(io, delimiter=';')
+            fields = next(reader)
             fields = ','.join('"{}"'.format(f) for f in fields)
             model_fields[model] = fields
 
