@@ -123,6 +123,7 @@ class Statement(models.Model):
     content = models.CharField('content', max_length=300)
     user = models.ForeignKey('User', verbose_name='user')
     type = models.ManyToManyField('Type', verbose_name='types')
+    offset = models.PositiveIntegerField('offset', blank=True, null=True)  # Field name is a postgres reserved word
 
     class Meta:
         app_label = 'example'

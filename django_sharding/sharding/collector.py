@@ -45,7 +45,13 @@ class SimpleCollector(object):
         self.data = {}
         self.data_points = 0
 
-        self.bar = progressbar.ProgressBar(max_value=progressbar.UnknownLength)
+        if self.verbose:
+            self.bar = progressbar.ProgressBar(max_value=progressbar.UnknownLength,
+                                               widgets=[progressbar.RotatingMarker(),
+                                                        ' Collected ',
+                                                        progressbar.Counter(),
+                                                        ' datapoints; ',
+                                                        progressbar.Timer()])
 
     def add(self, objs, source=None):
         """
@@ -84,6 +90,10 @@ class SimpleCollector(object):
         else:
             return [objs]
 
+    def finish_bar(self):
+        if self.verbose:
+            self.bar.finish()
+
     def collect(self, objs, source=None, collect_related=True, source_attr=None):
         """
         Adds the pk of 'objs' to the collection of objects given as well as all parent instances.
@@ -92,6 +102,8 @@ class SimpleCollector(object):
         """
         new_objs = self.add(objs, source)
         if not new_objs:
+            self.finish_bar()
+
             return
 
         model = new_objs[0].__class__

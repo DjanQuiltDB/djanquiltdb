@@ -1,7 +1,10 @@
 import collections
+import csv
 import filecmp
+import functools
 from io import StringIO
 from tempfile import NamedTemporaryFile
+import progressbar
 
 from django.contrib.admin.utils import NestedObjects
 from django.core.management import BaseCommand, CommandError
@@ -15,6 +18,15 @@ from sharding.utils import use_shard, get_shard_class, get_all_sharded_models, g
     get_model_sharding_mode, transaction_for_nodes
 
 
+def color(text, code):
+    return '\033[{}m{}\033[0m'.format(code, text)
+
+
+green = functools.partial(color, code='32')
+magenta = functools.partial(color, code='35')
+bold = functools.partial(color, code='1')
+
+
 class Command(BaseCommand):
     """
     This command migrates all data belonging to a single root_object from one shard to another.
@@ -25,21 +37,21 @@ class Command(BaseCommand):
     help = 'Move all data belonging to a single root_object from one shard to another.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--source_shard_alias', action='store', dest='source_shard_alias',
+        parser.add_argument('--source-shard-alias', action='store', dest='source_shard_alias',
                             help='Name of the shard where the root_object will be migrated from.')
-        parser.add_argument('--target_shard_alias', action='store', dest='target_shard_alias',
+        parser.add_argument('--target-shard-alias', action='store', dest='target_shard_alias',
                             help='Name of the shard which will receive the data.')
-        parser.add_argument('--model_name', action='store', dest='model_name',
+        parser.add_argument('--model-name', action='store', dest='model_name',
                             help='app_label.model_name of the root object.')
-        parser.add_argument('--root_object_id', action='store', dest='root_object_id', help='ID of the root object.')
-        parser.add_argument('--reuse_simple_collector_for_delete',
+        parser.add_argument('--root-object-id', action='store', dest='root_object_id', help='ID of the root object.')
+        parser.add_argument('--reuse-simple-collector-for-delete',
                             action='store',
                             dest='reuse_simple_collector_for_delete',
                             help="Do not use Django's original delete collector to determine what needs to be "
                                  "deleted from the source_shard, but reuse the data collector for copy.",
                             default=False)
-        parser.add_argument('--quiet', action='store', dest='quiet', default=False, help='Suppress output.')
-        parser.add_argument('--no_input', action='store', dest='no_input', default=False, help='Skip confirmation.')
+        parser.add_argument('-q', '--quiet', '--silent', action='store_false', dest='quiet', help='Suppress output.')
+        parser.add_argument('--no-input', action='store_false', dest='no_input', help='Skip confirmation.')
 
     def handle(self, *args, **options):
         """
@@ -57,22 +69,15 @@ class Command(BaseCommand):
         root_object = self.get_object(model_name, root_object_id, source_shard)
         target_shard = self.get_target_shard(root_object=root_object, options=options)
 
+        if not self.quiet:
+            print('Gathering data:')
         data = self.get_data(source_shard=source_shard, root_objects=root_object)
 
-        if not options.get('no_input'):
-            print()
-            print('Data:')
-            for model, instances in data.items():
-                print('\033[95m{}\033[0m'.format(model))
-                print('    {} datapoints'.format(len(instances)))
-            confirm = input("Type 'yes' if you are sure if you want to move this data "
-                            "from \033[1m{}\033[0m to \033[1m{}\033[0m: "
-                            .format(source_shard, target_shard))
-            if confirm != 'yes':
-                return
+        self.confirm(options, data, source_shard, target_shard)
 
         self.pre_execution(options=options, source_shard=source_shard, target_shard=target_shard,
                            root_object=root_object, data=data)
+
         try:
             # Pushing the node names through a set means we end up with a list of unique names.
             nodes = list(set([source_shard.node_name, target_shard.node_name]))
@@ -93,14 +98,31 @@ class Command(BaseCommand):
                         data=self.get_data(source_shard=source_shard, root_objects=root_object,
                                            use_original_collector=True),
                         source_shard=source_shard)
-
-        finally:
+        except Exception as error:
             self.post_execution(options=options, source_shard=source_shard, target_shard=target_shard,
-                                root_object=root_object, data=data)
+                                root_object=root_object, data=data, succeeded=False)
+            raise error
+        else:
+            self.post_execution(options=options, source_shard=source_shard, target_shard=target_shard,
+                                root_object=root_object, data=data, succeeded=True)
 
         if not self.quiet:
             data_points = sum(map(len, data.values()))
-            print('Done. Moved {} data points'.format(data_points))
+            print(green('Done. Moved {} data points'.format(data_points)))
+
+    def confirm(self, options, data, source_shard, target_shard):
+        if not options.get('no_input') or not self.quiet:
+            print()
+            print('Data:')
+            for model, instances in data.items():
+                print(magenta(model))
+                print('    {} datapoints'.format(len(instances)))
+
+            if not options.get('no_input'):
+                confirm = input("Type 'yes' if you are sure if you want to move this data from {} to {}: "
+                                .format(bold(source_shard), bold(target_shard)))
+                if confirm != 'yes':
+                    return
 
     @staticmethod
     def get_object(model_name, root_object_id, source_shard):
@@ -158,24 +180,28 @@ class Command(BaseCommand):
         """
         model_fields = {}
         if not self.quiet:
-            print('Moving data from {} to {}'.format(source_shard, target_shard))
+            bar = progressbar.ProgressBar(
+                max_value=progressbar.UnknownLength,
+                widgets=[progressbar.RotatingMarker(),
+                         ' Moving data from {} to {}; '.format(source_shard, target_shard),
+                         progressbar.Timer()])
         for model, pk_set in data.items():
-            if not self.quiet:
-                print('Exporting {}.{}'.format(model._meta.app_label, model._meta.model_name))
-
             # Export
             io = StringIO()
             with use_shard(source_shard, active_only_schemas=False) as env:
                 query = env.connection.cursor().mogrify(
-                    'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT WITH CSV DELIMITER \';\' HEADER'  # nosec
-                    .format(t=model._meta.db_table),
+                    'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) '  # nosec
+                    'TO STDOUT WITH CSV DELIMITER \';\' HEADER'.format(  # nosec
+                        t=model._meta.db_table),
                     [list(pk_set)])
                 self.copy_expert(env.connection.cursor(), query, io)
 
             # Read the csv headers from the output, and save them as a list of field names.
             # We will use this for importing and validation.
             io.seek(0)
-            fields = str.replace(str.replace(io.readline(), ';', ','), '\n', '')
+            reader = csv.reader(io, delimiter=';')
+            fields = next(reader)
+            fields = ','.join('"{}"'.format(f) for f in fields)
             model_fields[model] = fields
 
             # Import
@@ -184,6 +210,12 @@ class Command(BaseCommand):
                 self.copy_expert(env.connection.cursor(),
                                  'COPY "{t}" ({f}) FROM STDIN WITH CSV DELIMITER \';\' HEADER'  # nosec
                                  .format(t=model._meta.db_table, f=fields), io)
+
+            if not self.quiet:
+                bar.update()
+
+        if not self.quiet:
+            bar.finish()
 
         return model_fields
 
@@ -200,7 +232,11 @@ class Command(BaseCommand):
         Let both the source_shard and the target_shard export the data to a file and compare them.
         """
         if not self.quiet:
-            print('Confirming data integrity')
+            bar = progressbar.ProgressBar(
+                max_value=progressbar.UnknownLength,
+                widgets=[progressbar.RotatingMarker(),
+                         ' Confirming data integrity; ',
+                         progressbar.Timer()])
 
         with NamedTemporaryFile() as source_file, NamedTemporaryFile() as target_file:
             for model, pk_set in data.items():
@@ -208,7 +244,7 @@ class Command(BaseCommand):
                 pk_list = list(pk_set)
                 # Export
                 query_string = 'COPY (SELECT {f} FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(  # nosec
-                        t=model._meta.db_table, f=fields)
+                    t=model._meta.db_table, f=fields)
 
                 # We let the copy functions just append to the output file
                 with use_shard(source_shard, active_only_schemas=False) as env:
@@ -218,6 +254,9 @@ class Command(BaseCommand):
                 with use_shard(target_shard, active_only_schemas=False) as env:
                     query = env.connection.cursor().mogrify(query_string, [pk_list])
                     self.copy_expert(env.connection.cursor(), query, target_file)
+
+                if not self.quiet:
+                    bar.update()
 
             source_file.seek(0)
             target_file.seek(0)
@@ -231,13 +270,20 @@ class Command(BaseCommand):
         It calls delete_batch(pk_set) on each model in the data set.
         """
         if not self.quiet:
-            print('Deleting exported data')
+            bar = progressbar.ProgressBar(
+                max_value=progressbar.UnknownLength,
+                widgets=[progressbar.RotatingMarker(),
+                         ' Deleting exported data; ',
+                         progressbar.Timer()])
 
         for model, pk_set in data.items():
             query = sql.DeleteQuery(model)
             with use_shard(source_shard, active_only_schemas=False):
                 # Providing a 'using' to delete_batch is not needed for us, but the function expects it.
                 query.delete_batch(list(pk_set), using=source_shard.node_name)
+
+            if not self.quiet:
+                bar.update()
 
     def pre_execution(self, options, source_shard, target_shard, root_object, data):
         """
@@ -252,6 +298,13 @@ class Command(BaseCommand):
         """
         source_connection = connections[source_shard.node_name]
         mapping_model = get_mapping_class()
+
+        if not self.quiet:
+            bar = progressbar.ProgressBar(max_value=progressbar.UnknownLength,
+                                          widgets=[progressbar.RotatingMarker(),
+                                                   ' Acquiring lock; ',
+                                                   progressbar.Timer()])
+
         if mapping_model:
             mapping_object = mapping_model.objects.select_related('shard').for_target(root_object.id)
 
@@ -269,7 +322,10 @@ class Command(BaseCommand):
             source_shard.state = State.MAINTENANCE
             source_shard.save(update_fields=['state'])
 
-    def post_execution(self, options, source_shard, target_shard, root_object, data):
+        if not self.quiet:
+            bar.finish()
+
+    def post_execution(self, options, source_shard, target_shard, root_object, data, succeeded):
         """
         Called after the transaction is committed. Both after success or failure.
         Set both shards in maintenance.
@@ -280,7 +336,8 @@ class Command(BaseCommand):
         if mapping_model:
             mapping_object = mapping_model.objects.select_related('shard').for_target(root_object.id)
             mapping_object.state = self.old_source_state
-            mapping_object.shard = target_shard
+            if succeeded:
+                mapping_object.shard = target_shard
             mapping_object.save(update_fields=['state', 'shard'])
 
             # Release the exclusive advisory lock
