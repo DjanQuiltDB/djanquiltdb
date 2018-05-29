@@ -29,16 +29,16 @@ def _reset_shard_mapping_models():
     shard_mapping_models = False
 
 
-def _use_shard_sharded_model():
+def class_method_use_shard():
     """
-    Decorator that is used to decorate all model methods of sharded models. It will make sure that the model methods are
-    run in the same shard as the instance lives in.
+    Decorator that is used to decorate all class methods of a certain class. It will make sure that the class methods
+    are run in the same shard as the instance lives in.
     """
     def outer(func):
         @functools.wraps(func)
         def inner(self, *args, **kwargs):
-            # Ignore going into a shard if override_model_use_shard is set to True
-            if connection._override_model_use_shard:
+            # Ignore going into a shard if override_class_method_use_shard is set to True
+            if connection._override_class_method_use_shard:
                 return func(self, *args, **kwargs)
 
             has_shard_attributes = hasattr(self, '_shard')
@@ -60,7 +60,7 @@ def _use_shard_sharded_model():
             # Schema name and node name are not set when creating an object (post_init didn't fire at that point),
             # so just return the method without an use_shard context in this case.
             return func(self, *args, **kwargs)
-        return _add_decorator_reference(inner, decorator=_use_shard_sharded_model)
+        return _add_decorator_reference(inner, decorator=class_method_use_shard)
     return outer
 
 

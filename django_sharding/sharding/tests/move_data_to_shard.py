@@ -46,7 +46,7 @@ class MoveDataToShardTransaction(ShardingTransactionTestCase):
         with use_shard(self.source_shard):
             self.assertFalse(Organization.objects.all().exists())
 
-        with use_shard(self.target_shard, override_model_use_shard=True):
+        with use_shard(self.target_shard, override_class_method_use_shard=True):
             self.organization.refresh_from_db()
             self.user.refresh_from_db()
 
@@ -143,7 +143,7 @@ class MoveDataToShard(ShardingTestCase):
             self.assertEqual(Statement.objects.get(id=self.statement_1.id).content, "'Luke'!")
             self.assertEqual(Statement.objects.get(id=self.statement_2.id).content, 'Try to; solve this "puzzle."')
 
-        with use_shard(self.target_shard, override_model_use_shard=True):
+        with use_shard(self.target_shard, override_class_method_use_shard=True):
             self.organization_1.refresh_from_db()
 
     def test_sub_organization(self):
@@ -173,7 +173,7 @@ class MoveDataToShard(ShardingTestCase):
             self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3])
 
-        with use_shard(self.target_shard, override_model_use_shard=True):
+        with use_shard(self.target_shard, override_class_method_use_shard=True):
             self.organization_1.refresh_from_db()
             self.organization_2.refresh_from_db()
 

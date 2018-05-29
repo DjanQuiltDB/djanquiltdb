@@ -71,9 +71,16 @@ class Suborganization(models.Model):
         app_label = 'example'
 
 
+class CakeQuerySet(models.QuerySet):
+    def chocolate(self):
+        return self.filter(name__icontains='chocolate')
+
+
 @sharded_model()
 class Cake(models.Model):
     name = models.CharField('name', max_length=128)
+
+    objects = CakeQuerySet.as_manager()
 
     class Meta:
         app_label = 'example'

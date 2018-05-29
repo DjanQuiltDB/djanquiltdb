@@ -1,3 +1,4 @@
+import functools
 import inspect
 import types
 
@@ -8,8 +9,10 @@ from django.core.exceptions import ImproperlyConfigured
 from django.utils.module_loading import import_string
 
 from sharding import ShardingMode
-from sharding.decorators import _use_shard_sharded_model
-from sharding.utils import get_all_sharded_models
+from sharding.db import connection
+from sharding.decorators import class_method_use_shard, _add_decorator_reference
+from sharding.options import InstanceShardOptions
+from sharding.utils import get_all_sharded_models, get_model_sharding_mode
 
 
 class ShardingConfig(AppConfig):
@@ -59,6 +62,7 @@ class ShardingConfig(AppConfig):
             )
 
         _initialize_sharded_models()
+        _monkeypatch_queryset()
 
 
 def _validate_override_sharding_mode_entry(key, value):
@@ -94,4 +98,39 @@ def _initialize_sharded_models():
             if isinstance(inspect.getattr_static(model, attr), types.FunctionType):
                 # And decorate all model methods so that the methods will all run in the same shard context as the
                 # instance is living in
-                setattr(model, attr, _use_shard_sharded_model()(func))
+                setattr(model, attr, class_method_use_shard()(func))
+
+
+def _monkeypatch_queryset():
+    """
+    Monkeypatch the queryset by decorating all methods to run in the same shard as the queryset is initialized in.
+
+    Note that this does not decorate methods you define for your own querysets. You can use the class_method_use_shard()
+    decorator for those methods.
+    """
+    from django.db.models.query import QuerySet
+
+    def post_init():
+        def outer(func):
+            @functools.wraps(func)
+            def inner(self, *args, **kwargs):
+                init = func(self, *args, **kwargs)
+
+                # Only save it for querysets that are related to sharded models
+                if get_model_sharding_mode(self.model) == ShardingMode.SHARDED:
+                    self._shard = InstanceShardOptions.from_connection(connection)
+
+                return init
+            return _add_decorator_reference(inner, decorator=post_init)
+        return outer
+
+    # Decorate the __init__ method to save the shard we initialize the queryset in.
+    QuerySet.__init__ = post_init()(QuerySet.__init__)
+
+    # And decorate all the other methods (note we skip the __init__) to perform their code in the shard context the
+    # queryset was initialized in.
+    for attr, func in inspect.getmembers(QuerySet, inspect.isfunction):
+        if attr == '__init__':
+            continue
+
+        setattr(QuerySet, attr, class_method_use_shard()(func))

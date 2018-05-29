@@ -11,9 +11,10 @@ from django.utils import six
 
 from example.models import Shard
 from migration_tests.tests.migration_base import MigrationTestBase
+from sharding import ShardingMode
 from sharding.db import connection
 from sharding.management.commands.migrate_shards import Command as MigrateShards
-from sharding.utils import State, use_shard, get_template_name, get_all_databases
+from sharding.utils import State, use_shard, get_template_name, get_all_databases, get_model_sharding_mode
 
 
 class ShardedMigrationSystemTestCase(MigrationTestBase):
@@ -23,6 +24,13 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
         super().setUp()
         # this is not added as decorator, for that won't work for the setup.
         self.mock_router = mock.patch('sharding.utils.DynamicDbRouter.allow_migrate').start()
+
+        # We need to mock the get_model_sharding_mode here, because we are going to try to access a model
+        # (example.Shard) that is not in our installed apps in this test case.
+        self.mock_get_model_sharding_mode = mock.patch(
+            'sharding.apps.get_model_sharding_mode',
+            side_effect=lambda model: model == Shard and ShardingMode.MIRRORED or get_model_sharding_mode(model)
+        ).start()
         self.addCleanup(mock.patch.stopall)
 
         # Unlike other migrations, these test migrations are NOT applied during the creation of the testcase
@@ -155,10 +163,14 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
             self.assertFalse(('migration_tests', '0001_initial') in applied_migration_tests)
 
 
+# We need to mock the get_model_sharding_mode here, because we are going to try to access a model (example.Shard) that
+# is not in our installed apps in this test case.
+@mock.patch('sharding.apps.get_model_sharding_mode',
+            side_effect=lambda model: model == Shard and ShardingMode.MIRRORED or get_model_sharding_mode(model))
 class OriginalMigrationTestCase(MigrationTestBase):
     # Taken from the Django source: https://github.com/django/django/blob/stable/1.8.x/tests/migrations/test_commands.py
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
-    def test_migrate(self):
+    def test_migrate(self, mock_get_model_sharding_mode):
         """
         Case: Tests basic usage of the migrate command.
         Expected: Tables only to exist when they should
@@ -187,7 +199,7 @@ class OriginalMigrationTestCase(MigrationTestBase):
         self.assertTableNotExists('migration_tests_book')
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
-    def test_migrate_fake_initial(self):
+    def test_migrate_fake_initial(self, mock_get_model_sharding_mode):
         """
         Case: #24184 - Tests that --fake-initial only works if all tables created in
               the initial migration of an app exists
@@ -255,7 +267,7 @@ class OriginalMigrationTestCase(MigrationTestBase):
         self.assertTableNotExists('migration_tests_book')
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_conflict'})
-    def test_migrate_conflict_exit(self):
+    def test_migrate_conflict_exit(self, mock_get_model_sharding_mode):
         """
         Case: Call migrate_shards with a conflicting migration set
         Expected: Makes sure that migrate exits if it detects a conflict.
@@ -264,7 +276,7 @@ class OriginalMigrationTestCase(MigrationTestBase):
             call_command('migrate_shards', 'migration_tests')
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_squashed'})
-    def test_migrate_record_replaced(self):
+    def test_migrate_record_replaced(self, mock_get_model_sharding_mode):
         """
         Case: Call migrate_shards with a squashed migration set
         Expected: All original migrations should be marked as run
@@ -286,7 +298,7 @@ class OriginalMigrationTestCase(MigrationTestBase):
         call_command('migrate_shards', 'migration_tests', 'zero', verbosity=0)
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_squashed'})
-    def test_migrate_record_squashed(self):
+    def test_migrate_record_squashed(self, mock_get_model_sharding_mode):
         """
         Case: Call migrate_shards with a squashed migration set, when all original migrations have been run before.
         Expected: Should not migrate anything, all squashed migrations has been run
@@ -1049,6 +1061,10 @@ class ShardedMigrationCheckOrMigrateShardTestCase(MigrationTestBase):
         self.assertFalse(mock_executor.return_value.migrate.called)
 
 
+# We need to mock the get_model_sharding_mode here, because we are going to try to access a model (example.Shard) that
+# is not in our installed apps in this test case.
+@mock.patch('sharding.apps.get_model_sharding_mode',
+            side_effect=lambda model: model == Shard and ShardingMode.MIRRORED or get_model_sharding_mode(model))
 class SeparateDatabaseAndStateTestCase(MigrationTestBase):
     available_apps = ['migration_tests']
 
@@ -1058,7 +1074,7 @@ class SeparateDatabaseAndStateTestCase(MigrationTestBase):
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_remove_model'})
     @mock.patch('sharding.utils.DynamicDbRouter.allow_migrate')
-    def test(self, mock_allow_migrate):
+    def test(self, mock_allow_migrate, mock_get_model_sharding_mode):
         """
         Case: Migrate with a SeparateDatabaseAndState operation and a model that does not exist in the apps.
         Expected: allow_migrate to block all database operations, but not the state operations
