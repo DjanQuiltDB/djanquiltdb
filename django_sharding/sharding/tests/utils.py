@@ -196,9 +196,17 @@ class UseShardTestCase(ShardingTestCase):
         """
         with use_shard(self.shard) as env:
             self.assertEqual(connection.alias, 'default')
-            mock_set_schema.assert_called_once_with('test_schema', env.connection, include_public=True,
-                                                    override_class_method_use_shard=False, shard_id=self.shard.id,
-                                                    mapping_value=None, active_only_schemas=True, lock=True)
+            mock_set_schema.assert_called_once_with(
+                'test_schema',
+                env.connection,
+                include_public=True,
+                override_class_method_use_shard=False,
+                shard_id=self.shard.id,
+                mapping_value=None,
+                active_only_schemas=True,
+                lock=True,
+                check_active_mapping_values=False,
+            )
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard_on_other_node(self, mock_set_schema):
@@ -208,9 +216,17 @@ class UseShardTestCase(ShardingTestCase):
         """
         with use_shard(self.other_shard) as env:
             self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['other'])
-            mock_set_schema.assert_called_once_with('test_other_schema', env.connection,  include_public=True,
-                                                    override_class_method_use_shard=False, shard_id=self.other_shard.id,
-                                                    mapping_value=None, active_only_schemas=True, lock=True)
+            mock_set_schema.assert_called_once_with(
+                'test_other_schema',
+                env.connection,
+                include_public=True,
+                override_class_method_use_shard=False,
+                shard_id=self.other_shard.id,
+                mapping_value=None,
+                active_only_schemas=True,
+                lock=True,
+                check_active_mapping_values=False,
+            )
 
     @mock.patch("sharding.utils.connection.set_schema")
     def test_use_shard_with_invalid_argument(self, mock_set_schema):
@@ -261,9 +277,17 @@ class UseShardTestCase(ShardingTestCase):
         with use_shard(self.shard, include_public=False) as env:
             connection_1 = env.connection
 
-        mock_set_schema.assert_any_call(self.shard.schema_name, connection_1, include_public=False,
-                                        override_class_method_use_shard=False, shard_id=self.shard.id,
-                                        mapping_value=None, active_only_schemas=True, lock=True)
+        mock_set_schema.assert_any_call(
+            self.shard.schema_name,
+            connection_1,
+            include_public=False,
+            override_class_method_use_shard=False,
+            shard_id=self.shard.id,
+            mapping_value=None,
+            active_only_schemas=True,
+            lock=True,
+            check_active_mapping_values=False,
+        )
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard_inception(self, mock_set_schema):
@@ -273,16 +297,32 @@ class UseShardTestCase(ShardingTestCase):
         """
         with use_shard(self.shard) as env_1:
             connection_1 = env_1.connection
-            mock_set_schema.assert_any_call(self.shard.schema_name, connection_1, include_public=True,
-                                            override_class_method_use_shard=False, shard_id=self.shard.id,
-                                            mapping_value=None, active_only_schemas=True, lock=True)
+            mock_set_schema.assert_any_call(
+                self.shard.schema_name,
+                connection_1,
+                include_public=True,
+                override_class_method_use_shard=False,
+                shard_id=self.shard.id,
+                mapping_value=None,
+                active_only_schemas=True,
+                lock=True,
+                check_active_mapping_values=False,
+            )
             self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['default'])
 
             with use_shard(self.other_shard) as env_2:
                 connection_2 = env_2.connection
-                mock_set_schema.assert_any_call(self.other_shard.schema_name, connection_2, include_public=True,
-                                                override_class_method_use_shard=False, shard_id=self.other_shard.id,
-                                                mapping_value=None, active_only_schemas=True, lock=True)
+                mock_set_schema.assert_any_call(
+                    self.other_shard.schema_name,
+                    connection_2,
+                    include_public=True,
+                    override_class_method_use_shard=False,
+                    shard_id=self.other_shard.id,
+                    mapping_value=None,
+                    active_only_schemas=True,
+                    lock=True,
+                    check_active_mapping_values=False,
+                )
                 self.assertEqual(THREAD_LOCAL.DB_OVERRIDE, ['default', 'other'])
 
         self.assertIsNone(THREAD_LOCAL.DB_OVERRIDE)
@@ -300,6 +340,37 @@ class UseShardTestCase(ShardingTestCase):
         self.assertFalse(mock_set_schema.called)
         if hasattr(THREAD_LOCAL, 'DB_OVERRIDE') and THREAD_LOCAL.DB_OVERRIDE is not None:
             self.fail('THREAD_LOCAL.DB_OVERRIDE should be None or not exist.')
+
+    @mock.patch('sharding.utils._set_schema')
+    def test_use_shard_with_inactive_mapping_objects(self, mock_set_schema):
+        """
+        Case: Call use_shard with a valid shard object that contains inactive mapping objects, with setting
+              check_active_mapping_values to True
+        Expected: StateException to be raised
+        """
+        shard = Shard.objects.create(alias='halls_of_justice', schema_name='test_halls_of_justice', node_name='default',
+                                     state=State.ACTIVE)
+        OrganizationShards.objects.create(organization_id=5, shard=shard, state=State.ACTIVE)
+        OrganizationShards.objects.create(organization_id=6, shard=shard, state=State.MAINTENANCE)
+
+        with self.assertRaises(StateException):
+            with use_shard(shard, check_active_mapping_values=True):
+                pass
+        self.assertFalse(mock_set_schema.called)
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    def test_use_shard_check_active_mapping_values_no_mapping_model(self):
+        """
+        Case: Set check_active_mapping_values to True on use_shard while not having a mapping model defined
+        Expected: ValueError raised
+        """
+        shard = Shard.objects.create(alias='halls_of_justice', schema_name='test_halls_of_justice', node_name='default',
+                                     state=State.ACTIVE)
+
+        with self.assertRaisesMessage(ValueError, "You set 'check_active_mapping_values' to True while you didn't "
+                                                  "define the mapping model."):
+            with use_shard(shard, check_active_mapping_values=True):
+                pass
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('sharding.utils._set_schema')
@@ -357,6 +428,7 @@ class UseShardTestCase(ShardingTestCase):
         env.old_shard_id = None
         env.old_mapping_value = None
         env.old_lock = True
+        env.old_check_active_mapping_values = False
         env.connection = connection
         env._enabled = True
 
@@ -435,10 +507,17 @@ class UseShardForTestCase(TestCase):
         Expected: Successful usage of use_shard_for
         """
         with use_shard_for(1):
-            mock_set_schema.assert_called_once_with(self.shard1.schema_name, connections[self.shard1.node_name],
-                                                    include_public=True, override_class_method_use_shard=False,
-                                                    shard_id=self.shard1.id, mapping_value=1, active_only_schemas=True,
-                                                    lock=True)
+            mock_set_schema.assert_called_once_with(
+                self.shard1.schema_name,
+                connections[self.shard1.node_name],
+                include_public=True,
+                override_class_method_use_shard=False,
+                shard_id=self.shard1.id,
+                mapping_value=1,
+                active_only_schemas=True,
+                lock=True,
+                check_active_mapping_values=False,
+            )
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard_for_inactive_object(self, mock_set_schema):
@@ -472,10 +551,17 @@ class UseShardForTestCase(TestCase):
         Expected: Successful usage of use_shard_for
         """
         with use_shard_for(2, active_only_schemas=False):
-            mock_set_schema.assert_called_once_with(self.shard1.schema_name, connections[self.shard1.node_name],
-                                                    include_public=True, override_class_method_use_shard=False,
-                                                    shard_id=self.shard1.id, mapping_value=2, active_only_schemas=False,
-                                                    lock=True)
+            mock_set_schema.assert_called_once_with(
+                self.shard1.schema_name,
+                connections[self.shard1.node_name],
+                include_public=True,
+                override_class_method_use_shard=False,
+                shard_id=self.shard1.id,
+                mapping_value=2,
+                active_only_schemas=False,
+                lock=True,
+                check_active_mapping_values=False,
+            )
 
     def test_use_shard_set_parameters_on_connection(self):
         """
@@ -516,15 +602,53 @@ class GetShardForTestCase(TestCase):
             self.shard1 = Shard.objects.create(alias='test_sharding', schema_name='test_schema', node_name='default',
                                                state=State.ACTIVE)
 
-        self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1)
+        self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1, slug='test_slug')
 
-    def test_use_shard_for(self):
+    def test(self):
+        """
+        Case: Use get_shard_for
+        Expected: Correct shard returned
+        """
         self.assertEqual(get_shard_for(1), self.shard1)
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
-    def test_use_shard_for_without_setting(self):
+    def test_get_shard_for_without_setting(self):
+        """
+        Case: Use get_shard_for while not having MAPPING_MODEL set
+        Expected: ImproperlyConfigured raised
+        """
         with self.assertRaises(ImproperlyConfigured):
             self.assertEqual(get_shard_for(1), self.shard1)
+
+    def test_active_only_schemas(self):
+        """
+        Case: Use get_shard_for while having the mapping model in maintenance
+        Expected: StateException raised
+        """
+        self.assertEqual(get_shard_for(1), self.shard1)
+
+        self.org_shard1.state = State.MAINTENANCE
+        self.org_shard1.save()
+
+        with self.assertRaises(StateException):
+            get_shard_for(1)
+
+    def test_active_only_schemas_false(self):
+        """
+        Case: Use get_shard_for with active_only set to False, while having the mapping model in maintenance
+        Expected: No StateException raised, correct shard returned
+        """
+        self.org_shard1.state = State.MAINTENANCE
+        self.org_shard1.save()
+
+        self.assertEqual(get_shard_for(1, active_only=False), self.shard1)
+
+    def test_field(self):
+        """
+        Case: Use get_shard_for with a different field provided
+        Expected: Shard selected on field 'slug'
+        """
+        self.assertEqual(get_shard_for('test_slug', field='slug'), self.shard1)
 
 
 class CreateSchemaOnNodeTestCase(ShardingTestCase):

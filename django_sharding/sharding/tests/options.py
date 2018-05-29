@@ -27,7 +27,8 @@ class GetShardFromInstanceOptionsTestCase(TestCase):
             id_=shard.id,
             mapping_value=None,
             active_only_schemas=None,
-            lock=True
+            lock=True,
+            check_active_mapping_values=False
         )
 
         self.assertEqual(get_shard_from_instance_options(shard_options), shard)
@@ -44,7 +45,8 @@ class GetShardFromInstanceOptionsTestCase(TestCase):
             id_=None,
             mapping_value=None,
             active_only_schemas=None,
-            lock=True
+            lock=True,
+            check_active_mapping_values=False,
         )
 
         with self.assertRaisesMessage(ShardingError, 'Shard ID is not known for this instance'):
@@ -66,7 +68,8 @@ class ConnectionHasSameShardOptionsTestCase(TestCase):
             id_=self.shard.id,
             mapping_value=None,
             active_only_schemas=True,
-            lock=True
+            lock=True,
+            check_active_mapping_values=False
         )
 
     def test_same_shard_options(self):
@@ -112,7 +115,8 @@ class UseShardFromInstanceOptions(TestCase):
             id_=self.shard.id,
             mapping_value=self.organization.id,
             active_only_schemas=True,
-            lock=True
+            lock=True,
+            check_active_mapping_values=False
         )
 
         use_shard_from_instance_options(shard_options)
@@ -133,7 +137,8 @@ class UseShardFromInstanceOptions(TestCase):
             id_=self.shard.id,
             mapping_value=None,
             active_only_schemas=True,
-            lock=True
+            lock=True,
+            check_active_mapping_values=False
         )
 
         with self.subTest('Active only schemas to True'):
@@ -170,7 +175,8 @@ class UseShardFromInstanceOptions(TestCase):
             id_=None,
             mapping_value=None,
             active_only_schemas=True,
-            lock=True
+            lock=True,
+            check_active_mapping_values=False
         )
 
         with self.subTest('Active only schemas to True'):
@@ -209,7 +215,8 @@ class UseShardFromInstanceOptions(TestCase):
             id_=self.shard.id,
             mapping_value=None,
             active_only_schemas=True,
-            lock=True
+            lock=True,
+            check_active_mapping_values=False
         )
 
         with self.subTest('Lock to True'):

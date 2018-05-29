@@ -4,13 +4,35 @@ from sharding.utils import use_shard_for, use_shard, get_shard_class
 
 
 class InstanceShardOptions:
-    def __init__(self, schema_name, node_name, id_, mapping_value, active_only_schemas, lock):
+    def __init__(self, schema_name, node_name, id_, mapping_value, active_only_schemas, lock,
+                 check_active_mapping_values):
         self.schema_name = schema_name
         self.node_name = node_name
         self.id = id_
         self.mapping_value = mapping_value
         self.active_only_schemas = active_only_schemas
         self.lock = lock
+        self.check_active_mapping_values = check_active_mapping_values
+
+    @classmethod
+    def from_connection(cls, connection):
+        return cls(
+            schema_name=connection.get_schema(),
+            node_name=connection.alias,
+            id_=connection._shard_id,
+            mapping_value=connection._mapping_value,
+            active_only_schemas=connection._active_only_schemas,
+            lock=connection._lock,
+            check_active_mapping_values=connection._check_active_mapping_values
+        )
+
+    def __eq__(self, other):
+        if type(other) is type(self):
+            return self.__dict__ == other.__dict__
+        return NotImplemented
+
+    def __hash__(self):
+        return hash(tuple(sorted(self.__dict__.items())))
 
     @classmethod
     def from_connection(cls, connection):
