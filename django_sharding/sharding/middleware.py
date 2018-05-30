@@ -1,8 +1,13 @@
+import logging
+
 from django.conf import settings
 from django.http import HttpResponse
 from django.utils.module_loading import import_string
 
 from sharding.utils import StateException, use_shard, get_shard_class, use_shard_for
+
+
+logger = logging.getLogger(__name__)
 
 
 class StateExceptionMiddleware(object):
@@ -21,18 +26,24 @@ class StateExceptionMiddleware(object):
 
 
 class BaseUseShardMiddleware(StateExceptionMiddleware):
-    def get_shard_id(self, request):
-        raise NotImplementedError(
-            'The `BaseUseShardMiddleware` middleware class requires that `get_shard_id` is implemented.'
-        )
-
     def process_request(self, request):
         self.set_shard_context_manager(request, None)
 
+        if not hasattr(self, 'get_mapping_value') and not hasattr(self, 'get_shard_id'):
+            raise NotImplementedError(
+                'The `BaseUseShardMiddleware` middleware class requires that one of `get_shard_id` and '
+                '`get_mapping_value` is implemented.'
+            )
+
         try:
-            request._shard_id = self.get_shard_id(request)
-            if request._shard_id:
+            request._mapping_value = getattr(self, 'get_mapping_value', lambda *args, **kwargs: None)(request)
+            request._shard_id = getattr(self, 'get_shard_id', lambda *args, **kwargs: None)(request)
+            if request._mapping_value:
+                self._enable_shard_for(request, request._mapping_value)
+            elif request._shard_id:
                 self._enable_shard(request, request._shard_id)
+            else:
+                logger.debug('No shard selected in `BaseUseShardMiddleware`', extra={'request': request})
         except StateException as exception:
             return self.process_exception(request, exception)
 

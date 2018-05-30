@@ -297,3 +297,82 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
             UseShardMiddleware: mock_use_shard_value,
             SecondUseShardMiddleware: mock_use_shard_value,
         })
+
+    @mock.patch('sharding.middleware.BaseUseShardMiddleware._enable_shard_for')
+    def test_get_mapping_value(self, enable_shard_for):
+        """
+        Case: Process a request when having get_mapping_value defined
+        Expected: _enable_shard_for used to enter a shard
+        """
+        class UseShardMiddleware(BaseUseShardMiddleware):
+            def get_mapping_value(self, request):
+                return 1
+
+        request = RequestFactory().get('/')
+
+        middleware = UseShardMiddleware()
+        middleware.process_request(request)
+
+        enable_shard_for.assert_called_once_with(request, 1)
+
+    @mock.patch('sharding.middleware.BaseUseShardMiddleware._enable_shard_for')
+    @mock.patch('sharding.middleware.BaseUseShardMiddleware._enable_shard')
+    def test_get_mapping_value_and_get_shard_id(self, mock_enable_shard, mock_enable_shard_for):
+        """
+        Case: Process a request when having get_mapping_value and get_shard_id defined
+        Expected: _enable_shard_for used to enter a shard, because that one has priority over get_shard_id
+        """
+        class UseShardMiddleware(BaseUseShardMiddleware):
+            def get_mapping_value(self, request):
+                return 1
+
+            def get_shard_id(self, request):
+                return 2
+
+        request = RequestFactory().get('/')
+
+        middleware = UseShardMiddleware()
+        middleware.process_request(request)
+
+        mock_enable_shard_for.assert_called_once_with(request, 1)
+        self.assertFalse(mock_enable_shard.called)
+
+    @mock.patch('sharding.middleware.BaseUseShardMiddleware._enable_shard_for')
+    @mock.patch('sharding.middleware.BaseUseShardMiddleware._enable_shard')
+    def test_get_mapping_value_none_and_get_shard_id(self, mock_enable_shard, mock_enable_shard_for):
+        """
+        Case: Process a request when having get_mapping_value and get_shard_id defined, but having get_mapping_value
+              returning None
+        Expected: _enable_shard used to enter a shard, because get_mapping_value is returning None
+        """
+        class UseShardMiddleware(BaseUseShardMiddleware):
+            def get_mapping_value(self, request):
+                return None
+
+            def get_shard_id(self, request):
+                return 2
+
+        request = RequestFactory().get('/')
+
+        middleware = UseShardMiddleware()
+        middleware.process_request(request)
+
+        mock_enable_shard.assert_called_once_with(request, 2)
+        self.assertFalse(mock_enable_shard_for.called)
+
+    def test_no_get_mapping_value_and_no_get_shard_id(self):
+        """
+        Case: Process a request when having no get_mapping_value and no get_shard_id defined
+        Expected: NotImplementedError raised, one of them should be set when using this middleware
+        """
+        class UseShardMiddleware(BaseUseShardMiddleware):
+            pass
+
+        request = RequestFactory().get('/')
+
+        middleware = UseShardMiddleware()
+
+        with self.assertRaisesMessage(NotImplementedError, 'The `BaseUseShardMiddleware` middleware class requires '
+                                                           'that one of `get_shard_id` and `get_mapping_value` is '
+                                                           'implemented.'):
+            middleware.process_request(request)
