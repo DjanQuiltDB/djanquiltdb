@@ -607,7 +607,7 @@ def get_sharding_mode(app_label, model_name):
 
     # Explicitly skip the migration model, since that one is both sharded and mirrored, so we can't determine the
     # sharding mode
-    if not model_name or model_name == 'migration':
+    if not model_name or (app_label, model_name) == ('migrations', 'migration'):
         return None
 
     model = apps.get_model(app_label, model_name)
