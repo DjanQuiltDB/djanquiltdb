@@ -1,3 +1,4 @@
+import pickle
 from unittest import mock
 
 from django.test import TestCase, SimpleTestCase, override_settings
@@ -495,3 +496,18 @@ class QuerySetTestCase(TestCase):
             all_super_types = SuperType.objects.all()
 
         self.assertFalse(hasattr(all_super_types, '_shard'))
+
+        pickle.dumps(all_super_types)
+
+    def test_pickle(self):
+        """
+        Case: Pickle a QuerySet that is sharding aware and after unpickle it
+        Expected: After unpickling the QuerySet, it should give the same results as before pickling
+        """
+        with use_shard(self.shard):
+            Organization.objects.create(name='The Empire')
+            all_organizations = Organization.objects.all()  # Lazy here
+
+        dump = pickle.dumps(all_organizations)  # Should not trigger an exception
+
+        self.assertEqual(list(pickle.loads(dump)), list(all_organizations))

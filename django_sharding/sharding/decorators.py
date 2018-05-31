@@ -8,7 +8,7 @@ from django.db import models
 from sharding import ShardingMode, STATES
 from sharding.db import connection
 from sharding.exceptions import ShardingError
-from sharding.options import connection_has_same_shard_options, use_shard_from_instance_options, InstanceShardOptions
+from sharding.options import connection_has_same_shard_options, use_shard_from_instance_options
 from sharding.utils import transaction_for_every_node, get_all_databases, use_shard
 
 shard_mapping_models = False
@@ -27,21 +27,6 @@ def _reset_shard_mapping_models():
     # for internal testing use only.
     global shard_mapping_models
     shard_mapping_models = False
-
-
-def _queryset_post_init():
-    def outer(func):
-        @functools.wraps(func)
-        def inner(self, *args, **kwargs):
-            init = func(self, *args, **kwargs)
-
-            self._shard = InstanceShardOptions.from_connection(connection)
-
-            return init
-
-        return _add_decorator_reference(inner, decorator=_queryset_post_init)
-
-    return outer
 
 
 def class_method_use_shard():

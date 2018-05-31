@@ -9,7 +9,8 @@ from django.db.models import Manager
 from django.utils.module_loading import import_string
 
 from sharding import ShardingMode
-from sharding.decorators import class_method_use_shard, _queryset_post_init
+from sharding.db.models.query import QuerySet
+from sharding.decorators import class_method_use_shard
 from sharding.utils import get_all_sharded_models
 
 
@@ -105,26 +106,21 @@ def _initialize_sharded_model_querysets(model):
     Override all the querysets of the managers, so they can remember the shard where they are initialized on
     """
     for manager_attr, manager in inspect.getmembers(model, lambda o: isinstance(o, Manager)):
-        # First construct the new queryset
-        queryset = manager._queryset_class
-        queryset_name = queryset.__name__
-        queryset_dict = {
-            # __init__ gets special treatment, because it has to remember the shard it is initialized in
-            '__init__': _queryset_post_init()(queryset.__init__)
-        }
+        base_queryset_class = manager._queryset_class
 
-        for attr, func in inspect.getmembers(queryset, inspect.isfunction):
-            if attr != '__init__':
-                # All the other methods are decorated with the class_method_use_shard decorator
-                queryset_dict[attr] = class_method_use_shard()(func)
+        # We only need to adjust the QuerySet if it's not the sharded one
+        if base_queryset_class != QuerySet:
+            # First construct the new queryset. Logic taken from QuerySet._clone()
+            class_dict = {
+                '_base_queryset_class': base_queryset_class,
+                '_specialized_queryset_class': QuerySet,
+            }
+            new_queryset = type(QuerySet.__name__, (QuerySet, base_queryset_class), class_dict)
 
-        new_queryset = type(queryset_name, (queryset,), queryset_dict)
+            # Now construct the new manager
+            manager_class = manager.__class__
+            manager_name = manager_class.__name__
+            new_manager = type(manager_name, (manager_class.from_queryset(new_queryset), manager_class), {})
 
-        # Now construct the new manager
-        manager_class = manager.__class__
-        manager_name = manager_class.__name__
-        manager_dict = dict(inspect.getmembers(manager_class, inspect.isfunction))
-        new_manager = type(manager_name, (manager_class.from_queryset(new_queryset),), manager_dict)
-
-        # And add the new manager to the class
-        model.add_to_class(manager_attr, new_manager())
+            # And add the new manager to the class
+            model.add_to_class(manager_attr, new_manager())
