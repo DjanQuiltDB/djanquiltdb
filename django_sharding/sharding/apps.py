@@ -109,7 +109,7 @@ def _initialize_sharded_model_querysets(model):
         base_queryset_class = manager._queryset_class
 
         # We only need to adjust the QuerySet if it's not the sharded one
-        if base_queryset_class != QuerySet:
+        if type(base_queryset_class) != type(QuerySet):
             # First construct the new queryset. Logic taken from QuerySet._clone()
             class_dict = {
                 '_base_queryset_class': base_queryset_class,

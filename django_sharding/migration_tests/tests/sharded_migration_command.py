@@ -11,10 +11,9 @@ from django.utils import six
 
 from example.models import Shard
 from migration_tests.tests.migration_base import MigrationTestBase
-from sharding import ShardingMode
 from sharding.db import connection
 from sharding.management.commands.migrate_shards import Command as MigrateShards
-from sharding.utils import State, use_shard, get_template_name, get_all_databases, get_model_sharding_mode
+from sharding.utils import State, use_shard, get_template_name, get_all_databases
 
 
 class ShardedMigrationSystemTestCase(MigrationTestBase):
