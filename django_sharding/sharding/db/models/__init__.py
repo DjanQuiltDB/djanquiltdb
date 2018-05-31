@@ -1,0 +1,1 @@
+from sharding.db.models.query import QuerySet # NOQA

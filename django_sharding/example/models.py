@@ -3,6 +3,7 @@ from django.db import models
 from django.utils import timezone
 
 from sharding import State, STATES
+from sharding.db.models import QuerySet
 from sharding.decorators import mirrored_model, sharded_model, shard_mapping_model
 from sharding.models import BaseShard, MappingQuerySet
 
@@ -71,7 +72,7 @@ class Suborganization(models.Model):
         app_label = 'example'
 
 
-class CakeQuerySet(models.QuerySet):
+class CakeQuerySet(QuerySet):
     def chocolate(self):
         return self.filter(name__icontains='chocolate')
 
