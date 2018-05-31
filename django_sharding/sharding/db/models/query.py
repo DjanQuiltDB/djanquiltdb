@@ -15,7 +15,9 @@ def post_init():
         def inner(self, *args, **kwargs):
             init = func(self, *args, **kwargs)
 
-            self._shard = InstanceShardOptions.from_connection(connection)
+            # Only add the shard options if we are not in the public schema
+            if not connection.is_public_schema():
+                self._shard = InstanceShardOptions.from_connection(connection)
 
             return init
 
@@ -34,7 +36,8 @@ class QuerySetMetaClass(type):
             # __getattribute__. Therefore, we use inspect.getattr_static to strip out staticmethods (which we don't want
             # to decorate). Furthermore, we also don't have to decorate the __init__, since it's already decorated with
             # the post_init decorator.
-            if not isinstance(inspect.getattr_static(new_class, attr), types.FunctionType) or attr == '__init__':
+            if not isinstance(inspect.getattr_static(new_class, attr), types.FunctionType) \
+                    or attr in {'__init__', 'unset_shard_options'}:
                 continue
 
             setattr(new_class, attr, class_method_use_shard()(func))
@@ -43,4 +46,11 @@ class QuerySetMetaClass(type):
 
 
 class QuerySet(BaseQuerySet, metaclass=QuerySetMetaClass):
-    pass
+    def unset_shard_options(self):
+        """
+        Unsets the shard options. Can be used to evaluate the query in a different shard than the queryset is
+        initialized in.
+        """
+        if hasattr(self, '_shard'):
+            delattr(self, '_shard')
+        return self

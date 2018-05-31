@@ -151,6 +151,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def get_schema(self):
         return self.schema_name
 
+    def is_public_schema(self):
+        return self.schema_name == PUBLIC_SCHEMA_NAME
+
     def get_ps_schema(self, schema_name, _cursor=None):
         cursor = _cursor or self.cursor()
         cursor.execute('SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = %s);',

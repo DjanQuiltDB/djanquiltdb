@@ -511,3 +511,23 @@ class QuerySetTestCase(TestCase):
         dump = pickle.dumps(all_organizations)  # Should not trigger an exception
 
         self.assertEqual(list(pickle.loads(dump)), list(all_organizations))
+
+    def test_unset_shard_options(self):
+        """
+        Case: Being able to unset the shard options, so we can run the QuerySet in a different shard
+        Expected: _shard attribute is deleted on QuerySet and we are able to run the queryset in a different shard
+        """
+        other_shard = Shard.objects.create(alias='other_shard', schema_name='test_other_schema', node_name='default',
+                                           state=State.ACTIVE)
+
+        with use_shard(self.shard):
+            Organization.objects.create(name='The Empire')
+            all_organizations = Organization.objects.all()  # Lazy here
+
+        self.assertEqual(all_organizations._shard.id, self.shard.id)
+        all_organizations.unset_shard_options()
+        self.assertFalse(hasattr(all_organizations, '_shard'))
+
+        with use_shard(other_shard):
+            organization = Organization.objects.create(name='Zizou')
+            self.assertEqual(list(all_organizations), [organization])  # We need to do this in a shard now
