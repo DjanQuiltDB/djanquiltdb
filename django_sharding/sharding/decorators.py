@@ -9,7 +9,7 @@ from sharding import ShardingMode, STATES
 from sharding.db import connection
 from sharding.exceptions import ShardingError
 from sharding.options import connection_has_same_shard_options, use_shard_from_instance_options, InstanceShardOptions
-from sharding.utils import transaction_for_every_node, get_all_databases, use_shard, get_model_sharding_mode
+from sharding.utils import transaction_for_every_node, get_all_databases, use_shard
 
 shard_mapping_models = False
 
@@ -35,9 +35,7 @@ def _queryset_post_init():
         def inner(self, *args, **kwargs):
             init = func(self, *args, **kwargs)
 
-            # Only save it for querysets that are related to sharded models
-            if get_model_sharding_mode(self.model) == ShardingMode.SHARDED:
-                self._shard = InstanceShardOptions.from_connection(connection)
+            self._shard = InstanceShardOptions.from_connection(connection)
 
             return init
 
