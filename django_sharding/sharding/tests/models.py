@@ -1,8 +1,9 @@
+import pickle
 from unittest import mock
 
 from django.test import TestCase, SimpleTestCase, override_settings
 
-from example.models import Shard, Organization, User, OrganizationShards, Type
+from example.models import Shard, Organization, User, OrganizationShards, Type, Cake, SuperType
 from sharding import ShardingMode, State
 from sharding.exceptions import ShardingError
 from sharding.models import BaseShard
@@ -306,9 +307,9 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
             # performed on other_shard)
             self.assertEqual(user.get_organization_name(), 'The Empire')
 
-    def test_override_model_use_shard(self):
+    def test_override_class_method_use_shard(self):
         """
-        Case: Use a model method while being a shard with override_model_use_shard=True
+        Case: Use a model method while being a shard with override_class_method_use_shard=True
         Expected: The model method is not performed in a use_shard context of the shard the model instance is living on
         """
         shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
@@ -326,9 +327,9 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         self.assertEqual(org.id, other_org.id)
 
         # Now switch to another shard where the user and organization are not living
-        with use_shard(other_shard, override_model_use_shard=True):
-            # Since we provided override_model_use_shard=True, this one now queries the organization that is living on
-            # other_shard with the same ID as the organization that is living on shard.
+        with use_shard(other_shard, override_class_method_use_shard=True):
+            # Since we provided override_class_method_use_shard=True, this one now queries the organization that is
+            # living on other_shard with the same ID as the organization that is living on shard.
             self.assertEqual(user.get_organization_name(), 'The Rebel Alliance')
 
     def test_no_shard_set(self):
@@ -448,3 +449,85 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
 
         # Only the use_shard(other_shard) should have set a lock.
         mock_acquire_lock.assert_called_once_with(key='shard_{}'.format(other_shard.id), shared=True)
+
+
+class QuerySetTestCase(TestCase):
+    def setUp(self):
+        super().setUp()
+
+        create_template_schema()
+        self.shard = Shard.objects.create(alias='death_star', schema_name='test_empire_schema', node_name='default',
+                                          state=State.ACTIVE)
+
+    def test(self):
+        """
+        Case: Initialize a queryset in a use_shard context and evaluate it outside a use shard context
+        Expected: Queryset saves the shard it is initialized in and can be evaluated outside a use_shard context
+        """
+        with use_shard(self.shard):
+            organization = Organization.objects.create(name='The Empire')
+            all_organizations = Organization.objects.all()  # Lazy here
+
+        self.assertEqual(all_organizations._shard.id, self.shard.id)
+        self.assertEqual(list(all_organizations), [organization])  # Evaluated here, outside the use_shard context
+
+    def test_queryset(self):
+        """
+        Case: Initialize a queryset that is explicitly defined on a model in a use_shard context and evaluate it
+              outside a use shard context
+        Expected: Queryset saves the shard it is initialized in and can be evaluated outside a use_shard context
+        """
+        with use_shard(self.shard):
+            cake = Cake.objects.create(name='Chocolate cake')
+            Cake.objects.create(name='Apple pie')
+            all_chocolate_cakes = Cake.objects.chocolate()  # Lazy here
+
+        self.assertEqual(all_chocolate_cakes._shard.id, self.shard.id)
+        self.assertEqual(list(all_chocolate_cakes), [cake])  # Evaluated here, outside the use_shard context
+
+    def test_mirrored_model(self):
+        """
+        Case: Initialize a queryset for a mirrored model in a use_shard context
+        Expected: Shard is not saved, since the queryset is associated with a mirrored model
+        """
+        SuperType.objects.create(name='Character')
+
+        with use_shard(self.shard):
+            all_super_types = SuperType.objects.all()
+
+        self.assertFalse(hasattr(all_super_types, '_shard'))
+
+        pickle.dumps(all_super_types)
+
+    def test_pickle(self):
+        """
+        Case: Pickle a QuerySet that is sharding aware and after unpickle it
+        Expected: After unpickling the QuerySet, it should give the same results as before pickling
+        """
+        with use_shard(self.shard):
+            Organization.objects.create(name='The Empire')
+            all_organizations = Organization.objects.all()  # Lazy here
+
+        dump = pickle.dumps(all_organizations)  # Should not trigger an exception
+
+        self.assertEqual(list(pickle.loads(dump)), list(all_organizations))
+
+    def test_unset_shard_options(self):
+        """
+        Case: Being able to unset the shard options, so we can run the QuerySet in a different shard
+        Expected: _shard attribute is deleted on QuerySet and we are able to run the queryset in a different shard
+        """
+        other_shard = Shard.objects.create(alias='other_shard', schema_name='test_other_schema', node_name='default',
+                                           state=State.ACTIVE)
+
+        with use_shard(self.shard):
+            Organization.objects.create(name='The Empire')
+            all_organizations = Organization.objects.all()  # Lazy here
+
+        self.assertEqual(all_organizations._shard.id, self.shard.id)
+        all_organizations.unset_shard_options()
+        self.assertFalse(hasattr(all_organizations, '_shard'))
+
+        with use_shard(other_shard):
+            organization = Organization.objects.create(name='Zizou')
+            self.assertEqual(list(all_organizations), [organization])  # We need to do this in a shard now

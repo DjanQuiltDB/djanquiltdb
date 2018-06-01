@@ -343,6 +343,18 @@ class PostgresBackendTestCase(ShardingTestCase):
             'SELECT setval(\'example_user_id_seq\', coalesce(max("id"), 1), max("id") IS NOT null) '
             'FROM "example_user"')
 
+    def test_is_public_schema(self):
+        """
+        Case: Test connection.is_public_schema()
+        Expected: Returns False when the schema is not the public schema and returns True if the schema is the public
+                  schema
+        """
+        connection.set_schema('test_schema')
+        self.assertFalse(connection.is_public_schema())
+
+        connection.set_schema_to_public()
+        self.assertTrue(connection.is_public_schema())
+
 
 class CursorTestCase(TestCase):
     def test_select_schema_operation(self):

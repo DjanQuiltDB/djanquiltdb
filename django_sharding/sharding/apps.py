@@ -5,10 +5,12 @@ from django.apps import AppConfig, apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
+from django.db.models import Manager
 from django.utils.module_loading import import_string
 
 from sharding import ShardingMode
-from sharding.decorators import _use_shard_sharded_model
+from sharding.db.models.query import QuerySet
+from sharding.decorators import class_method_use_shard
 from sharding.utils import get_all_sharded_models
 
 
@@ -94,4 +96,34 @@ def _initialize_sharded_models():
             if isinstance(inspect.getattr_static(model, attr), types.FunctionType):
                 # And decorate all model methods so that the methods will all run in the same shard context as the
                 # instance is living in
-                setattr(model, attr, _use_shard_sharded_model()(func))
+                setattr(model, attr, class_method_use_shard()(func))
+
+        _initialize_sharded_model_querysets(model)
+
+
+def _initialize_sharded_model_querysets(model):
+    """
+    Override all the querysets of the managers, so they can remember the shard where they are initialized on
+    """
+    for manager_attr, manager in inspect.getmembers(model, lambda o: isinstance(o, Manager)):
+        base_queryset_class = manager._queryset_class
+
+        # We only need to adjust the QuerySet if it's not the sharded one. We compare the type, because we cannot
+        # compare the classes, because the dynamic class created below is not equal to sharding.db.models.QuerySet.
+        # The type will give us the metaclass. We therefore check whether both metaclasses are equal to
+        # sharding.db.models.QuerySetMetaClass.
+        if type(base_queryset_class) != type(QuerySet):
+            # First construct the new queryset. Logic taken from QuerySet._clone()
+            class_dict = {
+                '_base_queryset_class': base_queryset_class,
+                '_specialized_queryset_class': QuerySet,
+            }
+            new_queryset = type(QuerySet.__name__, (QuerySet, base_queryset_class), class_dict)
+
+            # Now construct the new manager
+            manager_class = manager.__class__
+            manager_name = manager_class.__name__
+            new_manager = type(manager_name, (manager_class.from_queryset(new_queryset), manager_class), {})
+
+            # And add the new manager to the class
+            model.add_to_class(manager_attr, new_manager())

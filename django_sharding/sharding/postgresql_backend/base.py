@@ -107,8 +107,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self.search_path_set = False
         self.set_schema_to_public()
 
-        # Parameters that are set to determine the use_shard parameters in sharded model methods
-        self._override_model_use_shard = False
+        # Parameters that are set to determine the use_shard parameters in class methods that use class_method_use_shard
+        self._override_class_method_use_shard = False
         self._shard_id = None
         self._mapping_value = None
         self._active_only_schemas = True
@@ -123,7 +123,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # Django's rollback clears the search path so we have to set it again the next time.
         self.search_path_set = False
 
-    def set_schema(self, schema_name, include_public=True, override_model_use_shard=False, shard_id=None,
+    def set_schema(self, schema_name, include_public=True, override_class_method_use_shard=False, shard_id=None,
                    mapping_value=None, active_only_schemas=True, lock=True):
         """
         Main API method to tell the connection to use a different schema.
@@ -135,7 +135,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self.search_path_set = False
 
         # Parameters that are set to determine the use_shard parameters in sharded model methods
-        self._override_model_use_shard = override_model_use_shard
+        self._override_class_method_use_shard = override_class_method_use_shard
         self._shard_id = shard_id
         self._mapping_value = mapping_value
         self._active_only_schemas = active_only_schemas
@@ -150,6 +150,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def get_schema(self):
         return self.schema_name
+
+    def is_public_schema(self):
+        return self.schema_name == PUBLIC_SCHEMA_NAME
 
     def get_ps_schema(self, schema_name, _cursor=None):
         cursor = _cursor or self.cursor()

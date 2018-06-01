@@ -97,13 +97,7 @@ def store_initial_shard(sender, instance, **kwargs):
     # deferred model.
     model = sender.__base__ if sender._deferred else sender
 
-    # Check if the sender is a sharded model
-    if model in apps.get_models() and get_model_sharding_mode(model) == ShardingMode.SHARDED:
-        instance._shard = InstanceShardOptions(
-            schema_name=connection.get_schema(),
-            node_name=connection.alias,
-            id_=connection._shard_id,
-            mapping_value=connection._mapping_value,
-            active_only_schemas=connection._active_only_schemas,
-            lock=connection._lock
-        )
+    # Check if the sender is a sharded model and check if we are not in the public schema
+    if model in apps.get_models() and get_model_sharding_mode(model) == ShardingMode.SHARDED \
+            and not connection.is_public_schema():
+        instance._shard = InstanceShardOptions.from_connection(connection)

@@ -12,6 +12,28 @@ class InstanceShardOptions:
         self.active_only_schemas = active_only_schemas
         self.lock = lock
 
+    @classmethod
+    def from_connection(cls, connection):
+        return cls(
+            schema_name=connection.get_schema(),
+            node_name=connection.alias,
+            id_=connection._shard_id,
+            mapping_value=connection._mapping_value,
+            active_only_schemas=connection._active_only_schemas,
+            lock=connection._lock
+        )
+
+    DEFINING_ATTRIBUTES = ('schema_name', 'node_name', 'id', 'mapping_value', 'active_only_schemas', 'lock')
+
+    def __eq__(self, other):
+        if not isinstance(other, InstanceShardOptions):
+            return False
+
+        return hash(self) == hash(other)
+
+    def __hash__(self):
+        return hash(tuple(getattr(self, attr) for attr in self.DEFINING_ATTRIBUTES))
+
 
 def get_shard_from_instance_options(options):
     """
@@ -24,12 +46,7 @@ def get_shard_from_instance_options(options):
 
 
 def connection_has_same_shard_options(options):
-    return connection._mapping_value == options.mapping_value \
-        and connection._shard_id == options.id \
-        and connection.schema_name == options.schema_name \
-        and connection.alias == options.node_name \
-        and connection._active_only_schemas == options.active_only_schemas \
-        and connection._lock == options.lock
+    return InstanceShardOptions.from_connection(connection) == options
 
 
 def use_shard_from_instance_options(options):
