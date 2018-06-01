@@ -8,7 +8,7 @@ from django.test.client import RequestFactory
 from django.views.generic import View
 
 from example.models import Shard
-from sharding.middleware import BaseUseShardMiddleware, StateExceptionMiddleware
+from sharding.middleware import BaseUseShardMiddleware, StateExceptionMiddleware, BaseUseShardForMiddleware
 from sharding.tests.utils import ShardingTestCase
 from sharding.utils import State, StateException, use_shard, create_template_schema
 
@@ -32,6 +32,11 @@ class TestNormalView(View):
 
 class UseShardMiddleware(BaseUseShardMiddleware):
     def get_shard_id(self, request):
+        return 1
+
+
+class UseShardForMiddleware(BaseUseShardForMiddleware):
+    def get_mapping_value(self, request):
         return 1
 
 
@@ -248,27 +253,6 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
         self.assertFalse(mock_process_state_exception.called)
         self.assertTrue(mock_use_shard_context_manager.return_value.disable.called)
 
-    @mock.patch('sharding.middleware.use_shard_for')
-    def test_enable_shard_for(self, mock_use_shard_for):
-        """
-        Case: Call the _use_shard_for of the UseShardMiddleware
-        Expected: The context manager is the one from use_shard_for and it is enabled
-        """
-        mock_use_shard_for_value = mock.Mock()
-        mock_use_shard_for_value.return_value.enable = mock.Mock()
-        mock_use_shard_for.return_value = mock_use_shard_for_value
-
-        request = RequestFactory().get('/')
-
-        middleware = UseShardMiddleware()
-        middleware._enable_shard_for(request, 1)
-
-        self.assertEqual(middleware.get_shard_context_manager(request), mock_use_shard_for_value)
-        self.assertEqual(request._middleware_shard_context_manager[UseShardMiddleware], mock_use_shard_for_value)
-
-        mock_use_shard_for.assert_called_once_with(1)
-        self.assertTrue(mock_use_shard_for.return_value.enable.called)
-
     @mock.patch('sharding.middleware.use_shard')
     def test_shard_context_manager(self, mock_use_shard):
         """
@@ -298,81 +282,97 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
             SecondUseShardMiddleware: mock_use_shard_value,
         })
 
-    @mock.patch('sharding.middleware.BaseUseShardMiddleware._enable_shard_for')
-    def test_get_mapping_value(self, enable_shard_for):
+
+class BaseUseShardForMiddlewareTestCase(ShardingTestCase):  # SimpleTestCase
+    def setUp(self):
+        self.addCleanup(mock.patch.stopall)
+        mock.patch('sharding.middleware.get_shard_class').start()
+
+    @mock.patch('sharding.middleware.use_shard_for')
+    def test_process_response(self, mock_utils_use_shard_for):
         """
-        Case: Process a request when having get_mapping_value defined
-        Expected: _enable_shard_for used to enter a shard
+        Case: Call the middleware to process a response.
+        Expected: The context manager returned by `use_shard` is exited.
         """
-        class UseShardMiddleware(BaseUseShardMiddleware):
-            def get_mapping_value(self, request):
-                return 1
+        mock_use_shard_for = mock.Mock()
+        mock_use_shard_for.return_value.enable = mock.Mock()
+        mock_use_shard_for.return_value.disable = mock.Mock()
+
+        mock_utils_use_shard_for.return_value = mock_use_shard_for
+
+        request, response = RequestFactory().get('/'), HttpResponse()
+        middleware = UseShardForMiddleware()
+
+        middleware.process_request(request)  # Required, sets the context manager
+        middleware.process_response(request, response)
+
+        mock_use_shard_for.enable.assert_called_with()  # Called by `process_view`
+        mock_use_shard_for.disable.assert_called_with()  # Called by `process_response`
+
+    @mock.patch('sharding.middleware.use_shard_for')
+    def test_process_request(self, mock_use_shard_for):
+        """
+        Case: Call the middleware to process a request.
+        Expected: The context manager returned by `use_shard_for` is entered but not exited.
+        """
+        mock_use_shard_for_value = mock.Mock()
+        mock_use_shard_for_value.return_value.enable = mock.Mock()
+        mock_use_shard_for_value.return_value.disable = mock.Mock()
+        mock_use_shard_for.return_value = mock_use_shard_for_value
 
         request = RequestFactory().get('/')
+        UseShardForMiddleware().process_request(request)
 
-        middleware = UseShardMiddleware()
-        middleware.process_request(request)
+        self.assertTrue(mock_use_shard_for.called)
+        self.assertTrue(mock_use_shard_for.return_value.enable.called)
+        self.assertFalse(mock_use_shard_for.return_value.disable.called)  # process_response is not called
+        self.assertEqual(request._mapping_value, 1)
 
-        enable_shard_for.assert_called_once_with(request, 1)
-
-    @mock.patch('sharding.middleware.BaseUseShardMiddleware._enable_shard_for')
-    @mock.patch('sharding.middleware.BaseUseShardMiddleware._enable_shard')
-    def test_get_mapping_value_and_get_shard_id(self, mock_enable_shard, mock_enable_shard_for):
+    @mock.patch('sharding.middleware.use_shard_for')
+    def test_process_request_with_use_shard_exception(self, mock_use_shard_for):
         """
-        Case: Process a request when having get_mapping_value and get_shard_id defined
-        Expected: _enable_shard_for used to enter a shard, because that one has priority over get_shard_id
+        Case: Call the middleware to process a shard in maintenance
+        Expected: process_state_exception is called, shard_context_manager is not enabled
         """
-        class UseShardMiddleware(BaseUseShardMiddleware):
-            def get_mapping_value(self, request):
-                return 1
+        mock_use_shard_for_value = mock.Mock()
+        mock_use_shard_for_value.return_value.enable = mock.Mock()
+        mock_use_shard_for_value.return_value.disable = mock.Mock()
+        mock_use_shard_for.side_effect = \
+            StateException('Shard {} state is {}'.format(1, State.MAINTENANCE), State.MAINTENANCE)
+        mock_use_shard_for.return_value = mock_use_shard_for_value
 
-            def get_shard_id(self, request):
-                return 2
+        mock_process_state_exception = \
+            mock.patch('sharding.tests.middleware.UseShardForMiddleware.process_state_exception').start()
 
-        request = RequestFactory().get('/')
+        UseShardForMiddleware().process_request(RequestFactory().get('/'))
 
-        middleware = UseShardMiddleware()
-        middleware.process_request(request)
+        self.assertTrue(mock_use_shard_for.called)
+        self.assertFalse(mock_use_shard_for.return_value.enable.called)
+        self.assertFalse(mock_use_shard_for.return_value.disable.called)
+        self.assertTrue(mock_process_state_exception.called)
 
-        mock_enable_shard_for.assert_called_once_with(request, 1)
-        self.assertFalse(mock_enable_shard.called)
-
-    @mock.patch('sharding.middleware.BaseUseShardMiddleware._enable_shard_for')
-    @mock.patch('sharding.middleware.BaseUseShardMiddleware._enable_shard')
-    def test_get_mapping_value_none_and_get_shard_id(self, mock_enable_shard, mock_enable_shard_for):
+    def test_process_exception_with_invalid_exception(self):
         """
-        Case: Process a request when having get_mapping_value and get_shard_id defined, but having get_mapping_value
-              returning None
-        Expected: _enable_shard used to enter a shard, because get_mapping_value is returning None
+        Case: Call the process_exception of the UseShardForMiddleware, with the wrong exception.
+        Expected: Context manager is disabled and process_state_exception not called.
         """
-        class UseShardMiddleware(BaseUseShardMiddleware):
-            def get_mapping_value(self, request):
-                return None
+        sharding_settings = settings.SHARDING
+        sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
-            def get_shard_id(self, request):
-                return 2
+        mock_use_shard_for_context_manager = \
+            mock.patch('sharding.tests.middleware.UseShardForMiddleware.get_shard_context_manager').start()
+        mock_return_value = mock.Mock()
+        mock_return_value.return_value.disable = mock.Mock()
+        mock_use_shard_for_context_manager.return_value = mock_return_value
 
-        request = RequestFactory().get('/')
+        mock_process_state_exception = \
+            mock.patch('sharding.tests.middleware.UseShardForMiddleware.process_state_exception').start()
 
-        middleware = UseShardMiddleware()
-        middleware.process_request(request)
+        with override_settings(SHARDING=sharding_settings):
+            UseShardForMiddleware().process_exception(
+                RequestFactory().get('/'),
+                ValueError("Generic error.")
+            )
 
-        mock_enable_shard.assert_called_once_with(request, 2)
-        self.assertFalse(mock_enable_shard_for.called)
-
-    def test_no_get_mapping_value_and_no_get_shard_id(self):
-        """
-        Case: Process a request when having no get_mapping_value and no get_shard_id defined
-        Expected: NotImplementedError raised, one of them should be set when using this middleware
-        """
-        class UseShardMiddleware(BaseUseShardMiddleware):
-            pass
-
-        request = RequestFactory().get('/')
-
-        middleware = UseShardMiddleware()
-
-        with self.assertRaisesMessage(NotImplementedError, 'The `BaseUseShardMiddleware` middleware class requires '
-                                                           'that one of `get_shard_id` and `get_mapping_value` is '
-                                                           'implemented.'):
-            middleware.process_request(request)
+        self.assertFalse(mock_process_state_exception.called)
+        self.assertTrue(mock_use_shard_for_context_manager.return_value.disable.called)

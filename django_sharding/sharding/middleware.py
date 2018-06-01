@@ -25,28 +25,7 @@ class StateExceptionMiddleware(object):
             return response
 
 
-class BaseUseShardMiddleware(StateExceptionMiddleware):
-    def process_request(self, request):
-        self.set_shard_context_manager(request, None)
-
-        if not hasattr(self, 'get_mapping_value') and not hasattr(self, 'get_shard_id'):
-            raise NotImplementedError(
-                'The `BaseUseShardMiddleware` middleware class requires that one of `get_shard_id` and '
-                '`get_mapping_value` is implemented.'
-            )
-
-        try:
-            request._mapping_value = getattr(self, 'get_mapping_value', lambda *args, **kwargs: None)(request)
-            request._shard_id = getattr(self, 'get_shard_id', lambda *args, **kwargs: None)(request)
-            if request._mapping_value:
-                self._enable_shard_for(request, request._mapping_value)
-            elif request._shard_id:
-                self._enable_shard(request, request._shard_id)
-            else:
-                logger.debug('No shard selected in `BaseUseShardMiddleware`', extra={'request': request})
-        except StateException as exception:
-            return self.process_exception(request, exception)
-
+class _BaseShardMiddleware(StateExceptionMiddleware):
     def process_exception(self, request, exception):
         self._disable_shard(request)
         return super().process_exception(request, exception)
@@ -60,15 +39,6 @@ class BaseUseShardMiddleware(StateExceptionMiddleware):
         if shard_context_manager:
             shard_context_manager.disable()
             self.set_shard_context_manager(request, None)
-
-    def _enable_shard(self, request, shard_id):
-        shard = get_shard_class().objects.get(id=shard_id)
-        shard_context_manager = self.set_shard_context_manager(request, use_shard(shard))
-        shard_context_manager.enable()
-
-    def _enable_shard_for(self, request, target_value):
-        shard_context_manager = self.set_shard_context_manager(request, use_shard_for(target_value))
-        shard_context_manager.enable()
 
     def get_shard_context_manager(self, request):
         """
@@ -90,6 +60,49 @@ class BaseUseShardMiddleware(StateExceptionMiddleware):
         return request._middleware_shard_context_manager[self.__class__]
 
 
+class BaseUseShardMiddleware(_BaseShardMiddleware):
+    def get_shard_id(self, request):
+        raise NotImplementedError(
+            'The `BaseUseShardMiddleware` middleware class requires that `get_shard_id` is implemented.'
+        )
+
+    def process_request(self, request):
+        self.set_shard_context_manager(request, None)
+
+        try:
+            request._shard_id = self.get_shard_id(request)
+            if request._shard_id:
+                self._enable_shard(request, request._shard_id)
+        except StateException as exception:
+            return self.process_exception(request, exception)
+
+    def _enable_shard(self, request, shard_id):
+        shard = get_shard_class().objects.get(id=shard_id)
+        shard_context_manager = self.set_shard_context_manager(request, use_shard(shard))
+        shard_context_manager.enable()
+
+
+class BaseUseShardForMiddleware(_BaseShardMiddleware):
+    def get_mapping_value(self, request):
+        raise NotImplementedError(
+            'The `BaseUseShardForMiddleware` middleware class requires that `get_mapping_value` is implemented.'
+        )
+
+    def process_request(self, request):
+        self.set_shard_context_manager(request, None)
+
+        try:
+            request._mapping_value = self.get_mapping_value(request)
+            if request._mapping_value:
+                self._enable_shard_for(request, request._mapping_value)
+        except StateException as exception:
+            return self.process_exception(request, exception)
+
+    def _enable_shard_for(self, request, target_value):
+        shard_context_manager = self.set_shard_context_manager(request, use_shard_for(target_value))
+        shard_context_manager.enable()
+
+
 try:
     # noinspection PyUnresolvedReferences
     # https://docs.djangoproject.com/en/1.11/topics/http/middleware/#upgrading-pre-django-1-10-style-middleware
@@ -98,5 +111,13 @@ except ImportError:
     pass
 else:
     # noinspection PyAbstractClass
+    class StateExceptionMiddleware(MiddlewareMixin, StateExceptionMiddleware):  # nosec
+        pass
+
+    # noinspection PyAbstractClass
     class BaseUseShardMiddleware(MiddlewareMixin, BaseUseShardMiddleware):  # nosec
+        pass
+
+    # noinspection PyAbstractClass
+    class BaseUseShardForMiddleware(MiddlewareMixin, BaseUseShardForMiddleware):  # nosec
         pass
