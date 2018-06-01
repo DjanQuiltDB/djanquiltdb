@@ -22,7 +22,8 @@ class InstanceShardOptions:
             id_=connection._shard_id,
             mapping_value=connection._mapping_value,
             active_only_schemas=connection._active_only_schemas,
-            lock=connection._lock
+            lock=connection._lock,
+            check_active_mapping_values=connection._check_active_mapping_values,
         )
 
     DEFINING_ATTRIBUTES = ('schema_name', 'node_name', 'id', 'mapping_value', 'active_only_schemas', 'lock',
