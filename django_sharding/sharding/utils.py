@@ -136,7 +136,8 @@ def _use_connection(node):
 
 
 def _set_schema(schema_name, _connection=None, include_public=True, override_class_method_use_shard=False,
-                shard_id=None, mapping_value=None, active_only_schemas=True, lock=True, check_active_mapping_values=False):
+                shard_id=None, mapping_value=None, active_only_schemas=True, lock=True,
+                check_active_mapping_values=False):
     if not _connection:
         _connection = connection
     _connection.set_schema(schema_name, include_public=include_public,
