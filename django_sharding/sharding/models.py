@@ -18,8 +18,11 @@ class MappingQuerySet(models.QuerySet):
     def in_maintenance(self):
         return self.filter(Q(state=State.MAINTENANCE) | Q(shard__state=State.MAINTENANCE))
 
-    def for_target(self, target_value):
-        return self.get(**{self.model.mapping_field: target_value})
+    def for_target(self, target_value, field=None):
+        if not field:
+            field = self.model.mapping_field
+
+        return self.get(**{field: target_value})
 
     def for_shard(self, shard):
         return self.filter(shard_id=shard.id)

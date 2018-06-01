@@ -19,6 +19,7 @@ class OrganizationShards(models.Model):
     shard = models.ForeignKey('example.Shard')
     organization_id = models.PositiveSmallIntegerField()
     state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
+    slug = models.SlugField()
 
     objects = MappingQuerySet.as_manager()
 

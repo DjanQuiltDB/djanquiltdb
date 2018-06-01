@@ -149,7 +149,7 @@ BASE_USE_SHARD_MIDDLEWARE
 The ``sharding.middleware.BaseUseShardMiddleware`` class extends ``StateExceptionMiddleware`` and adds the option to
 wrap views in a ``use_shard`` context manager. This prevents the need to take note of sharding in each of your views.
 
-How the middleware determines which shard to use is up to you however. To use the `UseShardMiddleware`` you have to extend it and fill in the ``get_shard_id()`` function yourself.
+How the middleware determines which shard to use is up to you however. To use the ``UseShardMiddleware`` you have to extend it and fill in the ``get_shard_id()`` function yourself.
 
 Don't forget you can assign your own view as error page like in `STATE_EXCEPTION_MIDDLEWARE`_.
 
@@ -170,9 +170,9 @@ Don't forget you can assign your own view as error page like in `STATE_EXCEPTION
 
     # middleware.py
     class UseShardMiddleware(BaseUseShardMiddleware):
-    def get_shard_id(self, request):
-        # A common way is to alter the login flow to set the shard_id in the session.
-        return request.session.get('shard_id')
+        def get_shard_id(self, request):
+            # A common way is to alter the login flow to set the shard_id in the session.
+            return request.session.get('shard_id')
 
 
     # views.py
@@ -188,6 +188,30 @@ Don't forget you can assign your own view as error page like in `STATE_EXCEPTION
             request.session['shard_id'] = get_shard_for_slug(slug).id
 
         return response
+
+If you are using a mapping model in your project, you can also use the ``BaseUseShardForMiddleware`` in the same fashion as the ``BaseUseShardMiddleware``. The only difference is that you now have to define the ``get_mapping_value()`` method instead of the ``get_shard_id()``.
+
+.. code-block:: python
+
+    # settings.py
+    MIDDLEWARE_CLASSES = (
+        (...)
+        'django.contrib.sessions.middleware.SessionMiddleware',
+        'middleware.UseShardForMiddleware',
+        (...)
+    )
+
+    SHARDING = {
+        'SHARD_CLASS': 'myapp.models.Shard',
+        'MAPPING_MODEL': 'myapp.models.ShardMappingModel',
+        'STATE_EXCEPTION_VIEW': 'myapp.views.ShardExceptionView',
+    }
+
+    # middleware.py
+    class UseShardForMiddleware(BaseUseShardForMiddleware):
+        def get_mapping_value(self, request):
+            # A common way is to alter the login flow to set the mapping value in the session.
+            return request.session.get('mapping_value')
 
 OVERRIDE_SHARDING_MODE
 ~~~~~~~~~~~~~~~~~~~~~~

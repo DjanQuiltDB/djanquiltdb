@@ -113,6 +113,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self._mapping_value = None
         self._active_only_schemas = True
         self._lock = True
+        self._check_active_mapping_values = False
 
     def close(self):
         self.search_path_set = False
@@ -124,7 +125,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self.search_path_set = False
 
     def set_schema(self, schema_name, include_public=True, override_class_method_use_shard=False, shard_id=None,
-                   mapping_value=None, active_only_schemas=True, lock=True):
+                   mapping_value=None, active_only_schemas=True, lock=True, check_active_mapping_values=False):
         """
         Main API method to tell the connection to use a different schema.
         The postgresql search_path will be changed when a new cursor is requested.
@@ -140,6 +141,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self._mapping_value = mapping_value
         self._active_only_schemas = active_only_schemas
         self._lock = lock
+        self._check_active_mapping_values = check_active_mapping_values
 
     def set_schema_to_public(self):
         """
