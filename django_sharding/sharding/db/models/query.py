@@ -13,14 +13,9 @@ def post_init():
     def outer(func):
         @functools.wraps(func)
         def inner(self, *args, **kwargs):
-            init = func(self, *args, **kwargs)
-
-            # Only add the shard options if we are not in the public schema
             if not connection.is_public_schema():
                 self._shard = InstanceShardOptions.from_connection(connection)
-
-            return init
-
+            return func(self, *args, **kwargs)
         return _add_decorator_reference(inner, decorator=post_init)
 
     return outer

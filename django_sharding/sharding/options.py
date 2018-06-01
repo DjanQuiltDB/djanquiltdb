@@ -23,13 +23,16 @@ class InstanceShardOptions:
             lock=connection._lock
         )
 
+    DEFINING_ATTRIBUTES = ('schema_name', 'node_name', 'id', 'mapping_value', 'active_only_schemas', 'lock')
+
     def __eq__(self, other):
-        if type(other) is type(self):
-            return self.__dict__ == other.__dict__
-        return NotImplemented
+        if not isinstance(other, InstanceShardOptions):
+            return False
+
+        return hash(self) == hash(other)
 
     def __hash__(self):
-        return hash(tuple(sorted(self.__dict__.items())))
+        return hash(tuple(getattr(self, attr) for attr in self.DEFINING_ATTRIBUTES))
 
 
 def get_shard_from_instance_options(options):

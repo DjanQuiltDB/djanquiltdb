@@ -108,7 +108,10 @@ def _initialize_sharded_model_querysets(model):
     for manager_attr, manager in inspect.getmembers(model, lambda o: isinstance(o, Manager)):
         base_queryset_class = manager._queryset_class
 
-        # We only need to adjust the QuerySet if it's not the sharded one
+        # We only need to adjust the QuerySet if it's not the sharded one. We compare the type, because we cannot
+        # compare the classes, because the dynamic class created below is not equal to sharding.db.models.QuerySet.
+        # The type will give us the metaclass. We therefore check whether both metaclasses are equal to
+        # sharding.db.models.QuerySetMetaClass.
         if type(base_queryset_class) != type(QuerySet):
             # First construct the new queryset. Logic taken from QuerySet._clone()
             class_dict = {
