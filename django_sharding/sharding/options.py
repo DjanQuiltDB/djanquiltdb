@@ -22,30 +22,11 @@ class InstanceShardOptions:
             id_=connection._shard_id,
             mapping_value=connection._mapping_value,
             active_only_schemas=connection._active_only_schemas,
-            lock=connection._lock,
-            check_active_mapping_values=connection._check_active_mapping_values
-        )
-
-    def __eq__(self, other):
-        if type(other) is type(self):
-            return self.__dict__ == other.__dict__
-        return NotImplemented
-
-    def __hash__(self):
-        return hash(tuple(sorted(self.__dict__.items())))
-
-    @classmethod
-    def from_connection(cls, connection):
-        return cls(
-            schema_name=connection.get_schema(),
-            node_name=connection.alias,
-            id_=connection._shard_id,
-            mapping_value=connection._mapping_value,
-            active_only_schemas=connection._active_only_schemas,
             lock=connection._lock
         )
 
-    DEFINING_ATTRIBUTES = ('schema_name', 'node_name', 'id', 'mapping_value', 'active_only_schemas', 'lock')
+    DEFINING_ATTRIBUTES = ('schema_name', 'node_name', 'id', 'mapping_value', 'active_only_schemas', 'lock',
+                           'check_active_mapping_values')
 
     def __eq__(self, other):
         if not isinstance(other, InstanceShardOptions):
