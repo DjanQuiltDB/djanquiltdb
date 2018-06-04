@@ -9,7 +9,7 @@ from django.db.models import Manager
 from django.utils.module_loading import import_string
 
 from sharding import ShardingMode
-from sharding.db.models.query import QuerySet
+from sharding.db.models.query import QuerySet, QuerySetMixin
 from sharding.decorators import class_method_use_shard
 from sharding.utils import get_all_sharded_models
 
@@ -118,7 +118,7 @@ def _initialize_sharded_model_querysets(model):
                 '_base_queryset_class': base_queryset_class,
                 '_specialized_queryset_class': QuerySet,
             }
-            new_queryset = type(QuerySet.__name__, (QuerySet, base_queryset_class), class_dict)
+            new_queryset = type(QuerySet.__name__, (base_queryset_class, QuerySetMixin), class_dict)
 
             # Now construct the new manager
             manager_class = manager.__class__

@@ -1,5 +1,5 @@
 from django.contrib.auth.models import AbstractBaseUser, UserManager
-from django.db import models
+from django.db import models, IntegrityError
 from django.utils import timezone
 
 from sharding import State, STATES
@@ -75,6 +75,12 @@ class Suborganization(models.Model):
 class CakeQuerySet(models.QuerySet):
     def chocolate(self):
         return self.filter(name__icontains='chocolate')
+
+    def delete(self, force=False):
+        if not force:
+            raise IntegrityError('Cannot delete a cake, you should eat it!')
+
+        return super().delete()
 
 
 @sharded_model()
