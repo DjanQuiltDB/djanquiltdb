@@ -40,7 +40,7 @@ class QuerySetMetaClass(type):
         return new_class
 
 
-class QuerySet(BaseQuerySet, metaclass=QuerySetMetaClass):
+class QuerySetMixin(metaclass=QuerySetMetaClass):
     def unset_shard_options(self):
         """
         Unsets the shard options. Can be used to evaluate the query in a different shard than the queryset is
@@ -49,3 +49,12 @@ class QuerySet(BaseQuerySet, metaclass=QuerySetMetaClass):
         if hasattr(self, '_shard'):
             delattr(self, '_shard')
         return self
+
+
+class QuerySet(QuerySetMixin, BaseQuerySet):
+    """
+    All QuerySets of sharded models will be recreated to include the QuerySetMixin, so that all QuerySet methods will be
+    run in the same shard the QuerySet is initialized in. However, you can also use this QuerySet directly for your own
+    QuerySets, so that the QuerySet don't have to be dynamically recreated on apps ready.
+    """
+    pass

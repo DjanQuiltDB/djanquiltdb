@@ -437,9 +437,9 @@ class use_shard_for(use_shard):
                 # Do things on my shard
 
     """
-    def __init__(self, target_value, active_only_schemas=True, field=None, **kwargs):
+    def __init__(self, target_value, active_only_schemas=True, **kwargs):
         self.mapping_value = target_value
-        shard = get_shard_for(target_value, active_only=active_only_schemas, field=field)
+        shard = get_shard_for(target_value, active_only=active_only_schemas)
         super().__init__(shard=shard, active_only_schemas=active_only_schemas, **kwargs)
 
     def acquire_lock(self):

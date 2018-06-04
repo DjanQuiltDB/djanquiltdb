@@ -1,6 +1,7 @@
 import pickle
 from unittest import mock
 
+from django.db import IntegrityError
 from django.test import TestCase, SimpleTestCase, override_settings
 
 from example.models import Shard, Organization, User, OrganizationShards, Type, Cake, SuperType
@@ -484,6 +485,23 @@ class QuerySetTestCase(TestCase):
 
         self.assertEqual(all_chocolate_cakes._shard.id, self.shard.id)
         self.assertEqual(list(all_chocolate_cakes), [cake])  # Evaluated here, outside the use_shard context
+
+    def test_override_queryset_method(self):
+        """
+        Case: Have a custom QuerySet with a method that overrides a method that also exist on normal QuerySets
+        Expected: Method correctly copied to the dynamically created QuerySet
+        """
+        with use_shard(self.shard):
+            Cake.objects.create(name='Chocolate cake')
+
+            with self.assertRaises(IntegrityError):
+                Cake.objects.delete()
+
+            self.assertTrue(Cake.objects.exists())
+
+            Cake.objects.delete(force=True)
+
+            self.assertFalse(Cake.objects.exists())
 
     def test_mirrored_model(self):
         """
