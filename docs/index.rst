@@ -13,6 +13,7 @@ Welcome to Django-sharding's documentation!
     modules/installation
     modules/structure
     modules/models
+    modules/forms
     modules/decorators
     modules/utils
     modules/migrations
