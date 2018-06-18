@@ -493,6 +493,11 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
         connections[node_name].clone_schema(get_template_name(), schema_name)
 
 
+def delete_schema(schema_name, node_name):
+    _node_exists(node_name)
+    connections[node_name].delete_schema(schema_name)
+
+
 def create_template_schema(node_name='default'):
     """
     Each node needs to have a template schema. This is cloned for each new shard on the node.

@@ -24,7 +24,9 @@ class GetShardTestCase(SimpleTestCase):
         self.assertEqual(get_shard_class(), DummyShard)
 
 
-class BaseShardTestCase(TestCase):
+class BaseShardTestCase(ShardingTestCase):
+    available_apps = []  # Explicit, to make sure the whole test run passes
+
     @mock.patch('sharding.utils.create_schema_on_node')
     @mock.patch('sharding.models.models.Model.save')
     def test_save(self, mock_save, mock_create_schema):
@@ -171,6 +173,34 @@ class BaseShardTestCase(TestCase):
         use_shard_context_manager = shard.use()
         self.assertIsInstance(use_shard_context_manager, use_shard)
         self.assertEqual(use_shard_context_manager.shard, shard)
+
+    @mock.patch('sharding.models.delete_schema')
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    def test_delete_from_db(self, mock_delete_schema):
+        """
+        Case: Delete a Shard with delete_from_db=True
+        Expected: delete_schema called
+        """
+        create_template_schema()
+
+        shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default')
+        shard.delete(delete_from_db=True)
+
+        mock_delete_schema.assert_called_with(schema_name='test_schema', node_name='default')
+
+    @mock.patch('sharding.models.delete_schema')
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    def test_delete(self, mock_delete_schema):
+        """
+        Case: Delete a Shard with delete_from_db=False
+        Expected: delete_schema not called
+        """
+        create_template_schema()
+
+        shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default')
+        shard.delete()
+
+        self.assertFalse(mock_delete_schema.called)
 
 
 class MirroredModelTestCase(ShardingTestCase):

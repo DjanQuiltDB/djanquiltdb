@@ -16,7 +16,8 @@ from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, TH
     _use_connection, _set_schema, create_template_schema, migrate_schema, get_template_name, _node_exists, \
     StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node, \
     move_model_to_schema, get_all_databases, ShardingMode, get_sharding_mode, get_model_sharding_mode, \
-    get_all_sharded_models, get_shard_class, get_mapping_class, transaction_for_nodes, get_all_mirrored_models
+    get_all_sharded_models, get_shard_class, get_mapping_class, transaction_for_nodes, get_all_mirrored_models, \
+    delete_schema
 
 
 @sharded_model()
@@ -736,6 +737,25 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
 
         self.assertFalse(_connection.get_ps_schema('test_schema'))
         self.assertFalse(mock_clone_schema.called)
+
+
+class DeleteSchemaTestCase(ShardingTestCase):
+    @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.delete_schema')
+    def test(self, mock_delete_schema):
+        """
+        Case: Call sharding.utils.delete_schema
+        Expected: DatabaseWrapper.delete_schema called with the same schema name
+        """
+        delete_schema(schema_name='test_schema', node_name='default')
+        mock_delete_schema.assert_called_once_with('test_schema')
+
+    def test_node_not_exists(self):
+        """
+        Case: Call sharding.utils.delete_schema with a node name that does not exist
+        Expected: ValueError raised
+        """
+        with self.assertRaises(ValueError):
+            delete_schema(schema_name='test_schema', node_name='not_existing_node')
 
 
 class NodeExistsTestCase(SimpleTestCase):

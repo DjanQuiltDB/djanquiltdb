@@ -355,6 +355,17 @@ class PostgresBackendTestCase(ShardingTestCase):
         connection.set_schema_to_public()
         self.assertTrue(connection.is_public_schema())
 
+    def test_delete_schema(self):
+        """
+        Case: Create a schema and delete it after with connection.delete_schema
+        Expected: Schema is deleted from the database
+        """
+        connection.create_schema('test_schema')
+        self.assertIsNotNone(connection.get_ps_schema('test_schema'))  # Check if schema exists
+
+        connection.delete_schema('test_schema')
+        self.assertIsNone(connection.get_ps_schema('test_schema'))  # Schema does not exist anymore
+
 
 class CursorTestCase(TestCase):
     def test_select_schema_operation(self):
