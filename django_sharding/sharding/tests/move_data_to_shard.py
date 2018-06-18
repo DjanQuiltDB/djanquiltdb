@@ -445,6 +445,16 @@ class MoveDataToShard(ShardingTestCase):
         self.assertEqual(self.command.get_data(source_shard=self.source_shard, root_objects=self.organization_1),
                          self.data)
 
+    @mock.patch('sharding.management.commands.move_data_to_shard.NestedObjects.sort')
+    def test_get_data_native_collector_sort(self, mock_sort):
+        """
+        Case: Call get_data, with use_original_collector set to True.
+        Expected: NestedObjects.sort() called
+        """
+        self.command.get_data(source_shard=self.source_shard, root_objects=self.organization_1,
+                              use_original_collector=True)
+        self.assertEqual(mock_sort.call_count, 1)
+
     def test_get_data_result_native_collector(self):
         """
         Case: Call get_data, with use_original_collector set to True.

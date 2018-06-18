@@ -166,6 +166,12 @@ class Command(BaseCommand):
             if use_original_collector:
                 collector = NestedObjects(using=source_shard.node_name)
                 collector.collect(objects)
+
+                # If possible, bring the models in an order suitable for databases that
+                # don't support transactions or cannot defer constraint checks until the
+                # end of a transaction.
+                collector.sort()
+
                 return {model: {i.pk for i in instances} for model, instances in collector.data.items()
                         if model in sharded_models}
             else:
