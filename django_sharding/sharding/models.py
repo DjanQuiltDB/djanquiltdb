@@ -1,6 +1,6 @@
 from django.apps import apps
 from django.conf import settings
-from django.db import models, connections
+from django.db import models, connections, transaction
 from django.db.models import Q
 from django.db.models.signals import post_init
 from django.dispatch import receiver
@@ -8,7 +8,7 @@ from django.dispatch import receiver
 from sharding import State, STATES, ShardingMode
 from sharding.db import connection
 from sharding.options import InstanceShardOptions
-from sharding.utils import get_shard_class, get_model_sharding_mode, use_shard
+from sharding.utils import get_shard_class, get_model_sharding_mode, use_shard, delete_schema
 
 
 class MappingQuerySet(models.QuerySet):
@@ -61,7 +61,7 @@ class BaseShard(models.Model):
     def save(self, using=None, **kwargs):
         self.node_name = self.node_name or settings.SHARDING.get('NEW_SHARD_NODE', None)
         if not self.node_name:
-            raise ValueError("No node_name given, or no NEW_SHARD_NODE set in the SHARING settings.")
+            raise ValueError("No node_name given, or no NEW_SHARD_NODE set in the SHARDING settings.")
 
         # If this is an update, no need to create a schema
         if self.pk and get_shard_class().objects.filter(pk=self.pk).exists():
@@ -77,6 +77,13 @@ class BaseShard(models.Model):
             create_schema_on_node(schema_name=self.schema_name, node_name=self.node_name, migrate=True)
 
         super().save(**kwargs)
+
+    @transaction.atomic()
+    def delete(self, *args, delete_from_db=False, **kwargs):
+        if delete_from_db:
+            delete_schema(schema_name=self.schema_name, node_name=self.node_name)
+
+        super().delete(*args, **kwargs)
 
     def clean(self):
         if self.node_name not in connections:

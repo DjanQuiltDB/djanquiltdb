@@ -215,7 +215,12 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         schema_name = get_validated_schema_name(schema_name, is_template)
         cursor = self.cursor()
         cursor.execute(
-            'CREATE SCHEMA IF NOT EXISTS "{}";'.format(schema_name))  # params cannot be used for schema names
+            'CREATE SCHEMA IF NOT EXISTS "{}";'.format(schema_name))  # Params cannot be used for schema names
+
+    def delete_schema(self, schema_name):
+        schema_name = get_validated_schema_name(schema_name)
+        cursor = self.cursor()
+        cursor.execute('DROP SCHEMA "{}" CASCADE;'.format(schema_name))  # Params cannot be used for schema names
 
     def clone_schema(self, from_schema, to_schema):
         cursor = self.cursor()
