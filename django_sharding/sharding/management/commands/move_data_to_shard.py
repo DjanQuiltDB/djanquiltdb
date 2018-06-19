@@ -18,6 +18,10 @@ from sharding.utils import use_shard, get_shard_class, get_all_sharded_models, g
     get_model_sharding_mode, transaction_for_nodes
 
 
+def indent(text, indentation=1):
+    return '{}{}'.format(' ' * indentation * 4, text)
+
+
 def color(text, code):
     return '\033[{}m{}\033[0m'.format(code, text)
 
@@ -69,18 +73,30 @@ class Command(BaseCommand):
         root_object = self.get_object(model_name, root_object_id, source_shard)
         target_shard = self.get_target_shard(root_object=root_object, options=options)
 
-        if not self.quiet:
-            print('Gathering data:')
-        data = self.get_data(source_shard=source_shard, root_objects=root_object)
-
-        self.confirm(options, data, source_shard, target_shard)
+        if not options.get('no_input') or not self.quiet:
+            confirm = input("This command will move data from one shard to another. This will start with putting the "
+                            "shards (and if applicable, mapping objects) in maintenance and acquiring an exclusive "
+                            "lock. Type 'yes' if you want to continue: ")
+            if confirm != 'yes':
+                return
 
         self.pre_execution(options=options, source_shard=source_shard, target_shard=target_shard,
-                           root_object=root_object, data=data)
+                           root_object=root_object)
 
         try:
+            if not self.quiet:
+                print('Gathering data:')
+
+            data = self.get_data(source_shard=source_shard, root_objects=root_object)
+
+            if not self.confirm(options, data, source_shard, target_shard):
+                # We don't want to continue, let's make sure we release the locks and set the shards to active again
+                self.post_execution(options=options, source_shard=source_shard, target_shard=target_shard,
+                                    root_object=root_object, succeeded=False)
+                return
+
             # Pushing the node names through a set means we end up with a list of unique names.
-            nodes = list(set([source_shard.node_name, target_shard.node_name]))
+            nodes = list({source_shard.node_name, target_shard.node_name})
             with transaction_for_nodes(nodes=nodes):
                 model_fields = self.move_data(data=data, source_shard=source_shard, target_shard=target_shard)
                 self.reset_sequencers(data=data, target_shard=target_shard)
@@ -100,11 +116,11 @@ class Command(BaseCommand):
                         source_shard=source_shard)
         except Exception as error:
             self.post_execution(options=options, source_shard=source_shard, target_shard=target_shard,
-                                root_object=root_object, data=data, succeeded=False)
+                                root_object=root_object, succeeded=False)
             raise error
         else:
             self.post_execution(options=options, source_shard=source_shard, target_shard=target_shard,
-                                root_object=root_object, data=data, succeeded=True)
+                                root_object=root_object, succeeded=True)
 
         if not self.quiet:
             data_points = sum(map(len, data.values()))
@@ -116,13 +132,15 @@ class Command(BaseCommand):
             print('Data:')
             for model, instances in data.items():
                 print(magenta(model))
-                print('    {} datapoints'.format(len(instances)))
+                print(indent('{} datapoints'.format(len(instances))))
 
             if not options.get('no_input'):
                 confirm = input("Type 'yes' if you are sure if you want to move this data from {} to {}: "
                                 .format(bold(source_shard), bold(target_shard)))
                 if confirm != 'yes':
-                    return
+                    return False
+
+        return True
 
     @staticmethod
     def get_object(model_name, root_object_id, source_shard):
@@ -291,7 +309,7 @@ class Command(BaseCommand):
             if not self.quiet:
                 bar.update()
 
-    def pre_execution(self, options, source_shard, target_shard, root_object, data):
+    def pre_execution(self, options, source_shard, target_shard, root_object):
         """
         Called before we enter the transaction.
 
@@ -331,7 +349,7 @@ class Command(BaseCommand):
         if not self.quiet:
             bar.finish()
 
-    def post_execution(self, options, source_shard, target_shard, root_object, data, succeeded):
+    def post_execution(self, options, source_shard, target_shard, root_object, succeeded):
         """
         Called after the transaction is committed. Both after success or failure.
         Set both shards in maintenance.

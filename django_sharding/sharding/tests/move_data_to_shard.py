@@ -60,7 +60,7 @@ class MoveDataToShardTransaction(ShardingTransactionTestCase):
             self.assertEqual(user_new.id, self.user.id+1)
 
 
-class MoveDataToShard(ShardingTestCase):
+class MoveDataToShardTestCase(ShardingTestCase):
     def fake_allow_migrate(self, *args, **hints):
         model = hints.pop('model', False)
         if getattr(model, 'test_model', False):
@@ -297,7 +297,6 @@ class MoveDataToShard(ShardingTestCase):
                                                     source_shard=self.source_shard,
                                                     target_shard=self.target_shard,
                                                     root_object=self.organization_1,
-                                                    data=data,
                                                     succeeded=True)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_target_shard')
@@ -543,7 +542,7 @@ class MoveDataToShard(ShardingTestCase):
         self.source_shard.save()
 
         self.command.pre_execution(options=self.options, source_shard=self.source_shard, target_shard=self.target_shard,
-                                   data=self.data, root_object=self.organization_1)
+                                   root_object=self.organization_1)
 
         self.source_shard.refresh_from_db()
         self.assertEqual(self.source_shard.state, State.MAINTENANCE)
@@ -561,7 +560,7 @@ class MoveDataToShard(ShardingTestCase):
         """
         self.command.old_source_state = None
         self.command.pre_execution(options=self.options, source_shard=self.source_shard, target_shard=self.target_shard,
-                                   data=self.data, root_object=self.organization_1)
+                                   root_object=self.organization_1)
 
         self.organization_shard.refresh_from_db()
         self.assertEqual(self.organization_shard.state, State.MAINTENANCE)
@@ -581,7 +580,7 @@ class MoveDataToShard(ShardingTestCase):
         self.source_shard.save()
 
         self.command.post_execution(options=self.options, source_shard=self.source_shard,
-                                    target_shard=self.target_shard, data=self.data, root_object=self.organization_1,
+                                    target_shard=self.target_shard, root_object=self.organization_1,
                                     succeeded=True)
 
         self.source_shard.refresh_from_db()
@@ -603,7 +602,7 @@ class MoveDataToShard(ShardingTestCase):
         self.assertEqual(self.organization_shard.shard, self.source_shard)
 
         self.command.post_execution(options=self.options, source_shard=self.source_shard,
-                                    target_shard=self.target_shard, data=self.data, root_object=self.organization_1,
+                                    target_shard=self.target_shard, root_object=self.organization_1,
                                     succeeded=True)
 
         self.organization_shard.refresh_from_db()
@@ -627,7 +626,6 @@ class MoveDataToShard(ShardingTestCase):
                                                     source_shard=self.source_shard,
                                                     target_shard=self.target_shard,
                                                     root_object=self.organization_1,
-                                                    data=self.data,
                                                     succeeded=False)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.move_data', side_effect=DatabaseError)

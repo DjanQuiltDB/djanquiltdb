@@ -73,8 +73,9 @@ class SimpleCollector(object):
         instances.update(new_pks)
 
         if self.verbose:
-            self.data_points += len(new_pks)
-            self.bar.update(self.data_points)
+            len_new_pks = len(new_pks)
+            self.data_points += len_new_pks
+            self.bar.update(len_new_pks)
 
         return new_objs
 
