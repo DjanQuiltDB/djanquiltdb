@@ -54,8 +54,10 @@ class Command(BaseCommand):
                             help="Do not use Django's original delete collector to determine what needs to be "
                                  "deleted from the source_shard, but reuse the data collector for copy.",
                             default=False)
-        parser.add_argument('-q', '--quiet', '--silent', action='store_false', dest='quiet', help='Suppress output.')
-        parser.add_argument('--no-input', action='store_false', dest='no_input', help='Skip confirmation.')
+        parser.add_argument('-q', '--quiet', '--silent', action='store_true', dest='quiet', help='Suppress output.',
+                            default=False)
+        parser.add_argument('--no-input', action='store_true', dest='no_input', help='Skip confirmation.',
+                            default=False)
 
     def handle(self, *args, **options):
         """
