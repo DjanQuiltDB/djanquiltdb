@@ -633,12 +633,12 @@ class MoveDataToShardTestCase(ShardingTestCase):
     def test_post_execution_with_mapping(self, mock_release_lock):
         """
         Case: Call post_execution with a mapping_model.
-        Expected: The organization's mapping object's state to be restored.
+        Expected: The organization's mapping object's state to be restored and the lock to be released.
                   And The shard to be moved as well.
         """
         self.command.old_source_state[self.command.root_object_id] = State.ACTIVE
         self.organization_shard1.state = State.MAINTENANCE
-        self.organization_shard1.save()
+        self.organization_shard1.save(update_fields=['state'])
         self.assertEqual(self.organization_shard1.shard, self.source_shard)
 
         self.command.post_execution(succeeded=True)

@@ -176,8 +176,6 @@ class Command(BaseCommand):
     def get_data_collector(self, objects, use_original_collector=False):
         sharded_models = get_all_sharded_models()
 
-        objects = objects if isinstance(objects, collections.Iterable) else [objects]
-
         with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
             if use_original_collector:
                 collector = NestedObjects(using=self.source_shard.node_name)
@@ -311,7 +309,7 @@ class Command(BaseCommand):
         if mapping_model:
             for root_object in root_objects:
                 root_object_id = root_object.id
-                mapping_object = mapping_model.objects.select_related('shard').for_target(root_object_id)
+                mapping_object = mapping_model.objects.for_target(root_object_id)
 
                 # Get exclusive advisory lock on the mapping object.
                 source_connection.acquire_advisory_lock(key='mapping_{}'.format(root_object_id), shared=False)
@@ -333,7 +331,7 @@ class Command(BaseCommand):
     def post_execution(self, succeeded):
         """
         Called after the transaction is committed. Both after success or failure.
-        Set both shards in maintenance.
+        Set both shards back to their original state.
         Update the mapping object's shard field, if available.
         """
         source_connection = connections[self.source_shard.node_name]
@@ -343,7 +341,7 @@ class Command(BaseCommand):
             # No need to fetch the objects from the shards, because we can use the old_source_state dictionary here to
             # release the locks and put the mapping objects back to their old state.
             for root_object_id, state in self.old_source_state.items():
-                mapping_object = mapping_model.objects.select_related('shard').for_target(root_object_id)
+                mapping_object = mapping_model.objects.for_target(root_object_id)
                 mapping_object.state = state
 
                 if succeeded:
