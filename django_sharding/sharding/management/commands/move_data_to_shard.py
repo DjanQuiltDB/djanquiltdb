@@ -1,4 +1,3 @@
-import collections
 import csv
 import filecmp
 import functools
@@ -6,11 +5,10 @@ from io import StringIO
 from tempfile import NamedTemporaryFile
 import progressbar
 
+from django.apps import apps
 from django.contrib.admin.utils import NestedObjects
 from django.core.management import BaseCommand, CommandError
 from django.db import IntegrityError, connections
-from django.db.models import sql
-from django.db.models.loading import get_model
 
 from sharding import State, ShardingMode
 from sharding.collector import SimpleCollector
@@ -42,14 +40,15 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--source-shard-alias', action='store', dest='source_shard_alias',
-                            help='Name of the shard where the root_object will be migrated from.')
+                            help='Name of the shard where the root_object will be migrated from.', required=True)
         parser.add_argument('--target-shard-alias', action='store', dest='target_shard_alias',
-                            help='Name of the shard which will receive the data.')
-        parser.add_argument('--model-name', action='store', dest='model_name',
+                            help='Name of the shard which will receive the data.', required=True)
+        parser.add_argument('--model-name', action='store', dest='model_name', required=True,
                             help='app_label.model_name of the root object.')
-        parser.add_argument('--root-object-id', action='store', dest='root_object_id', help='ID of the root object.')
+        parser.add_argument('--root-object-id', action='store', dest='root_object_id', help='ID of the root object.',
+                            required=True)
         parser.add_argument('--reuse-simple-collector-for-delete',
-                            action='store',
+                            action='store_true',
                             dest='reuse_simple_collector_for_delete',
                             help="Do not use Django's original delete collector to determine what needs to be "
                                  "deleted from the source_shard, but reuse the data collector for copy.",
@@ -65,95 +64,95 @@ class Command(BaseCommand):
         Both shards are put into maintenance during this.
         Delete the original data and release the transaction only after the migration is verified.
         """
-        self.quiet = options.get('quiet')
-        self.reuse_data = options.get('reuse_simple_collector_for_delete')
-        model_name = options.get('model_name')
-        root_object_id = options.get('root_object_id')
+        self.quiet = options['quiet']
+        self.no_input = options['no_input']
+        self.reuse_data = options['reuse_simple_collector_for_delete']
+        self.root_object_id = options['root_object_id']
+        self.old_source_state = {}  # Used to keep track of the old source states
 
-        source_shard_alias = options.get('source_shard_alias')
-        source_shard = self.get_shard(alias=source_shard_alias)
-        root_object = self.get_object(model_name, root_object_id, source_shard)
-        target_shard = self.get_target_shard(root_object=root_object, options=options)
+        self.model_name = options['model_name']
+        source_shard_alias = options['source_shard_alias']
 
-        if not options.get('no_input') or not self.quiet:
+        if not self.no_input:
             confirm = input("This command will move data from one shard to another. This will start with putting the "
                             "shards (and if applicable, mapping objects) in maintenance and acquiring an exclusive "
                             "lock. Type 'yes' if you want to continue: ")
             if confirm != 'yes':
                 return
 
-        self.pre_execution(options=options, source_shard=source_shard, target_shard=target_shard,
-                           root_object=root_object)
+        self.source_shard = self.get_shard(alias=source_shard_alias)
+        objects = self.get_objects(self.source_shard)
+        self.target_shard = self.get_target_shard(options=options)
+
+        self.pre_execution(root_objects=objects)
 
         try:
-            if not self.quiet:
-                print('Gathering data:')
+            self.print('Gathering data:')
 
-            data = self.get_data(source_shard=source_shard, root_objects=root_object)
+            collector = self.get_data_collector(objects=objects)
+            data = collector.data
 
-            if not self.confirm(options, data, source_shard, target_shard):
+            # Get the pk_set, which is needed for moving and confirming the data integrity
+            with use_shard(self.source_shard, active_only_schemas=False, lock=False):
+                pk_set = {model: [instance.pk for instance in instances] for model, instances in data.items()}
+
+            if not self.confirm(data):
                 # We don't want to continue, let's make sure we release the locks and set the shards to active again
-                self.post_execution(options=options, source_shard=source_shard, target_shard=target_shard,
-                                    root_object=root_object, succeeded=False)
+                self.post_execution(succeeded=False)
                 return
 
             # Pushing the node names through a set means we end up with a list of unique names.
-            nodes = list({source_shard.node_name, target_shard.node_name})
+            nodes = list({self.source_shard.node_name, self.target_shard.node_name})
             with transaction_for_nodes(nodes=nodes):
-                model_fields = self.move_data(data=data, source_shard=source_shard, target_shard=target_shard)
-                self.reset_sequencers(data=data, target_shard=target_shard)
+                model_fields = self.move_data(pk_set=pk_set)
+                self.reset_sequencers(data=data)
 
-                if not self.confirm_data_integrity(data=data, source_shard=source_shard, target_shard=target_shard,
-                                                   model_fields=model_fields):
+                if not self.confirm_data_integrity(pk_set=pk_set, model_fields=model_fields):
                     raise IntegrityError('Data was not successfully copied.')
 
-                if self.reuse_data:
-                    # Use the data we already collected to delete.
-                    self.delete_data(data=data, source_shard=source_shard)
-                else:
-                    # Use Django's original collector to get the data to delete
-                    self.delete_data(
-                        data=self.get_data(source_shard=source_shard, root_objects=root_object,
-                                           use_original_collector=True),
-                        source_shard=source_shard)
+                # Delete the data. Pick the current collector if we reuse the data and pick Django's nested collector
+                # if we want to use the original collector.
+                delete_collector = collector if self.reuse_data else \
+                    self.get_data_collector(objects=objects, use_original_collector=True)
+                self.delete_data(collector=delete_collector)
         except Exception as error:
-            self.post_execution(options=options, source_shard=source_shard, target_shard=target_shard,
-                                root_object=root_object, succeeded=False)
+            self.post_execution(succeeded=False)
             raise error
         else:
-            self.post_execution(options=options, source_shard=source_shard, target_shard=target_shard,
-                                root_object=root_object, succeeded=True)
+            self.post_execution(succeeded=True)
 
+        self.print(green('Done. Moved {} data points'.format(sum(map(len, data.values())))))
+
+    def print(self, *args):
         if not self.quiet:
-            data_points = sum(map(len, data.values()))
-            print(green('Done. Moved {} data points'.format(data_points)))
+            print(*args)
 
-    def confirm(self, options, data, source_shard, target_shard):
-        if not options.get('no_input') or not self.quiet:
+    def confirm(self, data):
+        if not self.no_input or not self.quiet:
             print()
             print('Data:')
             for model, instances in data.items():
                 print(magenta(model))
                 print(indent('{} datapoints'.format(len(instances))))
 
-            if not options.get('no_input'):
+            if not self.no_input:
                 confirm = input("Type 'yes' if you are sure if you want to move this data from {} to {}: "
-                                .format(bold(source_shard), bold(target_shard)))
+                                .format(bold(self.source_shard), bold(self.target_shard)))
                 if confirm != 'yes':
                     return False
 
         return True
 
-    @staticmethod
-    def get_object(model_name, root_object_id, source_shard):
+    def get_objects(self, shard):
         """
-        Get top level object based on model name and id.
+        Get the objects based on the top level object's model name and object id. Note that this returns a list of
+        objects.
         """
-        with use_shard(source_shard, active_only_schemas=False):
-            model = get_model(model_name)
+        with use_shard(shard, active_only_schemas=False):
+            model = apps.get_model(self.model_name)
             if not get_model_sharding_mode(model) == ShardingMode.SHARDED:
                 raise CommandError("'{}' is not a sharded model.".format(model))
-            return model.objects.get(id=root_object_id)
+            return [model.objects.get(id=self.root_object_id)]
 
     @staticmethod
     def get_shard(alias):
@@ -166,40 +165,33 @@ class Command(BaseCommand):
         return shard
 
     @staticmethod
-    def get_target_shard(root_object, options):
+    def get_target_shard(options):
         """
         Get the target shard based on the root_object and options.
         This function is here so one can easily override it for their own needs.
         """
         return Command.get_shard(alias=options.get('target_shard_alias'))
 
-    def get_data(self, source_shard, root_objects, use_original_collector=False):
-        """
-        Use the simple collector or Django's delete collector to gather all data belonging to the given object.
-        Return only the data dict.
-        We also filter on Sharded models only.
-        """
+    def get_data_collector(self, objects, use_original_collector=False):
         sharded_models = get_all_sharded_models()
-        objects = root_objects if isinstance(root_objects, collections.Iterable) else [root_objects]
 
-        with use_shard(source_shard, active_only_schemas=False) as env:
+        with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
             if use_original_collector:
-                collector = NestedObjects(using=source_shard.node_name)
-                collector.collect(objects)
-
-                # If possible, bring the models in an order suitable for databases that
-                # don't support transactions or cannot defer constraint checks until the
-                # end of a transaction.
-                collector.sort()
-
-                return {model: {i.pk for i in instances} for model, instances in collector.data.items()
-                        if model in sharded_models}
+                collector = NestedObjects(using=self.source_shard.node_name)
             else:
                 collector = SimpleCollector(connection=env.connection, verbose=(not self.quiet))
-                collector.collect(objects)
-                return {model: pk_set for model, pk_set in collector.data.items() if model in sharded_models}
 
-    def move_data(self, data, source_shard, target_shard):
+            # Collect the data
+            collector.collect(objects)
+
+            # And make sure we only collect data from sharded models
+            for model in collector.data.keys():
+                if model not in sharded_models:
+                    del collector.data[model]
+
+            return collector
+
+    def move_data(self, pk_set):
         """
         Copy all given data from the source to the target. Delete the data on source after a successful copy.
         Return a dict with the models as key and their exported fields as value.
@@ -209,12 +201,12 @@ class Command(BaseCommand):
             bar = progressbar.ProgressBar(
                 max_value=progressbar.UnknownLength,
                 widgets=[progressbar.RotatingMarker(),
-                         ' Moving data from {} to {}; '.format(source_shard, target_shard),
+                         ' Moving data from {} to {}; '.format(self.source_shard, self.target_shard),
                          progressbar.Timer()])
-        for model, pk_set in data.items():
+        for model, pk_set in pk_set.items():
             # Export
             io = StringIO()
-            with use_shard(source_shard, active_only_schemas=False) as env:
+            with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
                 query = env.connection.cursor().mogrify(
                     'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) '  # nosec
                     'TO STDOUT WITH CSV DELIMITER \';\' HEADER'.format(  # nosec
@@ -232,7 +224,7 @@ class Command(BaseCommand):
 
             # Import
             io.seek(0)
-            with use_shard(target_shard, active_only_schemas=False) as env:
+            with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
                 self.copy_expert(env.connection.cursor(),
                                  'COPY "{t}" ({f}) FROM STDIN WITH CSV DELIMITER \';\' HEADER'  # nosec
                                  .format(t=model._meta.db_table, f=fields), io)
@@ -245,15 +237,14 @@ class Command(BaseCommand):
 
         return model_fields
 
-    def reset_sequencers(self, data, target_shard):
+    def reset_sequencers(self, data):
         """
         Reset the sequencers for all models on the target schema
         """
-        models = [model for model, _ in data.items()]
-        with use_shard(target_shard, active_only_schemas=False) as env:
-            env.connection.reset_sequence(model_list=models)
+        with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
+            env.connection.reset_sequence(model_list=list(data.keys()))
 
-    def confirm_data_integrity(self, data, source_shard, target_shard, model_fields):
+    def confirm_data_integrity(self, pk_set, model_fields):
         """
         Let both the source_shard and the target_shard export the data to a file and compare them.
         """
@@ -265,7 +256,7 @@ class Command(BaseCommand):
                          progressbar.Timer()])
 
         with NamedTemporaryFile() as source_file, NamedTemporaryFile() as target_file:
-            for model, pk_set in data.items():
+            for model, pk_set in pk_set.items():
                 fields = model_fields.get(model)
                 pk_list = list(pk_set)
                 # Export
@@ -273,11 +264,11 @@ class Command(BaseCommand):
                     t=model._meta.db_table, f=fields)
 
                 # We let the copy functions just append to the output file
-                with use_shard(source_shard, active_only_schemas=False) as env:
+                with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
                     query = env.connection.cursor().mogrify(query_string, [pk_list])
                     self.copy_expert(env.connection.cursor(), query, source_file)
 
-                with use_shard(target_shard, active_only_schemas=False) as env:
+                with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
                     query = env.connection.cursor().mogrify(query_string, [pk_list])
                     self.copy_expert(env.connection.cursor(), query, target_file)
 
@@ -290,28 +281,11 @@ class Command(BaseCommand):
             # Tempfiles are removed when we leave their context manager.
             return filecmp.cmp(source_file.name, target_file.name)
 
-    def delete_data(self, data, source_shard):
-        """
-        Delete all the data given.
-        It calls delete_batch(pk_set) on each model in the data set.
-        """
-        if not self.quiet:
-            bar = progressbar.ProgressBar(
-                max_value=progressbar.UnknownLength,
-                widgets=[progressbar.RotatingMarker(),
-                         ' Deleting exported data; ',
-                         progressbar.Timer()])
+    def delete_data(self, collector):
+        with use_shard(self.source_shard, active_only_schemas=False, lock=False):
+            collector.delete()
 
-        for model, pk_set in data.items():
-            query = sql.DeleteQuery(model)
-            with use_shard(source_shard, active_only_schemas=False):
-                # Providing a 'using' to delete_batch is not needed for us, but the function expects it.
-                query.delete_batch(list(pk_set), using=source_shard.node_name)
-
-            if not self.quiet:
-                bar.update()
-
-    def pre_execution(self, options, source_shard, target_shard, root_object):
+    def pre_execution(self, root_objects):
         """
         Called before we enter the transaction.
 
@@ -322,7 +296,7 @@ class Command(BaseCommand):
         If there is a mapping model, we can set that into maintenance.
         If not, we set the source shard into maintenance.
         """
-        source_connection = connections[source_shard.node_name]
+        source_connection = connections[self.source_shard.node_name]
         mapping_model = get_mapping_class()
 
         if not self.quiet:
@@ -332,46 +306,54 @@ class Command(BaseCommand):
                                                    progressbar.Timer()])
 
         if mapping_model:
-            mapping_object = mapping_model.objects.select_related('shard').for_target(root_object.id)
+            for root_object in root_objects:
+                root_object_id = root_object.id
+                mapping_object = mapping_model.objects.for_target(root_object_id)
 
-            # Get exclusive advisory lock on the mapping object.
-            source_connection.acquire_advisory_lock(key='mapping_{}'.format(root_object.id), shared=False)
+                # Get exclusive advisory lock on the mapping object.
+                source_connection.acquire_advisory_lock(key='mapping_{}'.format(root_object_id), shared=False)
 
-            self.old_source_state = mapping_object.state
-            mapping_object.state = State.MAINTENANCE
-            mapping_object.save(update_fields=['state'])
+                self.old_source_state[root_object_id] = mapping_object.state
+                mapping_object.state = State.MAINTENANCE
+                mapping_object.save(update_fields=['state'])
         else:
             # Get exclusive advisory lock on the sharding object.
-            source_connection.acquire_advisory_lock(key='shard_{}'.format(source_shard.id), shared=False)
+            source_connection.acquire_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
 
-            self.old_source_state = source_shard.state
-            source_shard.state = State.MAINTENANCE
-            source_shard.save(update_fields=['state'])
+            self.old_shard_state = self.source_shard.state
+            self.source_shard.state = State.MAINTENANCE
+            self.source_shard.save(update_fields=['state'])
 
         if not self.quiet:
             bar.finish()
 
-    def post_execution(self, options, source_shard, target_shard, root_object, succeeded):
+    def post_execution(self, succeeded):
         """
         Called after the transaction is committed. Both after success or failure.
-        Set both shards in maintenance.
-        Update the mapping object's Shard field, if available.
+        Set both shards back to their original state.
+        Update the mapping object's shard field, if available.
         """
-        source_connection = connections[source_shard.node_name]
+        source_connection = connections[self.source_shard.node_name]
         mapping_model = get_mapping_class()
-        if mapping_model:
-            mapping_object = mapping_model.objects.select_related('shard').for_target(root_object.id)
-            mapping_object.state = self.old_source_state
-            if succeeded:
-                mapping_object.shard = target_shard
-            mapping_object.save(update_fields=['state', 'shard'])
 
-            # Release the exclusive advisory lock
-            source_connection.release_advisory_lock(key='mapping_{}'.format(root_object.id), shared=False)
+        if mapping_model:
+            # No need to fetch the objects from the shards, because we can use the old_source_state dictionary here to
+            # release the locks and put the mapping objects back to their old state.
+            for root_object_id, state in self.old_source_state.items():
+                mapping_object = mapping_model.objects.for_target(root_object_id)
+                mapping_object.state = state
+
+                if succeeded:
+                    mapping_object.shard = self.target_shard
+
+                mapping_object.save(update_fields=['state', 'shard'])
+
+                # Release the exclusive advisory lock
+                source_connection.release_advisory_lock(key='mapping_{}'.format(root_object_id), shared=False)
         else:
-            source_shard.state = self.old_source_state
-            source_shard.save(update_fields=['state'])
-            source_connection.release_advisory_lock(key='shard_{}'.format(source_shard.id), shared=False)
+            self.source_shard.state = self.old_shard_state
+            self.source_shard.save(update_fields=['state'])
+            source_connection.release_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
 
     @staticmethod
     def copy_expert(cursor, *args, **kwargs):
