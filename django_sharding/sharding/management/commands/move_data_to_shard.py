@@ -1,4 +1,3 @@
-import collections
 import csv
 import filecmp
 import functools

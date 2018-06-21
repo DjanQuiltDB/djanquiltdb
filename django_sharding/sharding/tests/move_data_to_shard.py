@@ -459,7 +459,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         Case: Call get_data_collector using the simple collector.
         Expected: SimpleCollector.collect() called.
         """
-        self.command.get_data_collector(objects=self.organization_1)
+        self.command.get_data_collector(objects=[self.organization_1])
         mock_collect.assert_called_once_with([self.organization_1])
 
     def test_get_data_collector_result(self):
@@ -467,7 +467,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         Case: Call get_data_collector using the simple collector and check the data attribute
         Expected: A dict with the correct data to be returned, with only sharded models and no mirrored models
         """
-        collector = self.command.get_data_collector(objects=self.organization_1)
+        collector = self.command.get_data_collector(objects=[self.organization_1])
         self.assertEqual(collector.data, self.data)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.NestedObjects.collect')
@@ -476,7 +476,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         Case: Call get_data, with use_original_collector set to True.
         Expected: NestedObjects.collect() called
         """
-        self.command.get_data_collector(objects=self.organization_1, use_original_collector=True)
+        self.command.get_data_collector(objects=[self.organization_1], use_original_collector=True)
         mock_collect.assert_called_once_with([self.organization_1])
 
     def test_get_data_collector_nested_collector_result(self):
@@ -484,7 +484,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         Case: Call get_data_collector using Django's NestedCollector and check the data attribute
         Expected: A dict with the correct data to be returned, with only sharded models and no mirrored models
         """
-        collector = self.command.get_data_collector(objects=self.organization_1, use_original_collector=True)
+        collector = self.command.get_data_collector(objects=[self.organization_1], use_original_collector=True)
         self.assertEqual(collector.data, self.data)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.csv.reader')
