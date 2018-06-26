@@ -5,7 +5,9 @@ from django.core.management import call_command, CommandError
 from django.db import DatabaseError, IntegrityError
 from django.test import override_settings
 
-from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Suborganization
+from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Suborganization, \
+    Cake
+from sharding.collector import SimpleCollector
 from sharding.tests.utils import ShardingTestCase, ShardingTransactionTestCase
 from sharding.utils import use_shard, create_template_schema, State
 from sharding.management.commands.move_data_to_shard import Command as MoveCommand
@@ -116,6 +118,24 @@ class MoveDataToShardTestCase(ShardingTestCase):
                                                                          organization_id=self.organization_3.id,
                                                                          state=State.ACTIVE)
 
+            # Some many-to-many models
+            self.cake_1 = Cake.objects.create(name='Butter cake')
+            self.cake_2 = Cake.objects.create(name='Chocolate cake')
+            self.cake_3 = Cake.objects.create(name='Sponge cake')
+            self.cake_4 = Cake.objects.create(name='Coffee cake')
+
+            self.user_1.cake.add(self.cake_1)
+            self.user_1.cake.add(self.cake_2)
+
+            self.user_2.cake.add(self.cake_3)
+
+            self.user_3.cake.add(self.cake_4)
+
+            self.user_cake_model = User.cake.through  # Auto-created model
+            self.user_cake_1 = self.user_cake_model.objects.get(cake=self.cake_1, user=self.user_1)
+            self.user_cake_2 = self.user_cake_model.objects.get(cake=self.cake_2, user=self.user_1)
+            self.user_cake_3 = self.user_cake_model.objects.get(cake=self.cake_3, user=self.user_2)
+
         self.data = {
             Organization: {
                 self.organization_1
@@ -130,6 +150,11 @@ class MoveDataToShardTestCase(ShardingTestCase):
             Statement: {
                 self.statement_1,
                 self.statement_2
+            },
+            self.user_cake_model: {
+                self.user_cake_1,
+                self.user_cake_2,
+                self.user_cake_3
             }
         }
 
@@ -498,21 +523,21 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
         # Since a cursor object is given, we cannot assert the calls specifically.
         self.assertEqual(mock_copy_expert.call_count, len(self.data) * 2)
-        self.assertEqual(mock_csv_reader.call_count, 4)  # Once for each model
+        self.assertEqual(mock_csv_reader.call_count, len(self.data.keys()))  # Once for each model
 
     def test_move_data_return_value(self):
         """
         Case: Call move_data.
         Expected: A dict with <model>:'<field>,<field>,<etc>' to be returned.
         """
-        self.maxDiff = 2000
         self.assertEqual(
             self.command.move_data(pk_set=self.pk_set),
             {
                 Organization: '"id","name","created_at"',
                 Suborganization: '"id","parent_id","child_id"',
                 User: '"id","password","last_login","name","email","created_at","organization_id","type_id"',
-                Statement: '"id","content","user_id","offset"'
+                Statement: '"id","content","user_id","offset"',
+                self.user_cake_model: '"id","user_id","cake_id"',
             }
         )
 
@@ -524,7 +549,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         """
         self.command.reset_sequencers(data=self.data)
         self.assertCountEqual(mock_reset_sequence.call_args[1]['model_list'], [User, Statement, Organization,
-                                                                               Suborganization])
+                                                                               Suborganization, self.user_cake_model])
 
     @mock.patch('sharding.management.commands.move_data_to_shard.filecmp.cmp', return_value=True)
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
@@ -712,3 +737,18 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.organization_shard1.refresh_from_db()
         self.assertEqual(self.organization_shard1.shard, self.source_shard)
         self.assertEqual(mock_move_data.call_count, 1)
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.SimpleCollector')
+    def test_get_data_collector_mirrored_models(self, mock_collector):
+        """
+        Case: Have the collector return mirrored models
+        Expected: Only sharded models are in the collector's data, and mirrored models are removed from the data
+        """
+        class FakeCollector(SimpleCollector):
+            def collect(self, objs, *args, **kwargs):
+                obj = objs[0]
+                self.data = {User: {obj}, Type: {obj.type}}
+
+        mock_collector.side_effect = FakeCollector
+        collector = self.command.get_data_collector(objects=[self.user_1])
+        self.assertEqual(collector.data, {User: {self.user_1}})
