@@ -173,7 +173,7 @@ class Command(BaseCommand):
         return Command.get_shard(alias=options.get('target_shard_alias'))
 
     def get_data_collector(self, objects, use_original_collector=False):
-        sharded_models = get_all_sharded_models()
+        sharded_models = get_all_sharded_models(include_auto_created=True)
 
         with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
             if use_original_collector:
@@ -185,8 +185,11 @@ class Command(BaseCommand):
             collector.collect(objects)
 
             # And make sure we only collect data from sharded models
-            for model in collector.data.keys():
+            for model in list(collector.data.keys()):
                 if model not in sharded_models:
+                    self.print('There might be something wrong with your data structure, because the collector '
+                               'collected mirrored models. Check your data points closely to see if no unexpected '
+                               'model instances are collected.')
                     del collector.data[model]
 
             return collector
