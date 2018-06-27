@@ -16,6 +16,7 @@ import threading
 from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
+from django.core.management import call_command
 from django.core.management.commands.migrate import Command as MigrateCommand
 from django.db import connections, ProgrammingError
 from django.db.migrations.executor import MigrationExecutor
@@ -498,7 +499,7 @@ def delete_schema(schema_name, node_name):
     connections[node_name].delete_schema(schema_name)
 
 
-def create_template_schema(node_name='default'):
+def create_template_schema(node_name='default', interactive=False, verbosity=0):
     """
     Each node needs to have a template schema. This is cloned for each new shard on the node.
     This function creates a new schema on a given node that is named 'template', or what you have set under
@@ -510,6 +511,8 @@ def create_template_schema(node_name='default'):
     If the template schema already exists, this does nothing.
 
     :param str node_name: Provide the name of the database connection to be used. If empty it will use the current.
+    :param bool interactive: Tells Django to NOT prompt the user for input of any kind.
+    :param bool verbosity: Verbosity level; 0=minimal output, 1=normal output, 2=verbose output, 3=very verbose output
 
     :returns: None
 
@@ -526,19 +529,23 @@ def create_template_schema(node_name='default'):
     if connections[node_name].get_ps_schema(schema_name):
         return
 
-    connections[node_name].create_schema(schema_name, is_template=True)  # if it already exists, it's no problem
-    migrate_schema(node_name, schema_name)
+    connections[node_name].create_schema(schema_name, is_template=True)  # If it already exists, it's no problem
+    migrate_schema(node_name, schema_name, interactive=interactive, verbosity=verbosity)
 
 
-def migrate_schema(node_name, schema_name):
+def migrate_schema(node_name, schema_name, interactive=False, verbosity=0, check_shard=False):
     """
     It then migrates only the sharded tables to the given schema.
     This actually performs a migration, it does not clone the template schema. (For we use it to create the template.)
 
-    :note: Normally, you would not need to ever call this. It is used by create_template_schema.
+    :note: Normally, you would not need to ever call this. It is used by create_template_schema. It will therefore by
+           default not check if the shard entry exists in the shard table.
 
     :param str node_name: Provide the name of the database connection to be used. If empty it will use the current.
     :param str schema_name: Provide the name of the schema to be made.
+    :param bool interactive: Tells Django to NOT prompt the user for input of any kind.
+    :param bool verbosity: Verbosity level; 0=minimal output, 1=normal output, 2=verbose output, 3=very verbose output
+    :param bool check_shard: If set, checks whether the shard exists in the shard table.
 
     :returns: None
 
@@ -557,27 +564,8 @@ def migrate_schema(node_name, schema_name):
     if not connections[node_name].get_ps_schema(schema_name):
         raise ValueError("Schema '{}' does not exist on node '{}'.".format(schema_name, node_name))
 
-    with use_shard(node_name=node_name, schema_name=schema_name) as env:
-        c = MigrateCommand()
-        c.verbosity = 0
-        c.interactive = False
-        c.load_initial_data = False
-
-        app_labels = [app_config.label for app_config in apps.get_app_configs()]
-        c.sync_apps(env.connection, app_labels)  # we use the django native migration call for this.
-        record_migrated(env.connection)
-
-
-def record_migrated(connection):
-    """
-    Helper function to let the migration system know which migrations
-    have been executed. Since the sync_apps does not do this.
-    """
-    executor = MigrationExecutor(connection)
-    for key, migration in executor.loader.disk_migrations.items():
-        executor.recorder.record_applied(*key)
-    executor.loader.applied_migrations = executor.recorder.applied_migrations()
-    executor.loader.build_graph()  # altered history, rebuild state
+    call_command('migrate_shards', shard='{}|{}'.format(node_name, schema_name), interactive=interactive,
+                 verbosity=verbosity, check_shard=check_shard)
 
 
 def for_each_shard(func, args=(), kwargs=None, as_id=False):

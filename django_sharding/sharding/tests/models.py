@@ -174,6 +174,7 @@ class BaseShardTestCase(ShardingTestCase):
         self.assertIsInstance(use_shard_context_manager, use_shard)
         self.assertEqual(use_shard_context_manager.shard, shard)
 
+    @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'sharding'}))
     @mock.patch('sharding.models.delete_schema')
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_delete_from_db(self, mock_delete_schema):
@@ -188,6 +189,7 @@ class BaseShardTestCase(ShardingTestCase):
 
         mock_delete_schema.assert_called_with(schema_name='test_schema', node_name='default')
 
+    @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'sharding'}))
     @mock.patch('sharding.models.delete_schema')
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_delete(self, mock_delete_schema):
