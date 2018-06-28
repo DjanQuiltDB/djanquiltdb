@@ -46,8 +46,10 @@ class Command(MigrateCommand):
         parser.add_argument('--shard', '-s', action='store', dest='shard',
                             help='Nominates a single shard or schema to synchronize.'
                                  'When empty all shards will be migrated.'
-                                 'Format a shard like: <database>|<shard alias, \'public\' of template name>. '
-                                 'e.g., `default|public`, `some_node|template` or `other_node|shard1`.')
+                                 'Format a shard like: <database>|<schema name, \'public\' or template name>. '
+                                 'e.g., `other_node|shard1_schema`, `default|public` or `some_node|template`.')
+        parser.add_argument('--check-shard', action='store_true', dest='check_shard', default=True,
+                            help='If set, checks whether the shard exists in the shard table.')
 
     def handle(self, *args, **options):
         self.verbosity = options.get('verbosity', 0)
@@ -112,6 +114,7 @@ class Command(MigrateCommand):
     def get_database_and_schema_from_options(self, options):
         database_options = options.get('database')
         target_shard = options.get('shard')
+        check_shard = options.get('check_shard')
 
         # Get the database we're operating from
         if not database_options or database_options == 'all':
@@ -124,22 +127,16 @@ class Command(MigrateCommand):
         # Process shard option
         schema_name = None
         if target_shard:
-            database, shard_name = target_shard.split('|')
+            database, schema_name = target_shard.split('|')
             if database in databases:
                 databases = [database]
             else:
                 raise CommandError('You must migrate an existing non-primary DB.')
 
-            if shard_name in ['public', get_template_name()]:
-                schema_name = shard_name
-            else:
-                if get_shard_class().objects.filter(alias=shard_name).exists():
-                    shard = get_shard_class().objects.get(alias=shard_name)
-                    schema_name = shard.schema_name
-                    if not shard.node_name == database:
-                        raise CommandError('Shard {} does not belong to database {}.'.format(shard.alias, database))
-                else:
-                    raise CommandError('Shard {} is not known.'.format(shard_name))
+            if schema_name not in ['public', get_template_name()] and check_shard:
+                if not get_shard_class().objects.filter(schema_name=schema_name, node_name=database).exists():
+                    raise CommandError('Shard {} does not exist.'.format(target_shard))
+
         return databases, schema_name
 
     def get_targets_from_options(self, executor, options):

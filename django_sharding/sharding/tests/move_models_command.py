@@ -13,6 +13,7 @@ from sharding.utils import migrate_schema, use_shard, create_template_schema, St
     get_template_name
 
 
+@mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'sharding'}))
 class MoveModelsCommandTestCase(ShardingTransactionTestCase):
     available_apps = ['example']
 

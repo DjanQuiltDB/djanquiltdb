@@ -534,7 +534,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
             self.command.move_data(pk_set=self.pk_set),
             {
                 Organization: '"id","name","created_at"',
-                Suborganization: '"id","parent_id","child_id"',
+                Suborganization: '"id","child_id","parent_id"',
                 User: '"id","password","last_login","name","email","created_at","organization_id","type_id"',
                 Statement: '"id","content","user_id","offset"',
                 self.user_cake_model: '"id","user_id","cake_id"',
