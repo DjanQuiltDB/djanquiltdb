@@ -17,15 +17,14 @@ from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
-from django.core.management.commands.migrate import Command as MigrateCommand
 from django.db import connections, ProgrammingError
-from django.db.migrations.executor import MigrationExecutor
 from django.db.transaction import Atomic
 from django.utils.module_loading import import_string
 from functools import wraps
 
 from sharding import ShardingMode, State
 from sharding.db import connection
+from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 
 THREAD_LOCAL = threading.local()
 
@@ -114,13 +113,13 @@ class DynamicDbRouter(object):
         elif sharding_mode == ShardingMode.SHARDED:
             # Sharded models should never reside in the public schema.
             # Only on templates and the shared schemas.
-            return schema_name != 'public'
+            return schema_name != PUBLIC_SCHEMA_NAME
         elif sharding_mode == ShardingMode.MIRRORED:
             # Mirrored models belong to public schemas and no where else.
-            return schema_name == 'public'
+            return schema_name == PUBLIC_SCHEMA_NAME
         else:
             # Non-sharded models only belong to the default database.
-            return connection_name == 'default' and schema_name == 'public'
+            return connection_name == 'default' and schema_name == PUBLIC_SCHEMA_NAME
 
 
 def _node_exists(node_name):
@@ -564,7 +563,7 @@ def migrate_schema(node_name, schema_name, interactive=False, verbosity=0, check
     if not connections[node_name].get_ps_schema(schema_name):
         raise ValueError("Schema '{}' does not exist on node '{}'.".format(schema_name, node_name))
 
-    call_command('migrate_shards', shard='{}|{}'.format(node_name, schema_name), interactive=interactive,
+    call_command('migrate_shards', database=node_name, schema_name=schema_name, interactive=interactive,
                  verbosity=verbosity, check_shard=check_shard)
 
 
@@ -715,7 +714,7 @@ class transaction_for_every_node(transaction_for_nodes):
         super().__init__(nodes=get_all_databases(), **kwargs)
 
 
-def move_model_to_schema(model, node_name, to_schema_name, from_schema_name='public'):
+def move_model_to_schema(model, node_name, to_schema_name, from_schema_name=PUBLIC_SCHEMA_NAME):
     """
     This alters a table in such a way it is lifted from it's original schema and placed into the target one.
     It assumes that the table moves from a sharded schema to the public or the other way around.

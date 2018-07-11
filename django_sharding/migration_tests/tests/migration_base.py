@@ -3,6 +3,7 @@ from unittest import mock
 
 import os
 
+from django.core.management import get_commands
 from django.db import connections
 from django.db.migrations.recorder import MigrationRecorder
 from django.utils._os import upath
@@ -21,15 +22,17 @@ class MigrationTestBase(ShardingTestCase):
     test_dir = os.path.abspath(os.path.dirname(upath(__file__)))
 
     def setUp(self):
-        # prevent the addCleanup from ShardingTestCase by not calling super().setUp()
+        super().setUp()
+
         self.mock_router = mock.patch('sharding.utils.DynamicDbRouter.allow_migrate').start()
         self.addCleanup(mock.patch.stopall)
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        create_template_schema()  # the template won't have any migration applied to it initially
-        create_template_schema('other')  # the template won't have any migration applied to it initially
+        commands = get_commands()
+        commands['migrate_shards'] = 'sharding'
+
+        with mock.patch('django.core.management.get_commands', return_value=commands):
+            create_template_schema()  # The template won't have any migration applied to it initially
+            create_template_schema('other')  # The template won't have any migration applied to it initially
 
     def tearDown(self):
         # Reset applied-migrations state.
@@ -38,11 +41,6 @@ class MigrationTestBase(ShardingTestCase):
             recorder = MigrationRecorder(con)
             recorder.migration_qs.all().delete()
         super().tearDown()
-
-    @classmethod
-    def tearDownClass(cls):  # run when TestCase is done
-        super().clean_up(cls)  # we only want to clean stuff up at the end of the TestCase
-        super().tearDownClass()
 
     def get_table_description(self, table):
         with connection.cursor() as cursor:

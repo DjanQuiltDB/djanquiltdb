@@ -9,6 +9,7 @@ from sharding import ShardingMode, STATES
 from sharding.db import connection
 from sharding.exceptions import ShardingError
 from sharding.options import connection_has_same_shard_options, use_shard_from_instance_options
+from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from sharding.utils import transaction_for_every_node, get_all_databases, use_shard
 
 shard_mapping_models = False
@@ -239,7 +240,7 @@ def sharded_model():
     return configure
 
 
-def atomic_write_to_every_node(schema_name='public', lock_models=()):
+def atomic_write_to_every_node(schema_name=PUBLIC_SCHEMA_NAME, lock_models=()):
     """
     Decorator to execute wrapped function for every node.
     Runs inside a transaction_for_every_node to keep all nodes in sync.

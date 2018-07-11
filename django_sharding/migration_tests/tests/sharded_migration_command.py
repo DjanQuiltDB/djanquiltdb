@@ -1,7 +1,7 @@
 from unittest import mock
 
 from django.conf import settings
-from django.core.management import CommandError, call_command
+from django.core.management import CommandError, call_command, get_commands
 from django.db import ProgrammingError
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.migration import Migration
@@ -13,9 +13,11 @@ from example.models import Shard
 from migration_tests.tests.migration_base import MigrationTestBase
 from sharding.db import connection
 from sharding.management.commands.migrate_shards import Command as MigrateShards
-from sharding.utils import State, use_shard, get_template_name, get_all_databases
+from sharding.utils import State, use_shard, get_template_name, get_all_databases, get_all_sharded_models, \
+    create_template_schema
 
 
+@mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'sharding'}))
 class ShardedMigrationSystemTestCase(MigrationTestBase):
     available_apps = ['migration_tests']
 
@@ -62,9 +64,9 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
     def test_forward_migration_as_a_whole(self):
         """
-        Case: Call MultiSchemaMigration.migrate() with shard in several states of migration.
+        Case: Call migrate_shards with shard in several states of migration.
         Expected: All shards to be fully migrated
-        Note: This is system test keeping MultiSchemaMigration().migrate() as a black box.
+        Note: This is system test keeping migrate_shards as a black box.
         """
         # Check initial state
         # (This is not necessary, since we defined it in the setup,
@@ -95,7 +97,7 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
             self.assertTrue(('migration_tests', '0002_second') in applied_migration_tests)
             self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
 
-        MigrateShards().handle(database='all', verbosity=0)
+        call_command('migrate_shards', verbosity=0)
 
         # all shards, templates and publics are now fully migrated
         for db in self.databases:
@@ -125,7 +127,7 @@ class ShardedMigrationSystemTestCase(MigrationTestBase):
             self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
 
         # rollback
-        MigrateShards().handle(app_label='migration_tests', migration_name='zero', database='all', verbosity=0)
+        call_command('migrate_shards', app_label='migration_tests', migration_name='zero', verbosity=0)
 
         # all shards, templates and publics are now back so square 0
         for db in self.databases:
@@ -295,7 +297,7 @@ class OriginalMigrationTestCase(MigrationTestBase):
         recorder.record_applied('migration_tests', '0001_initial')
         recorder.record_applied('migration_tests', '0002_second')
         out = six.StringIO()
-        call_command('migrate_shards', 'migration_tests', shard='default|public', verbosity=0)
+        call_command('migrate_shards', 'migration_tests', schema_name='public', verbosity=0)
         call_command('showmigrations', 'migration_tests', stdout=out, no_color=True)
         self.assertEqual(
             'migration_tests\n'
@@ -327,20 +329,25 @@ class ShardedMigrationHandleTestCase(MigrationTestBase):
     def setUpClass(cls):
         super().setUpClass()
 
-        cls.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
-                                        state=State.ACTIVE)
-        cls.rose = Shard.objects.create(alias='rose', schema_name='test_rose', node_name='default',
-                                        state=State.ACTIVE)
-        cls.maria = Shard.objects.create(alias='maria', schema_name='test_maria', node_name='default',
-                                         state=State.ACTIVE)
         cls.databases = get_all_databases()
+
+    def setUp(self):
+        super().setUp()
+
+        self.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
+                                         state=State.ACTIVE)
+        self.rose = Shard.objects.create(alias='rose', schema_name='test_rose', node_name='default',
+                                         state=State.ACTIVE)
+        self.maria = Shard.objects.create(alias='maria', schema_name='test_maria', node_name='default',
+                                          state=State.ACTIVE)
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
     @mock.patch('django.core.management.sql.emit_post_migrate_signal')
     @mock.patch('sharding.management.commands.migrate_shards.Command.perform_migration')
     @mock.patch('django.core.management.sql.emit_pre_migrate_signal')
     @mock.patch('sharding.management.commands.migrate_shards.Command.get_plan')
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_targets_from_options')
+    @mock.patch('sharding.management.commands.migrate_shards.Command.get_targets_from_options',
+                return_value=(mock.Mock(), mock.Mock()))
     @mock.patch('django.db.migrations.loader.MigrationLoader.detect_conflicts')
     @mock.patch('django.db.backends.base.base.BaseDatabaseWrapper.prepare_database')
     @mock.patch('sharding.management.commands.migrate_shards.Command.get_database_and_schema_from_options')
@@ -378,7 +385,7 @@ class ShardedMigrationHandleTestCase(MigrationTestBase):
     def test_failure_during_migration(self):
         """
         Case: Call MigrateShards().handle and trigger an error during one of the migrations
-        Expected: That migration_node to be completed and than report the error.
+        Expected: That migration_node to be completed and then report the error.
         """
 
         patcher = mock.patch('django.db.migrations.migration.Migration.apply',
@@ -432,12 +439,11 @@ class ShardedMigrationHandleTestCase(MigrationTestBase):
 class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding', 'example']
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
+    def setUp(self):
+        super().setUp()
 
-        cls.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
-                                        state=State.ACTIVE)
+        self.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
+                                         state=State.ACTIVE)
 
     def test_without_special_options(self):
         """
@@ -448,20 +454,6 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
 
         self.assertEqual(databases, get_all_databases())
         self.assertIsNone(schema_name)
-
-    @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
-    def test_with_shard_option(self, mock_get_all_dbs):
-        """
-        Case: Call get_database_and_schema_from_options with a targeted shard.
-        Expected: single database and schema_name returned
-        """
-        mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
-        databases, schema_name = MigrateShards().get_database_and_schema_from_options(
-            options={'shard': 'default|template'})
-
-        self.assertTrue(mock_get_all_dbs.called)
-        self.assertEqual(databases, ['default'])
-        self.assertEqual(schema_name, 'template')
 
     @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
     def test_with_database_option(self, mock_get_all_dbs):
@@ -479,44 +471,45 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
     @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
     def test_with_invalid_db_option(self, mock_get_all_dbs):
         """
-        Case: Call get_database_and_schema_from_options with a targeted database.
+        Case: Call get_database_and_schema_from_options with a targeted database that does not exist
         Expected: CommandError raised
         """
         mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
 
-        with self.assertRaises(CommandError) as error:
+        with self.assertRaisesMessage(CommandError, 'You must migrate an existing non-primary DB.') as error:
             MigrateShards().get_database_and_schema_from_options(options={'database': 'James'})
-        self.assertEqual(error.exception.args[0], 'You must migrate an existing non-primary DB.')
         self.assertTrue(mock_get_all_dbs.called)
 
     @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
-    def test_with_database_and_shard_option(self, mock_get_all_dbs):
+    def test_get_database_and_schema_from_options_with_schema_name_and_database(self, mock_get_all_dbs):
         """
-        Case: Call get_database_and_schema_from_options with a targeted database and template_shard.
-        Expected: single database and schema_name returned
+        Case: Call get_database_and_schema_from_options with a targeted database and a schema_name
+        Expected: Single database and schema_name returned
         """
         mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
 
         databases, schema_name = MigrateShards().get_database_and_schema_from_options(
-             options={'database': 'other', 'shard': 'other|public'})
+             options={'database': 'other', 'schema_name': 'public'}
+        )
 
         self.assertTrue(mock_get_all_dbs.called)
         self.assertEqual(databases, ['other'])
         self.assertEqual(schema_name, 'public')
 
     @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
-    def test_with_database_and_shard_option2(self, mock_get_all_dbs):
+    def test_get_database_and_schema_from_options_with_schema_name(self, mock_get_all_dbs):
         """
-        Case: Call get_database_and_schema_from_options with a targeted database and shard.
-        Expected: single database and schema_name returned
+        Case: Call get_database_and_schema_from_options without a targeted database, but with a schema_name
+        Expected: Multiple databases returned and a single schema
         """
         mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
 
         databases, schema_name = MigrateShards().get_database_and_schema_from_options(
-             options={'shard': 'default|test_sina'})
+             options={'schema_name': 'test_sina'}
+        )
 
         self.assertTrue(mock_get_all_dbs.called)
-        self.assertEqual(databases, ['default'])
+        self.assertCountEqual(databases, ['default', 'other'])
         self.assertEqual(schema_name, 'test_sina')
 
     @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
@@ -529,7 +522,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
 
         with self.assertRaises(CommandError) as error:
-            MigrateShards().get_database_and_schema_from_options(options={'database': 'other', 'shard': 'other|paul',
+            MigrateShards().get_database_and_schema_from_options(options={'database': 'other', 'schema_name': 'paul',
                                                                           'check_shard': True})
         self.assertEqual(error.exception.args[0], 'Shard other|paul does not exist.')
 
@@ -543,26 +536,12 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
 
         databases, schema_name = MigrateShards().get_database_and_schema_from_options(
-            options={'database': 'other', 'shard': 'other|paul'}
+            options={'database': 'other', 'schema_name': 'paul'}
         )
 
         self.assertTrue(mock_get_all_dbs.called)
         self.assertEqual(databases, ['other'])
         self.assertEqual(schema_name, 'paul')
-
-    @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
-    def test_with_invalid_db_and_shard_options(self, mock_get_all_dbs):
-        """
-        Case: Call get_database_and_schema_from_options with invalid targeted database and shard.
-        Expected: Value error raised
-        """
-        mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
-
-        with self.assertRaises(CommandError) as error:
-            MigrateShards().get_database_and_schema_from_options(options={'database': 'default',
-                                                                          'shard': 'other|public'})
-        self.assertEqual(error.exception.args[0], 'You must migrate an existing non-primary DB.')
-        self.assertTrue(mock_get_all_dbs.called)
 
     @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
     def test_with_invalid_shard_option(self, mock_get_all_dbs):
@@ -573,8 +552,9 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
 
         with self.assertRaises(CommandError) as error:
-            MigrateShards().get_database_and_schema_from_options(options={'shard': 'other|george', 'check_shard': True})
-        self.assertEqual(error.exception.args[0], 'Shard other|george does not exist.')
+            MigrateShards().get_database_and_schema_from_options(options={'database': 'default',
+                                                                          'schema_name': 'george', 'check_shard': True})
+        self.assertEqual(error.exception.args[0], 'Shard default|george does not exist.')
         self.assertTrue(mock_get_all_dbs.called)
 
 
@@ -582,12 +562,11 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
 class ShardedMigrationGetTargetsTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding', 'example']
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
+    def setUp(self):
+        super().setUp()
 
-        cls.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
-                                        state=State.ACTIVE)
+        self.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
+                                         state=State.ACTIVE)
 
     @mock.patch('django.db.migrations.graph.MigrationGraph.leaf_nodes')
     def test_without_special_options(self, mock_leave_nodes):
@@ -599,7 +578,7 @@ class ShardedMigrationGetTargetsTestCase(MigrationTestBase):
         mock_leave_nodes.return_value = leave_nodes
 
         executor = MigrationExecutor(connection)
-        self.assertEqual(MigrateShards().get_targets_from_options(executor, options={}), leave_nodes)
+        self.assertEqual(MigrateShards().get_targets_from_options(executor, options={}), (True, leave_nodes))
 
     @mock.patch('django.db.migrations.graph.MigrationGraph.leaf_nodes')
     def test_with_app_label(self, mock_leave_nodes):
@@ -611,8 +590,10 @@ class ShardedMigrationGetTargetsTestCase(MigrationTestBase):
         mock_leave_nodes.return_value = leave_nodes
 
         executor = MigrationExecutor(connection)
-        self.assertEqual(MigrateShards().get_targets_from_options(executor, options={'app_label': 'example'}),
-                         [('example', '0002_auto_20171009_1502')])
+        self.assertEqual(
+            MigrateShards().get_targets_from_options(executor, options={'app_label': 'example'}),
+            (False, [('example', '0002_auto_20171009_1502')])
+        )
 
     @mock.patch('django.db.migrations.graph.MigrationGraph.leaf_nodes')
     def test_with_target_migration(self, mock_leave_nodes):
@@ -624,9 +605,11 @@ class ShardedMigrationGetTargetsTestCase(MigrationTestBase):
         mock_leave_nodes.return_value = leave_nodes
 
         executor = MigrationExecutor(connection)
-        self.assertEqual(MigrateShards().get_targets_from_options(executor, options={'app_label': 'migration_tests',
-                                                                                     'migration_name': '0002_second'}),
-                         [('migration_tests', '0002_second')])
+        self.assertEqual(
+            MigrateShards().get_targets_from_options(executor, options={'app_label': 'migration_tests',
+                                                                        'migration_name': '0002_second'}),
+            (False, [('migration_tests', '0002_second')])
+        )
 
     @mock.patch('django.db.migrations.graph.MigrationGraph.leaf_nodes')
     def test_with_zero_target(self, mock_leave_nodes):
@@ -638,9 +621,11 @@ class ShardedMigrationGetTargetsTestCase(MigrationTestBase):
         mock_leave_nodes.return_value = leave_nodes
 
         executor = MigrationExecutor(connection)
-        self.assertEqual(MigrateShards().get_targets_from_options(executor, options={'app_label': 'migration_tests',
-                                                                                     'migration_name': 'zero'}),
-                         [('migration_tests', None)])
+        self.assertEqual(
+            MigrateShards().get_targets_from_options(executor, options={'app_label': 'migration_tests',
+                                                                        'migration_name': 'zero'}),
+            (False, [('migration_tests', None)])
+        )
 
     @mock.patch('django.db.migrations.graph.MigrationGraph.leaf_nodes')
     def test_with_unexisting_migration(self, mock_leave_nodes):
@@ -682,11 +667,14 @@ class ShardedMigrationGetPlanTestCase(MigrationTestBase):
     def setUpClass(cls):
         super().setUpClass()
 
-        cls.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
-                                        state=State.ACTIVE)
-
         cls.targets = [('migration_tests', '0003_third')]
         cls.databases = [db for db in settings.DATABASES]
+
+    def setUp(self):
+        super().setUp()
+
+        self.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
+                                         state=State.ACTIVE)
 
     @mock.patch('sharding.management.commands.migrate_shards.Command.get_plan_for_shard')
     def test_all_shards_called(self, mock_get_plan_for_shard):
@@ -694,28 +682,31 @@ class ShardedMigrationGetPlanTestCase(MigrationTestBase):
         Case: Call get_plan
         Expected: get_plan_for_shard to be called for all schemas
         """
-        mock_get_plan_for_shard.return_value = [(('migration_tests', '0001_initial'), False),
-                                                (('migration_tests', '0002_second'), False),
-                                                (('migration_tests', '0003_third'), False)]
-        MigrateShards().get_plan(self.targets, self.databases)
-        mock_get_plan_for_shard.assert_any_call('default', 'public', self.targets)
-        mock_get_plan_for_shard.assert_any_call('default', 'template', self.targets)
-        mock_get_plan_for_shard.assert_any_call('default', 'test_sina', self.targets)
-        mock_get_plan_for_shard.assert_any_call('other', 'public', self.targets)
-        mock_get_plan_for_shard.assert_any_call('other', 'template', self.targets)
+        mock_get_plan_for_shard.return_value = [
+            (('migration_tests', '0001_initial'), False),
+            (('migration_tests', '0002_second'), False),
+            (('migration_tests', '0003_third'), False)
+        ]
+
+        MigrateShards().get_plan(self.targets, self.databases, None)
+
+        mock_get_plan_for_shard.assert_any_call(self.targets, 'default', 'public')
+        mock_get_plan_for_shard.assert_any_call(self.targets, 'default', 'template')
+        mock_get_plan_for_shard.assert_any_call(self.targets, 'default', 'test_sina')
+        mock_get_plan_for_shard.assert_any_call(self.targets, 'other', 'public')
+        mock_get_plan_for_shard.assert_any_call(self.targets, 'other', 'template')
 
     def test_different_migration_states(self):
         """
-        Case: Call get_plan when not all schema's have the same migrationlevel
+        Case: Call get_plan when not all schema's have the same migration level
         Expected: get_plan_for_shard to be called for all schemas
         Note: get_plan_for_shard is not mocked. So it's functionality is taken into account
         """
         # This makes completely unmigrated schemas
-        mock_save = mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema').start()
-        Shard.objects.create(alias='rose', node_name='default', schema_name='test_rose')
-        Shard.objects.create(alias='maria', node_name='default', schema_name='test_maria')
-        self.assertEqual(mock_save.call_count, 2)
-        mock_save.stop()
+        with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema') as mock_save:
+            Shard.objects.create(alias='rose', node_name='default', schema_name='test_rose')
+            Shard.objects.create(alias='maria', node_name='default', schema_name='test_maria')
+            self.assertEqual(mock_save.call_count, 2)
 
         # Migrate the public schema's fully
         with use_shard(node_name='default', schema_name='public'):
@@ -731,8 +722,8 @@ class ShardedMigrationGetPlanTestCase(MigrationTestBase):
         with use_shard(node_name='default', schema_name='test_maria'):
             call_command('migrate', 'migration_tests', '0002', verbosity=0)
         # rose is the furthest behind. So we should get her migration path
-        self.assertEqual(MigrateShards().get_plan(self.targets, self.databases),
-                         MigrateShards().get_plan_for_shard('default', 'test_rose', self.targets))
+        self.assertEqual(MigrateShards().get_plan(self.targets, self.databases, None),
+                         MigrateShards().get_plan_for_shard(self.targets, 'default', 'test_rose'))
 
         # rollback (Cleanup for other tests. Shards are automatically removed.)
         with use_shard(node_name='default', schema_name='public'):
@@ -749,11 +740,14 @@ class ShardedMigrationGetPlanForShardTestCase(MigrationTestBase):
     def setUpClass(cls):
         super().setUpClass()
 
-        cls.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
-                                        state=State.ACTIVE)
-
         cls.targets = [('migration_tests', '0003_third')]
         cls.databases = [db for db in settings.DATABASES]
+
+    def setUp(self):
+        super().setUp()
+
+        self.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
+                                         state=State.ACTIVE)
 
     @mock.patch('sharding.management.commands.migrate_shards.MigrationExecutor', autospec=True)
     @mock.patch('sharding.utils.use_shard.__exit__', autospec=True)
@@ -765,7 +759,7 @@ class ShardedMigrationGetPlanForShardTestCase(MigrationTestBase):
         """
         mock_executor.return_value.migration_plan = mock.Mock()
 
-        MigrateShards().get_plan_for_shard(self.sina.node_name, self.sina.schema_name, self.targets)
+        MigrateShards().get_plan_for_shard(self.targets, self.sina.node_name, self.sina.schema_name)
 
         self.assertEqual(mock_use_shard_enter.call_count, 1)
         self.assertEqual(mock_use_shard_enter.call_args[0][0].node_name, 'default')
@@ -779,21 +773,19 @@ class ShardedMigrationGetPlanForShardTestCase(MigrationTestBase):
 class ShardedMigrationPerformMigrationTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding', 'example']
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
+    def setUp(self):
+        super().setUp()
 
         # This makes completely unmigrated schemas
-        mock_save = mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema').start()
-        cls.rose = Shard.objects.create(alias='rose', node_name='default', schema_name='test_rose',
-                                        state=State.ACTIVE)
-        cls.maria = Shard.objects.create(alias='maria', node_name='default', schema_name='test_maria',
-                                         state=State.ACTIVE)
-        mock_save.stop()
+        with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema'):
+            self.rose = Shard.objects.create(alias='rose', node_name='default', schema_name='test_rose',
+                                             state=State.ACTIVE)
+            self.maria = Shard.objects.create(alias='maria', node_name='default', schema_name='test_maria',
+                                              state=State.ACTIVE)
 
-        cls.targets = [('migration_tests', '0003_third')]
-        cls.databases = [db for db in settings.DATABASES]
-        cls.plan = MigrateShards().get_plan_for_shard(cls.rose.node_name, cls.rose.schema_name, cls.targets)
+        self.targets = [('migration_tests', '0003_third')]
+        self.databases = [db for db in settings.DATABASES]
+        self.plan = MigrateShards().get_plan_for_shard(self.targets, self.rose.node_name, self.rose.schema_name)
 
     @mock.patch('sharding.management.commands.migrate_shards.MigrationExecutor', autospec=True)
     @mock.patch('sharding.utils.use_shard.__exit__', autospec=True)
@@ -844,23 +836,21 @@ class ShardedMigrationPerformMigrationTestCase(MigrationTestBase):
 class ShardedMigrationCheckOrMigrateSchemaTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding', 'example']
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
+    def setUp(self):
+        super().setUp()
 
         # This makes completely unmigrated schemas
-        mock_save = mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema').start()
-        cls.rose = Shard.objects.create(alias='rose', node_name='default', schema_name='test_rose',
-                                        state=State.ACTIVE)
-        cls.maria = Shard.objects.create(alias='maria', node_name='default', schema_name='test_maria',
-                                         state=State.ACTIVE)
-        mock_save.stop()
+        with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema'):
+            self.rose = Shard.objects.create(alias='rose', node_name='default', schema_name='test_rose',
+                                             state=State.ACTIVE)
+            self.maria = Shard.objects.create(alias='maria', node_name='default', schema_name='test_maria',
+                                              state=State.ACTIVE)
 
-        cls.targets = [('migration_tests', '0003_third')]
-        cls.databases = [db for db in settings.DATABASES]
-        cls.plan = MigrateShards().get_plan_for_shard(cls.rose.node_name, cls.rose.schema_name, cls.targets)
-        cls.migrateShards = MigrateShards()
-        cls.migrateShards.verbosity = 2
+        self.targets = [('migration_tests', '0003_third')]
+        self.databases = [db for db in settings.DATABASES]
+        self.plan = MigrateShards().get_plan_for_shard(self.targets, self.rose.node_name, self.rose.schema_name)
+        self.migrateShards = MigrateShards()
+        self.migrateShards.verbosity = 2
 
     @mock.patch('sharding.utils.use_shard.__exit__', autospec=True)
     @mock.patch('sharding.utils.use_shard.__enter__', autospec=True)
@@ -952,22 +942,19 @@ class ShardedMigrationCheckOrMigrateSchemaTestCase(MigrationTestBase):
 class ShardedMigrationCheckOrMigrateShardTestCase(MigrationTestBase):
     available_apps = ['migration_tests', 'sharding', 'example']
 
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
+    def setUp(self):
+        super().setUp()
 
         # This makes completely unmigrated schemas
-        mock_save = mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema').start()
+        with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema'):
+            self.rose = Shard.objects.create(alias='rose', node_name='other', schema_name='test_rose',
+                                             state=State.ACTIVE)
 
-        cls.rose = Shard.objects.create(alias='rose', node_name='other', schema_name='test_rose',
-                                        state=State.ACTIVE)
-        mock_save.stop()
-
-        cls.targets = [('migration_tests', '0003_third')]
-        cls.databases = [db for db in settings.DATABASES]
-        cls.plan = MigrateShards().get_plan_for_shard(cls.rose.node_name, cls.rose.schema_name, cls.targets)
-        cls.migrateShards = MigrateShards()
-        cls.migrateShards.verbosity = 2
+        self.targets = [('migration_tests', '0003_third')]
+        self.databases = [db for db in settings.DATABASES]
+        self.plan = MigrateShards().get_plan_for_shard(self.targets, self.rose.node_name, self.rose.schema_name)
+        self.migrateShards = MigrateShards()
+        self.migrateShards.verbosity = 2
 
     @mock.patch('sharding.utils.use_shard.__exit__', autospec=True)
     @mock.patch('sharding.utils.use_shard.__enter__', autospec=True)
@@ -1060,8 +1047,14 @@ class SeparateDatabaseAndStateTestCase(MigrationTestBase):
     available_apps = ['migration_tests']
 
     def setUp(self):
-        # Do not silently mock the router.
-        pass
+        # Do not silently mock the router, but do create the template schema
+
+        commands = get_commands()
+        commands['migrate_shards'] = 'sharding'
+
+        with mock.patch('django.core.management.get_commands', return_value=commands):
+            create_template_schema()  # The template won't have any migration applied to it initially
+            create_template_schema('other')  # The template won't have any migration applied to it initially
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_remove_model'})
     @mock.patch('sharding.utils.DynamicDbRouter.allow_migrate')
@@ -1150,3 +1143,28 @@ class UnroutableMigrationTestCase2(TestCase):
         call_command('migrate', 'migration_tests', '0003', verbosity=0)
 
         self.assertEqual(mock_logger_warning.call_count, 3)
+
+
+class DisableMigrations(object):
+    def __contains__(self, item):
+        return True
+
+    def __getitem__(self, item):
+        return "no_migrations"
+
+
+@override_settings(MIGRATION_MODULES=DisableMigrations())
+class SyncDbTestCase(MigrationTestBase):
+    available_apps = ['sharding', 'example']
+
+    def test(self):
+        """
+        Case: Disable the migrations and check whether the template schema is built from the state
+        Expected: All tables from the example app are created in the template schema
+        """
+        call_command('migrate_shards', verbosity=0)
+        
+        with use_shard(node_name='default', schema_name=get_template_name()):
+            for model in get_all_sharded_models(include_auto_created=True):
+                if model._meta.app_label == 'example':
+                    self.assertTableExists(model._meta.db_table)
