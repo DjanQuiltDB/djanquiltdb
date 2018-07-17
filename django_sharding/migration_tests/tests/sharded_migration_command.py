@@ -350,7 +350,7 @@ class ShardedMigrationHandleTestCase(MigrationTestBase):
                 return_value=(mock.Mock(), mock.Mock()))
     @mock.patch('django.db.migrations.loader.MigrationLoader.detect_conflicts')
     @mock.patch('django.db.backends.base.base.BaseDatabaseWrapper.prepare_database')
-    @mock.patch('sharding.management.commands.migrate_shards.Command.get_database_and_schema_from_options')
+    @mock.patch('sharding.management.commands.migrate_shards.Command.get_databases_and_schema_from_options')
     @mock.patch('sharding.management.commands.migrate_shards.import_module')
     def test_migrate_handle(self,
                             mock_import_module,
@@ -450,7 +450,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         Case: Call get_database_and_schema_from_options without special options.
         Expected: Normal list of databases and no database and schema_name returned.
         """
-        databases, schema_name = MigrateShards().get_database_and_schema_from_options(options={})
+        databases, schema_name = MigrateShards().get_databases_and_schema_from_options(options={})
 
         self.assertEqual(databases, get_all_databases())
         self.assertIsNone(schema_name)
@@ -462,7 +462,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         Expected: single database and no schema_name returned
         """
         mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
-        databases, schema_name = MigrateShards().get_database_and_schema_from_options(options={'database': 'other'})
+        databases, schema_name = MigrateShards().get_databases_and_schema_from_options(options={'database': 'other'})
 
         self.assertTrue(mock_get_all_dbs.called)
         self.assertEqual(databases, ['other'])
@@ -477,7 +477,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
 
         with self.assertRaisesMessage(CommandError, 'You must migrate an existing non-primary DB.') as error:
-            MigrateShards().get_database_and_schema_from_options(options={'database': 'James'})
+            MigrateShards().get_databases_and_schema_from_options(options={'database': 'James'})
         self.assertTrue(mock_get_all_dbs.called)
 
     @mock.patch('sharding.management.commands.migrate_shards.get_all_databases')
@@ -488,7 +488,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         """
         mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
 
-        databases, schema_name = MigrateShards().get_database_and_schema_from_options(
+        databases, schema_name = MigrateShards().get_databases_and_schema_from_options(
              options={'database': 'other', 'schema_name': 'public'}
         )
 
@@ -504,7 +504,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         """
         mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
 
-        databases, schema_name = MigrateShards().get_database_and_schema_from_options(
+        databases, schema_name = MigrateShards().get_databases_and_schema_from_options(
              options={'schema_name': 'test_sina'}
         )
 
@@ -522,7 +522,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
 
         with self.assertRaises(CommandError) as error:
-            MigrateShards().get_database_and_schema_from_options(options={'database': 'other', 'schema_name': 'paul',
+            MigrateShards().get_databases_and_schema_from_options(options={'database': 'other', 'schema_name': 'paul',
                                                                           'check_shard': True})
         self.assertEqual(error.exception.args[0], 'Shard other|paul does not exist.')
 
@@ -535,7 +535,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         """
         mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
 
-        databases, schema_name = MigrateShards().get_database_and_schema_from_options(
+        databases, schema_name = MigrateShards().get_databases_and_schema_from_options(
             options={'database': 'other', 'schema_name': 'paul'}
         )
 
@@ -552,7 +552,7 @@ class ShardedMigrationGetDatabaseTestCase(MigrationTestBase):
         mock_get_all_dbs.return_value = [db for db in settings.DATABASES]
 
         with self.assertRaises(CommandError) as error:
-            MigrateShards().get_database_and_schema_from_options(options={'database': 'default',
+            MigrateShards().get_databases_and_schema_from_options(options={'database': 'default',
                                                                           'schema_name': 'george', 'check_shard': True})
         self.assertEqual(error.exception.args[0], 'Shard default|george does not exist.')
         self.assertTrue(mock_get_all_dbs.called)

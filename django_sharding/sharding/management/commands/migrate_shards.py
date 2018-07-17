@@ -61,7 +61,7 @@ class Command(MigrateCommand):
             if module_has_submodule(app_config.module, 'management'):
                 import_module('.management', app_config.name)
 
-        node_names, schema_name = self.get_database_and_schema_from_options(options)
+        databases, schema_name = self.get_databases_and_schema_from_options(options)
 
         if options.get('list', False):
             self.stderr.write(
@@ -88,13 +88,13 @@ class Command(MigrateCommand):
         run_syncdb, targets = self.get_targets_from_options(executor, options)
 
         # Work out from which node we need to migrate
-        plan = self.get_plan(targets, node_names, schema_name)
+        plan = self.get_plan(targets, databases, schema_name)
 
         # Run the syncdb phase. Note that we need this for apps that don't have migrations.
         if run_syncdb and executor.loader.unmigrated_apps:
             self.verbosity >= 1 and self.stdout.write(self.style.MIGRATE_HEADING('Synchronizing apps without '
                                                                                  'migrations:'))
-            created_models = self._sync_apps(node_names, schema_name, executor.loader.unmigrated_apps)
+            created_models = self._sync_apps(databases, schema_name, executor.loader.unmigrated_apps)
         else:
             created_models = []
             emit_pre_migrate_signal([], self.verbosity, self.interactive, connection.alias)
@@ -107,30 +107,30 @@ class Command(MigrateCommand):
             if self.verbosity >= 1:
                 self.check_for_changes(executor)
         else:
-            self.perform_migration(plan, node_names, schema_name,
+            self.perform_migration(plan, databases, schema_name,
                                    fake=options.get('fake'), fake_initial=options.get('fake_initial'))
 
         emit_post_migrate_signal(created_models, self.verbosity, self.interactive, connection.alias)
 
-    def get_database_and_schema_from_options(self, options):
+    def get_databases_and_schema_from_options(self, options):
         options_database = options.get('database')
         schema_name = options.get('schema_name')
         check_shard = options.get('check_shard')
 
         # Get the database we're operating from
         if not options_database or options_database == 'all':
-            node_names = get_all_databases()
+            databases = get_all_databases()
         elif options_database not in get_all_databases():
             raise CommandError('You must migrate an existing non-primary DB.')
         else:
-            node_names = [options_database]
+            databases = [options_database]
 
         if schema_name and check_shard and schema_name not in ['public', get_template_name()]:
-            for node_name in node_names:
-                if not get_shard_class().objects.filter(schema_name=schema_name, node_name=node_name).exists():
-                    raise CommandError('Shard {}|{} does not exist.'.format(node_name, schema_name))
+            for database in databases:
+                if not get_shard_class().objects.filter(schema_name=schema_name, node_name=database).exists():
+                    raise CommandError('Shard {}|{} does not exist.'.format(database, schema_name))
 
-        return node_names, schema_name
+        return databases, schema_name
 
     def get_targets_from_options(self, executor, options):
         if options.get('app_label') and options.get('migration_name'):
@@ -167,13 +167,13 @@ class Command(MigrateCommand):
         # Nothing is given, just return all end nodes
         return True, executor.loader.graph.leaf_nodes()
 
-    def get_plan(self, targets, node_names, schema_name):
+    def get_plan(self, targets, databases, schema_name):
         plan = []
 
         # If the schema_name is set, get the plan for all schemas on all databases and return the longest
         if schema_name:
-            for node_name in node_names:
-                schema_plan = self.get_plan_for_shard(targets, node_name, schema_name)
+            for database in databases:
+                schema_plan = self.get_plan_for_shard(targets, database, schema_name)
 
                 if len(schema_plan) > len(plan):
                     plan = schema_plan
@@ -183,24 +183,24 @@ class Command(MigrateCommand):
         # If no schema_name is set, then collect the longest plan based on the public schema, template schema and all
         # shards on all databases.
         template_name = get_template_name()
-        for shard in get_shard_class().objects.filter(node_name__in=node_names):
+        for shard in get_shard_class().objects.filter(node_name__in=databases):
             shard_plan = self.get_plan_for_shard(targets, shard.node_name, shard.schema_name)
             if len(shard_plan) > len(plan):
                 plan = shard_plan
 
-        for node_name in node_names:  # Do templates and publics
-            public_plan = self.get_plan_for_shard(targets, node_name, PUBLIC_SCHEMA_NAME)
+        for database in databases:  # Do templates and publics
+            public_plan = self.get_plan_for_shard(targets, database, PUBLIC_SCHEMA_NAME)
             if len(public_plan) > len(plan):
                 plan = public_plan
 
-            template_plan = self.get_plan_for_shard(targets, node_name, template_name)
+            template_plan = self.get_plan_for_shard(targets, database, template_name)
             if len(template_plan) > len(plan):
                 plan = template_plan
 
         return plan
 
-    def get_plan_for_shard(self, targets, node_name, schema_name):
-        with use_shard(node_name=node_name, schema_name=schema_name) as env:
+    def get_plan_for_shard(self, targets, database, schema_name):
+        with use_shard(node_name=database, schema_name=schema_name) as env:
             shard_executor = MigrationExecutor(env.connection, self.migration_progress_callback)
             return shard_executor.migration_plan(targets)
 
@@ -223,10 +223,10 @@ class Command(MigrateCommand):
                 "apply them."
             ))
 
-    def perform_migration(self, plan, node_names, schema_name, fake, fake_initial):
+    def perform_migration(self, plan, databases, schema_name, fake, fake_initial):
         if schema_name:  # If we have a targeted shard, just migrate that shard
-            for node_name in node_names:
-                with use_shard(node_name=node_name, schema_name=schema_name) as env:
+            for database in databases:
+                with use_shard(node_name=database, schema_name=schema_name) as env:
                     shard_executor = MigrationExecutor(env.connection)
                     shard_executor.migrate(targets=None, plan=plan, fake=fake, fake_initial=fake_initial)
         else:  # We have multiple shards to migrate. Do the breath-first
@@ -236,12 +236,12 @@ class Command(MigrateCommand):
 
             for node in plan:
                 # Migrate all public schemas and templates
-                for node_name in node_names:
-                    stop |= self.check_or_migrate_schema(node_name, 'public', node, fake, fake_initial)
-                    stop |= self.check_or_migrate_schema(node_name, template_name, node, fake, fake_initial)
+                for database in databases:
+                    stop |= self.check_or_migrate_schema(database, PUBLIC_SCHEMA_NAME, node, fake, fake_initial)
+                    stop |= self.check_or_migrate_schema(database, template_name, node, fake, fake_initial)
 
                 # Migrate all shards
-                for shard in get_shard_class().objects.filter(node_name__in=node_names):
+                for shard in get_shard_class().objects.filter(node_name__in=databases):
                     stop |= self.check_or_migrate_shard(shard, node, fake, fake_initial)
 
                 # If one or more migrations failed, don't move to the next.
@@ -251,8 +251,8 @@ class Command(MigrateCommand):
                     ))
                     break
 
-    def check_or_migrate_schema(self, node_name, schema_name, plan_node, fake, fake_initial):
-        with use_shard(node_name=node_name, schema_name=schema_name) as env:
+    def check_or_migrate_schema(self, database, schema_name, plan_node, fake, fake_initial):
+        with use_shard(node_name=database, schema_name=schema_name) as env:
             executor = MigrationExecutor(env.connection, self.migration_progress_callback)
             migration, backwards = plan_node
 
@@ -262,10 +262,10 @@ class Command(MigrateCommand):
                 if self.verbosity >= 2:
                     if backwards:
                         self.stdout.write(
-                            '    {}|{} does not have {} applied yet.\n'.format(node_name, schema_name, migration))
+                            '    {}|{} does not have {} applied yet.\n'.format(database, schema_name, migration))
                     else:
                         self.stdout.write(
-                            '    {}|{} has {} already applied.\n'.format(node_name, schema_name, migration))
+                            '    {}|{} has {} already applied.\n'.format(database, schema_name, migration))
 
             else:
                 if self.verbosity >= 2:
@@ -276,7 +276,7 @@ class Command(MigrateCommand):
                     executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
                 except Exception as exception:  # When an error occurs, continue this migration for other shards.
                     self.stderr.write(
-                        '    {}|{}: {} - {}: {}'.format(node_name, schema_name, migration, type(exception).__name__,
+                        '    {}|{}: {} - {}: {}'.format(database, schema_name, migration, type(exception).__name__,
                                                         exception)
                     )
                     return True  # report failure
@@ -323,28 +323,28 @@ class Command(MigrateCommand):
 
         return super().migration_progress_callback(action, migration=migration, fake=fake)
 
-    def _sync_apps(self, node_names, schema_name, app_labels):
+    def _sync_apps(self, databases, schema_name, app_labels):
         """
         Helper method that calls sync apps for all shards available. Or for a specific shard, if schema_name is set.
         """
         created_models = set()
 
         if schema_name:
-            for node_name in node_names:
-                with use_shard(node_name=node_name, schema_name=schema_name) as env:
+            for database in databases:
+                with use_shard(node_name=database, schema_name=schema_name) as env:
                     created_models.update(self.sync_apps(env.connection, app_labels))
         else:
-            for node_name in node_names:
+            for database in databases:
                 # Public schema
-                with use_shard(node_name=node_name, schema_name='public') as env:
+                with use_shard(node_name=database, schema_name='public') as env:
                     created_models.update(self.sync_apps(env.connection, app_labels))
 
                 # Template schema
-                with use_shard(node_name=node_name, schema_name=get_template_name()) as env:
+                with use_shard(node_name=database, schema_name=get_template_name()) as env:
                     created_models.update(self.sync_apps(env.connection, app_labels))
 
             # All other shards
-            for shard in get_shard_class().objects.filter(node_name__in=node_names):
+            for shard in get_shard_class().objects.filter(node_name__in=databases):
                 with use_shard(shard) as env:
                     created_models.update(self.sync_apps(env.connection, app_labels))
 
