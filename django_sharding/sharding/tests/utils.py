@@ -1,4 +1,5 @@
 import inspect
+import itertools
 import re
 import threading
 from unittest import mock
@@ -46,28 +47,61 @@ class DummyNonShardedModel(models.Model):
         managed = False
 
 
-class ShardingTestCase(TestCase):
-    available_apps = ['sharding', 'example']
+class CleanShardingArtifactsMixin:
+    def _fixture_setup(self):
+        """
+        Save the names of the schemas that exist on start of the test case.
+        """
+        self._initial_schemas = {}
+        for db_name in self._databases_names():
+            connection_ = connections[db_name]
+            self._initial_schemas[db_name] = {s[0] for s in connection_.get_all_pg_schemas()}
 
-    def setUp(self):
-        super().setUp()
-        self.addCleanup(self.clean_up)
+        super()._fixture_setup()
 
-    def clean_up(self):
+    def _post_teardown(self):
+        """
+        Remove all the schemas that exist now, but didn't at the start of the test case.
+        """
+        super()._post_teardown()
+
+        for db_name in self._databases_names():
+            connection_ = connections[db_name]
+
+            for schema in itertools.chain.from_iterable(connection_.get_all_pg_schemas()):
+                if schema not in self._initial_schemas[db_name]:
+                    connection_.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format(schema))
+
+
+class ResetConnectionTestCaseMixin:
+    """
+    Makes sure that at the end of each test (and as fallback, at the beginning of each test) the connection is set to
+    public.
+    """
+    def _pre_setup(self):
+        self._reset_connections_to_public()
+        super()._pre_setup()
+
+    def _post_teardown(self):
+        self._reset_connections_to_public()
+        super()._post_teardown()
+
+    def _reset_connections_to_public(self):
         THREAD_LOCAL.DB_OVERRIDE = None
 
-        for con in connections.all():
-            con.set_schema_to_public()
-
-            # remove all schemas made in tests.
-            for schema in con.get_all_pg_schemas():
-                schema = schema[0]
-                if schema.startswith('test_') or schema == get_template_name():
-                    con.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format(schema))
+        for db_name in self._databases_names():
+            connection_ = connections[db_name]
+            connection_.set_schema_to_public()
 
 
-class ShardingTransactionTestCase(TransactionTestCase):
+class ShardingTestCase(ResetConnectionTestCaseMixin, TestCase):
     available_apps = ['sharding', 'example']
+    multi_db = True  # To make sure cleanup will be done on all databases
+
+
+class ShardingTransactionTestCase(ResetConnectionTestCaseMixin, CleanShardingArtifactsMixin, TransactionTestCase):
+    available_apps = ['sharding', 'example']
+    multi_db = True  # To make sure cleanup will be done on all databases
 
     @staticmethod
     def get_all_non_sharded_models():
@@ -80,41 +114,6 @@ class ShardingTransactionTestCase(TransactionTestCase):
         models = apps.get_models()
         return [model for model in models if get_model_sharding_mode(model) == ShardingMode.MIRRORED
                 and not getattr(model, 'test_model', False)]
-
-    def setUp(self):
-        super().setUp()
-        self.addCleanup(self.clean_up)
-
-    def clean_up(self):
-        """
-        This clean_up looks a bit like the _fixture_teardown from the TransactionTestCase.
-        But it does so on each connection and looks at the shards for what to truncate.
-        And it removes the test and template schemas like the ShardedTestCase does.
-        """
-        THREAD_LOCAL.DB_OVERRIDE = None
-
-        for con in connections.all():
-            # Remove all schemas made in tests.
-            for schema in con.get_all_pg_schemas():
-                schema = schema[0]
-                if schema.startswith('test_') or schema == get_template_name():
-                    con.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format(schema))
-
-            # Truncate all public tables
-            if con.get_ps_schema('public'):
-                # default|public has more tables's than just the mirrored ones. example_shard for instance.
-                models = self.get_all_non_sharded_models() if con.alias == 'default' else self.get_all_mirrored_models()
-                con.cursor().execute('TRUNCATE ONLY {} CASCADE;'.format(
-                    ', '.join('"{}"'.format(model._meta.db_table) for model in models)
-                    ))
-
-            con.set_schema_to_public()
-
-    def _fixture_teardown(self):
-        """
-        Fixture teardown is no longer necessary. And won't work properly anyway.
-        """
-        pass
 
 
 class GetShardClass(SimpleTestCase):
@@ -170,24 +169,16 @@ class GetMappingClass(SimpleTestCase):
 
 class UseShardTestCase(ShardingTestCase):
     def setUp(self):
-        pass  # prevent ShardingTestCase addCleanup
+        super().setUp()
 
-    @classmethod
-    def setUpClass(cls):  # only runs once for the entire TestCase
-        super().setUpClass()
         create_template_schema('default')
         create_template_schema('other')
-        cls.shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default',
-                                         state=State.ACTIVE)
-        cls.other_shard = Shard.objects.create(alias='other_shard', schema_name='test_other_schema', node_name='other',
-                                               state=State.ACTIVE)
-        cls.inactive_shard = Shard.objects.create(alias='inactive_shard', schema_name='test_inactive_schema',
-                                                  node_name='other', state=State.MAINTENANCE)
-
-    @classmethod
-    def tearDownClass(cls):  # run when TestCase is done
-        super().clean_up(cls)  # we only want to clean stuff up at the end of the TestCase
-        super().tearDownClass()
+        self.shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default',
+                                          state=State.ACTIVE)
+        self.other_shard = Shard.objects.create(alias='other_shard', schema_name='test_other_schema', node_name='other',
+                                                state=State.ACTIVE)
+        self.inactive_shard = Shard.objects.create(alias='inactive_shard', schema_name='test_inactive_schema',
+                                                   node_name='other', state=State.MAINTENANCE)
 
     @mock.patch('sharding.utils._set_schema')
     def test_use_shard(self, mock_set_schema):
@@ -952,9 +943,9 @@ class DynamicDbRouterTestCase(ShardingTestCase):
                   sharded to go to default-template, other-template,
                   default-schema1 and other-schema2
         """
-        create_template_schema('default')  # also calls for a migration
+        create_template_schema('default')  # Also calls for a migration
 
-        # mirrored, mapping and django default tables
+        # Mirrored, mapping and django default tables
         default_public_tables = ['django_migrations', 'django_content_type', 'auth_group', 'auth_permission',
                                  'auth_group_permissions', 'example_shard', 'django_session', 'example_type',
                                  'example_supertype', 'example_organizationshards']
@@ -973,10 +964,10 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         self.assertCountEqual(connections['other'].get_all_table_headers(schema_name='template'), template_tables)
 
         create_schema_on_node('schema1', node_name='default', migrate=False)
-        # schema is created empty (cause we say: 'migrate=False')
+        # Schema is created empty (cause we say: 'migrate=False')
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='schema1'), [])
 
-        # obviously, after migration shard schema's have the same tables as the template.
+        # Obviously, after migration shard schema's have the same tables as the template.
         migrate_schema('default', 'schema1')
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='schema1'), template_tables)
 
@@ -1591,7 +1582,6 @@ class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
             with use_shard(node_name='default', schema_name='test_other_schema'):
                 move_model_to_schema(model=Type, node_name='default', from_schema_name='test_other_schema',
                                      to_schema_name='public')
-        super().clean_up()
 
     def setUp(self):
         self.addCleanup(self.clean_up)

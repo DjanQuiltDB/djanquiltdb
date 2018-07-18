@@ -2,6 +2,7 @@ from django.core.exceptions import ValidationError
 from django.core.management import BaseCommand, CommandError
 from django.db import transaction
 
+from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from sharding.utils import use_shard, get_all_databases, move_model_to_schema, State, \
     create_template_schema, get_shard_class, get_all_sharded_models, get_template_name, create_schema_on_node
 
@@ -32,7 +33,7 @@ class Command(BaseCommand):
 
         target_schema_name = options.get('target_schema_name')
 
-        if target_schema_name in ['public', get_template_name()]:
+        if target_schema_name in [PUBLIC_SCHEMA_NAME, get_template_name()]:
             raise CommandError("Target schema name cannot be 'public' nor '{}'.".format(get_template_name()))
 
         create_template_schema(database)
@@ -54,7 +55,7 @@ class Command(BaseCommand):
             if not self.no_input:
                 confirm = input("Type 'yes' if you are sure if you want to move the following models "
                                 "from {} to {}:\n{}: "
-                                .format('public',
+                                .format(PUBLIC_SCHEMA_NAME,
                                         target_schema_name,
                                         [model._meta.db_table for model in sharded_models]))
                 if confirm != 'yes':
@@ -76,14 +77,14 @@ class Command(BaseCommand):
         """
         Move all given models from public to the target schema
         """
-        with use_shard(node_name=target_shard.node_name, schema_name='public'):
+        with use_shard(node_name=target_shard.node_name, schema_name=PUBLIC_SCHEMA_NAME):
             # Flush the shard
             with use_shard(target_shard, lock=False, active_only_schemas=False) as env:
                 env.connection.flush_schema(target_shard.schema_name)
 
             # Move the tables over
             for model in sharded_models:
-                move_model_to_schema(model=model, node_name='default', from_schema_name='public',
+                move_model_to_schema(model=model, node_name='default', from_schema_name=PUBLIC_SCHEMA_NAME,
                                      to_schema_name=target_shard.schema_name)
 
     def copy_migration_table(self, target_shard):
@@ -106,7 +107,7 @@ class Command(BaseCommand):
             ALTER TABLE "{target_schema}"."{table_name}" ALTER COLUMN "id"
             SET DEFAULT nextval('{target_schema}.{sequence}');
             """.format(target_schema=target_shard.schema_name,  # nosec
-                       source_schema='public',
+                       source_schema=PUBLIC_SCHEMA_NAME,
                        sequence='django_migrations_id_seq',
                        table_name='django_migrations')
 

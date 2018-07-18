@@ -19,7 +19,6 @@ from django.db.backends.base.base import NO_DB_ALIAS
 from django.db.utils import DatabaseError, IntegrityError
 from psycopg2 import InternalError, sql
 
-from sharding.utils import get_template_name
 from sharding.postgresql_backend.introspection import DatabaseSchemaIntrospection
 
 # Clone function is from the PostgreSQL wiki by Emanuel '3manuek'.
@@ -68,6 +67,8 @@ PUBLIC_SCHEMA_NAME = 'public'
 
 
 def get_validated_schema_name(schema_name, is_template=False):
+    from sharding.utils import get_template_name  # Prevent cyclic imports
+
     if not isinstance(schema_name, str):
         raise ValueError("Schema name '{}' needs to be a string".format(schema_name))
 
@@ -78,7 +79,7 @@ def get_validated_schema_name(schema_name, is_template=False):
     if not is_template and schema_name == get_template_name():
         raise ValueError("Schema name '{}' cannot be the same as the template name '{}' ".format(schema_name,
                                                                                                  get_template_name()))
-    if schema_name in ['public', 'information_schema', 'default']:
+    if schema_name in [PUBLIC_SCHEMA_NAME, 'information_schema', 'default']:
         raise ValueError("Schema name '{}' is not allowed ".format(schema_name))
 
     if schema_name.startswith('pg_'):
@@ -185,6 +186,11 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             [schema]
         )
         return [x[0] for x in cursor.fetchall()]  # We get a list of single tuples
+
+    def truncate_all_tables(self, schema_name=None, _cursor=None):
+        cursor = _cursor or self.cursor()
+        table_headers = self.get_all_table_headers(schema_name, cursor)
+        cursor.execute('TRUNCATE ONLY {} CASCADE;'.format(', '.join('"{}"'.format(header) for header in table_headers)))
 
     def flush_schema(self, schema_name=None, _cursor=None):
         """

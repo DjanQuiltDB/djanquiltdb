@@ -95,7 +95,7 @@ class GetValidatedSchemaNameTestCase(TestCase):
         self.assertEqual(get_validated_schema_name('template', is_template=True), 'template')
 
 
-class PostgresBackendTestCase(ShardingTestCase):
+class PostgresBackendTestCase(ShardingTransactionTestCase):
     @mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.close')
     def test_close(self, mock_close):
         """
