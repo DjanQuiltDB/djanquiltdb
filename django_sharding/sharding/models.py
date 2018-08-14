@@ -67,13 +67,15 @@ class BaseShard(models.Model):
         if self.pk and get_shard_class().objects.filter(pk=self.pk).exists():
             return super().save(**kwargs)
 
+        from sharding.utils import schema_exists, create_schema_on_node  # Prevent cyclic imports
+
         # If we have a Mirrored sharding mode, we need to work on our target node to create a schema.
         # If this object is made within a 'use_shard' manager we will have 'using' set.
         # Else we need to get our db alias form the manager
-        if not hasattr(self, 'sharding_mode') \
-                or (getattr(self, 'sharding_mode') == ShardingMode.MIRRORED
-                    and (using or self._base_manager.db) == self.node_name):
-            from sharding.utils import create_schema_on_node  # import it here, to prevent circle dependencies
+        if (not hasattr(self, 'sharding_mode')
+            or (getattr(self, 'sharding_mode') == ShardingMode.MIRRORED
+                and (using or self._base_manager.db) == self.node_name)) \
+                and not schema_exists(node_name=self.node_name, schema_name=self.schema_name):
             create_schema_on_node(schema_name=self.schema_name, node_name=self.node_name, migrate=True)
 
         super().save(**kwargs)

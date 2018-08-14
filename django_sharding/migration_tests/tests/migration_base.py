@@ -13,7 +13,7 @@ from sharding.tests.utils import ShardingTestCase
 from sharding.utils import create_template_schema
 
 
-class MigrationTestBase(ShardingTestCase):
+class MigrationTestCase(ShardingTestCase):
     """
     Contains an extended set of asserts for testing migrations and schema operations.
     """

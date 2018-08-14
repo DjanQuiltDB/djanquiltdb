@@ -12,9 +12,9 @@ from django.db.migrations.state import ProjectState
 from django.utils.module_loading import module_has_submodule
 
 from sharding.db import connection
-from sharding.management.base import get_databases_and_schema_from_options
+from sharding.management.base import get_databases_and_schema_from_options, shard_table_exists
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from sharding.utils import get_shard_class, use_shard, get_template_name, get_all_databases
+from sharding.utils import get_shard_class, use_shard, get_template_name, get_all_databases, schema_exists
 
 
 class Command(MigrateCommand):
@@ -160,21 +160,25 @@ class Command(MigrateCommand):
             return plan
 
         # If no schema_name is set, then collect the longest plan based on the public schema, template schema and all
-        # shards on all databases.
+        # shards on all databases. Note that we only get the plan from the shards if the shard table exists. If not,
+        # then we can safely assume no shards exist yet, because they're not in the database.
+        if shard_table_exists():
+            for shard in get_shard_class().objects.filter(node_name__in=databases):
+                shard_plan = self.get_plan_for_shard(targets, shard.node_name, shard.schema_name)
+                if len(shard_plan) > len(plan):
+                    plan = shard_plan
+
         template_name = get_template_name()
-        for shard in get_shard_class().objects.filter(node_name__in=databases):
-            shard_plan = self.get_plan_for_shard(targets, shard.node_name, shard.schema_name)
-            if len(shard_plan) > len(plan):
-                plan = shard_plan
 
         for database in databases:  # Do templates and publics
             public_plan = self.get_plan_for_shard(targets, database, PUBLIC_SCHEMA_NAME)
             if len(public_plan) > len(plan):
                 plan = public_plan
 
-            template_plan = self.get_plan_for_shard(targets, database, template_name)
-            if len(template_plan) > len(plan):
-                plan = template_plan
+            if schema_exists(database, template_name):
+                template_plan = self.get_plan_for_shard(targets, database, template_name)
+                if len(template_plan) > len(plan):
+                    plan = template_plan
 
         return plan
 
@@ -217,11 +221,14 @@ class Command(MigrateCommand):
                 # Migrate all public schemas and templates
                 for database in databases:
                     stop |= self.check_or_migrate_schema(database, PUBLIC_SCHEMA_NAME, node, fake, fake_initial)
-                    stop |= self.check_or_migrate_schema(database, template_name, node, fake, fake_initial)
 
-                # Migrate all shards
-                for shard in get_shard_class().objects.filter(node_name__in=databases):
-                    stop |= self.check_or_migrate_shard(shard, node, fake, fake_initial)
+                    if schema_exists(database, template_name):
+                        stop |= self.check_or_migrate_schema(database, template_name, node, fake, fake_initial)
+
+                # Migrate all shards, if the shard table exists.
+                if shard_table_exists():
+                    for shard in get_shard_class().objects.filter(node_name__in=databases):
+                        stop |= self.check_or_migrate_shard(shard, node, fake, fake_initial)
 
                 # If one or more migrations failed, don't move to the next.
                 if stop:
@@ -318,13 +325,17 @@ class Command(MigrateCommand):
                 with use_shard(node_name=database, schema_name='public') as env:
                     created_models.update(self.sync_apps(env.connection, app_labels))
 
-                # Template schema
-                with use_shard(node_name=database, schema_name=get_template_name()) as env:
-                    created_models.update(self.sync_apps(env.connection, app_labels))
+                # Template schema, if it exists.
+                template_name = get_template_name()
 
-            # All other shards
-            for shard in get_shard_class().objects.filter(node_name__in=databases):
-                with use_shard(shard) as env:
-                    created_models.update(self.sync_apps(env.connection, app_labels))
+                if schema_exists(database, template_name):
+                    with use_shard(node_name=database, schema_name=template_name) as env:
+                        created_models.update(self.sync_apps(env.connection, app_labels))
+
+            # Sync all other shards, if the shards table exist.
+            if shard_table_exists():
+                for shard in get_shard_class().objects.filter(node_name__in=databases):
+                    with use_shard(shard) as env:
+                        created_models.update(self.sync_apps(env.connection, app_labels))
 
         return created_models

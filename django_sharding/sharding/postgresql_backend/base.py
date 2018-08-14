@@ -14,9 +14,12 @@ IN THE SOFTWARE.
 import hashlib
 import re
 
+from django.conf import settings
 from django.db.backends.postgresql_psycopg2.base import DatabaseWrapper as BaseDatabaseWrapper
+from django.db.backends.postgresql_psycopg2.creation import DatabaseCreation
 from django.db.backends.base.base import NO_DB_ALIAS
 from django.db.utils import DatabaseError, IntegrityError
+from django.utils.module_loading import import_string
 from psycopg2 import InternalError, sql
 
 from sharding.postgresql_backend.introspection import DatabaseSchemaIntrospection
@@ -89,6 +92,11 @@ def get_validated_schema_name(schema_name, is_template=False):
     return schema_name
 
 
+def get_database_creation_class():
+    database_creation_class = settings.SHARDING.get('DATABASE_CREATION_CLASS')
+    return import_string(database_creation_class) if database_creation_class else DatabaseCreation
+
+
 class DatabaseWrapper(BaseDatabaseWrapper):
     """
     Adds the capability to manipulate the search_path using set_schema and set_schema_to_public
@@ -103,6 +111,10 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # the DatabaseIntrospection that only returns the table list
         # for the currently selected schema.
         self.introspection = DatabaseSchemaIntrospection(self)
+
+        # Give the library user the possibility to overwrite the database creation class. This allows them to adjust the
+        # creation of the test database, to make a default shard for example.
+        self.creation = get_database_creation_class()(self)
 
         self.schema_name = None
         self.search_path_set = False
@@ -168,9 +180,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             return schema_name
 
     def get_all_pg_schemas(self, _cursor=None):
-        cursor = _cursor or self.cursor()
-        cursor.execute('SELECT schema_name FROM information_schema.schemata;')
-        return cursor.fetchall()
+        return self.introspection.get_schema_names(_cursor or self.cursor())
 
     def get_all_table_headers(self, schema_name=None, _cursor=None):
         cursor = _cursor or self.cursor()
@@ -221,13 +231,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         return cursor.fetchall()
 
     def create_schema(self, schema_name, is_template=False):
-        schema_name = get_validated_schema_name(schema_name, is_template)
+        schema_name = get_validated_schema_name(schema_name, is_template=is_template)
         cursor = self.cursor()
         cursor.execute(
             'CREATE SCHEMA IF NOT EXISTS "{}";'.format(schema_name))  # Params cannot be used for schema names
 
-    def delete_schema(self, schema_name):
-        schema_name = get_validated_schema_name(schema_name)
+    def delete_schema(self, schema_name, is_template=False):
+        schema_name = get_validated_schema_name(schema_name, is_template=is_template)
         cursor = self.cursor()
         cursor.execute('DROP SCHEMA "{}" CASCADE;'.format(schema_name))  # Params cannot be used for schema names
 

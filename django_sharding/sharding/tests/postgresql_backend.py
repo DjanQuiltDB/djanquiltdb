@@ -1,16 +1,21 @@
 import copy
+from contextlib import contextmanager
 from unittest import mock
 
+from django.conf import settings
 from django.db import ProgrammingError, connections
-from django.test import override_settings, TestCase
+from django.db.backends.postgresql_psycopg2.creation import DatabaseCreation as DjangoDatabaseCreation
+from django.db.utils import load_backend
+from django.test import override_settings, TestCase, SimpleTestCase
 from psycopg2 import InternalError
 
 from example.models import Type, Organization, User, Statement, Shard
 from sharding import State
 from sharding.db import connection
-from sharding.postgresql_backend.base import get_validated_schema_name
-from sharding.utils import create_schema_on_node, create_template_schema, use_shard
-from sharding.tests.utils import ShardingTestCase, ShardingTransactionTestCase
+from sharding.postgresql_backend.base import get_validated_schema_name, get_database_creation_class, DatabaseWrapper
+from sharding.postgresql_backend.creation import DatabaseCreation
+from sharding.utils import create_schema_on_node, create_template_schema, use_shard, get_template_name
+from sharding.tests.utils import ShardingTransactionTestCase
 
 
 class GetValidatedSchemaNameTestCase(TestCase):
@@ -499,3 +504,41 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
 
         self.assertTrue(self.get_lock(self.connection1, 'test'))
         self.assertTrue(self.get_lock(self.connection2, 'test2'))
+
+
+class DatabaseCreationTestCase(ShardingTransactionTestCase):
+    @contextmanager
+    def new_connection(self, alias):
+        """ Creates a new connection and deletes it afterwards"""
+        db = connections.databases[alias]
+        backend = load_backend(db['ENGINE'])
+
+        try:
+            conn = backend.DatabaseWrapper(db, alias)
+            yield conn
+        finally:
+            del conn
+
+    # Make sure DATABASE_CREATION_CLASS is not set
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    def test_default(self):
+        """
+        Case: Call get_database_creation_class without having DATABASE_CREATION_CLASS set and then check the connection
+              creation class
+        Expected: Returns the default, which is django.db.backends.postgresql_psycopg2.creation.DatabaseCreation
+        """
+        self.assertEqual(get_database_creation_class(), DjangoDatabaseCreation)
+        with self.new_connection('default') as conn:
+            self.assertEqual(conn.creation.__class__, DjangoDatabaseCreation)
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                 'DATABASE_CREATION_CLASS': 'sharding.postgresql_backend.creation.DatabaseCreation'})
+    def test_database_creation_class_set(self):
+        """
+        Case: Call get_database_creation_class with having DATABASE_CREATION_CLASS set and then check the connection
+              creation class
+        Expected: Returns sharding.postgresql_backend.creation.DatabaseCreation
+        """
+        self.assertEqual(get_database_creation_class(), DatabaseCreation)
+        with self.new_connection('default') as conn:
+            self.assertEqual(conn.creation.__class__, DatabaseCreation)

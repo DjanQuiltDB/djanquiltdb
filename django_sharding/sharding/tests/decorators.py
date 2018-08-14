@@ -1,3 +1,5 @@
+from unittest import mock
+
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 from django.test import TestCase
@@ -6,7 +8,18 @@ from sharding import ShardingMode, State, STATES
 from sharding.decorators import sharded_model, shard_mapping_model, mirrored_model, _reset_shard_mapping_models
 
 
-class ShardedModelDecoratorTestCase(TestCase):
+class ModelTestCase(TestCase):
+    def setUp(self):
+        super().setUp()
+
+        # Make sure we don't register these models, so they don't interfere with others tests. If we do not do this, the
+        # Shard model will have related fields to the models created in these tests. Note that we cannot do this with a
+        # decorator, because mock decorators on the class won't be copied to classes that inherit this class.
+        self.addCleanup(mock.patch.stopall)
+        mock.patch('django.apps.registry.Apps.register_model', mock.Mock()).start()
+
+
+class ShardedModelDecoratorTestCase(ModelTestCase):
     def test_sharding_mode(self):
         """
         Case: Check if decorated model has sharding_mode set.
@@ -23,7 +36,7 @@ class ShardedModelDecoratorTestCase(TestCase):
         self.assertEqual(TestShardedModel.sharding_mode, ShardingMode.SHARDED)
 
 
-class MirroredModelDecoratorTestCase(TestCase):
+class MirroredModelDecoratorTestCase(ModelTestCase):
     def test_mirrored_mode(self):
         """
         Case: Check if decorated model has sharding_mode set.
@@ -40,7 +53,7 @@ class MirroredModelDecoratorTestCase(TestCase):
         self.assertEqual(TestMirroredModel.sharding_mode, ShardingMode.MIRRORED)
 
 
-class MappingModelDecoratorTestCase(TestCase):
+class MappingModelDecoratorTestCase(ModelTestCase):
     def setUp(self):
         super().setUp()
         _reset_shard_mapping_models()
