@@ -27,10 +27,6 @@ class Command(FlushCommand):
             '--schema-name', '-s', action='store', dest='schema_name',
             help='Nominates a schema to flush. When empty all schemas will be flushed.'
         )
-        parser.add_argument(
-            '--check-shard', action='store_true', dest='check_shard', default=True,
-            help='If set, checks whether the shard exists in the shard table.'
-        )
 
     def handle(self, **options):
         interactive = options['interactive']

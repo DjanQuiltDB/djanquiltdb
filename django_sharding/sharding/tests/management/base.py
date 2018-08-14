@@ -19,9 +19,9 @@ class GetDatabasesAndSchemaFromOptionsTestCase(TestCase):
 
         Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default', state=State.ACTIVE)
 
-    def test_without_special_options(self):
+    def test_without_options(self):
         """
-        Case: Call get_database_and_schema_from_options without special options.
+        Case: Call get_database_and_schema_from_options without options.
         Expected: Normal list of databases and no database and schema_name returned.
         """
         databases, schema_name = get_databases_and_schema_from_options(options={})
@@ -72,7 +72,7 @@ class GetDatabasesAndSchemaFromOptionsTestCase(TestCase):
         Expected: Multiple databases returned and a single schema
         """
         databases, schema_name = get_databases_and_schema_from_options(
-            options={'schema_name': 'test_sina'}
+            options={'schema_name': 'test_sina', 'check_shard': False}
         )
 
         self.assertTrue(mock_get_all_dbs.called)
@@ -98,7 +98,7 @@ class GetDatabasesAndSchemaFromOptionsTestCase(TestCase):
         Expected: Single database and schema_name returned
         """
         databases, schema_name = get_databases_and_schema_from_options(
-            options={'database': 'other', 'schema_name': 'paul'}
+            options={'database': 'other', 'schema_name': 'paul', 'check_shard': False}
         )
 
         self.assertTrue(mock_get_all_dbs.called)
