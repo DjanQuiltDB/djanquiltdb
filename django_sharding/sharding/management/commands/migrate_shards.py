@@ -12,6 +12,7 @@ from django.db.migrations.state import ProjectState
 from django.utils.module_loading import module_has_submodule
 
 from sharding.db import connection
+from sharding.management.base import get_databases_and_schema_from_options
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from sharding.utils import get_shard_class, use_shard, get_template_name, get_all_databases
 
@@ -46,8 +47,6 @@ class Command(MigrateCommand):
 
         parser.add_argument('--schema-name', '-s', action='store', dest='schema_name',
                             help='Nominates a schema to synchronize. When empty all schemas will be migrated.')
-        parser.add_argument('--check-shard', action='store_true', dest='check_shard', default=True,
-                            help='If set, checks whether the shard exists in the shard table.')
 
     def handle(self, *args, **options):
         self.verbosity = options.get('verbosity', 0)
@@ -61,7 +60,7 @@ class Command(MigrateCommand):
             if module_has_submodule(app_config.module, 'management'):
                 import_module('.management', app_config.name)
 
-        databases, schema_name = self.get_databases_and_schema_from_options(options)
+        databases, schema_name = get_databases_and_schema_from_options(options)
 
         if options.get('list', False):
             self.stderr.write(
@@ -111,26 +110,6 @@ class Command(MigrateCommand):
                                    fake=options.get('fake'), fake_initial=options.get('fake_initial'))
 
         emit_post_migrate_signal(created_models, self.verbosity, self.interactive, connection.alias)
-
-    def get_databases_and_schema_from_options(self, options):
-        options_database = options.get('database')
-        schema_name = options.get('schema_name')
-        check_shard = options.get('check_shard')
-
-        # Get the database we're operating from
-        if not options_database or options_database == 'all':
-            databases = get_all_databases()
-        elif options_database not in get_all_databases():
-            raise CommandError('You must migrate an existing non-primary DB.')
-        else:
-            databases = [options_database]
-
-        if schema_name and check_shard and schema_name not in ['public', get_template_name()]:
-            for database in databases:
-                if not get_shard_class().objects.filter(schema_name=schema_name, node_name=database).exists():
-                    raise CommandError('Shard {}|{} does not exist.'.format(database, schema_name))
-
-        return databases, schema_name
 
     def get_targets_from_options(self, executor, options):
         if options.get('app_label') and options.get('migration_name'):

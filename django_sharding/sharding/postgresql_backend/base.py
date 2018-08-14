@@ -116,6 +116,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self._lock = True
         self._check_active_mapping_values = False
 
+    def __str__(self):
+        return '{}|{}'.format(self.alias, self.schema_name)
+
     def close(self):
         self.search_path_set = False
         super().close()
