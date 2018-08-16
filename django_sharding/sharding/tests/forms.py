@@ -1,13 +1,12 @@
 import importlib
 
-from django.test import TestCase
-
 from example.models import Shard
 from sharding import State
+from sharding.tests.utils import ShardingTestCase
 from sharding.utils import create_template_schema, use_shard
 
 
-class ModelFormTestCase(TestCase):
+class ModelFormTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 

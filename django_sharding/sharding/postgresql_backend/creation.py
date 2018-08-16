@@ -1,8 +1,46 @@
+import functools
+import json
+from collections import defaultdict
+
 from django.conf import settings
 from django.db.backends.postgresql_psycopg2.creation import DatabaseCreation as BaseDatabaseCreation
 
+from sharding.management.base import shard_table_exists
+from sharding.utils import use_shard, get_template_name, get_shard_class
+from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
+
 
 class DatabaseCreation(BaseDatabaseCreation):
+    def serialize_db_to_string(self):
+        _use_shard = functools.partial(use_shard, node_name=self.connection.alias)
+
+        data = defaultdict(list)
+
+        # Public schema
+        with _use_shard(schema_name=PUBLIC_SCHEMA_NAME):
+            data[PUBLIC_SCHEMA_NAME] = json.loads(super().serialize_db_to_string())
+
+        # Template schema
+        template_name = get_template_name()
+        if self.connection.get_ps_schema(template_name):
+            with _use_shard(schema_name=template_name, include_public=False):
+                data[template_name] = json.loads(super().serialize_db_to_string())
+
+        # Shards
+        if shard_table_exists():
+            for shard in get_shard_class().objects.filter(node_name=self.connection.alias):
+                with _use_shard(shard, active_only_schemas=False, include_public=False):
+                    data[shard.schema_name] = json.loads(super().serialize_db_to_string())
+
+        return json.dumps(data)
+
+    def deserialize_db_from_string(self, data):
+        for schema_name, data_ in json.loads(data).items():
+            with use_shard(node_name=self.connection.alias, schema_name=schema_name, active_only_schemas=False):
+                super().deserialize_db_from_string(json.dumps(data_))
+
+
+class TemplateDatabaseCreation(DatabaseCreation):
     def _create_test_db(self, verbosity, autoclobber, keepdb=False):
         """
         Extend this method to create a template schema as well during test database creation. Note that the

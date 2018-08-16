@@ -2,7 +2,7 @@ import pickle
 from unittest import mock
 
 from django.db import IntegrityError
-from django.test import TestCase, SimpleTestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 
 from example.models import Shard, Organization, User, OrganizationShards, Type, Cake, SuperType
 from sharding import ShardingMode, State
@@ -494,7 +494,7 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         mock_acquire_lock.assert_called_once_with(key='shard_{}'.format(other_shard.id), shared=True)
 
 
-class QuerySetTestCase(TestCase):
+class QuerySetTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 

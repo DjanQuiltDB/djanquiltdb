@@ -16,7 +16,6 @@ import re
 
 from django.conf import settings
 from django.db.backends.postgresql_psycopg2.base import DatabaseWrapper as BaseDatabaseWrapper
-from django.db.backends.postgresql_psycopg2.creation import DatabaseCreation
 from django.db.backends.base.base import NO_DB_ALIAS
 from django.db.utils import DatabaseError, IntegrityError
 from django.utils.module_loading import import_string
@@ -93,6 +92,8 @@ def get_validated_schema_name(schema_name, is_template=False):
 
 
 def get_database_creation_class():
+    from sharding.postgresql_backend.creation import DatabaseCreation  # Prevent cyclic imports
+
     database_creation_class = settings.SHARDING.get('DATABASE_CREATION_CLASS')
     return import_string(database_creation_class) if database_creation_class else DatabaseCreation
 

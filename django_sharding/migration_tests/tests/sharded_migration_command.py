@@ -6,7 +6,7 @@ from django.db import ProgrammingError, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.migration import Migration
 from django.db.migrations.recorder import MigrationRecorder
-from django.test import override_settings, TestCase
+from django.test import override_settings
 from django.utils import six
 
 from example.models import Shard
@@ -15,7 +15,7 @@ from sharding.db import connection
 from sharding.management.commands.migrate_shards import Command as MigrateShards
 from sharding.tests.utils import ShardingTestCase
 from sharding.utils import State, use_shard, get_template_name, get_all_databases, get_all_sharded_models, \
-    create_template_schema, delete_schema, schema_exists
+    create_template_schema, schema_exists
 
 
 @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'sharding'}))
@@ -979,7 +979,7 @@ class SeparateDatabaseAndStateTestCase(MigrationTestCase):
 
 
 @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_unroutable'})
-class UnroutableMigrationTestCase(TestCase):
+class UnroutableMigrationTestCase(ShardingTestCase):
     available_apps = ['migration_tests', 'sharding']
 
     def test_run_python(self):
@@ -1013,7 +1013,7 @@ class UnroutableMigrationTestCase(TestCase):
 
 
 @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_removed_model'})
-class UnroutableMigrationTestCase2(TestCase):
+class UnroutableMigrationTestCase2(ShardingTestCase):
     available_apps = ['migration_tests', 'sharding']
 
     @mock.patch('sharding.utils.logger.warning')

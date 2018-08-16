@@ -480,7 +480,7 @@ class UseShardTestCase(ShardingTestCase):
         self.assertFalse(mock_set_schema.called)
 
 
-class UseShardForTestCase(TestCase):
+class UseShardForTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 
@@ -586,7 +586,7 @@ class UseShardForTestCase(TestCase):
         mock_release_advisory_lock.assert_any_call(key='shard_{}'.format(self.shard1.id), shared=True)
 
 
-class GetShardForTestCase(TestCase):
+class GetShardForTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 
@@ -976,7 +976,8 @@ class DynamicDbRouterTestCase(ShardingTestCase):
                                  'auth_group_permissions', 'example_shard', 'django_session', 'example_type',
                                  'example_supertype', 'example_organizationshards']
         # The tables present on all non-default public schema's are all the mirrored tables.
-        other_public_tables = ['django_migrations',  'example_type', 'example_supertype']
+        other_public_tables = ['django_migrations',  'example_type', 'example_supertype', 'django_content_type',
+                               'auth_group', 'auth_permission', 'auth_group_permissions']
         # The tables present on the template schema's are all the sharded tables.
         template_tables = ['django_migrations', 'example_organization', 'example_suborganization', 'example_user',
                            'example_statement', 'example_cake', 'example_user_cake', 'example_statement_type']
@@ -1093,9 +1094,13 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         Case: Call create_template_schema with both migrate set to True and False
         Expected: migrate_schema is not called when migrate=False and it is called when migrate=True
         """
+        template_name = get_template_name()
+
+        self.assertFalse(schema_exists('default', template_name))
         create_template_schema('default', migrate=False)
         self.assertFalse(mock_migrate_schema.called)
 
+        self.assertFalse(schema_exists('other', template_name))
         create_template_schema('other', migrate=True)
         self.assertTrue(mock_migrate_schema.called)
 
@@ -1160,7 +1165,7 @@ class GetShardingModeTestCase(SimpleTestCase):
         self.assertEqual(get_sharding_mode('example', 'user_cake'), ShardingMode.SHARDED)
 
 
-class GetAllShardedModels(TestCase):
+class GetAllShardedModels(ShardingTestCase):
     available_apps = ['example']
 
     def test_with_override(self):
@@ -1211,7 +1216,7 @@ class GetAllShardedModels(TestCase):
                                "<class 'example.models.Statement'>"])
 
 
-class GetAllMirroredModels(TestCase):
+class GetAllMirroredModels(ShardingTestCase):
     available_apps = ['example']
 
     def test_with_override(self):
@@ -1245,7 +1250,7 @@ class GetAllDatabases(SimpleTestCase):
         self.assertCountEqual(get_all_databases(), ['default', 'space'])
 
 
-class ForEachShardTestCase(TestCase):
+class ForEachShardTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 
@@ -1320,20 +1325,6 @@ class ForEachNodeTestCase(SimpleTestCase):
 
 
 class WriteToEveryNodeSystemTestCase(ShardingTransactionTestCase):
-    def cleanup(self):
-        for_each_node(self.cleanup_shard)
-
-    def cleanup_shard(self, node_name):
-        Type.objects.all().delete()
-
-    def setUp(self):
-        super().setUp()
-        self.addCleanup(self.cleanup)
-
-    def _post_teardown(self):
-        # No need to revert stuff. In fact, it breaks the connections
-        pass
-
     def test_write_to_all_nodes(self):
         """
         Case: Use the @atomic_write_to_every_node on a simple write function.
@@ -1376,20 +1367,6 @@ class WriteToEveryNodeSystemTestCase(ShardingTransactionTestCase):
 
 
 class TransactionForNodesTestCase(ShardingTransactionTestCase):
-    def cleanup(self):
-        for_each_node(self.cleanup_shard)
-
-    def cleanup_shard(self, node_name):
-        Type.objects.all().delete()
-
-    def setUp(self):
-        super().setUp()
-        self.addCleanup(self.cleanup)
-
-    def _post_teardown(self):
-        # No need to revert stuff. In fact, it breaks the connections
-        pass
-
     @mock.patch('sharding.utils.Atomic.__init__')
     @mock.patch('sharding.utils.Atomic.__enter__', autospec=True)
     @mock.patch('sharding.utils.Atomic.__exit__', autospec=True)
@@ -1492,8 +1469,8 @@ class TransactionForNodesTestCase(ShardingTransactionTestCase):
 
         def conflicting_transaction():
             """
-            Create a new tranassction, independant on those made in `transaction_for_every_node`
-            Try to claim a exclusive on the table locked by `transaction_for_every_node`.
+            Create a new transaction, independent on those made in `transaction_for_every_node`
+            Try to claim an exclusive on the table locked by `transaction_for_every_node`.
             Close connection so not to interfere with the rest of the TestCase.
             """
             with transaction.atomic():

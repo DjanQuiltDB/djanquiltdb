@@ -1,11 +1,11 @@
 from django.core.urlresolvers import reverse
-from django.test import TestCase
 
 from example.models import Organization, User, Type, Shard
+from sharding.tests.utils import ShardingTestCase
 from sharding.utils import use_shard, State, create_template_schema
 
 
-class LoginTestCase(TestCase):
+class LoginTestCase(ShardingTestCase):
     def setUp(self):
         create_template_schema('default')
         self.shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default',

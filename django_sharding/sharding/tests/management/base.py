@@ -2,15 +2,15 @@ from unittest import mock
 
 from django.conf import settings
 from django.core.management import CommandError, call_command
-from django.test import TestCase
 
 from example.models import Shard
 from sharding import State
 from sharding.management.base import get_databases_and_schema_from_options, shard_table_exists
+from sharding.tests.utils import ShardingTestCase
 from sharding.utils import create_template_schema, get_all_databases
 
 
-class ShardTableExistsTestCase(TestCase):
+class ShardTableExistsTestCase(ShardingTestCase):
     def test_exists(self):
         """
         Case: Check if the shard table exists for a node we know the shard table exists
@@ -28,7 +28,7 @@ class ShardTableExistsTestCase(TestCase):
         self.assertFalse(shard_table_exists('default'))
 
 
-class GetDatabasesAndSchemaFromOptionsTestCase(TestCase):
+class GetDatabasesAndSchemaFromOptionsTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 
