@@ -92,10 +92,9 @@ def get_validated_schema_name(schema_name, is_template=False):
 
 
 def get_database_creation_class():
-    from sharding.postgresql_backend.creation import DatabaseCreation  # Prevent cyclic imports
-
-    database_creation_class = settings.SHARDING.get('DATABASE_CREATION_CLASS')
-    return import_string(database_creation_class) if database_creation_class else DatabaseCreation
+    return import_string(
+        settings.SHARDING.get('DATABASE_CREATION_CLASS', 'sharding.postgresql_backend.creation.DatabaseCreation')
+    )
 
 
 class DatabaseWrapper(BaseDatabaseWrapper):

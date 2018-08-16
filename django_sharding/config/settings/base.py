@@ -5,10 +5,9 @@ import dj_database_url
 import functools
 
 from config.secret import get as get_secret
-
-# Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 from sharding import ShardingMode
 
+# Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
 # Read secrets.json as JSON
