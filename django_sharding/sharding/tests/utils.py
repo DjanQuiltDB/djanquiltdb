@@ -1470,7 +1470,7 @@ class TransactionForNodesTestCase(ShardingTransactionTestCase):
         def conflicting_transaction():
             """
             Create a new transaction, independent on those made in `transaction_for_every_node`
-            Try to claim an exclusive on the table locked by `transaction_for_every_node`.
+            Try to claim an exclusive lock on the table locked by `transaction_for_every_node`.
             Close connection so not to interfere with the rest of the TestCase.
             """
             with transaction.atomic():

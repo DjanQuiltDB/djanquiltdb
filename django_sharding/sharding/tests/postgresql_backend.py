@@ -12,6 +12,7 @@ from psycopg2 import InternalError
 from example.models import Type, Organization, User, Statement, Shard, Cake, SuperType
 from sharding import State, ShardingMode
 from sharding.db import connection
+from sharding.decorators import override_sharding_setting
 from sharding.postgresql_backend.base import get_validated_schema_name, get_database_creation_class, PUBLIC_SCHEMA_NAME
 from sharding.postgresql_backend.creation import DatabaseCreation, TemplateDatabaseCreation
 from sharding.utils import create_schema_on_node, create_template_schema, use_shard, get_template_name, \
@@ -520,8 +521,7 @@ class DatabaseCreationClassTestCase(ShardingTransactionTestCase):
         finally:
             del conn
 
-    # Make sure DATABASE_CREATION_CLASS is not set
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_sharding_setting('DATABASE_CREATION_CLASS')
     def test_default(self):
         """
         Case: Call get_database_creation_class without having DATABASE_CREATION_CLASS set and then check the connection
@@ -532,10 +532,8 @@ class DatabaseCreationClassTestCase(ShardingTransactionTestCase):
         with self.new_connection('default') as conn:
             self.assertEqual(conn.creation.__class__, DatabaseCreation)
 
-    @override_settings(SHARDING={
-        'SHARD_CLASS': 'example.models.Shard',
-        'DATABASE_CREATION_CLASS': 'sharding.postgresql_backend.creation.TemplateDatabaseCreation'
-    })
+    @override_sharding_setting('DATABASE_CREATION_CLASS',
+                               'sharding.postgresql_backend.creation.TemplateDatabaseCreation')
     def test_database_creation_class_set(self):
         """
         Case: Call get_database_creation_class with having DATABASE_CREATION_CLASS set and then check the connection
