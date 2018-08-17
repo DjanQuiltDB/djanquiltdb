@@ -6,7 +6,7 @@ from django.conf import settings
 from django.db.backends.postgresql_psycopg2.creation import DatabaseCreation as BaseDatabaseCreation
 
 from sharding.management.base import shard_table_exists
-from sharding.utils import use_shard, get_template_name, get_shard_class
+from sharding.utils import use_shard, get_template_name, get_shard_class, create_template_schema
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 
 
@@ -60,13 +60,13 @@ class TemplateDatabaseCreation(DatabaseCreation):
         settings.DATABASES[self.connection.alias]['NAME'] = test_database_name
         self.connection.settings_dict['NAME'] = test_database_name
 
-        if not keepdb:
-            from sharding.utils import create_template_schema  # Prevent cyclic imports
-
-            create_template_schema(
-                node_name=self.connection.alias,
-                verbosity=max(verbosity - 1, 0),
-                migrate=False  # Will be done in the migrate command
-            )
+        # We report migrate messages at one level lower than that requested.
+        # This ensures we don't get flooded with messages during testing
+        # (unless you really ask to be flooded).
+        create_template_schema(
+            node_name=self.connection.alias,
+            verbosity=max(verbosity - 1, 0),
+            migrate=False  # Will be done in the migrate command
+        )
 
         return test_database_name
