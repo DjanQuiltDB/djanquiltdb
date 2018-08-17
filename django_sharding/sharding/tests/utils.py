@@ -18,7 +18,7 @@ from sharding.utils import use_shard, create_schema_on_node, DynamicDbRouter, TH
     StateException, use_shard_for, get_shard_for, for_each_shard, State, for_each_node, transaction_for_every_node, \
     move_model_to_schema, get_all_databases, ShardingMode, get_sharding_mode, get_model_sharding_mode, \
     get_all_sharded_models, get_shard_class, get_mapping_class, transaction_for_nodes, get_all_mirrored_models, \
-    delete_schema
+    delete_schema, schema_exists
 
 
 @sharded_model()
@@ -480,7 +480,7 @@ class UseShardTestCase(ShardingTestCase):
         self.assertFalse(mock_set_schema.called)
 
 
-class UseShardForTestCase(TestCase):
+class UseShardForTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 
@@ -586,7 +586,7 @@ class UseShardForTestCase(TestCase):
         mock_release_advisory_lock.assert_any_call(key='shard_{}'.format(self.shard1.id), shared=True)
 
 
-class GetShardForTestCase(TestCase):
+class GetShardForTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 
@@ -738,7 +738,7 @@ class DeleteSchemaTestCase(ShardingTestCase):
         Expected: DatabaseWrapper.delete_schema called with the same schema name
         """
         delete_schema(schema_name='test_schema', node_name='default')
-        mock_delete_schema.assert_called_once_with('test_schema')
+        mock_delete_schema.assert_called_once_with('test_schema', is_template=False)
 
     def test_node_not_exists(self):
         """
@@ -747,6 +747,32 @@ class DeleteSchemaTestCase(ShardingTestCase):
         """
         with self.assertRaises(ValueError):
             delete_schema(schema_name='test_schema', node_name='not_existing_node')
+
+    def test_delete_template_is_template_false(self):
+        """
+        Case: Delete the template schema without having is_template=True set
+        Expected: ValueError raised and schema not deleted
+        """
+        create_template_schema('default')
+
+        template_name = get_template_name()
+        message = "Schema name 'template' cannot be the same as the template name 'template'"
+        with self.assertRaisesMessage(ValueError, message):
+            delete_schema(schema_name=template_name, node_name='default')
+
+        self.assertTrue(schema_exists('default', template_name))
+
+    def test_delete_template_is_template_true(self):
+        """
+        Case: Delete the template schema with having is_template=True set
+        Expected: Schema deleted
+        """
+        create_template_schema('default')
+
+        template_name = get_template_name()
+        delete_schema(schema_name=template_name, node_name='default', is_template=True)
+
+        self.assertFalse(schema_exists('default', template_name))
 
 
 class NodeExistsTestCase(SimpleTestCase):
@@ -950,7 +976,8 @@ class DynamicDbRouterTestCase(ShardingTestCase):
                                  'auth_group_permissions', 'example_shard', 'django_session', 'example_type',
                                  'example_supertype', 'example_organizationshards']
         # The tables present on all non-default public schema's are all the mirrored tables.
-        other_public_tables = ['django_migrations',  'example_type', 'example_supertype']
+        other_public_tables = ['django_migrations',  'example_type', 'example_supertype', 'django_content_type',
+                               'auth_group', 'auth_permission', 'auth_group_permissions']
         # The tables present on the template schema's are all the sharded tables.
         template_tables = ['django_migrations', 'example_organization', 'example_suborganization', 'example_user',
                            'example_statement', 'example_cake', 'example_user_cake', 'example_statement_type']
@@ -1033,7 +1060,7 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         Case: call utils.migrate_schema() to migrate the sharded models to the template schema
         Expected: The newly made schema to have to correct table headers.
         """
-        create_template_schema('default')  # this also calls the migration
+        create_template_schema('default')  # This also calls the migration
 
         cursor = connection.cursor()
         cursor.execute("SELECT * FROM pg_catalog.pg_tables WHERE schemaname = 'template';")
@@ -1051,7 +1078,7 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         Expected: ValueError raised
         """
         with self.assertRaises(ValueError):
-            migrate_schema('no_connection', 'test_schema')  # this also calls the migration
+            migrate_schema('no_connection', 'test_schema')  # This also calls the migration
 
     def test_create_template_schema_invalid_schema_name(self):
         """
@@ -1059,7 +1086,23 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         Expected: ValueError raised
         """
         with self.assertRaises(ValueError):
-            migrate_schema('default', 'test_schema')  # this also calls the migration
+            migrate_schema('default', 'test_schema')  # This also calls the migration
+
+    @mock.patch('sharding.utils.migrate_schema')
+    def test_migrate(self, mock_migrate_schema):
+        """
+        Case: Call create_template_schema with both migrate set to True and False
+        Expected: migrate_schema is not called when migrate=False and it is called when migrate=True
+        """
+        template_name = get_template_name()
+
+        self.assertFalse(schema_exists('default', template_name))
+        create_template_schema('default', migrate=False)
+        self.assertFalse(mock_migrate_schema.called)
+
+        self.assertFalse(schema_exists('other', template_name))
+        create_template_schema('other', migrate=True)
+        self.assertTrue(mock_migrate_schema.called)
 
 
 class GetModelShardingModeTestCase(SimpleTestCase):
@@ -1122,7 +1165,7 @@ class GetShardingModeTestCase(SimpleTestCase):
         self.assertEqual(get_sharding_mode('example', 'user_cake'), ShardingMode.SHARDED)
 
 
-class GetAllShardedModels(TestCase):
+class GetAllShardedModels(ShardingTestCase):
     available_apps = ['example']
 
     def test_with_override(self):
@@ -1173,7 +1216,7 @@ class GetAllShardedModels(TestCase):
                                "<class 'example.models.Statement'>"])
 
 
-class GetAllMirroredModels(TestCase):
+class GetAllMirroredModels(ShardingTestCase):
     available_apps = ['example']
 
     def test_with_override(self):
@@ -1207,7 +1250,7 @@ class GetAllDatabases(SimpleTestCase):
         self.assertCountEqual(get_all_databases(), ['default', 'space'])
 
 
-class ForEachShardTestCase(TestCase):
+class ForEachShardTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 
@@ -1282,20 +1325,6 @@ class ForEachNodeTestCase(SimpleTestCase):
 
 
 class WriteToEveryNodeSystemTestCase(ShardingTransactionTestCase):
-    def cleanup(self):
-        for_each_node(self.cleanup_shard)
-
-    def cleanup_shard(self, node_name):
-        Type.objects.all().delete()
-
-    def setUp(self):
-        super().setUp()
-        self.addCleanup(self.cleanup)
-
-    def _post_teardown(self):
-        # No need to revert stuff. In fact, it breaks the connections
-        pass
-
     def test_write_to_all_nodes(self):
         """
         Case: Use the @atomic_write_to_every_node on a simple write function.
@@ -1338,20 +1367,6 @@ class WriteToEveryNodeSystemTestCase(ShardingTransactionTestCase):
 
 
 class TransactionForNodesTestCase(ShardingTransactionTestCase):
-    def cleanup(self):
-        for_each_node(self.cleanup_shard)
-
-    def cleanup_shard(self, node_name):
-        Type.objects.all().delete()
-
-    def setUp(self):
-        super().setUp()
-        self.addCleanup(self.cleanup)
-
-    def _post_teardown(self):
-        # No need to revert stuff. In fact, it breaks the connections
-        pass
-
     @mock.patch('sharding.utils.Atomic.__init__')
     @mock.patch('sharding.utils.Atomic.__enter__', autospec=True)
     @mock.patch('sharding.utils.Atomic.__exit__', autospec=True)
@@ -1454,8 +1469,8 @@ class TransactionForNodesTestCase(ShardingTransactionTestCase):
 
         def conflicting_transaction():
             """
-            Create a new tranassction, independant on those made in `transaction_for_every_node`
-            Try to claim a exclusive on the table locked by `transaction_for_every_node`.
+            Create a new transaction, independent on those made in `transaction_for_every_node`
+            Try to claim an exclusive lock on the table locked by `transaction_for_every_node`.
             Close connection so not to interfere with the rest of the TestCase.
             """
             with transaction.atomic():
@@ -1657,3 +1672,20 @@ class MoveModelToExistingSchemaTestCase(ShardingTransactionTestCase):
         # The User table is already on the sharded schema.
         with self.assertRaises(ProgrammingError):
             move_model_to_schema(model=User, node_name='default', to_schema_name=another_schema.schema_name)
+
+
+class SchemaExistsTestCase(ShardingTestCase):
+    def test_schema_exists(self):
+        """
+        Case: Call schema_exists while knowing that schema exists
+        Expected: Returns True
+        """
+        create_template_schema('default')
+        self.assertTrue(schema_exists('default', get_template_name()))
+
+    def test_schema_does_not_exists(self):
+        """
+        Case: Call schema_exists while knowing that schema does not exists
+        Expected: Returns False
+        """
+        self.assertFalse(schema_exists('default', get_template_name()))

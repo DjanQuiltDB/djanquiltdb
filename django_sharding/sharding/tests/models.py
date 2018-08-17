@@ -2,7 +2,7 @@ import pickle
 from unittest import mock
 
 from django.db import IntegrityError
-from django.test import TestCase, SimpleTestCase, override_settings
+from django.test import SimpleTestCase, override_settings
 
 from example.models import Shard, Organization, User, OrganizationShards, Type, Cake, SuperType
 from sharding import ShardingMode, State
@@ -10,7 +10,8 @@ from sharding.exceptions import ShardingError
 from sharding.models import BaseShard
 from sharding.options import get_shard_from_instance_options
 from sharding.tests.utils import ShardingTestCase
-from sharding.utils import get_shard_class, use_shard, create_template_schema, use_shard_for, StateException
+from sharding.utils import get_shard_class, use_shard, create_template_schema, use_shard_for, StateException, \
+    create_schema_on_node
 from sharding.tests.app_config import DummyShard
 
 
@@ -25,8 +26,6 @@ class GetShardTestCase(SimpleTestCase):
 
 
 class BaseShardTestCase(ShardingTestCase):
-    available_apps = []  # Explicit, to make sure the whole test run passes
-
     @mock.patch('sharding.utils.create_schema_on_node')
     @mock.patch('sharding.models.models.Model.save')
     def test_save(self, mock_save, mock_create_schema):
@@ -64,6 +63,19 @@ class BaseShardTestCase(ShardingTestCase):
         mock_create_schema.reset_mock()
         shard.save()
         self.assertFalse(mock_create_schema.called)
+
+    def test_create_schema_exists(self):
+        """
+        Case: Save a new shard while the schema already exists
+        Expected: create_schema_on_node not called
+        """
+        create_template_schema(node_name='default')
+        create_schema_on_node(node_name='default', schema_name='test_schema')
+
+        with mock.patch('sharding.utils.create_schema_on_node') as mock_create_schema:
+            shard = Shard(alias='test_shard', schema_name='test_schema', node_name='default')
+            shard.save()
+            self.assertFalse(mock_create_schema.called)
 
     @mock.patch('sharding.utils.create_schema_on_node')
     def test_save_on_correct_node(self, mock_create_schema):
@@ -174,7 +186,6 @@ class BaseShardTestCase(ShardingTestCase):
         self.assertIsInstance(use_shard_context_manager, use_shard)
         self.assertEqual(use_shard_context_manager.shard, shard)
 
-    @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'sharding'}))
     @mock.patch('sharding.models.delete_schema')
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_delete_from_db(self, mock_delete_schema):
@@ -189,7 +200,6 @@ class BaseShardTestCase(ShardingTestCase):
 
         mock_delete_schema.assert_called_with(schema_name='test_schema', node_name='default')
 
-    @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'sharding'}))
     @mock.patch('sharding.models.delete_schema')
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_delete(self, mock_delete_schema):
@@ -484,7 +494,7 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         mock_acquire_lock.assert_called_once_with(key='shard_{}'.format(other_shard.id), shared=True)
 
 
-class QuerySetTestCase(TestCase):
+class QuerySetTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 

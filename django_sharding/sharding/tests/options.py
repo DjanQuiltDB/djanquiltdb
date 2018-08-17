@@ -1,16 +1,15 @@
 from unittest import mock
 
-from django.test import TestCase
-
 from example.models import Shard, Organization, OrganizationShards
 from sharding import State
 from sharding.exceptions import ShardingError
 from sharding.options import InstanceShardOptions, get_shard_from_instance_options, connection_has_same_shard_options, \
     use_shard_from_instance_options
+from sharding.tests.utils import ShardingTestCase
 from sharding.utils import create_template_schema, use_shard
 
 
-class GetShardFromInstanceOptionsTestCase(TestCase):
+class GetShardFromInstanceOptionsTestCase(ShardingTestCase):
     def setUp(self):
         create_template_schema()
 
@@ -53,7 +52,7 @@ class GetShardFromInstanceOptionsTestCase(TestCase):
             get_shard_from_instance_options(shard_options)
 
 
-class ConnectionHasSameShardOptionsTestCase(TestCase):
+class ConnectionHasSameShardOptionsTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 
@@ -89,7 +88,7 @@ class ConnectionHasSameShardOptionsTestCase(TestCase):
             self.assertFalse(connection_has_same_shard_options(self.shard_options))
 
 
-class UseShardFromInstanceOptions(TestCase):
+class UseShardFromInstanceOptions(ShardingTestCase):
     def setUp(self):
         super().setUp()
 

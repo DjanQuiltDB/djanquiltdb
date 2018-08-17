@@ -493,12 +493,12 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
         connections[node_name].clone_schema(get_template_name(), schema_name)
 
 
-def delete_schema(schema_name, node_name):
+def delete_schema(schema_name, node_name, is_template=False):
     _node_exists(node_name)
-    connections[node_name].delete_schema(schema_name)
+    connections[node_name].delete_schema(schema_name, is_template=is_template)
 
 
-def create_template_schema(node_name='default', interactive=False, verbosity=0):
+def create_template_schema(node_name='default', interactive=False, verbosity=0, migrate=True):
     """
     Each node needs to have a template schema. This is cloned for each new shard on the node.
     This function creates a new schema on a given node that is named 'template', or what you have set under
@@ -511,7 +511,8 @@ def create_template_schema(node_name='default', interactive=False, verbosity=0):
 
     :param str node_name: Provide the name of the database connection to be used. If empty it will use the current.
     :param bool interactive: Tells Django to NOT prompt the user for input of any kind.
-    :param bool verbosity: Verbosity level; 0=minimal output, 1=normal output, 2=verbose output, 3=very verbose output
+    :param int verbosity: Verbosity level; 0=minimal output, 1=normal output, 2=verbose output, 3=very verbose output
+    :param bool migrate: Performs the migration after the template schema has been created
 
     :returns: None
 
@@ -529,7 +530,9 @@ def create_template_schema(node_name='default', interactive=False, verbosity=0):
         return
 
     connections[node_name].create_schema(schema_name, is_template=True)  # If it already exists, it's no problem
-    migrate_schema(node_name, schema_name, interactive=interactive, verbosity=verbosity)
+
+    if migrate:
+        migrate_schema(node_name, schema_name, interactive=interactive, verbosity=verbosity)
 
 
 def migrate_schema(node_name, schema_name, interactive=False, verbosity=0, check_shard=False):
@@ -543,7 +546,7 @@ def migrate_schema(node_name, schema_name, interactive=False, verbosity=0, check
     :param str node_name: Provide the name of the database connection to be used. If empty it will use the current.
     :param str schema_name: Provide the name of the schema to be made.
     :param bool interactive: Tells Django to NOT prompt the user for input of any kind.
-    :param bool verbosity: Verbosity level; 0=minimal output, 1=normal output, 2=verbose output, 3=very verbose output
+    :param int verbosity: Verbosity level; 0=minimal output, 1=normal output, 2=verbose output, 3=very verbose output
     :param bool check_shard: If set, checks whether the shard exists in the shard table.
 
     :returns: None
@@ -727,3 +730,8 @@ def move_model_to_schema(model, node_name, to_schema_name, from_schema_name=PUBL
             raise ProgrammingError("Table '{}' already exists on schema '{}'.".format(model._meta.db_table,
                                                                                       to_schema_name))
         cursor.execute('ALTER TABLE "{}" SET SCHEMA "{}";'.format(model._meta.db_table, to_schema_name))
+
+
+def schema_exists(node_name, schema_name):
+    _node_exists(node_name)
+    return bool(connections[node_name].get_ps_schema(schema_name))

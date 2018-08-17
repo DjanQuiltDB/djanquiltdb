@@ -5,6 +5,7 @@ import dj_database_url
 import functools
 
 from config.secret import get as get_secret
+from sharding import ShardingMode
 
 # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -80,6 +81,10 @@ SHARDING = {
     'SHARD_CLASS': 'example.models.Shard',
     'MAPPING_MODEL': 'example.models.OrganizationShards',
     'NEW_SHARD_NODE': 'other',
+    'OVERRIDE_SHARDING_MODE': {
+        ('auth',): ShardingMode.MIRRORED,
+        ('contenttypes',): ShardingMode.MIRRORED,
+    }
 }
 
 DATABASE_ROUTERS = ['sharding.utils.DynamicDbRouter']

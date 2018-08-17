@@ -1,9 +1,11 @@
+import copy
 import functools
 import inspect
 
 from django.core.exceptions import ImproperlyConfigured, FieldDoesNotExist
 from django.conf import settings
 from django.db import models
+from django.test import override_settings
 
 from sharding import ShardingMode, STATES
 from sharding.db import connection
@@ -290,3 +292,18 @@ def atomic_write_to_every_node(schema_name=PUBLIC_SCHEMA_NAME, lock_models=()):
         return _add_decorator_reference(decorator, decorator=atomic_write_to_every_node,
                                         kwargs={'schema_name': schema_name, 'lock_models': lock_models})
     return decorate
+
+
+class override_sharding_setting(override_settings):
+    SENTINEL = object()  # Indicator for the absence of a value
+
+    def __init__(self, name, value=SENTINEL):
+        sharding = copy.deepcopy(settings.SHARDING)  # Important: use a deepcopy, don't modify the reference
+
+        if value is self.SENTINEL:
+            # If we didn't provide a value, then we delete the value from the settings
+            sharding.pop(name, None)
+        else:
+            sharding[name] = value
+
+        super().__init__(SHARDING=sharding)

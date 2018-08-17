@@ -169,6 +169,10 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
             GROUP BY indexname, indisunique, indisprimary, amname, exprdef;
     """
 
+    _get_schema_names_query = """
+        SELECT schema_name FROM information_schema.schemata
+    """
+
     def get_field_type(self, data_type, description):
         field_type = super(DatabaseSchemaIntrospection, self).get_field_type(data_type, description)
         if description.default and 'nextval' in description.default:
@@ -308,3 +312,7 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
                     'definition': definition,
                 }
         return constraints
+
+    def get_schema_names(self, cursor):
+        cursor.execute(self._get_schema_names_query)
+        return cursor.fetchall()
