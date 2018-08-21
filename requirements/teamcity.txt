@@ -5,3 +5,5 @@ teamcity-messages
 
 bandit
 flake8
+
+tox

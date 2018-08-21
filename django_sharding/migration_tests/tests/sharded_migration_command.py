@@ -343,15 +343,13 @@ class ShardedMigrationHandleTestCase(MigrationTestCase):
                                           state=State.ACTIVE)
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
-    @mock.patch('django.core.management.sql.emit_post_migrate_signal')
     @mock.patch('sharding.management.commands.migrate_shards.Command.perform_migration')
-    @mock.patch('django.core.management.sql.emit_pre_migrate_signal')
     @mock.patch('sharding.management.commands.migrate_shards.Command.get_plan')
     @mock.patch('sharding.management.commands.migrate_shards.Command.get_targets_from_options',
                 return_value=(mock.Mock(), mock.Mock()))
     @mock.patch('django.db.migrations.loader.MigrationLoader.detect_conflicts')
     @mock.patch('django.db.backends.base.base.BaseDatabaseWrapper.prepare_database')
-    @mock.patch('sharding.management.base.get_databases_and_schema_from_options')
+    @mock.patch('sharding.management.commands.migrate_shards.get_databases_and_schema_from_options')
     @mock.patch('sharding.management.commands.migrate_shards.import_module')
     def test_migrate_handle(self,
                             mock_import_module,
@@ -360,27 +358,28 @@ class ShardedMigrationHandleTestCase(MigrationTestCase):
                             mock_detect_conflicts,
                             mock_get_targets,
                             mock_get_plan,
-                            mock_emit_pre_migrate_signal,
-                            mock_perform_migration,
-                            mock_emit_post_migrate_signal):
+                            mock_perform_migration):
         """
-        Case: Call MultiSchemaMigration.migrate() with shard in several states of migration.
+        Case: Call MigrateShards.handle()
         Expected: A ton of external functions to be called.
         """
         mock_get_db_from_options.return_value = ([db for db in settings.DATABASES], None)
         mock_detect_conflicts.return_value = False
 
-        MigrateShards().handle(database='all', fake=False, fake_initial=False)
+        options = {
+            'database': 'all',
+            'fake': False,
+            'fake_initial': False,
+        }
+        MigrateShards().handle(**options)
 
         mock_import_module.assert_called_once_with('.management', 'sharding')
-        mock_get_db_from_options.assert_called_once()
-        self.assertEqual(mock_prepare_database.call_count, 2)  # we have 2 databases
-        mock_detect_conflicts.assert_called_once()
-        mock_get_targets.assert_called_once()
-        mock_get_plan.assert_called_once()
-        mock_emit_pre_migrate_signal.assert_called_once()
-        mock_perform_migration.assert_called_once()
-        mock_emit_post_migrate_signal.assert_called_once()
+        mock_get_db_from_options.assert_called_once_with(options)
+        self.assertEqual(mock_prepare_database.call_count, 2)  # We have 2 databases
+        mock_detect_conflicts.assert_called_once_with()
+        self.assertEqual(mock_get_targets.call_count, 1)
+        self.assertEqual(mock_get_plan.call_count, 1)
+        self.assertEqual(mock_perform_migration.call_count, 1)
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
     def test_failure_during_migration(self):
