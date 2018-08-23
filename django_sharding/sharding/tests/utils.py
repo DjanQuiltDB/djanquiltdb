@@ -1183,21 +1183,23 @@ class GetAllShardedModels(ShardingTestCase):
     def test(self, mock_get_model_sharding_mode):
         """
         Case: Call get_all_sharded_models.
-        Expected: get_model_sharding_mode called for each model.
+        Expected: get_model_sharding_mode called for each model that's not a proxy model.
         """
         get_all_sharded_models()
-        for model in apps.get_models(include_auto_created=False):
-            mock_get_model_sharding_mode.assert_has_call(model=model)
+        mock_get_model_sharding_mode.assert_has_calls([
+            mock.call(model) for model in apps.get_models(include_auto_created=False) if not model._meta.proxy
+        ], any_order=True)
 
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test_include_auto_created(self, mock_get_model_sharding_mode):
         """
         Case: Call get_all_sharded_models, with include_auto_created.
-        Expected: get_model_sharding_mode called for each model.
+        Expected: get_model_sharding_mode called for each model that's not a proxy model.
         """
         get_all_sharded_models(include_auto_created=True)
-        for model in apps.get_models(include_auto_created=True):
-            mock_get_model_sharding_mode.assert_has_call(model=model)
+        mock_get_model_sharding_mode.assert_has_calls([
+            mock.call(model) for model in apps.get_models(include_auto_created=True) if not model._meta.proxy
+        ], any_order=True)
 
     def test_include_auto_created_result(self):
         """
@@ -1233,11 +1235,12 @@ class GetAllMirroredModels(ShardingTestCase):
     def test(self, mock_get_model_sharding_mode):
         """
         Case: Call get_all_mirrored_models.
-        Expected: get_model_sharding_mode called for each model.
+        Expected: get_model_sharding_mode called for each model that's not a proxy model.
         """
         get_all_mirrored_models()
-        for model in apps.get_models():
-            mock_get_model_sharding_mode.assert_has_call(model=model)
+        mock_get_model_sharding_mode.assert_has_calls([
+            mock.call(model) for model in apps.get_models() if not model._meta.proxy
+        ], any_order=True)
 
 
 class GetAllDatabases(SimpleTestCase):
