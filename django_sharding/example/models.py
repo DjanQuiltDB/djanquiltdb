@@ -1,4 +1,4 @@
-from django.contrib.auth.models import AbstractBaseUser, UserManager
+from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 from django.db import models, IntegrityError
 from django.utils import timezone
 
@@ -102,6 +102,33 @@ class ProxyCake(Cake):
         proxy = True
 
 
+class UserManager(BaseUserManager):
+    def _create_user(self, email, password, is_staff, **extra_fields):
+        """
+        Creates and saves a User with the given username, email and password.
+        """
+        now = timezone.now()
+        if not email:
+            raise ValueError('The given email must be set')
+        email = self.normalize_email(email)
+        user = self.model(
+            email=email,
+            is_staff=is_staff,
+            is_active=True,
+            created_at=now,
+            **extra_fields
+        )
+        user.set_password(password)
+        user.save(using=self._db)
+        return user
+
+    def create_user(self, email, password=None, **extra_fields):
+        return self._create_user(email, password, False, **extra_fields)
+
+    def create_superuser(self, email, password, **extra_fields):
+        return self._create_user(email, password, True, **extra_fields)
+
+
 @sharded_model()
 class User(AbstractBaseUser):
     def get_full_name(self):
@@ -113,9 +140,15 @@ class User(AbstractBaseUser):
     name = models.CharField('name', max_length=100)
     email = models.EmailField('email address', unique=True)
     created_at = models.DateTimeField('date joined', default=timezone.now)
-    organization = models.ForeignKey('Organization', verbose_name='organization')
+    organization = models.ForeignKey('Organization', verbose_name='organization', null=True)
     type = models.ForeignKey('Type', on_delete=models.DO_NOTHING, verbose_name='type', null=True)
     cake = models.ManyToManyField('Cake', verbose_name='cakes')
+
+    is_staff = models.BooleanField('staff status', default=False,
+                                   help_text='Designates whether the user can log into this admin site.')
+    is_active = models.BooleanField('active', default=True,
+                                    help_text='Designates whether this user should be treated as active. '
+                                              'Unselect this instead of deleting accounts.')
 
     USERNAME_FIELD = 'email'
 
@@ -130,6 +163,29 @@ class User(AbstractBaseUser):
     def get_organization_name(self):
         """ For testing purposes, we do a new query here to get the organization name """
         return Organization.objects.get(id=self.organization_id).name
+
+
+@mirrored_model()
+class MirroredUser(AbstractBaseUser):
+    name = models.CharField('name', max_length=100)
+    email = models.EmailField('email address', unique=True)
+
+    created_at = models.DateTimeField('date joined', default=timezone.now)
+    is_staff = models.BooleanField('staff status', default=False,
+                                   help_text='Designates whether the user can log into this admin site.')
+    is_active = models.BooleanField('active', default=True,
+                                    help_text='Designates whether this user should be treated as active. '
+                                              'Unselect this instead of deleting accounts.')
+
+    USERNAME_FIELD = 'email'
+
+    objects = UserManager()
+
+    class Meta:
+        app_label = 'example'
+
+    def __str__(self):
+        return self.name
 
 
 @sharded_model()

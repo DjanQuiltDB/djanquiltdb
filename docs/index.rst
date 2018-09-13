@@ -19,6 +19,7 @@ Welcome to Django-sharding's documentation!
     modules/migrations
     modules/celery
     modules/move_data
+    modules/contrib
 
 
 Indices and tables

@@ -32,6 +32,7 @@ ALLOWED_HOSTS = []
 
 # Application definition
 INSTALLED_APPS = (
+    'sharding.contrib.authentication',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
