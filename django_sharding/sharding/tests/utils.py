@@ -974,10 +974,11 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         # Mirrored, mapping and django default tables
         default_public_tables = ['django_migrations', 'django_content_type', 'auth_group', 'auth_permission',
                                  'auth_group_permissions', 'example_shard', 'django_session', 'example_type',
-                                 'example_supertype', 'example_organizationshards']
+                                 'example_supertype', 'example_organizationshards', 'example_mirroreduser',
+                                 'example_defaultuser']
         # The tables present on all non-default public schema's are all the mirrored tables.
         other_public_tables = ['django_migrations',  'example_type', 'example_supertype', 'django_content_type',
-                               'auth_group', 'auth_permission', 'auth_group_permissions']
+                               'auth_group', 'auth_permission', 'auth_group_permissions', 'example_mirroreduser']
         # The tables present on the template schema's are all the sharded tables.
         template_tables = ['django_migrations', 'example_organization', 'example_suborganization', 'example_user',
                            'example_statement', 'example_cake', 'example_user_cake', 'example_statement_type']
@@ -1228,7 +1229,8 @@ class GetAllMirroredModels(ShardingTestCase):
         Note: System test
         """
         with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'type'): ShardingMode.SHARDED, }}):
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'type'): ShardingMode.SHARDED,
+                                                     ('example', 'mirroreduser'): ShardingMode.SHARDED}}):
             self.assertCountEqual(get_all_mirrored_models(), [SuperType])
 
     @mock.patch('sharding.utils.get_model_sharding_mode')

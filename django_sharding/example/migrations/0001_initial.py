@@ -2,7 +2,8 @@
 from __future__ import unicode_literals
 
 from django.db import migrations, models
-import django.contrib.auth.models
+import django.db.models.deletion
+from django.conf import settings
 import django.utils.timezone
 
 
@@ -13,61 +14,146 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name='Shard',
-            fields=[
-                ('id', models.AutoField(verbose_name='ID', primary_key=True, auto_created=True, serialize=False)),
-                ('alias', models.CharField(max_length=128, db_index=True, unique=True, )),
-                ('schema_name', models.CharField(max_length=64)),
-                ('node_name', models.CharField(max_length=64)),
-                ('state', models.CharField(default='M', choices=[('A', 'Active'), ('M', 'Maintenance')], max_length=1)),
-            ],
-        ),
-        migrations.CreateModel(
             name='User',
             fields=[
-                ('id', models.AutoField(primary_key=True, auto_created=True, verbose_name='ID', serialize=False)),
+                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('password', models.CharField(verbose_name='password', max_length=128)),
                 ('last_login', models.DateTimeField(blank=True, verbose_name='last login', null=True)),
                 ('name', models.CharField(verbose_name='name', max_length=100)),
                 ('email', models.EmailField(unique=True, verbose_name='email address', max_length=254)),
-                ('created_at', models.DateTimeField(default=django.utils.timezone.now, verbose_name='date joined')),
+                ('created_at', models.DateTimeField(verbose_name='date joined', default=django.utils.timezone.now)),
+                ('is_staff', models.BooleanField(verbose_name='staff status', default=False, help_text='Designates whether the user can log into this admin site.')),
+                ('is_active', models.BooleanField(verbose_name='active', default=True, help_text='Designates whether this user should be treated as active. Unselect this instead of deleting accounts.')),
             ],
-            managers=[
-                ('objects', django.contrib.auth.models.UserManager()),
+        ),
+        migrations.CreateModel(
+            name='Cake',
+            fields=[
+                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('name', models.CharField(verbose_name='name', max_length=128)),
+            ],
+        ),
+        migrations.CreateModel(
+            name='DefaultUser',
+            fields=[
+                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('password', models.CharField(verbose_name='password', max_length=128)),
+                ('last_login', models.DateTimeField(blank=True, verbose_name='last login', null=True)),
+                ('name', models.CharField(verbose_name='name', max_length=100)),
+                ('email', models.EmailField(unique=True, verbose_name='email address', max_length=254)),
+                ('created_at', models.DateTimeField(verbose_name='date joined', default=django.utils.timezone.now)),
+                ('is_staff', models.BooleanField(verbose_name='staff status', default=False, help_text='Designates whether the user can log into this admin site.')),
+                ('is_active', models.BooleanField(verbose_name='active', default=True, help_text='Designates whether this user should be treated as active. Unselect this instead of deleting accounts.')),
+            ],
+        ),
+        migrations.CreateModel(
+            name='MirroredUser',
+            fields=[
+                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('password', models.CharField(verbose_name='password', max_length=128)),
+                ('last_login', models.DateTimeField(blank=True, verbose_name='last login', null=True)),
+                ('name', models.CharField(verbose_name='name', max_length=100)),
+                ('email', models.EmailField(unique=True, verbose_name='email address', max_length=254)),
+                ('created_at', models.DateTimeField(verbose_name='date joined', default=django.utils.timezone.now)),
+                ('is_staff', models.BooleanField(verbose_name='staff status', default=False, help_text='Designates whether the user can log into this admin site.')),
+                ('is_active', models.BooleanField(verbose_name='active', default=True, help_text='Designates whether this user should be treated as active. Unselect this instead of deleting accounts.')),
             ],
         ),
         migrations.CreateModel(
             name='Organization',
             fields=[
-                ('id', models.AutoField(primary_key=True, auto_created=True, verbose_name='ID', serialize=False)),
+                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('name', models.CharField(verbose_name='name', max_length=100)),
-                ('created_at', models.DateTimeField(default=django.utils.timezone.now, verbose_name='created at')),
+                ('created_at', models.DateTimeField(verbose_name='created at', default=django.utils.timezone.now)),
             ],
-        ),
-        migrations.CreateModel(
-            name='Type',
-            fields=[
-                ('id', models.AutoField(primary_key=True, auto_created=True, verbose_name='ID', serialize=False)),
-                ('name', models.CharField(verbose_name='name', max_length=100)),
-            ],
-        ),
-        migrations.AddField(
-            model_name='user',
-            name='organization',
-            field=models.ForeignKey(to='example.Organization', verbose_name='organization'),
-        ),
-        migrations.AddField(
-            model_name='user',
-            name='type',
-            field=models.ForeignKey(to='example.Type', verbose_name='type'),
         ),
         migrations.CreateModel(
             name='OrganizationShards',
             fields=[
                 ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('organization_id', models.PositiveSmallIntegerField()),
-                ('state', models.CharField(default='M', choices=[('A', 'Active'), ('M', 'Maintenance')], max_length=1)),
-                ('shard', models.ForeignKey(to='example.Shard')),
+                ('state', models.CharField(choices=[('A', 'Active'), ('M', 'Maintenance')], default='A', max_length=1)),
+                ('slug', models.SlugField()),
             ],
+        ),
+        migrations.CreateModel(
+            name='Shard',
+            fields=[
+                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('alias', models.CharField(unique=True, db_index=True, max_length=128)),
+                ('schema_name', models.CharField(max_length=64)),
+                ('node_name', models.CharField(max_length=64)),
+                ('state', models.CharField(choices=[('A', 'Active'), ('M', 'Maintenance')], default='M', max_length=1)),
+            ],
+        ),
+        migrations.CreateModel(
+            name='Statement',
+            fields=[
+                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('content', models.CharField(verbose_name='content', max_length=300)),
+                ('offset', models.PositiveIntegerField(blank=True, verbose_name='offset', null=True)),
+            ],
+        ),
+        migrations.CreateModel(
+            name='Suborganization',
+            fields=[
+                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('child', models.OneToOneField(to='example.Organization', verbose_name='organization', related_name='children')),
+                ('parent', models.ForeignKey(to='example.Organization', related_name='parent', verbose_name='organization')),
+            ],
+        ),
+        migrations.CreateModel(
+            name='SuperType',
+            fields=[
+                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('name', models.CharField(verbose_name='name', max_length=100)),
+            ],
+        ),
+        migrations.CreateModel(
+            name='Type',
+            fields=[
+                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('name', models.CharField(verbose_name='name', max_length=100)),
+                ('super', models.ForeignKey(to='example.SuperType', on_delete=django.db.models.deletion.DO_NOTHING, verbose_name='super', null=True)),
+            ],
+        ),
+        migrations.AddField(
+            model_name='statement',
+            name='type',
+            field=models.ManyToManyField(to='example.Type', verbose_name='types'),
+        ),
+        migrations.AddField(
+            model_name='statement',
+            name='user',
+            field=models.ForeignKey(to=settings.AUTH_USER_MODEL, verbose_name='user'),
+        ),
+        migrations.AddField(
+            model_name='organizationshards',
+            name='shard',
+            field=models.ForeignKey(to='example.Shard'),
+        ),
+        migrations.AddField(
+            model_name='user',
+            name='cake',
+            field=models.ManyToManyField(to='example.Cake', verbose_name='cakes'),
+        ),
+        migrations.AddField(
+            model_name='user',
+            name='organization',
+            field=models.ForeignKey(to='example.Organization', verbose_name='organization', null=True),
+        ),
+        migrations.AddField(
+            model_name='user',
+            name='type',
+            field=models.ForeignKey(to='example.Type', on_delete=django.db.models.deletion.DO_NOTHING, verbose_name='type', null=True),
+        ),
+        migrations.CreateModel(
+            name='ProxyCake',
+            fields=[
+            ],
+            options={
+                'proxy': True,
+            },
+            bases=('example.cake',),
         ),
     ]
