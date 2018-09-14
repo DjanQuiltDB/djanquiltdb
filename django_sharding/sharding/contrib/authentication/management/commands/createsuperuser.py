@@ -81,7 +81,7 @@ class Command(CreateSuperUserCommand):
                 required=True,
                 help='Specifies the schema to use.'
             )
-        else:
+        elif self.user_sharding_mode == ShardingMode.MIRRORED:
             parser._option_string_actions['--database'].help = \
                 'Specifies the database to use. Defaults to all databases.'
             parser._option_string_actions['--database'].default = 'all'
@@ -101,13 +101,15 @@ class Command(CreateSuperUserCommand):
 
             with use_shard(shard):
                 super().handle(*args, **options)
-
-        if self.user_sharding_mode == ShardingMode.MIRRORED:
+        elif self.user_sharding_mode == ShardingMode.MIRRORED:
             if options['database'] != 'all':
                 with use_shard(node_name=options['database'], schema_name='public'):
                     super().handle(*args, **options)
             else:
                 self.handle_all_databases(*args, **options)
+        else:
+            # If there is no sharding mode determined, then we just use the vanilla `createsuperuser` command
+            super().handle(*args, **options)
 
     def handle_all_databases(self, *args, **options):
         """
