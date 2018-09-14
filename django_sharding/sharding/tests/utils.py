@@ -974,7 +974,8 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         # Mirrored, mapping and django default tables
         default_public_tables = ['django_migrations', 'django_content_type', 'auth_group', 'auth_permission',
                                  'auth_group_permissions', 'example_shard', 'django_session', 'example_type',
-                                 'example_supertype', 'example_organizationshards', 'example_mirroreduser']
+                                 'example_supertype', 'example_organizationshards', 'example_mirroreduser',
+                                 'example_defaultuser']
         # The tables present on all non-default public schema's are all the mirrored tables.
         other_public_tables = ['django_migrations',  'example_type', 'example_supertype', 'django_content_type',
                                'auth_group', 'auth_permission', 'auth_group_permissions', 'example_mirroreduser']
