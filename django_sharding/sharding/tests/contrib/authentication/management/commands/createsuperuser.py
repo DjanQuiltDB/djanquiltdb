@@ -5,7 +5,7 @@ from django.core.management import call_command, CommandError
 from django.db import IntegrityError
 from django.test import TestCase, override_settings, SimpleTestCase, TransactionTestCase
 
-from example.models import Shard, User, MirroredUser, UserManager
+from example.models import Shard, User, MirroredUser, UserManager, DefaultUser
 from sharding import State
 from sharding.contrib.authentication.management.commands.createsuperuser import patch_user_manager, BaseManagerMixin
 from sharding.tests.utils import ShardingTransactionTestCase, ShardingTestCase
@@ -26,7 +26,7 @@ class CreateSuperUserTestCaseMixin:
 
 class CreateSuperUserShardedUserModelTestCase(CreateSuperUserTestCaseMixin, ShardingTestCase):
     """
-    Test cases for usage of the `createsuperuser` command in combination with a user model that's a sharded model
+    Test cases for usage of the `createsuperuser` command in combination with a user model that's a sharded model.
     """
     available_apps = None  # We do want all apps installed
     def setUp(self):
@@ -98,7 +98,7 @@ class CreateSuperUserShardedUserModelTestCase(CreateSuperUserTestCaseMixin, Shar
 @override_settings(AUTH_USER_MODEL='example.MirroredUser')
 class CreateSuperUserMirroredUserModelTestCase(CreateSuperUserTestCaseMixin, ShardingTransactionTestCase):
     """
-    Test cases for usage of the `createsuperuser` command in combination with a user model that's a mirrored model
+    Test cases for usage of the `createsuperuser` command in combination with a user model that's a mirrored model.
     """
     available_apps = None  # We do want all apps installed
 
@@ -221,6 +221,28 @@ class CreateSuperUserMirroredUserModelTestCase(CreateSuperUserTestCaseMixin, Sha
 
         with use_shard(node_name='other', schema_name='public'):
             self.assertFalse(MirroredUser.objects.filter(email='bardock@saiyans.zgt').exists())
+
+
+@override_settings(AUTH_USER_MODEL='example.DefaultUser')
+class CreateSuperUserNoShardingModeTestCase(CreateSuperUserTestCaseMixin, ShardingTransactionTestCase):
+    """
+    Test cases for usage of the `createsuperuser` command in combination with a user model that's not sharded nor
+    mirrored.
+    """
+    available_apps = None  # We do want all apps installed
+
+    def test(self):
+        """
+        Case: Create a superuser
+        Expected: Superuser created on the default database only, since that's the only database the DefaultUser table
+                  exists on
+        """
+        self.command(
+            '--email', 'paragus@saiyans.zgt',
+        )
+
+        with use_shard(node_name='default', schema_name='public'):
+            self.assertTrue(DefaultUser.objects.filter(email='paragus@saiyans.zgt').exists())
 
 
 class PatchUserManagerTestCase(SimpleTestCase):

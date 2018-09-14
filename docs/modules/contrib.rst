@@ -8,9 +8,9 @@ Authentication
 --------------
 Django comes with their `django.contrib.auth` package, that adds authentication models to the application. It also has a
 `createsuperuser` management command, that offers a simple way of creating a superuser from the command line. This
-command doesn't work from scratch with the sharding library, so the sharding library also offers an authentication
-package that overwrites the `createsuperuser` command. It's important that this package comes before
-`django.contrib.auth` in `INSTALLED_APPS`::
+command doesn't work with the sharding library, so the sharding library also offers an authentication package that
+overwrites the `createsuperuser` command. It's important that this package comes before `django.contrib.auth` in
+`INSTALLED_APPS`::
 
     INSTALLED_APPS = (
         ...
