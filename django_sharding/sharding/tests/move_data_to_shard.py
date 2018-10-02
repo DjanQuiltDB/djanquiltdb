@@ -480,6 +480,45 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
         self.assertEqual(mock_post_execution.call_count, 1)
 
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_target_shard')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.pre_execution')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_objects')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_data_collector')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.reset_sequencers')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.move_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.confirm_data_integrity')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.delete_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
+    def test_handle_no_delete(self, mock_post_execution, mock_delete_data, mock_confirm, mock_move_data,
+                              mock_reset_sequencers, mock_get_data_collector, mock_get_objects, mock_pre_execution,
+                              mock_get_target_shard):
+        """
+        Case: Call the handle while providing --no-delete.
+        Expected: All sub-functions to be called with the correct arguments, but `delete_data` not called
+        """
+        data = {Statement: [self.statement_1, self.statement_2]}  # Dummy data
+        pk_set = self.get_pk_set_from_data(data)
+
+        mock_get_target_shard.return_value = self.target_shard
+        mock_get_objects.return_value = self.organization_1
+
+        mock_get_data_collector_value = mock.Mock()
+        mock_get_data_collector_value.data = data
+        mock_get_data_collector.return_value = mock_get_data_collector_value
+
+        self.options['no_delete'] = True
+        self.command.handle(**self.options)
+
+        mock_get_target_shard.assert_called_once_with(options=self.options)
+        mock_get_objects.assert_called_once_with(self.source_shard)
+        self.assertEqual(mock_pre_execution.call_count, 1)
+        mock_get_data_collector.assert_any_call(objects=self.organization_1)
+        mock_move_data.assert_called_once_with(pk_set=pk_set)
+        mock_reset_sequencers.assert_called_once_with(data=data)
+        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_move_data.return_value)
+        self.assertFalse(mock_delete_data.called)
+        mock_post_execution.assert_called_once_with(succeeded=True)
+
     @mock.patch('sharding.management.commands.move_data_to_shard.transaction_for_nodes')
     def test_handle_transaction(self, mock_transaction_for_nodes):
         """
