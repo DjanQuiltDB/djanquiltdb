@@ -57,6 +57,9 @@ class Command(BaseCommand):
                             default=False)
         parser.add_argument('--no-input', action='store_true', dest='no_input', help='Skip confirmation.',
                             default=False)
+        parser.add_argument('--no-delete', action='store_true', dest='no_delete', help='Skip deleting data from the '
+                                                                                       'old shard.',
+                            default=False)
 
     def handle(self, *args, **options):
         """
@@ -110,11 +113,12 @@ class Command(BaseCommand):
                 if not self.confirm_data_integrity(pk_set=pk_set, model_fields=model_fields):
                     raise IntegrityError('Data was not successfully copied.')
 
-                # Delete the data. Pick the current collector if we reuse the data and pick Django's nested collector
-                # if we want to use the original collector.
-                delete_collector = collector if self.reuse_data else \
-                    self.get_data_collector(objects=objects, use_original_collector=True)
-                self.delete_data(collector=delete_collector)
+                if not options.get('no_delete'):
+                    # Delete the data. Pick the current collector if we reuse the data and pick Django's nested
+                    # collector if we want to use the original collector.
+                    delete_collector = collector if self.reuse_data else \
+                        self.get_data_collector(objects=objects, use_original_collector=True)
+                    self.delete_data(collector=delete_collector)
         except Exception as error:
             self.post_execution(succeeded=False)
             raise error
