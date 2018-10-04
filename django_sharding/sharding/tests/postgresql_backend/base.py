@@ -1,23 +1,17 @@
-import copy
-import json
-from contextlib import contextmanager
 from unittest import mock
 
-from django.contrib.contenttypes.models import ContentType
 from django.db import ProgrammingError, connections
-from django.db.utils import load_backend
 from django.test import override_settings
 from psycopg2 import InternalError
 
-from example.models import Type, Organization, User, Statement, Shard, Cake, SuperType
-from sharding import State, ShardingMode
+from example.models import Type, Organization, User, Statement, Shard
+from sharding import State
 from sharding.db import connection
-from sharding.decorators import override_sharding_setting
-from sharding.postgresql_backend.base import get_validated_schema_name, get_database_creation_class, PUBLIC_SCHEMA_NAME
-from sharding.postgresql_backend.creation import DatabaseCreation, TemplateDatabaseCreation
-from sharding.utils import create_schema_on_node, create_template_schema, use_shard, get_template_name, \
-    get_sharding_mode
-from sharding.tests.utils import ShardingTransactionTestCase, ShardingTestCase
+from sharding.postgresql_backend.base import get_validated_schema_name, PUBLIC_SCHEMA_NAME, \
+    DatabaseWrapper
+from sharding.postgresql_backend.utils import LockCursorWrapperMixin
+from sharding.tests import ShardingTransactionTestCase, ShardingTestCase
+from sharding.utils import create_schema_on_node, create_template_schema, use_shard
 
 
 class GetValidatedSchemaNameTestCase(ShardingTestCase):
@@ -111,7 +105,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         """
         connection.close()
         self.assertTrue(mock_close.called)
-        self.assertFalse(connection.search_path_set)
+        self.assertEqual(connection.current_search_paths, [PUBLIC_SCHEMA_NAME])
 
     @mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.rollback')
     def test_rollback(self, mock_rollback):
@@ -121,54 +115,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         """
         connection.rollback()
         self.assertTrue(mock_rollback.called)
-        self.assertFalse(connection.search_path_set)
-
-    def test_set_schema(self):
-        """
-        Case: Call connection.set_schema.
-        Expected: connection.schema_name to be set, connection.search_path_set to be set to false
-                  and include_public_schema to be set to True.
-        """
-        connection.set_schema('test_schema')  # First set to something, we can't be sure our starting position is clean.
-        self.assertEqual(connection.schema_name, 'test_schema')
-        self.assertTrue(connection.include_public_schema)
-        connection.set_schema('other_schema')
-        self.assertEqual(connection.schema_name, 'other_schema')
-        self.assertFalse(connection.search_path_set)
-        self.assertTrue(connection.include_public_schema)
-
-    def test_set_schema_include_public(self):
-        """
-        Case: Call connection.set_schema with include_public=False
-        Expected: connection.schema_name to be set to None, connection.search_path_set to be set to false and
-                  include_public_schema to be set to False.
-        """
-        connection.set_schema('test_schema')  # First set to something, we can't be sure our starting position is clean.
-        self.assertEqual(connection.schema_name, 'test_schema')
-        self.assertTrue(connection.include_public_schema)
-        connection.set_schema('other_schema', include_public=False)
-        self.assertEqual(connection.schema_name, 'other_schema')
-        self.assertFalse(connection.search_path_set)
-        self.assertFalse(connection.include_public_schema)
-
-    def test_set_schema_to_public(self):
-        """
-        Case: Call connection.set_schema_to_public.
-        Expected: connection.schema_name to be set to None and connection.search_path_set to be set to false.
-        """
-        connection.set_schema('test_schema')  # First set to something, we can't be sure our starting position is clean.
-        self.assertEqual(connection.schema_name, 'test_schema')
-        connection.set_schema_to_public()
-        self.assertEqual(connection.schema_name, 'public')
-        self.assertFalse(connection.search_path_set)
-
-    def test_get_schema(self):
-        """
-        Case: Call connection.get_schema.
-        Expected: Returned the schema name.
-        """
-        connection.set_schema('test_schema')
-        self.assertEqual(connection.get_schema(), 'test_schema')
+        self.assertEqual(connection.current_search_paths, [PUBLIC_SCHEMA_NAME])
 
     def test_get_ps_schema_with_existing_schema(self):
         """
@@ -356,10 +303,10 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         Expected: Returns False when the schema is not the public schema and returns True if the schema is the public
                   schema
         """
-        connection.set_schema('test_schema')
+        connection.schema_name = 'test_schema'
         self.assertFalse(connection.is_public_schema())
 
-        connection.set_schema_to_public()
+        connection.schema_name = PUBLIC_SCHEMA_NAME
         self.assertTrue(connection.is_public_schema())
 
     def test_delete_schema(self):
@@ -380,10 +327,16 @@ class CursorTestCase(ShardingTestCase):
         Case: Use 'use_shard' on a normal connection.
         Expected: get_ps_schema to be called (part of setting the search_path).
         """
+        create_template_schema()
+
+        # Make sure that we reset the current_search_paths to being the public schema, because it currently actually is
+        # the template schema (because we migrated that one)
+        connection.current_search_paths = [PUBLIC_SCHEMA_NAME]
+
         with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema:
-            with use_shard(node_name='default', schema_name='public'):
+            with use_shard(node_name='default', schema_name='template'):
                 with connection.cursor() as cursor:
-                    cursor.execute('SELECT * FROM example_type;')  # some query
+                    cursor.execute('SHOW search_path;')  # Some random query
                     self.assertEqual(mock_get_ps_schema.call_count, 1)
 
     def test_no_db_operation(self):
@@ -415,31 +368,14 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.connection1 = connections['default']
 
         # Create second connection to the same database
-        self.connection2 = copy.copy(self.connection1)
-        self.connection2.connection = self.connection2.get_new_connection(self.connection2.get_connection_params())
+        self.connection2 = DatabaseWrapper(self.connection1.settings_dict, self.connection1.alias)
 
     @staticmethod
     def get_lock(connection_, key):
-        key = connection_.get_int_from_key(key)
+        key = LockCursorWrapperMixin.get_int_from_key(key)
         cursor = connection_.cursor()
         cursor.execute('SELECT pg_try_advisory_lock({});'.format(key))
         return cursor.fetchall()[0][0]
-
-    @mock.patch('hashlib.md5')
-    def test_get_int_from_key(self, mock_md5):
-        """
-        Case: Call get_int_from_key
-        Expected: hashlib.md5 to be called and the correct int to be returned
-        """
-        mock_md5.return_value = mock.Mock()
-        mock_md5.return_value.update = mock.Mock()
-        mock_md5.return_value.hexdigest = mock.Mock(return_value='098f6bcd4621d373cade4e832627b4f6')
-
-        result = self.connection1.get_int_from_key('test')
-
-        mock_md5.assert_called_once_with()
-        mock_md5.return_value.update.assert_called_once_with(b'test')
-        self.assertEqual(result, 43055487337504055)
 
     @mock.patch('django.db.backends.utils.CursorWrapper.execute')
     def test_acquire_shard_lock(self, mock_execute):
@@ -450,7 +386,7 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.connection1.acquire_advisory_lock(key='test', shared=True)
 
         mock_execute.assert_called_once_with(
-            'SELECT pg_advisory_lock_shared(%s);', [self.connection1.get_int_from_key('test')])
+            'SELECT pg_advisory_lock_shared(%s);', [LockCursorWrapperMixin.get_int_from_key('test')])
 
     @mock.patch('django.db.backends.utils.CursorWrapper.execute')
     def test_acquire_exclusive_lock(self, mock_execute):
@@ -461,7 +397,7 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.connection1.acquire_advisory_lock(key='test', shared=False)
 
         mock_execute.assert_called_once_with(
-            'SELECT pg_advisory_lock(%s);', [self.connection1.get_int_from_key('test')])
+            'SELECT pg_advisory_lock(%s);', [LockCursorWrapperMixin.get_int_from_key('test')])
 
     @mock.patch('django.db.backends.utils.CursorWrapper.execute')
     def test_release_shard_lock(self, mock_execute):
@@ -472,7 +408,7 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.connection1.release_advisory_lock(key='test', shared=True)
 
         mock_execute.assert_called_once_with(
-            'SELECT pg_advisory_unlock_shared(%s);', [self.connection1.get_int_from_key('test')])
+            'SELECT pg_advisory_unlock_shared(%s);', [LockCursorWrapperMixin.get_int_from_key('test')])
 
     @mock.patch('django.db.backends.utils.CursorWrapper.execute')
     def test_release_exclusive_lock(self, mock_execute):
@@ -483,7 +419,7 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.connection1.release_advisory_lock(key='test', shared=False)
 
         mock_execute.assert_called_once_with(
-            'SELECT pg_advisory_unlock(%s);', [self.connection1.get_int_from_key('test')])
+            'SELECT pg_advisory_unlock(%s);', [LockCursorWrapperMixin.get_int_from_key('test')])
 
     def test_shared_blocks_exclusive_lock(self):
         """
@@ -507,186 +443,26 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.assertTrue(self.get_lock(self.connection1, 'test'))
         self.assertTrue(self.get_lock(self.connection2, 'test2'))
 
-
-class DatabaseCreationClassTestCase(ShardingTransactionTestCase):
-    @contextmanager
-    def new_connection(self, alias):
-        """ Creates a new connection and deletes it afterwards"""
-        db = connections.databases[alias]
-        backend = load_backend(db['ENGINE'])
-
-        try:
-            conn = backend.DatabaseWrapper(db, alias)
-            yield conn
-        finally:
-            del conn
-
-    @override_sharding_setting('DATABASE_CREATION_CLASS')
-    def test_default(self):
+    def test_nested_locks(self):
         """
-        Case: Call get_database_creation_class without having DATABASE_CREATION_CLASS set and then check the connection
-              creation class
-        Expected: Returns the default, which is django.db.backends.postgresql_psycopg2.creation.DatabaseCreation
+        Case: Have multiple advisory locks with the same key, release one, and release the other after
+        Expected: While only one lock has been released, it's still not possible to get an exclusive lock
         """
-        self.assertEqual(get_database_creation_class(), DatabaseCreation)
-        with self.new_connection('default') as conn:
-            self.assertEqual(conn.creation.__class__, DatabaseCreation)
+        self.connection1.acquire_advisory_lock(key='test', shared=True)
+        self.connection1.acquire_advisory_lock(key='test', shared=True)
 
-    @override_sharding_setting('DATABASE_CREATION_CLASS',
-                               'sharding.postgresql_backend.creation.TemplateDatabaseCreation')
-    def test_database_creation_class_set(self):
-        """
-        Case: Call get_database_creation_class with having DATABASE_CREATION_CLASS set and then check the connection
-              creation class
-        Expected: Returns sharding.postgresql_backend.creation.DatabaseCreation
-        """
-        self.assertEqual(get_database_creation_class(), TemplateDatabaseCreation)
-        with self.new_connection('default') as conn:
-            self.assertEqual(conn.creation.__class__, TemplateDatabaseCreation)
+        # We have two advisory locks set now, so we can't get an exclusive lock on a different connection
+        self.assertFalse(self.get_lock(self.connection2, 'test'))
 
+        # Release one
+        self.connection1.release_advisory_lock(key='test', shared=True)
 
-class DatabaseCreationTestCase(ShardingTestCase):
-    maxDiff = None
-    available_apps = None  # We want to have all apps in here
+        # Meaning that we still have one advisory lock set, so we still can't get an exclusive lock on a different
+        # connection
+        self.assertFalse(self.get_lock(self.connection2, 'test'))
 
-    def setUp(self):
-        super().setUp()
+        # Release the second lock
+        self.connection1.release_advisory_lock(key='test', shared=True)
 
-        self.creation = DatabaseCreation(connection)
-        self.test_serialized_contents = json.loads(connection._test_serialized_contents)
-
-    def test_serialize_public(self):
-        """
-        Case: Call serialize_db_to_string without having shards or a template schema.
-        Expected: Public schema serialized and returned, containing only instances that are from sharded models.
-        """
-        serialized_contents = json.loads(self.creation.serialize_db_to_string())
-
-        self.assertEqual(list(serialized_contents.keys()), [PUBLIC_SCHEMA_NAME])
-
-        # All instance models are mirrored models only
-        for data in serialized_contents[PUBLIC_SCHEMA_NAME]:
-            self.assertEqual(get_sharding_mode(*data['model'].split('.')), ShardingMode.MIRRORED)
-
-    def test_serialize_with_template_schema(self):
-        """
-        Case: Call serialize_db_to_string while having a template schema.
-        Expected: Both public schema and template schema are serialized, template schema contains no instances.
-        """
-        create_template_schema(self.creation.connection.alias)
-        serialized_contents = json.loads(self.creation.serialize_db_to_string())
-        template_name = get_template_name()
-
-        self.assertCountEqual(list(serialized_contents.keys()), [PUBLIC_SCHEMA_NAME, template_name])
-        self.assertEqual(serialized_contents[template_name], [])
-
-    def test_serialize_with_shard(self):
-        """
-        Case: Call serialize_db_to_string while having a template schema and a shard.
-        Expected: Shard object that has been saved on the public schema is also in the public serialized contents,
-                  serialized content of the shard contains no data when there are no instances saved on the shard but
-                  does contain instances when there is data on the shard.
-        """
-        create_template_schema(self.creation.connection.alias)
-        shard = Shard.objects.create(node_name=self.creation.connection.alias, schema_name='test_schema',
-                                     alias='schema', state=State.ACTIVE)
-        serialized_contents = json.loads(self.creation.serialize_db_to_string())
-
-        self.test_serialized_contents[PUBLIC_SCHEMA_NAME].append(
-            {
-                'pk': shard.pk,
-                'fields': {
-                    'schema_name': shard.schema_name,
-                    'node_name': shard.node_name,
-                    'alias': shard.alias,
-                    'state': shard.state,
-                },
-                'model': 'example.shard'
-            }
-        )
-
-        self.assertCountEqual(serialized_contents[PUBLIC_SCHEMA_NAME],
-                              self.test_serialized_contents[PUBLIC_SCHEMA_NAME])
-        self.assertEqual(serialized_contents[shard.schema_name], [])
-
-        # Now create something on the shard
-        with shard.use():
-            cake = Cake.objects.create(name='Strawberry cake')
-
-        serialized_contents = json.loads(self.creation.serialize_db_to_string())
-
-        self.assertCountEqual(serialized_contents[PUBLIC_SCHEMA_NAME],
-                              self.test_serialized_contents[PUBLIC_SCHEMA_NAME])  # No changes here
-
-        # But the shard now has instances that has been serialized
-        self.assertEqual(serialized_contents[shard.schema_name], [
-            {
-                'pk': cake.pk,
-                'fields': {
-                    'name': cake.name,
-                },
-                'model': 'example.cake'
-            }
-        ])
-
-    def test_serialize_with_inactive_shard(self):
-        """
-        Case: Call serialize_db_to_string while having an inactive shard.
-        Expected: Shard content still serialized.
-        """
-        create_template_schema(self.creation.connection.alias)
-        shard = Shard.objects.create(node_name=self.creation.connection.alias, schema_name='test_schema',
-                                     alias='schema', state=State.MAINTENANCE)
-        serialized_contents = json.loads(self.creation.serialize_db_to_string())
-
-        self.assertIn(shard.schema_name, serialized_contents)
-
-    def test_deserialize(self):
-        """
-        Case: Have serialized data and call deserialize_db_from_string.
-        Expected: All objects created on the correct schema.
-        """
-        create_template_schema(self.creation.connection.alias)
-        template_name = get_template_name()
-        shard = Shard.objects.create(node_name=self.creation.connection.alias, schema_name='test_schema',
-                                     alias='schema', state=State.ACTIVE)
-        serialized_contents = {
-            shard.schema_name: [
-                {
-                    'pk': 1,
-                    'fields': {
-                        'name': 'Bebinca',
-                    },
-                    'model': 'example.cake'
-                }
-            ],
-            template_name: [
-                {
-                    'pk': 37,
-                    'fields': {
-                        'name': 'Baumkuchen',
-                    },
-                    'model': 'example.cake'
-                }
-            ],
-            PUBLIC_SCHEMA_NAME: [
-                {
-                    'pk': 5,
-                    'fields': {
-                        'name': 'Cake',
-                    },
-                    'model': 'example.supertype'
-                }
-            ]
-        }
-
-        self.creation.deserialize_db_from_string(json.dumps(serialized_contents))
-
-        with shard.use():
-            self.assertTrue(Cake.objects.filter(name='Bebinca').exists())
-
-        with use_shard(node_name=self.creation.connection.alias, schema_name=template_name):
-            self.assertTrue(Cake.objects.filter(name='Baumkuchen').exists())
-
-        with use_shard(node_name=self.creation.connection.alias, schema_name=PUBLIC_SCHEMA_NAME):
-            self.assertTrue(SuperType.objects.filter(name='Cake').exists())
+        # Now all locks are released, so we can get an exclusive lock now
+        self.assertTrue(self.get_lock(self.connection2, 'test'))

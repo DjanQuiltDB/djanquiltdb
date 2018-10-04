@@ -9,7 +9,7 @@ from django.views.generic import View
 
 from example.models import Shard
 from sharding.middleware import BaseUseShardMiddleware, StateExceptionMiddleware, BaseUseShardForMiddleware
-from sharding.tests.utils import ShardingTestCase
+from sharding.tests import ShardingTestCase
 from sharding.utils import State, StateException, use_shard, create_template_schema
 
 
@@ -40,9 +40,18 @@ class UseShardForMiddleware(BaseUseShardForMiddleware):
         return 1
 
 
+# New URLs for StateExceptionMiddlewareIntegrationTestCase
+error_urlconf = [
+    url(r'^$', TestErrorView.as_view(), name='error')
+]
+normal_urlconf = [
+    url(r'^$', TestNormalView.as_view(), name='normal')
+]
+
+
 class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
     # TestErrorView is not in django's global urls
-    @override_settings(ROOT_URLCONF=[url(r'^$', TestErrorView.as_view(), name='error')])
+    @override_settings(ROOT_URLCONF='sharding.tests.middleware.error_urlconf')
     @mock.patch('example.middleware.UseShardMiddleware.get_shard_id')
     def test_error_in_view(self, mock_get_shard_id):
         """
@@ -66,7 +75,7 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
         self.assertTrue(mock_get_shard_id.called)
 
     # TestErrorView is not in django's global urls
-    @override_settings(ROOT_URLCONF=[url(r'^$', TestNormalView.as_view(), name='normal')])
+    @override_settings(ROOT_URLCONF='sharding.tests.middleware.normal_urlconf')
     @mock.patch('example.middleware.UseShardMiddleware.get_shard_id')
     def test_error_in_use_shard(self, mock_get_shard_id):
         """

@@ -1,7 +1,6 @@
 # Taken from the Django source: https://github.com/django/django/blob/stable/1.8.x/tests/migrations/test_base.py
-from unittest import mock
-
 import os
+from unittest import mock
 
 from django.core.management import get_commands
 from django.db import connections
@@ -9,7 +8,7 @@ from django.db.migrations.recorder import MigrationRecorder
 from django.utils._os import upath
 
 from sharding.db import connection
-from sharding.tests.utils import ShardingTestCase
+from sharding.tests import ShardingTestCase
 from sharding.utils import create_template_schema
 
 
@@ -24,15 +23,16 @@ class MigrationTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 
-        self.mock_router = mock.patch('sharding.utils.DynamicDbRouter.allow_migrate').start()
+        self.mock_router = mock.patch('sharding.router.DynamicDbRouter.allow_migrate').start()
         self.addCleanup(mock.patch.stopall)
 
         commands = get_commands()
         commands['migrate_shards'] = 'sharding'
 
         with mock.patch('django.core.management.get_commands', return_value=commands):
-            create_template_schema()  # The template won't have any migration applied to it initially
-            create_template_schema('other')  # The template won't have any migration applied to it initially
+            # The templates won't have any migration applied to it initially
+            create_template_schema(migrate=False)
+            create_template_schema('other', migrate=False)
 
     def tearDown(self):
         # Reset applied-migrations state.

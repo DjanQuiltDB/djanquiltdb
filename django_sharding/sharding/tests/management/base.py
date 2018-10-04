@@ -6,7 +6,7 @@ from django.core.management import CommandError, call_command
 from example.models import Shard
 from sharding import State
 from sharding.management.base import get_databases_and_schema_from_options, shard_table_exists
-from sharding.tests.utils import ShardingTestCase
+from sharding.tests import ShardingTestCase
 from sharding.utils import create_template_schema, get_all_databases
 
 

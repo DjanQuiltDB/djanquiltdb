@@ -1,84 +1,106 @@
-from sharding.db import connection
-from sharding.exceptions import ShardingError
-from sharding.utils import use_shard_for, use_shard, get_shard_class
+from sharding import State
+from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
+from sharding.utils import use_shard, get_shard_class, StateException, get_mapping_class, use_shard_for
 
 
-class InstanceShardOptions:
-    def __init__(self, schema_name, node_name, id_, mapping_value, active_only_schemas, lock,
-                 check_active_mapping_values):
-        self.schema_name = schema_name
-        self.node_name = node_name
-        self.id = id_
-        self.mapping_value = mapping_value
-        self.active_only_schemas = active_only_schemas
-        self.lock = lock
-        self.check_active_mapping_values = check_active_mapping_values
+class ShardOptions:
+    def __init__(self, **options):
+        # Save the options, so we can compare it with other ShardOptions instances in `__eq__`
+        self.options = frozenset(options.items())
 
-    @classmethod
-    def from_connection(cls, connection):
-        return cls(
-            schema_name=connection.get_schema(),
-            node_name=connection.alias,
-            id_=connection._shard_id,
-            mapping_value=connection._mapping_value,
-            active_only_schemas=connection._active_only_schemas,
-            lock=connection._lock,
-            check_active_mapping_values=connection._check_active_mapping_values,
-        )
+        self.node_name = options.pop('node_name')
+        self.schema_name = options.pop('schema_name')
 
-    DEFINING_ATTRIBUTES = ('schema_name', 'node_name', 'id', 'mapping_value', 'active_only_schemas', 'lock',
-                           'check_active_mapping_values')
+        self.shard_id = options.pop('shard_id', None)
+        self.mapping_value = options.pop('mapping_value', None)
+
+        # Keeps track whether we activated the connection in a use_shard context
+        self.use_shard = options.pop('use_shard', False)
+
+        # Saving the options that were passed when initializing the ShardOptions with use_shard
+        self.kwargs = options
+
+        # Get whether we should lock the shard or not. It's not allowed to lock the public schema, so we make sure we
+        # don't accidentally do that.
+        if self.kwargs.get('lock') and self.schema_name == PUBLIC_SCHEMA_NAME:
+            raise ValueError('You cannot lock the public schema')
+
+        self.lock = self.kwargs.get('lock', not self.schema_name == PUBLIC_SCHEMA_NAME)
+
+    def __hash__(self):
+        return hash(self.options)
 
     def __eq__(self, other):
-        if not isinstance(other, InstanceShardOptions):
+        if not isinstance(other, ShardOptions):
             return False
 
         return hash(self) == hash(other)
 
-    def __hash__(self):
-        return hash(tuple(getattr(self, attr) for attr in self.DEFINING_ATTRIBUTES))
+    def __ne__(self, other):
+        return not self.__eq__(other)
 
+    def __str__(self):
+        return '{}|{}'.format(self.node_name, self.schema_name)
 
-def get_shard_from_instance_options(options):
-    """
-    Lazy method that returns the shard the instance was retrieved from
-    """
-    if not options.id:
-        raise ShardingError('Shard ID is not known for this instance')
+    @classmethod
+    def from_shard(cls, shard, **kwargs):
+        active_only_schemas = kwargs.get('active_only_schemas', True)
+        check_active_mapping_values = kwargs.get('check_active_mapping_values', False)
 
-    return get_shard_class().objects.get(id=options.id)
+        if active_only_schemas and shard.state != State.ACTIVE:
+            raise StateException('Shard {} state is {}'.format(shard, shard.state), shard.state)
 
+        if check_active_mapping_values:
+            mapping_model = get_mapping_class()
+            if not mapping_model:
+                raise ValueError("You set 'check_active_mapping_values' to True while you didn't define the "
+                                 "mapping model.")
 
-def connection_has_same_shard_options(options):
-    return InstanceShardOptions.from_connection(connection) == options
+            if mapping_model.objects.for_shard(shard).in_maintenance().exists():
+                raise StateException('Shard {} contains mapping objects that are in maintenance'.format(shard),
+                                     State.MAINTENANCE)
 
+        return cls(
+            schema_name=shard.schema_name,
+            node_name=shard.node_name,
+            shard_id=shard.id,
+            **kwargs
+        )
 
-def use_shard_from_instance_options(options):
-    """
-    Returns the context manager to enter a shard with the same parameters the instance was fetched with
-    """
-    if options.mapping_value:
-        # It turns out we fetched the model instance with use_shard_for, so we know the mapping value.
-        # So let's use that value to target the shard in the model method. use_shard_for will do a DB query,
-        # which allows us to see if the mapping object still has state active.
-        use_shard_func = use_shard_for
-        use_shard_kwargs = {'target_value': options.mapping_value}
-    else:
-        # If we didn't use the mapping value to fetch the model instance, then we did it with use_shard.
-        # We could've done it with selecting the shard or by providing the node name and schema name.
-        # If we did it with providing the shard, then use that now to target the shard in the model methods.
-        # We do a new DB request to the shard to see if it still has state active.
-        use_shard_func = use_shard
-        use_shard_kwargs = {'shard': get_shard_from_instance_options(options)} if options.id else \
-            {'node_name': options.node_name, 'schema_name': options.schema_name}
+    @classmethod
+    def from_alias(cls, alias):
+        if isinstance(alias, cls):
+            return alias
+        elif isinstance(alias, get_shard_class()):
+            return cls.from_shard(alias)
+        elif isinstance(alias, str):
+            node_name, schema_name = alias.split('|') if '|' in alias else (alias, PUBLIC_SCHEMA_NAME)
+            return cls(node_name=node_name, schema_name=schema_name)
+        elif isinstance(alias, tuple) and len(alias) == 2:
+            node_name, schema_name = alias
+            return cls(node_name=node_name, schema_name=schema_name)
 
-        # If the model instance has been fetched with active_only_schemas set to True, then we pass that to
-        # the model methods as well. This is needed for commands like move_data_to_shard, that do model
-        # methods like delete() when the shard is in maintenance.
-        use_shard_kwargs['active_only_schemas'] = options.active_only_schemas
+        raise ValueError('{} is an invalid connection alias.'.format(alias))
 
-        # Pass the lock argument as well. If an object was fetched during a use_shard with lock=False
-        # we don't want a lock to be set because we used a function on that object.
-        use_shard_kwargs['lock'] = options.lock
+    @property
+    def lock_keys(self):
+        lock_keys = []
 
-    return use_shard_func(**use_shard_kwargs)
+        if self.shard_id:
+            lock_keys.append('shard_{}'.format(self.shard_id))
+
+        if self.mapping_value:
+            lock_keys.append('mapping_{}'.format(self.mapping_value))
+
+        return lock_keys
+
+    def is_public_schema(self):
+        return self.schema_name == PUBLIC_SCHEMA_NAME
+
+    def use(self):
+        if self.mapping_value:
+            return use_shard_for(self.mapping_value, **self.kwargs)
+        elif self.shard_id:
+            return use_shard(get_shard_class().objects.get(id=self.shard_id), **self.kwargs)
+
+        return use_shard(node_name=self.node_name, schema_name=self.schema_name, **self.kwargs)

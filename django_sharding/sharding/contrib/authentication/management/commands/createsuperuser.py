@@ -1,6 +1,7 @@
 from contextlib import contextmanager
 
 from django.contrib.auth.management.commands.createsuperuser import Command as CreateSuperUserCommand
+from django.core.exceptions import ObjectDoesNotExist
 from django.core.management import CommandError
 
 from sharding import ShardingMode
@@ -8,8 +9,15 @@ from sharding.decorators import atomic_write_to_every_node
 from sharding.utils import get_model_sharding_mode, get_all_databases, use_shard, get_shard_class, for_each_node
 
 
-class BaseManagerMixin:
-    def get_by_natural_key(self, *args, **kwargs):
+def patch_get_by_natural_key(func):
+    def _get_by_natural_key(self, *args, node_name=None, **kwargs):
+        with use_shard(node_name=node_name, schema_name='public'):
+            try:
+                return (func(self, *args, **kwargs), None)
+            except ObjectDoesNotExist as e:
+                return (False, e)
+
+    def get_by_natural_key(*args, **kwargs):
         """
         The `createsuperuser` command check for uniqueness of the username by calling this method with the specified
         username. If the username exists, this will return a `model.DoesNotExist` and the command will continue.
@@ -19,22 +27,11 @@ class BaseManagerMixin:
         know that the username exists on one node, and we return `None` (regardless of the other databases), which makes
         sure that the command will show a nice error to the user telling that the username already exists.
         """
-        if all(x is False for x in for_each_node(self._get_by_natural_key, args=args, kwargs=kwargs).values()):
-            raise self.model.DoesNotExist()
+        exists_on_node = for_each_node(_get_by_natural_key, args=args, kwargs=kwargs)
 
-    def _get_by_natural_key(self, *args, node_name=None, **kwargs):
-        with use_shard(node_name=node_name, schema_name='public'):
-            try:
-                return super().get_by_natural_key(*args, **kwargs)
-            except self.model.DoesNotExist:
-                return False
-
-    @atomic_write_to_every_node()
-    def create_superuser(self, *args, node_name=None, **kwargs):
-        """
-        Makes sure that this method will be called on each node's public schema.
-        """
-        super().create_superuser(*args, **kwargs)
+        if all(exists is False for exists, _ in exists_on_node.values()):
+            raise exists_on_node.values()[0][1]
+    return get_by_natural_key
 
 
 @contextmanager
@@ -43,24 +40,24 @@ def patch_user_manager(model):
     Contextmanager that patches the model's `get_by_natural_key` and `create_superuser` to perform the operation on each
     node. Will return to the old default manager after leaving the contextmanager.
     """
+    patch_methods = {
+        'get_by_natural_key': patch_get_by_natural_key,
+        'create_superuser': atomic_write_to_every_node(pass_node_name=False),
+    }
+    original_methods = {}
     default_manager = model._default_manager
-    manager_class = default_manager.__class__
 
-    new_manager = type(
-        manager_class.__name__,
-        (BaseManagerMixin, manager_class.from_queryset(default_manager._queryset_class)),
-        {}
-    )()
-
-    new_manager.contribute_to_class(model, '_create_superuser_manager')
-    model._default_manager = new_manager
+    for name, method in patch_methods.items():
+        original_methods[name] = getattr(default_manager, name)
+        setattr(default_manager, name, method(original_methods[name]))
 
     try:
         yield model
     finally:
         # And do some cleanup, to make sure we can continue with other code if we call this command with
         # `call_command`
-        model._default_manager = default_manager
+        for name, method in original_methods.items():
+            setattr(default_manager, name, method)
 
 
 class Command(CreateSuperUserCommand):
@@ -99,14 +96,10 @@ class Command(CreateSuperUserCommand):
                 raise CommandError('The shard you provided ({}|{}) does not exist'.format(options['database'],
                                                                                           options['schema_name']))
 
-            with use_shard(shard):
-                super().handle(*args, **options)
-        elif self.user_sharding_mode == ShardingMode.MIRRORED:
-            if options['database'] != 'all':
-                with use_shard(node_name=options['database'], schema_name='public'):
-                    super().handle(*args, **options)
-            else:
-                self.handle_all_databases(*args, **options)
+            options['database'] = shard
+            super().handle(*args, **options)
+        elif self.user_sharding_mode == ShardingMode.MIRRORED and options['database'] == 'all':
+            self.handle_all_databases(*args, **options)
         else:
             # If there is no sharding mode determined, then we just use the vanilla `createsuperuser` command
             super().handle(*args, **options)

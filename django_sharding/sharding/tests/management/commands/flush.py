@@ -1,9 +1,10 @@
 from django.core.management import call_command
+from django.db import connections
 
 from example.models import Shard, Type, Organization
 from sharding import State
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from sharding.tests.utils import ShardingTransactionTestCase
+from sharding.tests import ShardingTransactionTestCase
 from sharding.utils import create_template_schema, use_shard
 
 
@@ -37,10 +38,10 @@ class FlushTestCase(ShardingTransactionTestCase):
         """
         call_command('flush', verbosity=0, interactive=False)
 
-        with use_shard(node_name='default', schema_name=PUBLIC_SCHEMA_NAME):
+        with use_shard(node_name='default'):
             self.assertFalse(Type.objects.exists())
 
-        with use_shard(node_name='other', schema_name=PUBLIC_SCHEMA_NAME):
+        with use_shard(node_name='other'):
             self.assertFalse(Type.objects.exists())
 
         with use_shard(self.shard1):

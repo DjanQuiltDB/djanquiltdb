@@ -3,7 +3,7 @@ from unittest import mock
 from example.models import Type, Organization, User, Shard, SuperType, Statement
 from sharding import State
 from sharding.collector import SimpleCollector
-from sharding.tests.utils import ShardingTestCase
+from sharding.tests import ShardingTestCase
 from sharding.utils import use_shard, create_template_schema
 
 

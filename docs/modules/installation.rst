@@ -118,9 +118,9 @@ ROUTER
 ~~~~~~
 Django-sharding uses a router to send each database transaction to the correct node.
 It also uses the router to migrate the models to the correct shard when using ``./manage.py migrate_shards``
-So set ``sharding.utils.DynamicDbRouter`` as the database_router in the settings. e.g.::
+So set ``sharding.router.DynamicDbRouter`` as the database_router in the settings. e.g.::
 
-    DATABASE_ROUTERS = ['sharding.utils.DynamicDbRouter']
+    DATABASE_ROUTERS = ['sharding.router.DynamicDbRouter']
 
 STATE_EXCEPTION_MIDDLEWARE
 ~~~~~~~~~~~~~~~~~~~~~~~~~~

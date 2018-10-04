@@ -3,12 +3,18 @@ from unittest import mock
 from django.apps import apps
 from django.contrib.auth.models import AbstractBaseUser
 from django.core.exceptions import ImproperlyConfigured
-from django.db import models
+from django.db import models, connections
 from django.test import SimpleTestCase, override_settings
 
-from sharding import ShardingMode
+from example.models import Shard
+from sharding import ShardingMode, State
+from sharding.db import connection
 from sharding.decorators import sharded_model
 from sharding.models import BaseShard
+from sharding.options import ShardOptions
+from sharding.postgresql_backend.base import DatabaseWrapper, PUBLIC_SCHEMA_NAME, ShardDatabaseWrapper
+from sharding.tests import ShardingTestCase
+from sharding.utils import create_template_schema
 
 
 class DummyShard(models.Model):
@@ -240,10 +246,10 @@ class SessionsBackendTestCase(SimpleTestCase):
                 sharding_app.ready()
 
 
-class DataBaseRouterTestCase(SimpleTestCase):
+class DatabaseRouterTestCase(SimpleTestCase):
     def test_invalid_dbrouting_settings(self):
         """
-        Case: DATABASE_ROUTERS does not contain sharding.utils.DynamicDbRouter.
+        Case: DATABASE_ROUTERS does not contain sharding.router.DynamicDbRouter.
         Expected: ImproperlyConfigured raised.
         """
         sharding_app = apps.get_app_config(app_label='sharding')
@@ -254,12 +260,12 @@ class DataBaseRouterTestCase(SimpleTestCase):
 
     def test_valid_dbrouting_settings(self):
         """
-        Case: DATABASE_ROUTERS contains sharding.utils.DynamicDbRouter.
+        Case: DATABASE_ROUTERS contains sharding.router.DynamicDbRouter.
         Expected: No ImproperlyConfigured raised.
         """
         sharding_app = apps.get_app_config(app_label='sharding')
 
-        with override_settings(DATABASE_ROUTERS=['sharding.utils.DynamicDbRouter']):
+        with override_settings(DATABASE_ROUTERS=['sharding.router.DynamicDbRouter']):
             sharding_app.ready()
 
 
@@ -314,3 +320,108 @@ class SessionEngineTestCase(SimpleTestCase):
         with mock.patch('sharding.apps.get_user_model', return_value=User3):
             with override_settings(SESSION_ENGINE='django.contrib.sessions.backends.cached_db'):
                 sharding_app.ready()
+
+
+class ConnectionsTestCase(ShardingTestCase):
+    def setUp(self):
+        super().setUp()
+
+        create_template_schema()
+
+        self.shard = Shard.objects.create(node_name='default', schema_name='test_schema', alias='test',
+                                          state=State.ACTIVE)
+
+        self.default_connection = connections['default']
+        self.other_connection = connections['other']
+
+    def test_no_shard(self):
+        """
+        Case: Call connections['other']
+        Expected: Return a DatabaseWrapper with the alias being 'other'
+        """
+        connection_ = connections['other']
+        self.assertIsInstance(connection_, DatabaseWrapper)
+        self.assertEqual(connection_.alias, 'other')
+
+    def test_shard_options_public_schema(self):
+        """
+        Case: Call connections with a ShardOptions instance that point to a public schema
+        Expected: DatabaseWrapper returned, being equal to connections[<node_name>]
+        """
+        shard_options = ShardOptions(node_name='default', schema_name=PUBLIC_SCHEMA_NAME)
+        connection_ = connections[shard_options]
+        self.assertEqual(connection_, self.default_connection)
+        self.assertIsInstance(connection_, DatabaseWrapper)
+
+    def assertShardConnection(self, connection_, shard):
+        """
+        Checks if the provided connection is a ShardDatabaseWrapper and checks whether the attributes are those of the
+        shard we provided.
+        """
+        self.assertIsInstance(connection_, ShardDatabaseWrapper)
+        self.assertEqual(connection_._main_connection, connections[shard.node_name])
+
+        self.assertEqual(connection_.alias, '{}|{}'.format(shard.node_name, shard.schema_name))
+        self.assertEqual(connection_._main_connection.alias, shard.node_name)
+        self.assertEqual(connection_.schema_name, shard.schema_name)
+
+    def test_pipe_node_name_schema_name(self):
+        """
+        Case: Call connections with a string containing the node name and the schema name, separated by a pipe character
+        Expected: ShardDatabaseWrapper returned, with the correct schema
+        """
+        connection_ = connections['default|test_schema']
+        self.assertShardConnection(connection_, self.shard)
+
+        self.assertEqual(connection_.shard_options.options, frozenset({
+            ('node_name', 'default'),
+            ('schema_name', 'test_schema'),
+        }))
+
+    def test_tuple_node_name_schema_name(self):
+        """
+        Case: Call connections with a tuple containing the node name and the schema name
+        Expected: ShardDatabaseWrapper returned, with the correct schema
+        """
+        connection_ = connections[('default', 'test_schema')]
+        self.assertShardConnection(connection_, self.shard)
+
+        self.assertEqual(connection_.shard_options.options, frozenset({
+            ('node_name', 'default'),
+            ('schema_name', 'test_schema'),
+        }))
+
+    def test_shard_instance(self):
+        """
+        Case: Call connections with a shard instance
+        Expected: ShardDatabaseWrapper returned, with the correct schema
+        """
+        connection_ = connections[self.shard]
+        self.assertShardConnection(connection_, self.shard)
+
+        self.assertEqual(connection_.shard_options.options, frozenset({
+            ('node_name', 'default'),
+            ('schema_name', 'test_schema'),
+            ('shard_id', self.shard.id),
+        }))
+
+    def test_shard_options_instance(self):
+        """
+        Case: Call connections with a ShardOptions instance
+        Expected: ShardDatabaseWrapper returned, with the correct schema
+        """
+        shard_options = ShardOptions.from_shard(self.shard)
+        connection_ = connections[shard_options]
+        self.assertShardConnection(connection_, self.shard)
+
+        self.assertEqual(connection_.shard_options, shard_options)
+
+
+class ConnectionTestCase(SimpleTestCase):
+    def test(self):
+        """
+        Case: Import django.db.connection
+        Expected: django.db.connection is equal to sharding.db.connection
+        """
+        from django.db import connection as django_connection
+        self.assertIs(django_connection, connection)

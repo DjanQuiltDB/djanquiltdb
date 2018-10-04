@@ -5,7 +5,7 @@ from django.core.management import call_command
 from example.models import Shard, Type, Organization
 from sharding import State
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from sharding.tests.utils import ShardingTransactionTestCase
+from sharding.tests import ShardingTransactionTestCase
 from sharding.utils import create_template_schema, use_shard
 
 
@@ -49,11 +49,11 @@ class SQLFlushTestCase(ShardingTransactionTestCase):
 
         self.stdout.write.assert_has_calls([
             mock.call('SQL on other|template\n'),
-            mock.call('SQL on other|public\n'),
+            mock.call('SQL on other\n'),
             mock.call('SQL on default|template\n'),
             mock.call('SQL on default|el_chapo\n'),
             mock.call('SQL on other|pablo_escobar\n'),
-            mock.call('SQL on default|public\n'),
+            mock.call('SQL on default\n'),
         ], any_order=True)
 
     def test_single_database(self, mock_sql_flush):
@@ -68,7 +68,7 @@ class SQLFlushTestCase(ShardingTransactionTestCase):
         self.stdout.write.assert_has_calls([
             mock.call('SQL on default|template\n'),
             mock.call('SQL on default|el_chapo\n'),
-            mock.call('SQL on default|public\n'),
+            mock.call('SQL on default\n'),
         ], any_order=True)
 
     def test_single_schema(self, mock_sql_flush):

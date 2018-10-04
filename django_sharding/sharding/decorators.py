@@ -2,16 +2,16 @@ import copy
 import functools
 import inspect
 
-from django.core.exceptions import ImproperlyConfigured, FieldDoesNotExist
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured, FieldDoesNotExist
 from django.db import models
 from django.test import override_settings
 
 from sharding import ShardingMode, STATES
 from sharding.db import connection
-from sharding.exceptions import ShardingError
-from sharding.options import connection_has_same_shard_options, use_shard_from_instance_options
+from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
+from sharding.router import DynamicDbRouter
 from sharding.utils import transaction_for_every_node, get_all_databases, use_shard
 
 shard_mapping_models = False
@@ -32,39 +32,26 @@ def _reset_shard_mapping_models():
     shard_mapping_models = False
 
 
-def class_method_use_shard():
+def class_method_use_shard(func):
     """
     Decorator that is used to decorate all class methods of a certain class. It will make sure that the class methods
     are run in the same shard as the instance lives in.
     """
-    def outer(func):
-        @functools.wraps(func)
-        def inner(self, *args, **kwargs):
-            # Ignore going into a shard if override_class_method_use_shard is set to True
-            if connection._override_class_method_use_shard:
-                return func(self, *args, **kwargs)
-
-            has_shard_attributes = hasattr(self, '_shard')
-
-            # If the shard attributes are set, both schema name and node name should never be null
-            if has_shard_attributes and (not self._shard.schema_name or not self._shard.node_name):
-                raise ShardingError('Sharded model instance does not have node name and schema name set')
-
-            # Django also saves the node name in _state.db. Check, if set, if that is equal to the node name we saved
-            if hasattr(self, '_state') and self._state.db and self._state.db != self._shard.node_name:
-                raise ShardingError('Sharded model instance has a different node name than the Django state database')
-
-            # Check if we have the shard attributes and also check if we are not already in the shard we want to enter.
-            # It doesn't make sense to enter a shard where we already are in, so we just return the function then.
-            if has_shard_attributes and not connection_has_same_shard_options(self._shard):
-                with use_shard_from_instance_options(self._shard):
-                    return func(self, *args, **kwargs)
-
-            # Schema name and node name are not set when creating an object (post_init didn't fire at that point),
-            # so just return the method without an use_shard context in this case.
+    @functools.wraps(func)
+    def inner(self, *args, **kwargs):
+        if not hasattr(self, '_state') or not getattr(self._state, 'db', None):
             return func(self, *args, **kwargs)
-        return _add_decorator_reference(inner, decorator=class_method_use_shard)
-    return outer
+
+        shard_options = ShardOptions.from_alias(self._state.db)
+        override_class_method_use_shard = hasattr(connection, 'shard_options') \
+            and connection.shard_options.kwargs.get('override_class_method_use_shard', False)
+
+        if shard_options == DynamicDbRouter.active_connection or override_class_method_use_shard:
+            return func(self, *args, **kwargs)
+
+        with shard_options.use():
+            return func(self, *args, **kwargs)
+    return _add_decorator_reference(inner, decorator=class_method_use_shard, args=(func,))
 
 
 def mirrored_model():
@@ -242,7 +229,7 @@ def sharded_model():
     return configure
 
 
-def atomic_write_to_every_node(schema_name=PUBLIC_SCHEMA_NAME, lock_models=()):
+def atomic_write_to_every_node(schema_name=PUBLIC_SCHEMA_NAME, lock_models=(), pass_node_name=True):
     """
     Decorator to execute wrapped function for every node.
     Runs inside a transaction_for_every_node to keep all nodes in sync.
@@ -286,7 +273,9 @@ def atomic_write_to_every_node(schema_name=PUBLIC_SCHEMA_NAME, lock_models=()):
             with transaction_for_every_node(lock_models=lock_models):
                 for node_name in get_all_databases():
                     with use_shard(node_name=node_name, schema_name=schema_name):
-                        return_values[node_name] = func(*args, node_name=node_name, **kwargs)
+                        if pass_node_name:
+                            kwargs['node_name'] = node_name
+                        return_values[node_name] = func(*args, **kwargs)
 
             return return_values
         return _add_decorator_reference(decorator, decorator=atomic_write_to_every_node,

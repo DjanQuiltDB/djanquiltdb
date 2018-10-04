@@ -5,7 +5,7 @@ from django.db import models
 
 from sharding import ShardingMode, State, STATES
 from sharding.decorators import sharded_model, shard_mapping_model, mirrored_model, _reset_shard_mapping_models
-from sharding.tests.utils import ShardingTestCase
+from sharding.tests import ShardingTestCase
 
 
 class ModelTestCase(ShardingTestCase):

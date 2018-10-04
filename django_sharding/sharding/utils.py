@@ -1,17 +1,5 @@
-# DynamicDbRouter:
-#
-# source: https://github.com/ambitioninc/django-dynamic-db-router
-# credits: ambitioninc
-#
-# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
-# FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
-# COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-# IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
-# CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
 import logging
-import threading
+from functools import wraps
 
 from django.apps import apps
 from django.conf import settings
@@ -20,13 +8,9 @@ from django.core.management import call_command
 from django.db import connections, ProgrammingError
 from django.db.transaction import Atomic
 from django.utils.module_loading import import_string
-from functools import wraps
 
 from sharding import ShardingMode, State
-from sharding.db import connection
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-
-THREAD_LOCAL = threading.local()
 
 logger = logging.getLogger(__name__)
 
@@ -55,95 +39,14 @@ def get_mapping_class():
     return import_string(settings.SHARDING['MAPPING_MODEL'])
 
 
-class DynamicDbRouter(object):
-    """ A router that decides what db to read from based on a variable local to the current thread. """
-
-    def db_for_read(self, model, **hints):
-        override_list = getattr(THREAD_LOCAL, 'DB_OVERRIDE', None)
-        return override_list and override_list[-1]
-
-    def db_for_write(self, model, **hints):
-        override_list = getattr(THREAD_LOCAL, 'DB_OVERRIDE', None)
-        return override_list and override_list[-1]
-
-    def allow_relation(self, obj1, obj2, *args, **kwargs):
-        obj1_mode = get_model_sharding_mode(obj1)
-        obj2_mode = get_model_sharding_mode(obj2)
-
-        if obj1_mode or obj2_mode:
-            return obj1_mode and obj2_mode  # all is good if they both have a sharding mode set.
-
-        return None  # We have no opinion if neither of the models have sharding mode set.
-
-    def allow_syncdb(self, *args, **kwargs):
-        model = kwargs.pop('model', False)
-        if model and getattr(model, 'test_model', False):
-            return False
-
-        return None
-
-    def allow_migrate(self, connection_name, app_label, model_name=None, **hints):
-        schema_name = connections[connection_name].get_schema()
-        model = hints.pop('model', False)
-
-        # This is for our test cases.
-        if model and getattr(model, 'test_model', False):
-            return False
-
-        # sharding_mode can be set as hints (on run_pyton/run_sql for example).
-        try:
-            sharding_mode = hints.get('sharding_mode') or get_sharding_mode(app_label, model_name)
-        except LookupError:
-            # Model does not exist anymore, probably because it's removed in another migration. Ignore it now.
-            # Note that there is a separation between state_operations and database_operations.
-            # state_operations do not take heed of allow_migrate. They will therefore always be performed.
-            # Where database_operations ask allow_migrate if they should proceed.
-            # Creating and removing a model will therefore happen in state,
-            # but if the model is unknown to apps no mutations will be performed on the database.
-            logger.warning('Migration operation for unknown models are ignored. Are you sure this model still exists?')
-            return False  # Don't execute operations on missing models.
-
-        if sharding_mode is None:
-            # This happens when no model_name is given.
-            # We only know the sharding_mode when it is overridden in the settings.
-            # If we get None from get_sharding_mode, there is nothing we can do with it.
-            raise ProgrammingError('Cannot determine sharding mode for this operation. '
-                                   'Are you sure it is bound to an existing model or has hints?')
-
-        elif sharding_mode == ShardingMode.SHARDED:
-            # Sharded models should never reside in the public schema.
-            # Only on templates and the shared schemas.
-            return schema_name != PUBLIC_SCHEMA_NAME
-        elif sharding_mode == ShardingMode.MIRRORED:
-            # Mirrored models belong to public schemas and no where else.
-            return schema_name == PUBLIC_SCHEMA_NAME
-        else:
-            # Non-sharded models only belong to the default database.
-            return connection_name == 'default' and schema_name == PUBLIC_SCHEMA_NAME
-
-
 def _node_exists(node_name):
     if node_name not in connections:
         raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(node_name))
 
 
-def _use_connection(node):
-    if not hasattr(THREAD_LOCAL, 'DB_OVERRIDE') or not THREAD_LOCAL.DB_OVERRIDE:
-        THREAD_LOCAL.DB_OVERRIDE = [node]
-    else:
-        THREAD_LOCAL.DB_OVERRIDE.append(node)
-    return connections[node]
-
-
-def _set_schema(schema_name, _connection=None, include_public=True, override_class_method_use_shard=False,
-                shard_id=None, mapping_value=None, active_only_schemas=True, lock=True,
-                check_active_mapping_values=False):
-    if not _connection:
-        _connection = connection
-    _connection.set_schema(schema_name, include_public=include_public,
-                           override_class_method_use_shard=override_class_method_use_shard, shard_id=shard_id,
-                           mapping_value=mapping_value, active_only_schemas=active_only_schemas, lock=lock,
-                           check_active_mapping_values=check_active_mapping_values)
+def _set_active_connection(connection_alias):
+    from sharding.router import DynamicDbRouter
+    setattr(DynamicDbRouter, 'active_connection', connection_alias)
 
 
 class use_shard(object):
@@ -181,50 +84,28 @@ class use_shard(object):
                 User.objects.create(name="John Snow")
 
     """
-    shard = None
-    mapping_value = None
-
     # Both node_name and schema_name are not documented.
     # They bypass the shard.state check, and are only there to for internal use.
     # (Situations where the schema is made, but the shard object is not saved yet.)
-    def __init__(self, shard=None, node_name=None, schema_name=None, active_only_schemas=True, include_public=True,
-                 override_class_method_use_shard=False, lock=True, check_active_mapping_values=False):
-        self.include_public = include_public
-        self.override_class_method_use_shard = override_class_method_use_shard
-        self.active_only_schemas = active_only_schemas
-        self.check_active_mapping_values = check_active_mapping_values
-        self.lock = lock
+    def __init__(self, shard=None, node_name=None, schema_name=None, **kwargs):
+        from sharding.options import ShardOptions  # Prevent cyclic imports
 
-        shard_class = get_shard_class()
+        # Add an indication that we activated this connection from an use_shard context manager
+        kwargs['use_shard'] = True
+
         if shard:
+            shard_class = get_shard_class()
+
             if not isinstance(shard, shard_class):
-                raise ValueError("Shard value {} ({}) must of type {}".format(shard,
-                                                                              type(shard).__name__,
-                                                                              shard_class.__name__))
-            if self.active_only_schemas and shard.state != State.ACTIVE:
-                raise StateException("Shard {} state is {}".format(shard, shard.state), shard.state)
+                raise ValueError(
+                    'Shard value {} ({}) must of type {}'.format(shard, type(shard).__name__, shard_class.__name__)
+                )
 
-            if check_active_mapping_values:
-                mapping_model = get_mapping_class()
-                if not mapping_model:
-                    raise ValueError("You set 'check_active_mapping_values' to True while you didn't define the "
-                                     "mapping model.")
-
-                if mapping_model.objects.for_shard(shard).in_maintenance().exists():
-                    raise StateException('Shard {} contains mapping objects that are in maintenance'.format(shard),
-                                         State.MAINTENANCE)
-
-            self.shard = shard
-            self.schema_name = shard.schema_name
-            self.node_name = shard.node_name
+            self.options = ShardOptions.from_shard(shard, **kwargs)
+        elif node_name:
+            self.options = ShardOptions(node_name=node_name, schema_name=schema_name or PUBLIC_SCHEMA_NAME, **kwargs)
         else:
-            self.shard = None
-            self.schema_name = schema_name
-            self.node_name = node_name
-
-        if self.node_name not in connections:
-            raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?"
-                             .format(self.node_name))
+            raise ValueError('You need to provide at least a shard or a node name.')
 
         self._enabled = False
 
@@ -244,42 +125,32 @@ class use_shard(object):
         return inner
 
     def acquire_lock(self):
-        if self.shard:
-            self.connection.acquire_advisory_lock(key='shard_{}'.format(self.shard.id), shared=True)
+        if self.connection.is_public_schema():
+            raise ValueError('It is not allowed to lock public schemas.')
+
+        self.connection.acquire_locks()
 
     def release_lock(self):
-        if self.shard:
-            self.connection.release_advisory_lock(key='shard_{}'.format(self.shard.id), shared=True)
+        if self.connection.is_public_schema():
+            raise ValueError('It is not allowed to lock public schemas.')
+
+        self.connection.release_locks()
 
     def enable(self):
-        # First: Set the connection
-        self.connection = _use_connection(self.node_name)
+        from sharding.router import DynamicDbRouter  # Prevent cyclic imports
 
-        # Second: Note current connection settings
-        self.old_schema_name = self.connection.get_schema()
-        self.old_override_class_method_use_shard = self.connection._override_class_method_use_shard
-        self.old_shard_id = self.connection._shard_id
-        self.old_mapping_value = self.connection._mapping_value
-        self.old_active_only_schemas = self.connection._active_only_schemas
-        self.old_lock = self.connection._lock
-        self.old_check_active_mapping_values = self.connection._check_active_mapping_values
+        # First: Set the connection
+        self.connection = connections[self.options]
+
+        # Second: Save the old connection
+        self._old_connection = DynamicDbRouter.active_connection
 
         # Third: Set an advisory lock on the shard and mapping object (if available)
-        if self.lock:
+        if self.options.lock:
             self.acquire_lock()
 
-        # Fourth: Tell the connection to switch schema, and give the data to the connection as well.
-        _set_schema(
-            self.schema_name,
-            self.connection,
-            include_public=self.include_public,
-            override_class_method_use_shard=self.override_class_method_use_shard,
-            shard_id=self.shard.id if self.shard else None,
-            mapping_value=self.mapping_value,
-            active_only_schemas=self.active_only_schemas,
-            lock=self.lock,
-            check_active_mapping_values=self.check_active_mapping_values,
-        )
+        # Fourth: Set the new active schema
+        _set_active_connection(self.options)
 
         self._enabled = True
 
@@ -289,25 +160,11 @@ class use_shard(object):
         if not self._enabled:
             return
 
-        if self.lock:
+        if self.options.lock:
             self.release_lock()
 
-        # Reset both the connection and the schema back to the old state
-        _set_schema(
-            self.old_schema_name,
-            self.connection,
-            override_class_method_use_shard=self.old_override_class_method_use_shard,
-            shard_id=self.old_shard_id,
-            mapping_value=self.old_mapping_value,
-            active_only_schemas=self.old_active_only_schemas,
-            lock=self.old_lock,
-            check_active_mapping_values=self.old_check_active_mapping_values,
-        )
-
-        if not THREAD_LOCAL.DB_OVERRIDE or THREAD_LOCAL.DB_OVERRIDE == [self.node_name]:
-            THREAD_LOCAL.DB_OVERRIDE = None
-        else:
-            THREAD_LOCAL.DB_OVERRIDE.pop()  # Remove last entry, which is self.node
+        # Set the active connection to the old connection
+        _set_active_connection(self._old_connection)
 
         self._enabled = False  # Make sure we cannot call disable multiple times
 
@@ -437,18 +294,9 @@ class use_shard_for(use_shard):
                 # Do things on my shard
 
     """
-    def __init__(self, target_value, active_only_schemas=True, **kwargs):
-        self.mapping_value = target_value
-        shard = get_shard_for(target_value, active_only=active_only_schemas)
-        super().__init__(shard=shard, active_only_schemas=active_only_schemas, **kwargs)
-
-    def acquire_lock(self):
-        self.connection.acquire_advisory_lock(key='mapping_{}'.format(self.mapping_value), shared=True)
-        self.connection.acquire_advisory_lock(key='shard_{}'.format(self.shard.id), shared=True)
-
-    def release_lock(self):
-        self.connection.release_advisory_lock(key='mapping_{}'.format(self.mapping_value), shared=True)
-        self.connection.release_advisory_lock(key='shard_{}'.format(self.shard.id), shared=True)
+    def __init__(self, target_value, **kwargs):
+        shard = get_shard_for(target_value, active_only=kwargs.get('active_only_schemas', True))
+        super().__init__(shard=shard, mapping_value=target_value, **kwargs)
 
 
 def get_new_shard_node():

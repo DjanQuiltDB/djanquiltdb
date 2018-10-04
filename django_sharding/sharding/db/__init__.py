@@ -1,4 +1,4 @@
-from django.db import connections, DEFAULT_DB_ALIAS
+from django.db import connections
 
 
 class DefaultConnectionProxy(object):
@@ -8,9 +8,8 @@ class DefaultConnectionProxy(object):
 
     @property
     def db_alias(self):
-        from sharding.utils import THREAD_LOCAL  # Prevent cyclic imports
-
-        return getattr(THREAD_LOCAL, 'DB_OVERRIDE', None) and THREAD_LOCAL.DB_OVERRIDE[-1] or DEFAULT_DB_ALIAS
+        from sharding.router import DynamicDbRouter
+        return DynamicDbRouter.active_connection
 
     def __getattr__(self, item):
         return getattr(connections[self.db_alias], item)

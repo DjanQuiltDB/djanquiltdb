@@ -1,14 +1,10 @@
-from django.apps import apps
 from django.conf import settings
 from django.db import models, connections, transaction
 from django.db.models import Q
-from django.db.models.signals import post_init
-from django.dispatch import receiver
 
 from sharding import State, STATES, ShardingMode
-from sharding.db import connection
-from sharding.options import InstanceShardOptions
-from sharding.utils import get_shard_class, get_model_sharding_mode, use_shard, delete_schema
+from sharding.options import ShardOptions
+from sharding.utils import get_shard_class, use_shard, delete_schema
 
 
 class MappingQuerySet(models.QuerySet):
@@ -65,20 +61,20 @@ class BaseShard(models.Model):
 
         # If this is an update, no need to create a schema
         if self.pk and get_shard_class().objects.filter(pk=self.pk).exists():
-            return super().save(**kwargs)
+            return super().save(using=using, **kwargs)
 
         from sharding.utils import schema_exists, create_schema_on_node  # Prevent cyclic imports
 
-        # If we have a Mirrored sharding mode, we need to work on our target node to create a schema.
+        # If we have a mirrored sharding mode, we need to work on our target node to create a schema.
         # If this object is made within a 'use_shard' manager we will have 'using' set.
         # Else we need to get our db alias form the manager
         if (not hasattr(self, 'sharding_mode')
             or (getattr(self, 'sharding_mode') == ShardingMode.MIRRORED
-                and (using or self._base_manager.db) == self.node_name)) \
+                and ShardOptions.from_alias(using or self._base_manager.db).node_name) == self.node_name) \
                 and not schema_exists(node_name=self.node_name, schema_name=self.schema_name):
             create_schema_on_node(schema_name=self.schema_name, node_name=self.node_name, migrate=True)
 
-        super().save(**kwargs)
+        super().save(using=using, **kwargs)
 
     @transaction.atomic()
     def delete(self, *args, delete_from_db=False, **kwargs):
@@ -97,19 +93,3 @@ class BaseShard(models.Model):
 
     def use(self, *args, **kwargs):
         return use_shard(self, *args, **kwargs)
-
-
-@receiver(post_init)
-def store_initial_shard(sender, instance, **kwargs):
-    """
-    Stores information about the shard we retrieved the model instance with
-    """
-
-    # Since we are going to check whether the sender is a sharded model, we need to take the base model when having a
-    # deferred model.
-    model = sender.__base__ if sender._deferred else sender
-
-    # Check if the sender is a sharded model and check if we are not in the public schema
-    if model in apps.get_models() and get_model_sharding_mode(model) == ShardingMode.SHARDED \
-            and not connection.is_public_schema():
-        instance._shard = InstanceShardOptions.from_connection(connection)

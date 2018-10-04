@@ -7,8 +7,8 @@ class ModelFormMetaClass(_ModelFormMetaclass):
 
         # We don't want to save the shard options when the class will be loaded
         for field in new_class.base_fields.values():
-            if hasattr(field, 'queryset') and hasattr(field.queryset, '_shard'):
-                delattr(field.queryset, '_shard')
+            if hasattr(field, 'queryset'):
+                field.queryset._hints.pop('_shard_options', None)
 
         return new_class
 

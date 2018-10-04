@@ -184,7 +184,7 @@ class Command(BaseCommand):
 
         with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
             if use_original_collector:
-                collector = NestedObjects(using=self.source_shard.node_name)
+                collector = NestedObjects(using=env.options)
             else:
                 collector = SimpleCollector(connection=env.connection, verbose=(not self.quiet))
 
