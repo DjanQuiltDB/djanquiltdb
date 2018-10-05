@@ -9,7 +9,7 @@ Ideally you take sharding in consideration at the moment you first conceptualize
 
 If you have not, and discover after years your project needs sharding: you are faced with some problems.
 One of which is, all the data is in a single place: the default database on the public schema.
-The move_models_command looks after that, and will relocate all sharded tables from the public schema to a single sharded schema.
+The `move_models_to_schema` command looks after that, and will relocate all sharded tables from the public schema to a single sharded schema.
 Next is to move data away from that 'main' schema, and into their own schemas. After all, you won't see any benefit from sharding if you use only a single shard.
 This can be done with the move_data_to_shard command.
 
@@ -102,3 +102,10 @@ The ``--quiet`` allows you to silence the output of the command. It will normall
 ``--no_input``
 ~~~~~~~~~~~~~~
 The ``--no_input`` argument allows you to suppress the confirmation the command will prompt.
+
+``--no-delete``
+~~~~~~~~~~~~~~~
+The ``--no-delete`` argument will make sure that the data you copy to the target shard will remain on the source shard.
+This allows you to confirm that the data has been copied correctly, before deleting the data from the source shard.
+When using a mapping model, reverting back to the old data is as simple as pointing the shard in the mapping table to
+the source shard.

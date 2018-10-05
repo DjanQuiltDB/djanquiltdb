@@ -136,6 +136,8 @@ class MoveDataToShardTestCase(ShardingTestCase):
             self.user_cake_2 = self.user_cake_model.objects.get(cake=self.cake_2, user=self.user_1)
             self.user_cake_3 = self.user_cake_model.objects.get(cake=self.cake_3, user=self.user_2)
 
+            self.user_cake_4 = self.user_cake_model.objects.get(cake=self.cake_4, user=self.user_3)
+
         self.data = {
             Organization: {
                 self.organization_1
@@ -155,6 +157,26 @@ class MoveDataToShardTestCase(ShardingTestCase):
                 self.user_cake_1,
                 self.user_cake_2,
                 self.user_cake_3
+            }
+        }
+
+        self.leftover_data = {
+            Organization: {
+                self.organization_2,
+                self.organization_3,
+            },
+            Suborganization: {},
+            User: {
+                self.user_3,
+                self.user_4,
+            },
+            Statement: {
+                self.statement_3,
+                self.statement_4,
+                self.statement_5,
+            },
+            self.user_cake_model: {
+                self.user_cake_4,
             }
         }
 
@@ -211,23 +233,60 @@ class MoveDataToShardTestCase(ShardingTestCase):
         call_command('move_data_to_shard', *self.format_options_to_args())
 
         with use_shard(self.source_shard):
-            self.assertCountEqual(Organization.objects.all(), [self.organization_2, self.organization_3])
-            self.assertCountEqual(User.objects.all(), [self.user_3, self.user_4])
-            self.assertCountEqual(Statement.objects.all(), [self.statement_3, self.statement_4, self.statement_5])
+            # Check if all the leftover data is still on this shard
+            for model, instances in self.leftover_data.items():
+                self.assertCountEqual(model.objects.all(), instances)
+
+            # And if all the data that we moved is not on this shard anymore
+            for model, instances in self.data.items():
+                self.assertFalse(model.objects.filter(id__in=[x.id for x in instances]).exists())
+
+            # Refresh the organization to make sure that it really exists on this shard (refresh would error if the
+            # object does not exist anymore in the shard)
             self.organization_2.refresh_from_db()
             self.organization_3.refresh_from_db()
 
         with use_shard(self.target_shard):
-            self.assertCountEqual(Organization.objects.all(), [self.organization_1])
-            self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2])
-            self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2])
+            # Check if all the data that we moved is on the new shard
+            for model, instances in self.data.items():
+                self.assertCountEqual(model.objects.all(), instances)
+
+            # And that it didn't copy the data that we didn't want to move
+            for model, instances in self.leftover_data.items():
+                self.assertFalse(model.objects.filter(id__in=[x.id for x in instances]).exists())
 
             # Check if the content is still in tact, due to escaping and what not.
             self.assertEqual(Statement.objects.get(id=self.statement_1.id).content, "'Luke'!")
             self.assertEqual(Statement.objects.get(id=self.statement_2.id).content, 'Try to; solve this "puzzle."')
 
         with use_shard(self.target_shard, override_class_method_use_shard=True):
+            # Refresh the organization to make sure that it really exists on this shard (refresh would error if the
+            # object does not exist anymore in the shard)
             self.organization_1.refresh_from_db()
+
+    def test_no_delete(self):
+        """
+        Case: Move an organization to another shard using the move_data_to_shard command while providing --no-delete.
+        Expected: Only that organization and all associated data (so no suborganizations) to be moved over and the
+                  moved data still exists on the old shard.
+        Note: System test
+        """
+        self.options['no_delete'] = True
+        call_command('move_data_to_shard', *self.format_options_to_args())
+
+        with use_shard(self.source_shard):
+            # Check if all the initial data is still on the source shard
+            for model, instances in self.data.items():
+                self.assertCountEqual(model.objects.all(), list(instances) + list(self.leftover_data[model]))
+
+        with use_shard(self.target_shard):
+            # Check if all the data that we moved is on the new shard
+            for model, instances in self.data.items():
+                self.assertCountEqual(model.objects.all(), instances)
+
+            # And that it didn't copy the data that we didn't want to move
+            for model, instances in self.leftover_data.items():
+                self.assertFalse(model.objects.filter(id__in=[x.id for x in instances]).exists())
 
     def test_multiple_objects(self):
         """
@@ -348,12 +407,13 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_objects')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_data_collector')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.reset_sequencers')
-    @mock.patch('sharding.management.commands.move_data_to_shard.Command.move_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_data')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.confirm_data_integrity')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.delete_data')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
-    def test_handle(self, mock_post_execution, mock_delete_data, mock_confirm, mock_move_data, mock_reset_sequencers,
-                    mock_get_data_collector, mock_get_objects, mock_pre_execution, mock_get_target_shard):
+    def test_handle(self, mock_post_execution, mock_delete_data, mock_confirm, mock_copy_data,
+                    mock_reset_sequencers, mock_get_data_collector, mock_get_objects, mock_pre_execution,
+                    mock_get_target_shard):
         """
         Case: Call the handle.
         Expected: All sub-functions to be called with the correct arguments.
@@ -375,9 +435,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.assertEqual(mock_pre_execution.call_count, 1)
         mock_get_data_collector.assert_any_call(objects=self.organization_1)
         mock_get_data_collector.assert_any_call(objects=self.organization_1, use_original_collector=True)
-        mock_move_data.assert_called_once_with(pk_set=pk_set)
+        mock_copy_data.assert_called_once_with(pk_set=pk_set)
         mock_reset_sequencers.assert_called_once_with(data=data)
-        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_move_data.return_value)
+        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value)
         mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
         mock_post_execution.assert_called_once_with(succeeded=True)
 
@@ -386,11 +446,11 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_objects')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_data_collector')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.reset_sequencers')
-    @mock.patch('sharding.management.commands.move_data_to_shard.Command.move_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_data')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.confirm_data_integrity')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.delete_data')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
-    def test_handle_reuse_data(self, mock_post_execution, mock_delete_data, mock_confirm, mock_move_data,
+    def test_handle_reuse_data(self, mock_post_execution, mock_delete_data, mock_confirm, mock_copy_data,
                                mock_reset_sequencers, mock_get_data_collector, mock_get_objects, mock_pre_execution,
                                mock_get_target_shard):
         """
@@ -416,10 +476,52 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_get_objects.assert_called_once_with(self.source_shard)
         self.assertEqual(mock_pre_execution.call_count, 1)
         mock_get_data_collector.assert_called_once_with(objects=self.organization_1)
-        mock_move_data.assert_called_once_with(pk_set=pk_set)
-        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_move_data.return_value)
+        mock_copy_data.assert_called_once_with(pk_set=pk_set)
+        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value)
         mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
         self.assertEqual(mock_post_execution.call_count, 1)
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_target_shard')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.pre_execution')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_objects')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_data_collector')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.reset_sequencers')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.confirm_data_integrity')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.delete_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.print')
+    def test_handle_no_delete(self, mock_print, mock_post_execution, mock_delete_data, mock_confirm, mock_copy_data,
+                              mock_reset_sequencers, mock_get_data_collector, mock_get_objects, mock_pre_execution,
+                              mock_get_target_shard):
+        """
+        Case: Call the handle while providing --no-delete.
+        Expected: All sub-functions to be called with the correct arguments, but `delete_data` not called
+        """
+        data = {Statement: [self.statement_1, self.statement_2]}  # Dummy data
+        pk_set = self.get_pk_set_from_data(data)
+
+        mock_get_target_shard.return_value = self.target_shard
+        mock_get_objects.return_value = self.organization_1
+
+        mock_get_data_collector_value = mock.Mock()
+        mock_get_data_collector_value.data = data
+        mock_get_data_collector.return_value = mock_get_data_collector_value
+
+        self.options['no_delete'] = True
+        self.command.handle(**self.options)
+
+        mock_get_target_shard.assert_called_once_with(options=self.options)
+        mock_get_objects.assert_called_once_with(self.source_shard)
+        self.assertEqual(mock_pre_execution.call_count, 1)
+        mock_get_data_collector.assert_any_call(objects=self.organization_1)
+        mock_copy_data.assert_called_once_with(pk_set=pk_set)
+        mock_reset_sequencers.assert_called_once_with(data=data)
+        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value)
+        self.assertFalse(mock_delete_data.called)
+        mock_post_execution.assert_called_once_with(succeeded=True)
+
+        mock_print.assert_any_call('Skipped deleting data from the source shard.')
 
     @mock.patch('sharding.management.commands.move_data_to_shard.transaction_for_nodes')
     def test_handle_transaction(self, mock_transaction_for_nodes):
@@ -519,7 +621,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         Case: Call move_data.
         Expected: copy_expert and copy_from to be called twice for each model (one for export, one for import).
         """
-        self.command.move_data(pk_set=self.pk_set)
+        self.command.copy_data(pk_set=self.pk_set)
 
         # Since a cursor object is given, we cannot assert the calls specifically.
         self.assertEqual(mock_copy_expert.call_count, len(self.data) * 2)
@@ -531,7 +633,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         Expected: A dict with <model>:'<field>,<field>,<etc>' to be returned.
         """
         self.assertEqual(
-            self.command.move_data(pk_set=self.pk_set),
+            self.command.copy_data(pk_set=self.pk_set),
             {
                 Organization: '"id","name","created_at"',
                 Suborganization: '"id","child_id","parent_id"',
@@ -713,9 +815,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_release_lock.assert_any_call(key='mapping_{}'.format(self.organization_2.id), shared=False)
         mock_release_lock.assert_any_call(key='mapping_{}'.format(self.organization_3.id), shared=False)
 
-    @mock.patch('sharding.management.commands.move_data_to_shard.Command.move_data', side_effect=DatabaseError)
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_data', side_effect=DatabaseError)
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
-    def test_post_execution_on_failure(self, mock_post_execution, mock_move_data):
+    def test_post_execution_on_failure(self, mock_post_execution, mock_copy_data):
         """
         Case: Call the handle while move_data will raise an exception.
         Expected: post_execution called with succeeded=False.
@@ -723,11 +825,11 @@ class MoveDataToShardTestCase(ShardingTestCase):
         with self.assertRaises(DatabaseError):
             self.command.handle(**self.options)
 
-        self.assertEqual(mock_move_data.call_count, 1)
+        self.assertEqual(mock_copy_data.call_count, 1)
         mock_post_execution.assert_called_once_with(succeeded=False)
 
-    @mock.patch('sharding.management.commands.move_data_to_shard.Command.move_data', side_effect=DatabaseError)
-    def test_no_change_on_failure(self, mock_move_data):
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_data', side_effect=DatabaseError)
+    def test_no_change_on_failure(self, mock_copy_data):
         """
         Case: Call the handle while move_data will raise an exception.
         Expected: Mapping object not altered.
@@ -737,7 +839,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
         self.organization_shard1.refresh_from_db()
         self.assertEqual(self.organization_shard1.shard, self.source_shard)
-        self.assertEqual(mock_move_data.call_count, 1)
+        self.assertEqual(mock_copy_data.call_count, 1)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.SimpleCollector')
     def test_get_data_collector_mirrored_models(self, mock_collector):

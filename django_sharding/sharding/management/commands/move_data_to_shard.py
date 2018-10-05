@@ -57,12 +57,16 @@ class Command(BaseCommand):
                             default=False)
         parser.add_argument('--no-input', action='store_true', dest='no_input', help='Skip confirmation.',
                             default=False)
+        parser.add_argument('--no-delete', action='store_true', dest='no_delete', help='Skip deleting data from the '
+                                                                                       'old shard.',
+                            default=False)
 
     def handle(self, *args, **options):
         """
         Move data, based on model name and id, from the source shard to the target shard.
         Both shards are put into maintenance during this.
-        Delete the original data and release the transaction only after the migration is verified.
+        Delete the original data (if --no-delete is not provided) and release the transaction only after the migration
+        is verified.
         """
         self.quiet = options['quiet']
         self.no_input = options['no_input']
@@ -104,17 +108,20 @@ class Command(BaseCommand):
             # Pushing the node names through a set means we end up with a list of unique names.
             nodes = list({self.source_shard.node_name, self.target_shard.node_name})
             with transaction_for_nodes(nodes=nodes):
-                model_fields = self.move_data(pk_set=pk_set)
+                model_fields = self.copy_data(pk_set=pk_set)
                 self.reset_sequencers(data=data)
 
                 if not self.confirm_data_integrity(pk_set=pk_set, model_fields=model_fields):
                     raise IntegrityError('Data was not successfully copied.')
 
-                # Delete the data. Pick the current collector if we reuse the data and pick Django's nested collector
-                # if we want to use the original collector.
-                delete_collector = collector if self.reuse_data else \
-                    self.get_data_collector(objects=objects, use_original_collector=True)
-                self.delete_data(collector=delete_collector)
+                if not options.get('no_delete'):
+                    # Delete the data. Pick the current collector if we reuse the data and pick Django's nested
+                    # collector if we want to use the original collector.
+                    delete_collector = collector if self.reuse_data else \
+                        self.get_data_collector(objects=objects, use_original_collector=True)
+                    self.delete_data(collector=delete_collector)
+                else:
+                    self.print('Skipped deleting data from the source shard.')
         except Exception as error:
             self.post_execution(succeeded=False)
             raise error
@@ -194,9 +201,9 @@ class Command(BaseCommand):
 
             return collector
 
-    def move_data(self, pk_set):
+    def copy_data(self, pk_set):
         """
-        Copy all given data from the source to the target. Delete the data on source after a successful copy.
+        Copy all given data from the source to the target.
         Return a dict with the models as key and their exported fields as value.
         """
         model_fields = {}
