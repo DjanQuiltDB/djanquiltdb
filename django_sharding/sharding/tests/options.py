@@ -109,7 +109,7 @@ class ShardOptionsTestCase(ShardingTestCase):
         Expected: Returns the node name and the schema name separated by a pipe
         """
         options = {'node_name': 'default', 'schema_name': 'test_schema'}
-        self.assertEqual(str(ShardOptions(**options)), '{node_name}|{schema_name}'.format(**options))
+        self.assertEqual(str(ShardOptions(**options)), 'ShardOptions for {node_name}|{schema_name}'.format(**options))
 
     def test_from_shard(self):
         """

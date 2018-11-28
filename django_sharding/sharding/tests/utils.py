@@ -351,26 +351,6 @@ class UseShardTestCase(ShardingTestCase):
         env.release_lock()
         mock_release_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
 
-    def test_acquire_lock_public_schema(self):
-        """
-        Case: Try to acquire a lock for the public schema
-        Expected: ValueError raised
-        """
-        env = use_shard(node_name='default', schema_name=PUBLIC_SCHEMA_NAME)
-        env.connection = connections[env.options]
-        with self.assertRaisesMessage(ValueError, 'It is not allowed to lock public schemas.'):
-            env.acquire_lock()
-
-    def test_release_lock_public_schema(self):
-        """
-        Case: Try to release a lock for the public schema
-        Expected: ValueError raised
-        """
-        env = use_shard(node_name='default', schema_name=PUBLIC_SCHEMA_NAME)
-        env.connection = connections[env.options]
-        with self.assertRaisesMessage(ValueError, 'It is not allowed to lock public schemas.'):
-            env.release_lock()
-
     def test_multiple_disable(self):
         """
         Case: Try to disable a use shard context manager twice

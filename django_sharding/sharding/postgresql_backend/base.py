@@ -403,6 +403,8 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         return super().__getattribute__(item)
 
     def __setattr__(self, key, value):
+        # We don’t want to reset the attributes on the main connection when initializing this class instance, hence we
+        # check on the value of self._initialized here.
         if key in ShardDatabaseWrapper._PROXY_FIELDS and self._initialized:
             return setattr(self._main_connection, key, value)
         return super().__setattr__(key, value)

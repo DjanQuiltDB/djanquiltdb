@@ -125,15 +125,9 @@ class use_shard(object):
         return inner
 
     def acquire_lock(self):
-        if self.connection.is_public_schema():
-            raise ValueError('It is not allowed to lock public schemas.')
-
         self.connection.acquire_locks()
 
     def release_lock(self):
-        if self.connection.is_public_schema():
-            raise ValueError('It is not allowed to lock public schemas.')
-
         self.connection.release_locks()
 
     def enable(self):

@@ -17,7 +17,7 @@ class ShardOptions:
         # Keeps track whether we activated the connection in a use_shard context
         self.use_shard = options.pop('use_shard', False)
 
-        # Saving the options that were passed when initializing the ShardOptions with use_shard
+        # Saving the optional kwargs passed to ShardOptions by use_shard
         self.kwargs = options
 
         # Get whether we should lock the shard or not. It's not allowed to lock the public schema, so we make sure we
@@ -40,7 +40,7 @@ class ShardOptions:
         return not self.__eq__(other)
 
     def __str__(self):
-        return '{}|{}'.format(self.node_name, self.schema_name)
+        return 'ShardOptions for {}|{}'.format(self.node_name, self.schema_name)
 
     @classmethod
     def from_shard(cls, shard, **kwargs):
