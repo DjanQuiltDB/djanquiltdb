@@ -1,17 +1,19 @@
 from unittest import mock
 
 from django.db import ProgrammingError, connections
+from django.db.backends.base.base import BaseDatabaseWrapper
 from django.test import override_settings
 from psycopg2 import InternalError
 
 from example.models import Type, Organization, User, Statement, Shard
 from sharding import State
 from sharding.db import connection
+from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import get_validated_schema_name, PUBLIC_SCHEMA_NAME, \
-    DatabaseWrapper
+    DatabaseWrapper, ShardDatabaseWrapper
 from sharding.postgresql_backend.utils import LockCursorWrapperMixin
 from sharding.tests import ShardingTransactionTestCase, ShardingTestCase
-from sharding.utils import create_schema_on_node, create_template_schema, use_shard
+from sharding.utils import create_schema_on_node, create_template_schema, use_shard, get_template_name
 
 
 class GetValidatedSchemaNameTestCase(ShardingTestCase):
@@ -466,3 +468,54 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
 
         # Now all locks are released, so we can get an exclusive lock now
         self.assertTrue(self.get_lock(self.connection2, 'test'))
+
+
+class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
+    def close_connections(self):
+        if hasattr(self, 'connection'):
+            self.connection.close()
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self.close_connections)
+
+        create_template_schema()
+
+        # Create a new connection that we can safely play with
+        self.connection = DatabaseWrapper(connections['default'].settings_dict, connections['default'].alias)
+
+    def test_proxy_fields(self):
+        """
+        Case: Setting and getting an attribute that's listed in _PROXY_FIELDS is proxied to the main connection.
+        Expected: The fields are proxied to the main connection.
+        """
+        shard_options = ShardOptions(node_name='default', schema_name=get_template_name())
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+
+        for field in ShardDatabaseWrapper._PROXY_FIELDS:
+            # First set the value on the ShardDatabaseWrapper instance and check whether the field is changed on the
+            # main connection. Basically tests __setattr__.
+            value = mock.MagicMock()
+            setattr(connection_, field, value)
+            self.assertIs(getattr(connection_._main_connection, field), value)
+
+            # And next set it on the main connection and check whether the value on the ShardDatabaseWrapper is proxied
+            # to the main connection. Basically tests __getattribute__.
+            other_value = mock.MagicMock()
+            setattr(self.connection, field, other_value)
+            self.assertIs(getattr(connection_._main_connection, field), other_value)
+
+    def test_expected_proxy_fields(self):
+        """
+        Case: Check whether the ShardDatabaseWrapper._PROXY_FIELDS are the same as the fields defined in
+              BaseDatabaseWrapper's init fields, minus the alias and plus the current_search_path (defined in
+              DatabaseWrapper)
+        Expected: List is as we expected
+        Note: if in future versions of Django the fields we define in BaseDatabaseWrapper changes, this test will tell
+              us. We want to proxy all those fields (except for the alias).
+        """
+        proxy_fields = list(BaseDatabaseWrapper({}).__dict__.keys())
+        proxy_fields.remove('alias')
+        proxy_fields.append('current_search_paths')
+
+        self.assertCountEqual(ShardDatabaseWrapper._PROXY_FIELDS, proxy_fields)
