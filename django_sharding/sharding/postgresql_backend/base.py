@@ -116,21 +116,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # creation of the test database, to make a default shard for example.
         self.creation = get_database_creation_class()(self)
 
-        self._current_search_paths = [PUBLIC_SCHEMA_NAME]
+        self.current_search_paths = [PUBLIC_SCHEMA_NAME]
 
         self.schema_name = PUBLIC_SCHEMA_NAME
         self.include_public_schema = True
 
     def __str__(self):
         return self.alias
-
-    @property
-    def current_search_paths(self):
-        return self._current_search_paths
-
-    @current_search_paths.setter
-    def current_search_paths(self, value):
-        self._current_search_paths = value
 
     def close(self):
         self.current_search_paths = [PUBLIC_SCHEMA_NAME]
@@ -386,7 +378,7 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         # Determine whether we need to set an advisory lock or not. If use_shard on the options is True, this means that
         # we activated this connection in a context manager, meaning that we already activated the lock and we don't
         # have to do that in the cursor's execute method.
-        self.lock_on_execute = options.lock and options.kwargs.get('use_shard', False) and options.lock_keys or []
+        self.lock_on_execute = bool(options.lock and not options.use_shard and options.lock_keys)
 
     @property
     def alias(self):
@@ -395,7 +387,7 @@ class ShardDatabaseWrapper(DatabaseWrapper):
     @alias.setter
     def alias(self, value):
         if value != self._main_connection.alias:
-            raise ValueError('You cannot change the alias of a sharded connection.')
+            raise ValueError('The alias is managed by the main connection and cannot be changed.')
 
     def __getattribute__(self, item):
         if item in ShardDatabaseWrapper._PROXY_FIELDS:

@@ -355,10 +355,6 @@ class CursorTestCase(ShardingTestCase):
 
 
 class AdvisoryLockingTestCase(ShardingTransactionTestCase):
-    """
-    We don't write anything to the database (other than advisory locks),
-    so we can just use the vanilla TransactionTestCase here.
-    """
     def close_connections(self):
         if hasattr(self, 'connection2'):
             self.connection2.close()
@@ -470,6 +466,40 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.assertTrue(self.get_lock(self.connection2, 'test'))
 
 
+class AdvisoryLockingIntegrationTestCase(ShardingTestCase):
+    def setUp(self):
+        super().setUp()
+
+        create_template_schema()
+        self.shard = Shard.objects.create(node_name='default', schema_name='test_schema', alias='test',
+                                          state=State.ACTIVE)
+
+    @mock.patch.object(LockCursorWrapperMixin, 'acquire_advisory_lock')
+    @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock')
+    def test_lock_use_shard(self, mock_release_advisory_lock, mock_acquire_advisory_lock):
+        """
+        Case:
+        Expected:
+        """
+        with self.shard.use():
+            Organization.objects.create(name='Hogwarts')
+
+        mock_acquire_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
+        mock_release_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
+
+    @mock.patch.object(LockCursorWrapperMixin, 'acquire_advisory_lock')
+    @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock')
+    def test_lock_on_execute(self, mock_release_advisory_lock, mock_acquire_advisory_lock):
+        """
+        Case:
+        Expected:
+        """
+        Organization.objects.using(self.shard).create(name='Hogwarts')
+
+        mock_acquire_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
+        mock_release_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
+
+
 class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
     def close_connections(self):
         if hasattr(self, 'connection'):
@@ -481,6 +511,9 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
 
         create_template_schema()
 
+        self.shard = Shard.objects.create(node_name='default', schema_name='test_schema', alias='test',
+                                          state=State.ACTIVE)
+
         # Create a new connection that we can safely play with
         self.connection = DatabaseWrapper(connections['default'].settings_dict, connections['default'].alias)
 
@@ -489,7 +522,7 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
         Case: Setting and getting an attribute that's listed in _PROXY_FIELDS is proxied to the main connection.
         Expected: The fields are proxied to the main connection.
         """
-        shard_options = ShardOptions(node_name='default', schema_name=get_template_name())
+        shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name)
         connection_ = ShardDatabaseWrapper(self.connection, shard_options)
 
         for field in ShardDatabaseWrapper._PROXY_FIELDS:
@@ -519,3 +552,134 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
         proxy_fields.append('current_search_paths')
 
         self.assertCountEqual(ShardDatabaseWrapper._PROXY_FIELDS, proxy_fields)
+
+    def test_current_search_paths(self):
+        """
+        Case: Initialize a new ShardDatabaseWrapper and after ask for a cursor
+        Expected: After initializing the new ShardDatabaseWrapper, the `current_search_paths` of the main connection has
+                  not been altered to the new schema in ShardDatabaseWrapper. Only after asking for a cursor, the
+                  `current_search_paths` has been altered.
+        """
+        current_search_paths = [PUBLIC_SCHEMA_NAME, get_template_name()]
+        self.connection.current_search_paths = current_search_paths
+
+        shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name)
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+
+        self.assertEqual(connection_.current_search_paths, current_search_paths)
+        self.assertEqual(self.connection.current_search_paths, current_search_paths)
+
+        connection_.cursor()
+
+        new_current_search_paths = [self.shard.schema_name, PUBLIC_SCHEMA_NAME]
+
+        self.assertEqual(connection_.current_search_paths, new_current_search_paths)
+        self.assertEqual(self.connection.current_search_paths, new_current_search_paths)
+
+    def test_alias(self):
+        """
+        Case: Get the alias of a ShardDatabaseWrapper
+        Expected: Returns the node name and the schema name divided by a pipe
+        """
+        options = {'node_name': 'default', 'schema_name': self.shard.schema_name}
+        shard_options = ShardOptions(**options)
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+
+        self.assertEqual(connection_.alias, '{node_name}|{schema_name}'.format(**options))
+
+    def test_change_alias(self):
+        """
+        Case: Change the alias of a ShardDatabaseWrapper
+        Expected: ValueError raised, because the alias is managed by the main connection
+        """
+        shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name)
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+
+        with self.assertRaisesMessage(ValueError, 'The alias is managed by the main connection and cannot be changed.'):
+            connection_.alias = 'other'
+
+    @mock.patch.object(ShardDatabaseWrapper, 'acquire_advisory_lock')
+    def test_acquire_locks(self, mock_acquire_advisory_lock):
+        """
+        Case: Acquire lock on a ShardDatabaseWrapper while having a shard_id set on ShardOptions
+        Expected: Lock keys from the ShardOptions used to call acquire_advisory_lock
+        """
+        shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name, shard_id=self.shard.id)
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+        connection_.acquire_locks()
+        mock_acquire_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
+
+    @mock.patch.object(ShardDatabaseWrapper, 'acquire_advisory_lock')
+    def test_acquire_locks_with_mapping_value(self, mock_acquire_advisory_lock):
+        """
+        Case: Acquire lock on a ShardDatabaseWrapper while having a shard_id and a mapping value set on ShardOptions
+        Expected: Lock keys from the ShardOptions used to call acquire_advisory_lock
+        """
+        shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name, shard_id=self.shard.id,
+                                     mapping_value=42)
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+        connection_.acquire_locks()
+        self.assertEqual(mock_acquire_advisory_lock.call_count, 2)
+        mock_acquire_advisory_lock.assert_has_calls([
+            mock.call('shard_{}'.format(self.shard.id), shared=True),
+            mock.call('mapping_42', shared=True),
+        ])
+
+    @mock.patch.object(ShardDatabaseWrapper, 'release_advisory_lock')
+    def test_release_locks(self, mock_release_advisory_lock):
+        """
+        Case: Release lock on a ShardDatabaseWrapper while having a shard_id set on ShardOptions
+        Expected: Lock keys from the ShardOptions used to call release_advisory_lock
+        """
+        shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name, shard_id=self.shard.id)
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+        connection_.release_locks()
+        mock_release_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
+
+    @mock.patch.object(ShardDatabaseWrapper, 'release_advisory_lock')
+    def test_release_locks_with_mapping_value(self, mock_release_advisory_lock):
+        """
+        Case: Release lock on a ShardDatabaseWrapper while having a shard_id and a mapping value set on ShardOptions
+        Expected: Lock keys from the ShardOptions used to call release_advisory_lock
+        """
+        shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name, shard_id=self.shard.id,
+                                     mapping_value=42)
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+        connection_.release_locks()
+        self.assertEqual(mock_release_advisory_lock.call_count, 2)
+        mock_release_advisory_lock.assert_has_calls([
+            mock.call('shard_{}'.format(self.shard.id), shared=True),
+            mock.call('mapping_42', shared=True),
+        ])
+
+    def test_lock_on_execute(self):
+        """
+        Case: Initialize the ShardDatabaseWrapper for multiple combinations of options
+        Expected: If we are not in a use_shard context, set lock to True and have lock keys, then `lock_on_execute`
+                  returns True. It returns False otherwise.
+        """
+        dont_lock_on_execute = [
+            {'lock': False},
+            {'lock': True, 'use_shard': True, 'shard_id': self.shard.id},
+            {'lock': True, 'use_shard': False},
+        ]
+
+        lock_on_execute = [
+            {'lock': True, 'use_shard': False, 'shard_id': self.shard.id},
+            {'lock': True, 'use_shard': False, 'shard_id': self.shard.id, 'mapping_value': 42},
+            {'lock': True, 'use_shard': False, 'mapping_value': 42},  # Unlikely, but possible
+        ]
+
+        for options in dont_lock_on_execute:
+            with self.subTest(options):
+                shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
+                                             **options)
+                connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+                self.assertFalse(connection_.lock_on_execute)
+
+        for options in lock_on_execute:
+            with self.subTest(options):
+                shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
+                                             **options)
+                connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+                self.assertTrue(connection_.lock_on_execute)

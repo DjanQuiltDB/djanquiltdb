@@ -23,11 +23,15 @@ class LockCursorWrapperTestCase(SimpleTestCase):
     def setUp(self):
         super().setUp()
 
-        self._cursor = mock.Mock()
-        self._db = mock.Mock()
-        self._db.lock_on_execute = []
+        self.cursor = self.cursor()
+        self._db = self.cursor.db
+        self._db.lock_on_execute = False
 
-        self.cursor = self.CursorWrapper(self._cursor, self._db)
+    def cursor(self):
+        cursor = mock.Mock()
+        db = mock.Mock()
+        db.cursor.side_effect = lambda: self.CursorWrapper(cursor, db)
+        return self.CursorWrapper(cursor, db)
 
     @mock.patch('hashlib.md5')
     def test_get_int_from_key(self, mock_md5):
@@ -95,9 +99,10 @@ class LockCursorWrapperTestCase(SimpleTestCase):
         Case: Call the cursor's execute method while lock_on_execute is equal to an empty list
         Expected: Cursor's super() execute only called once with the SQL we provided
         """
-        self.assertEqual(self.cursor.lock_on_execute, [])
+        self.assertFalse(self._db.lock_on_execute)
         self.cursor.execute('SELECT * FROM dummy;')
         mock_execute.assert_called_once_with('SELECT * FROM dummy;')
+        self.assertFalse(self._db.cursor.called)  # No new cursor asked for acquiring lock
 
     @mock.patch.object(DummyCursorWrapper, 'execute')
     @mock.patch.object(LockCursorWrapperMixin, 'get_int_from_key', mock.MagicMock(return_value='bar'))
@@ -107,14 +112,10 @@ class LockCursorWrapperTestCase(SimpleTestCase):
         Expected: Cursor's super() execute three times called: one for acquiring an advisory lock, one for the SQL we
                   provided and one for releasing the advisory lock
         """
-        db = mock.Mock()
-        db.lock_on_execute = ['foo']
+        self._db.lock_on_execute = True
+        self._db.shard_options.lock_keys = ['foo']
 
-        cursor = self.CursorWrapper(self._cursor, db)
-
-        self.assertEqual(cursor.lock_on_execute, db.lock_on_execute)
-
-        cursor.execute('SELECT * FROM dummy;')
+        self.cursor.execute('SELECT * FROM dummy;')
 
         self.assertEqual(mock_execute.call_count, 3)
 
@@ -124,6 +125,8 @@ class LockCursorWrapperTestCase(SimpleTestCase):
             mock.call('SELECT pg_advisory_unlock_shared(%s);', ['bar']),
         ])
 
+        self.assertEqual(self._db.cursor.call_count, 1)  # New cursor asked for acquiring and releasing locks
+
     @mock.patch.object(DummyCursorWrapper, 'executemany')
     def test_no_lock_on_execute_many(self, mock_executemany):
         """
@@ -131,9 +134,10 @@ class LockCursorWrapperTestCase(SimpleTestCase):
         Expected: Cursor's super() executemany called once with the SQL we provided and no cursor's super() execute
                   called
         """
-        self.assertEqual(self.cursor.lock_on_execute, [])
+        self.assertFalse(self._db.lock_on_execute)
         self.cursor.executemany('SELECT * FROM dummy;')
         mock_executemany.assert_called_once_with('SELECT * FROM dummy;')
+        self.assertFalse(self._db.cursor.called)  # No new cursor asked for acquiring lock
 
     @mock.patch.object(DummyCursorWrapper, 'execute')
     @mock.patch.object(DummyCursorWrapper, 'executemany')
@@ -144,14 +148,10 @@ class LockCursorWrapperTestCase(SimpleTestCase):
         Expected: Cursor's super() execute two times called: one for acquiring an advisory lock and one for releasing
                   the advisory lock. The executemany method has been called once with the SQL we provided.
         """
-        db = mock.Mock()
-        db.lock_on_execute = ['foo']
+        self._db.lock_on_execute = True
+        self._db.shard_options.lock_keys = ['foo']
 
-        cursor = self.CursorWrapper(self._cursor, db)
-
-        self.assertEqual(cursor.lock_on_execute, db.lock_on_execute)
-
-        cursor.executemany('SELECT * FROM dummy;')
+        self.cursor.executemany('SELECT * FROM dummy;')
 
         self.assertEqual(mock_execute.call_count, 2)
 
@@ -161,6 +161,8 @@ class LockCursorWrapperTestCase(SimpleTestCase):
         ])
 
         mock_executemany.assert_called_once_with('SELECT * FROM dummy;')
+
+        self.assertEqual(self._db.cursor.call_count, 1)  # New cursor asked for acquiring and releasing locks
 
 
 class CursorDebugWrapperTestCase(SimpleTestCase):

@@ -1,34 +1,37 @@
 import hashlib
+from contextlib import contextmanager
 
 from django.db.backends import utils
 
 
 class LockCursorWrapperMixin:
-    def __init__(self, cursor, db):
-        super().__init__(cursor, db)
+    @contextmanager
+    def _lock(self):
+        if not getattr(self.db, 'lock_on_execute', False):
+            # No need to set an advisory lock on executing SQL queries, so we return early.
+            yield
+            return
 
-        # Contains the lock keys that needs to be set on each cursor execute command. Will be an empty list if
-        self.lock_on_execute = getattr(db, 'lock_on_execute', [])
+        # Need to ask for a new cursor. Not doing that can cause methods like fetchall() to return results of our
+        # locking queries instead of the query we actually want to perform.
+        cursor = self.db.cursor()
+
+        for key in self.db.shard_options.lock_keys:
+            cursor.acquire_advisory_lock(key, shared=True)
+
+        try:
+            yield
+        finally:
+            for key in self.db.shard_options.lock_keys:
+                cursor.release_advisory_lock(key, shared=True)
 
     def execute(self, *args, **kwargs):
-        for key in self.lock_on_execute:
-            self.acquire_advisory_lock(key)
-
-        try:
+        with self._lock():
             return super().execute(*args, **kwargs)
-        finally:
-            for key in self.lock_on_execute:
-                self.release_advisory_lock(key)
 
     def executemany(self, *args, **kwargs):
-        for key in self.lock_on_execute:
-            self.acquire_advisory_lock(key)
-
-        try:
+        with self._lock():
             return super().executemany(*args, **kwargs)
-        finally:
-            for key in self.lock_on_execute:
-                self.release_advisory_lock(key)
 
     def acquire_advisory_lock(self, key, shared=True):
         """
