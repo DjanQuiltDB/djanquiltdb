@@ -1,6 +1,7 @@
+from contextlib import contextmanager
 from unittest import mock
 
-from django.db import ProgrammingError, connections
+from django.db import ProgrammingError, connections, IntegrityError
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.test import override_settings
 from psycopg2 import InternalError
@@ -11,7 +12,7 @@ from sharding.db import connection
 from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import get_validated_schema_name, PUBLIC_SCHEMA_NAME, \
     DatabaseWrapper, ShardDatabaseWrapper
-from sharding.postgresql_backend.utils import LockCursorWrapperMixin
+from sharding.postgresql_backend.utils import LockCursorWrapperMixin, CursorWrapper
 from sharding.tests import ShardingTransactionTestCase, ShardingTestCase
 from sharding.utils import create_schema_on_node, create_template_schema, use_shard, get_template_name
 
@@ -324,34 +325,113 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
 
 
 class CursorTestCase(ShardingTestCase):
-    def test_select_schema_operation(self):
-        """
-        Case: Use 'use_shard' on a normal connection.
-        Expected: get_ps_schema to be called (part of setting the search_path).
-        """
+    def close_connections(self):
+        if hasattr(self, 'connection'):
+            self.connection.close()
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(self.close_connections)
+
         create_template_schema()
 
-        # Make sure that we reset the current_search_paths to being the public schema, because it currently actually is
-        # the template schema (because we migrated that one)
-        connection.current_search_paths = [PUBLIC_SCHEMA_NAME]
+        # Create a new connection that we can safely play with
+        self.connection = DatabaseWrapper(connections['default'].settings_dict, connections['default'].alias)
 
-        with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema:
-            with use_shard(node_name='default', schema_name='template'):
-                with connection.cursor() as cursor:
-                    cursor.execute('SHOW search_path;')  # Some random query
-                    self.assertEqual(mock_get_ps_schema.call_count, 1)
+        self.shard_options = ShardOptions(node_name='default', schema_name='template')
+        self.template_connection = ShardDatabaseWrapper(self.connection, self.shard_options)
+
+    @contextmanager
+    def assertSearchPathChanged(self, connection_, old_search_paths, new_search_paths):
+        """
+        Asserts whether the search path has been changed, get_ps_schema is called and cursor.execute() is called with
+        the correct arguments to change the search path in the database.
+        """
+        self.assertEqual(connection_.current_search_paths, old_search_paths)
+        with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema, \
+             mock.patch.object(connection_, 'connection') as mock_connection:
+            yield
+
+        self.assertTrue(mock_get_ps_schema.called)
+        self.assertEqual(connection_.current_search_paths, new_search_paths)
+
+        mock_connection.cursor.return_value.execute.assert_called_once_with(
+            'SET search_path = {}'.format(','.join(new_search_paths))
+        )
+
+        mock_connection.cursor.return_value.close.assert_called_once_with()
+
+    @contextmanager
+    def assertSearchPathNotChanged(self, connection_, old_search_paths):
+        """
+        Asserts whether the search path has not been changed, get_ps_schema is not called and cursor.execute() is not
+        called to change the search path in the database.
+        """
+        self.assertEqual(connection_.current_search_paths, old_search_paths)
+        with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema, \
+             mock.patch.object(connection_, 'connection') as mock_connection:
+            yield
+
+        self.assertFalse(mock_get_ps_schema.called)
+        self.assertEqual(connection_.current_search_paths, old_search_paths)
+        self.assertFalse(mock_connection.cursor.return_value.execute.called)
+        self.assertFalse(mock_connection.cursor.return_value.close.called)
+
+    def test_select_schema_operation(self):
+        """
+        Case: While the connection's current search path is 'public' only, get a cursor for a connection to the template
+              schema
+        Expected: current_search_path of connection set to ['template', 'public'], get_ps_schema called and the search
+                  path in the database correctly set
+        """
+        with self.assertSearchPathChanged(self.template_connection, ['public'], ['template', 'public']):
+            with self.template_connection.cursor():
+                pass
+
+    def test_dont_include_public_schema(self):
+        """
+        Case: While the connection's current search path is 'public' only, get a cursor for a connection to the template
+              schema
+        Expected: current_search_path of connection set to ['template', 'public'], get_ps_schema called and the search
+                  path in the database correctly set
+        """
+        shard_options = ShardOptions(node_name='default', schema_name='template', include_public=False)
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+
+        with self.assertSearchPathChanged(connection_, ['public'], ['template']):
+            with connection_.cursor():
+                pass
 
     def test_no_db_operation(self):
         """
-        Case: Use 'use_shard' on a __no_db__ connection.
-        Expected: get_ps_schema to be NOT called (part of setting the search_path).
+        Case: While the connection's current search path is 'public' only, get a cursor for a nodb connection
+        Expected: Search path not changed while getting a new cursor
         """
-        with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema:
-            with use_shard(node_name='default', schema_name='public'):
-                with connection._nodb_connection.cursor() as cursor:
-                    with self.assertRaises(ProgrammingError):
-                        cursor.execute('SELECT * FROM example_type;')  # some query that will fail on __no_db__.
-                    self.assertEqual(mock_get_ps_schema.call_count, 0)
+        with self.assertSearchPathNotChanged(self.connection, ['public']):
+            with self.connection._nodb_connection.cursor():
+                pass
+
+    def test_search_path_equal(self):
+        """
+        Case: While the connection's current search path is already 'template' and 'public', get a cursor for the
+              template schema
+        Expected: Search path not changed because it was already the correct search path
+        """
+        self.template_connection.current_search_paths = ['template', 'public']
+        with self.assertSearchPathNotChanged(self.template_connection, ['template', 'public']):
+            with self.template_connection.cursor():
+                pass
+
+    def test_schema_does_not_exist(self):
+        """
+        Case: Get a new cursor for a connection to a schema that does not exists
+        Expected: IntegrityError raised, because the schema does not exists
+        """
+        shard_options = ShardOptions(node_name='default', schema_name='foo')
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+        with self.assertRaisesMessage(IntegrityError, "Schema '{}' does not exist.".format('foo')):
+            with connection_.cursor():
+                pass
 
 
 class AdvisoryLockingTestCase(ShardingTransactionTestCase):

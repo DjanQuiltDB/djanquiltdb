@@ -67,7 +67,7 @@ class use_shard(object):
     :returns: The context manager as an object with the following members:
 
     * **connection:** Reference to the current database connection.
-    * **shard:** Reference to the current shard model object.
+    * **options:** Reference to the current shard options.
 
     :Example:
         .. code-block:: python
@@ -84,9 +84,6 @@ class use_shard(object):
                 User.objects.create(name="John Snow")
 
     """
-    # Both node_name and schema_name are not documented.
-    # They bypass the shard.state check, and are only there to for internal use.
-    # (Situations where the schema is made, but the shard object is not saved yet.)
     def __init__(self, shard=None, node_name=None, schema_name=None, **kwargs):
         from sharding.options import ShardOptions  # Prevent cyclic imports
 
