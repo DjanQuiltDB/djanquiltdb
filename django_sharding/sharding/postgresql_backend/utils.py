@@ -25,6 +25,8 @@ class LockCursorWrapperMixin:
             for key in self.db.shard_options.lock_keys:
                 cursor.release_advisory_lock(key, shared=True)
 
+            cursor.close()
+
     def execute(self, *args, **kwargs):
         with self._lock():
             return super().execute(*args, **kwargs)

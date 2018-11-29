@@ -17,6 +17,9 @@ class LockCursorWrapperTestCase(SimpleTestCase):
         def executemany(self, *args, **kwargs):
             return args, kwargs
 
+        def close(self):
+            pass
+
     class CursorWrapper(LockCursorWrapperMixin, DummyCursorWrapper):
         pass
 
@@ -163,6 +166,28 @@ class LockCursorWrapperTestCase(SimpleTestCase):
         mock_executemany.assert_called_once_with('SELECT * FROM dummy;')
 
         self.assertEqual(self._db.cursor.call_count, 1)  # New cursor asked for acquiring and releasing locks
+
+    @mock.patch.object(DummyCursorWrapper, 'close')
+    @mock.patch.object(LockCursorWrapperMixin, 'acquire_advisory_lock')
+    @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock')
+    def test_lock_cursor(self, mock_release_advisory_lock, mock_acquire_advisory_lock, mock_close):
+        """
+        Case: Use LockCursorWrapperMixin._lock() as context manager
+        Expected: When inside the contextmanager, a new cursor has been asked, the advisory locks are set, but the locks
+                  are not released yet and the cursor for the locking is not closed. After the context manager, the
+                  locks are released and the cursor is closed.
+        """
+        self._db.lock_on_execute = True
+        self._db.shard_options.lock_keys = ['foo']
+
+        with self.cursor._lock():
+            self._db.cursor.assert_called_once_with()
+            mock_acquire_advisory_lock.assert_called_once_with('foo', shared=True)
+            self.assertFalse(mock_release_advisory_lock.called)
+            self.assertFalse(mock_close.called)
+
+        mock_release_advisory_lock.assert_called_once_with('foo', shared=True)
+        mock_close.assert_called_once_with()
 
 
 class CursorDebugWrapperTestCase(SimpleTestCase):
