@@ -106,6 +106,10 @@ class UsingTestCase(ShardingTestCase):
 
         self.assertEqual(list(Organization.objects.using('default|test_schema').all()), [organization])
 
+        # Double-check, to make sure it ended up in the correct shard
+        with use_shard(self.shard):
+            self.assertEqual(list(Organization.objects.all()), [organization])
+
     def test_tuple_node_name_schema_name(self):
         """
         Case: Create a sharded model instance with using(('<node_name>, '<schema_name>')) and after retrieve all the
@@ -117,6 +121,10 @@ class UsingTestCase(ShardingTestCase):
 
         self.assertEqual(list(Organization.objects.using(('default', 'test_schema')).all()), [organization])
 
+        # Double-check, to make sure it ended up in the correct shard
+        with use_shard(self.shard):
+            self.assertEqual(list(Organization.objects.all()), [organization])
+
     def test_shard_instance(self):
         """
         Case: Create a sharded model instance with using(<shard_instance>) and after retrieve all the entries
@@ -126,6 +134,10 @@ class UsingTestCase(ShardingTestCase):
         self.assertEqual(organization._state.db, self.shard)
 
         self.assertEqual(list(Organization.objects.using(self.shard).all()), [organization])
+
+        # Double-check, to make sure it ended up in the correct shard
+        with use_shard(self.shard):
+            self.assertEqual(list(Organization.objects.all()), [organization])
 
     def test_shard_options_instance(self):
         """
@@ -137,3 +149,7 @@ class UsingTestCase(ShardingTestCase):
         self.assertEqual(organization._state.db, shard_options)
 
         self.assertEqual(list(Organization.objects.using(shard_options).all()), [organization])
+
+        # Double-check, to make sure it ended up in the correct shard
+        with use_shard(self.shard):
+            self.assertEqual(list(Organization.objects.all()), [organization])
