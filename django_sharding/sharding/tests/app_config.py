@@ -327,12 +327,26 @@ class ConnectionsTestCase(ShardingTestCase):
         super().setUp()
 
         create_template_schema()
+        create_template_schema('other')
 
         self.shard = Shard.objects.create(node_name='default', schema_name='test_schema', alias='test',
                                           state=State.ACTIVE)
+        self.other_shard = Shard.objects.create(node_name='other', schema_name='test_schema', alias='other_test',
+                                                state=State.ACTIVE)
 
         self.default_connection = connections['default']
         self.other_connection = connections['other']
+
+    def assertShardConnection(self, connection_, shard):
+        """
+        Checks if the provided connection is a ShardDatabaseWrapper and checks whether the attributes are those of the
+        shard we provided.
+        """
+        self.assertIsInstance(connection_, ShardDatabaseWrapper)
+        self.assertEqual(connection_._main_connection, connections[shard.node_name])
+        self.assertEqual(connection_._main_connection.alias, shard.node_name)
+        self.assertEqual(connection_.alias, '{}|{}'.format(shard.node_name, shard.schema_name))
+        self.assertEqual(connection_.schema_name, shard.schema_name)
 
     def test_no_shard(self):
         """
@@ -352,18 +366,6 @@ class ConnectionsTestCase(ShardingTestCase):
         connection_ = connections[shard_options]
         self.assertEqual(connection_, self.default_connection)
         self.assertIsInstance(connection_, DatabaseWrapper)
-
-    def assertShardConnection(self, connection_, shard):
-        """
-        Checks if the provided connection is a ShardDatabaseWrapper and checks whether the attributes are those of the
-        shard we provided.
-        """
-        self.assertIsInstance(connection_, ShardDatabaseWrapper)
-        self.assertEqual(connection_._main_connection, connections[shard.node_name])
-
-        self.assertEqual(connection_.alias, '{}|{}'.format(shard.node_name, shard.schema_name))
-        self.assertEqual(connection_._main_connection.alias, shard.node_name)
-        self.assertEqual(connection_.schema_name, shard.schema_name)
 
     def test_pipe_node_name_schema_name(self):
         """
