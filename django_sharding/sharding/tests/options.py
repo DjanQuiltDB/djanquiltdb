@@ -1,7 +1,8 @@
 from unittest import mock
 
-from example.models import Shard, OrganizationShards
+from example.models import Shard, OrganizationShards, Organization
 from sharding import State
+from sharding.db import connection
 from sharding.decorators import override_sharding_setting
 from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
@@ -339,3 +340,51 @@ class ShardOptionsTestCase(ShardingTestCase):
 
         mock_use_shard.assert_called_once_with(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
                                                **kwargs)
+
+    def test_use_mapping_value_integration(self):
+        """
+        Case: Call ShardOptions's use() method while having a mapping value set
+        Expected: Correctly switches the connection to the correct shard
+        """
+        with self.shard.use():
+            organization = Organization.objects.create(name='Foo')
+            OrganizationShards.objects.create(shard=self.shard, organization_id=organization.id, slug='foo')
+
+        shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
+                                     shard_id=self.shard.id, mapping_value=organization.id)
+
+        with shard_options.use():
+            self.assertTrue(Organization.objects.filter(name='Foo').exists())
+            self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
+            self.assertEqual(connection.shard_options.mapping_value, organization.id)
+
+    def test_use_shard_id_integration(self):
+        """
+        Case: Call ShardOptions's use() method while having a shard id value set
+        Expected: Correctly switches the connection to the correct shard
+        """
+        with self.shard.use():
+            Organization.objects.create(name='Foo')
+
+        shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
+                                     shard_id=self.shard.id)
+
+        with shard_options.use():
+            self.assertTrue(Organization.objects.filter(name='Foo').exists())
+            self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
+            self.assertEqual(connection.shard_options.shard_id, self.shard.id)
+
+
+    def test_use_integration(self):
+        """
+        Case: Call ShardOptions's use() method while having a no mapping value and no shard id set
+        Expected: Correctly switches the connection to the correct shard
+        """
+        with self.shard.use():
+            Organization.objects.create(name='Foo')
+
+        shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name)
+
+        with shard_options.use():
+            self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
+            self.assertTrue(Organization.objects.filter(name='Foo').exists())
