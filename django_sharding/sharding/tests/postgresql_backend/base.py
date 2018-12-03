@@ -338,6 +338,11 @@ class CursorTestCase(ShardingTestCase):
         # Create a new connection that we can safely play with
         self.connection = DatabaseWrapper(connections['default'].settings_dict, connections['default'].alias)
 
+        # And ask for a new cursor on the default connection to make sure that our current search path is the public
+        # schema only
+        with connections['default'].cursor():
+            self.assertEqual(connections['default'].current_search_paths, [PUBLIC_SCHEMA_NAME])
+
         self.shard_options = ShardOptions(node_name='default', schema_name='template')
         self.template_connection = ShardDatabaseWrapper(self.connection, self.shard_options)
 
@@ -375,7 +380,6 @@ class CursorTestCase(ShardingTestCase):
         self.assertFalse(mock_get_ps_schema.called)
         self.assertEqual(connection_.current_search_paths, old_search_paths)
         self.assertFalse(mock_connection.cursor.return_value.execute.called)
-        self.assertFalse(mock_connection.cursor.return_value.close.called)
 
     def test_select_schema_operation(self):
         """
