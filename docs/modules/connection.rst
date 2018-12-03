@@ -12,9 +12,9 @@ Aliases
 
 The ``connections`` accept multiple aliases:
 
-* A string being ``<node_name>>``
-* A string being ``<node_name>|<schema_name>``
-* A tuple being ``(<node_name>, <schema_name>)``
+* A string ``<node_name>>``
+* A string ``<node_name>|<schema_name>``
+* A tuple ``(<node_name>, <schema_name>)``
 * A shard model instance
 * A ``ShardOptions`` instance
 
@@ -81,16 +81,16 @@ The most advanced way to get a connection is with ``ShardOptions``, which is als
     from sharding.utils import get_shard_class
 
 
-    # Returns a simple connection to default's public and foo_schema. Equivalent to connections['default|foo_schema']
+    # Returns a connection to default's public and foo_schema. Equivalent to connections['default|foo_schema']
     shard_options = ShardOptions(node_name='default', schema_name='foo_schema')
     connections[shard_options]
 
-    # Returns a simple connection to default's public and foo_schema. Equivalent to connections[shard]
+    # Returns a connection to default's public and foo_schema. Equivalent to connections[shard]
     shard = get_shard_class().objects.get(node_name='default', schema_name='foo_schema')
     shard_options = ShardOptions(node_name='default', schema_name='foo_schema', shard_id=shard.id)
     connections[shard_options]
 
-    # Returns a simple connection to default's public and foo_schema, but also saves the mapping value as an option.
+    # Returns a connection to default's public and foo_schema, but also saves the mapping value as an option.
     mapping_model = get_mapping_class()
     mapping_object = mapping_model.objects.filter(shard__node_name='default', shard__schema_name='foo_schema').first()
     mapping_value = getattr(mapping_object, mapping_model.mapping_field)
