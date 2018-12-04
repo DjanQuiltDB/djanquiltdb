@@ -16,6 +16,7 @@ Welcome to Django-sharding's documentation!
     modules/forms
     modules/decorators
     modules/utils
+    modules/connection
     modules/migrations
     modules/celery
     modules/move_data

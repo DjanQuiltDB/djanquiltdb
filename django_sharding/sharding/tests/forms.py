@@ -18,9 +18,9 @@ class ModelFormTestCase(ShardingTestCase):
         """
         Case: Import two forms: one that inherits from sharding.forms.ModelForm and one that inherits from
               django.forms.ModelForm
-        Expected: For the class definition, the base_fields don't have a _shard attribute set for the form that
-                  inherits from sharding.forms.ModelForm and do have _shard set for forms that inherits from
-                  django.forms.ModelForm. The same goes for the fields attribute on the form instances.
+        Expected: For the class definition, the base_fields don't have a _shard_options hint attribute set for the form
+                  that inherits from sharding.forms.ModelForm and do have _shard_options set for forms that inherits
+                  from django.forms.ModelForm. The same goes for the fields attribute on the form instances.
         """
         with use_shard(self.shard):
             # Import it in a sharded context to force having the _shard attribute set for forms that don't inherit from
@@ -29,19 +29,19 @@ class ModelFormTestCase(ShardingTestCase):
             import example.forms
             importlib.reload(example.forms)
 
-        # No _shard set on the queryset
-        self.assertFalse(hasattr(example.forms.UserForm.base_fields['organization'].queryset, '_shard'))
-        self.assertFalse(hasattr(example.forms.UserForm.base_fields['type'].queryset, '_shard'))
+        # No _shard_options set as hint on the queryset
+        self.assertNotIn('_shard_options', example.forms.UserForm.base_fields['organization'].queryset._hints)
+        self.assertNotIn('_shard_options', example.forms.UserForm.base_fields['type'].queryset._hints)
 
-        # _shard set on the queryset
-        self.assertTrue(hasattr(example.forms.StatementForm.base_fields['user'].queryset, '_shard'))
+        # _shard_options set as hint on the queryset
+        self.assertIn('_shard_options', example.forms.StatementForm.base_fields['user'].queryset._hints)
 
         # And the same goes for form instances
         form = example.forms.UserForm()
 
-        self.assertFalse(hasattr(form.fields['organization'].queryset, '_shard'))
-        self.assertFalse(hasattr(form.fields['type'].queryset, '_shard'))
+        self.assertNotIn('_shard_options', form.fields['organization'].queryset._hints)
+        self.assertNotIn('_shard_options', form.fields['type'].queryset._hints)
 
         second_form = example.forms.StatementForm()
 
-        self.assertTrue(hasattr(second_form.fields['user'].queryset, '_shard'))
+        self.assertIn('_shard_options', second_form.fields['user'].queryset._hints)

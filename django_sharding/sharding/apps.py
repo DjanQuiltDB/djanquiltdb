@@ -1,3 +1,4 @@
+import functools
 import inspect
 import types
 
@@ -5,12 +6,13 @@ from django.apps import AppConfig, apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
-from django.db.models import Manager
 from django.utils.module_loading import import_string
 
 from sharding import ShardingMode
-from sharding.db.models.query import QuerySet, QuerySetMixin
-from sharding.decorators import class_method_use_shard
+from sharding.db import connection
+from sharding.decorators import class_method_use_shard, _add_decorator_reference
+from sharding.options import ShardOptions
+from sharding.postgresql_backend.base import ShardDatabaseWrapper
 from sharding.utils import get_all_sharded_models
 
 
@@ -47,9 +49,9 @@ class ShardingConfig(AppConfig):
         settings.SHARDING['OVERRIDE_SHARDING_MODE'] = dict((tuple(x.lower() for x in k), v)
                                                            for k, v in override_sharding_mode.items())
 
-        if 'DATABASE_ROUTERS' not in dir(settings) or 'sharding.utils.DynamicDbRouter' not in settings.DATABASE_ROUTERS:
+        if 'DATABASE_ROUTERS' not in dir(settings) or 'sharding.router.DynamicDbRouter' not in settings.DATABASE_ROUTERS:
             raise ImproperlyConfigured(
-                'sharding.utils.DynamicDbRouter must be present in the DATABASE_ROUTERS setting.')
+                'sharding.router.DynamicDbRouter must be present in the DATABASE_ROUTERS setting.')
 
         if 'SESSION_ENGINE' in dir(settings) and \
             settings.SESSION_ENGINE == 'django.contrib.sessions.backends.cached_db' and \
@@ -60,6 +62,7 @@ class ShardingConfig(AppConfig):
                 "to store sessions. It references the user table and won't know where to find it."
             )
 
+        _patch_connections()
         _initialize_sharded_models()
 
 
@@ -96,34 +99,63 @@ def _initialize_sharded_models():
             if isinstance(inspect.getattr_static(model, attr), types.FunctionType):
                 # And decorate all model methods so that the methods will all run in the same shard context as the
                 # instance is living in
-                setattr(model, attr, class_method_use_shard()(func))
+                setattr(model, attr, class_method_use_shard(func))
 
         _initialize_sharded_model_querysets(model)
+
+
+def post_init(func):
+    @functools.wraps(func)
+    def inner(self, *args, hints=None, **kwargs):
+        hints = hints or {}
+
+        if '_shard_options' not in hints and not connection.is_public_schema():
+            hints['_shard_options'] = connection.shard_options
+
+        func(self, *args, hints=hints, **kwargs)
+    inner.__decorator__ = post_init
+    return inner
 
 
 def _initialize_sharded_model_querysets(model):
     """
     Override all the querysets of the managers, so they can remember the shard where they are initialized on
     """
-    for manager_attr, manager in inspect.getmembers(model, lambda o: isinstance(o, Manager)):
-        base_queryset_class = manager._queryset_class
+    for _, instance, _ in model._meta.managers:
+        if hasattr(instance._queryset_class.__init__, '__decorator__') and \
+                instance._queryset_class.__init__.__decorator__ == post_init:
+            continue
+        setattr(instance._queryset_class, '__init__', post_init(instance._queryset_class.__init__))
 
-        # We only need to adjust the QuerySet if it's not the sharded one. We compare the type, because we cannot
-        # compare the classes, because the dynamic class created below is not equal to sharding.db.models.QuerySet.
-        # The type will give us the metaclass. We therefore check whether both metaclasses are equal to
-        # sharding.db.models.QuerySetMetaClass.
-        if type(base_queryset_class) != type(QuerySet):
-            # First construct the new queryset. Logic taken from QuerySet._clone()
-            class_dict = {
-                '_base_queryset_class': base_queryset_class,
-                '_specialized_queryset_class': QuerySet,
-            }
-            new_queryset = type(QuerySet.__name__, (base_queryset_class, QuerySetMixin), class_dict)
 
-            # Now construct the new manager
-            manager_class = manager.__class__
-            manager_name = manager_class.__name__
-            new_manager = type(manager_name, (manager_class.from_queryset(new_queryset), manager_class), {})
+def patch_getitem(func):
+    @functools.wraps(func)
+    def inner(self, alias):
+        # If we're planning to just go into the public schema, then we're going to use the normal connection for that
+        if isinstance(alias, str) and '|' not in alias or isinstance(alias, ShardOptions) and alias.is_public_schema():
+            return func(self, alias if isinstance(alias, str) else alias.node_name)
 
-            # And add the new manager to the class
-            model.add_to_class(manager_attr, new_manager())
+        options = ShardOptions.from_alias(alias)
+
+        # Retrieves the main connection to the database, so we can still do connection pooling
+        connection_ = func(self, options.node_name)
+
+        # Sets up the sharded connection
+        return ShardDatabaseWrapper(connection_, options)
+    return inner
+
+
+def _patch_connections():
+    """
+    Monkeypatch django.db.connection and django.db.connections to accept:
+
+      * node_name
+      * node_name|schema_name
+      * tuple (node_name, schema_name)
+      * ShardOptions instance
+      * Shard model instance
+    """
+    import django.db
+    from django.db.utils import ConnectionHandler
+    setattr(ConnectionHandler, '__getitem__', patch_getitem(ConnectionHandler.__getitem__))
+    setattr(django.db, 'connection', connection)

@@ -88,7 +88,7 @@ SHARDING = {
     }
 }
 
-DATABASE_ROUTERS = ['sharding.utils.DynamicDbRouter']
+DATABASE_ROUTERS = ['sharding.router.DynamicDbRouter']
 
 # Password validation
 # https://docs.djangoproject.com/en/1.11/ref/settings/#auth-password-validators

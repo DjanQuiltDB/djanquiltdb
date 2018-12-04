@@ -11,17 +11,20 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 """
-import hashlib
+import logging
 import re
 
 from django.conf import settings
+from django.db.backends.base.base import NO_DB_ALIAS, BaseDatabaseWrapper as DjangoBaseDatabaseWrapper
 from django.db.backends.postgresql_psycopg2.base import DatabaseWrapper as BaseDatabaseWrapper
-from django.db.backends.base.base import NO_DB_ALIAS
 from django.db.utils import DatabaseError, IntegrityError
 from django.utils.module_loading import import_string
 from psycopg2 import InternalError, sql
 
 from sharding.postgresql_backend.introspection import DatabaseSchemaIntrospection
+from sharding.postgresql_backend.utils import CursorDebugWrapper, CursorWrapper
+
+logger = logging.getLogger(__name__)
 
 # Clone function is from the PostgreSQL wiki by Emanuel '3manuek'.
 # Adjusted to set the value of the created sequences to the same value as those we clone.
@@ -101,9 +104,6 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     """
     Adds the capability to manipulate the search_path using set_schema and set_schema_to_public
     """
-
-    include_public_schema = True
-
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -116,55 +116,21 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # creation of the test database, to make a default shard for example.
         self.creation = get_database_creation_class()(self)
 
-        self.schema_name = None
-        self.search_path_set = False
-        self.set_schema_to_public()
+        self.current_search_paths = [PUBLIC_SCHEMA_NAME]
 
-        # Parameters that are set to determine the use_shard parameters in class methods that use class_method_use_shard
-        self._override_class_method_use_shard = False
-        self._shard_id = None
-        self._mapping_value = None
-        self._active_only_schemas = True
-        self._lock = True
-        self._check_active_mapping_values = False
+        self.schema_name = PUBLIC_SCHEMA_NAME
+        self.include_public_schema = True
 
     def __str__(self):
-        return '{}|{}'.format(self.alias, self.schema_name)
+        return self.alias
 
     def close(self):
-        self.search_path_set = False
+        self.current_search_paths = [PUBLIC_SCHEMA_NAME]
         super().close()
 
     def rollback(self):
         super().rollback()
-        # Django's rollback clears the search path so we have to set it again the next time.
-        self.search_path_set = False
-
-    def set_schema(self, schema_name, include_public=True, override_class_method_use_shard=False, shard_id=None,
-                   mapping_value=None, active_only_schemas=True, lock=True, check_active_mapping_values=False):
-        """
-        Main API method to tell the connection to use a different schema.
-        The postgresql search_path will be changed when a new cursor is requested.
-        See `_cursor`.
-        """
-        self.schema_name = schema_name
-        self.include_public_schema = include_public
-        self.search_path_set = False
-
-        # Parameters that are set to determine the use_shard parameters in sharded model methods
-        self._override_class_method_use_shard = override_class_method_use_shard
-        self._shard_id = shard_id
-        self._mapping_value = mapping_value
-        self._active_only_schemas = active_only_schemas
-        self._lock = lock
-        self._check_active_mapping_values = check_active_mapping_values
-
-    def set_schema_to_public(self):
-        """
-        Instructs to stay in the common 'public' schema.
-        """
-        self.schema_name = PUBLIC_SCHEMA_NAME
-        self.search_path_set = False
+        self.current_search_paths = [PUBLIC_SCHEMA_NAME]
 
     def get_schema(self):
         return self.schema_name
@@ -290,31 +256,31 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                     )
         cursor.execute(';\n'.join(statements))
 
-    @staticmethod
-    def get_int_from_key(key):
+    def make_debug_cursor(self, cursor):
         """
-        Turn the given id to a md5 hash.
-        And make an int from the first 60 bits of the hash
+        Creates a cursor that logs all queries in self.queries_log, and that can set advisory locks as well.
         """
-        m = hashlib.md5()  # nosec
-        m.update(key.encode())
-        return int(m.hexdigest()[:15], 16)
+        return CursorDebugWrapper(cursor, self)
+
+    def make_cursor(self, cursor):
+        """
+        Creates a cursor without debug logging, and that can set advisory locks as well.
+        """
+        return CursorWrapper(cursor, self)
 
     def acquire_advisory_lock(self, key, shared=True, _cursor=None):
         """
         Set a shared or exclusive advisory lock on a given key.
         """
         cursor = _cursor or self.cursor()
-        key = self.get_int_from_key(key)
-        cursor.execute('SELECT pg_advisory_lock{}(%s);'.format('_shared' if shared else ''), [key])
+        cursor.acquire_advisory_lock(key, shared=shared)
 
     def release_advisory_lock(self, key, shared=True, _cursor=None):
         """
         Release a shared or exclusive advisory lock on a given key.
         """
         cursor = _cursor or self.cursor()
-        key = self.get_int_from_key(key)
-        cursor.execute('SELECT pg_advisory_unlock{}(%s);'.format('_shared' if shared else ''), [key])
+        cursor.release_advisory_lock(key, shared=shared)
 
     def _cursor(self, name=None):
         """Database cursor to write whatever we want.
@@ -326,22 +292,22 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         """
         if name:
             # Only supported and required by Django 1.11 (server-side cursor)
-            cursor = super(DatabaseWrapper, self)._cursor(name=name)
+            cursor = super()._cursor(name=name)
         else:
-            cursor = super(DatabaseWrapper, self)._cursor()
-
-        # No need to set search paths for operations without a database,
-        # or when there are no changes to the selected schemas.
-        if self.alias == NO_DB_ALIAS or self.search_path_set:
-            return cursor
-
-        if not self.get_ps_schema(self.schema_name, cursor):
-            raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
+            cursor = super()._cursor()
 
         if self.include_public_schema and self.schema_name != PUBLIC_SCHEMA_NAME:
             search_paths = [self.schema_name, PUBLIC_SCHEMA_NAME]
         else:
             search_paths = [self.schema_name]
+
+        # No need to set search paths for operations without a database,
+        # or when there are no changes to the selected schemas.
+        if self.alias == NO_DB_ALIAS or self.current_search_paths == search_paths:
+            return cursor
+
+        if self.schema_name != PUBLIC_SCHEMA_NAME and not self.get_ps_schema(self.schema_name, cursor):
+            raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
 
         if name:
             # Named cursor can only be used once
@@ -355,12 +321,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # if the next instruction is not a rollback it will just fail also, so
         # we do not have to worry that it's not the good one
         try:
-            cursor_for_search_path.execute('SET search_path = {}'.format(
-                ','.join(sql.Identifier(x).as_string(cursor_for_search_path) for x in search_paths)))
+            sql_ = 'SET search_path = {}'.format(','.join(sql.Identifier(x).string for x in search_paths))
+            cursor_for_search_path.execute(sql_)
+            logger.debug(sql_)
         except (DatabaseError, InternalError):
-            self.search_path_set = False
+            logger.warning('Something went wrong with setting the search path.', exc_info=True)
         else:
-            self.search_path_set = True
+            self.current_search_paths = search_paths
 
         if name:
             cursor_for_search_path.close()
@@ -369,3 +336,75 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def _start_transaction_under_autocommit(self):
         pass
+
+
+class ShardDatabaseWrapper(DatabaseWrapper):
+    """
+    Wrapper around DatabaseWrapper that handles shard routing. This class shares the connection of the database wrapper
+    it wraps (from now one called the main connection). This ensures that we are not making a new connection to the
+    database each time we switch to a certain schema name. In order to do this, we route all calls to the properties
+    defined in _PROXY_FIELDS to the main connection instance (which are the same fields as in the constructor of
+    DjangoBaseDatabaseWrapper, excluding `alias`, but including `current_search_paths`).
+
+    Note that this class should not be used for connections to the public schema. You can use the main connection for
+    that one.
+    """
+    _PROXY_FIELDS = ('connection', 'settings_dict', 'queries_log', 'force_debug_cursor', 'autocommit',
+                     'in_atomic_block', 'savepoint_state', 'savepoint_ids', 'commit_on_exit', 'needs_rollback',
+                     'close_at', 'closed_in_transaction', 'errors_occurred', 'allow_thread_sharing', '_thread_ident',
+                     'current_search_paths')
+
+    def __init__(self, main_connection, options):
+        self._main_connection = main_connection
+        self.shard_options = options
+
+        # We proxy the fields specified in _PROXY_FIELDS to the main connection. Because we call the super().__init__
+        # here, that means that we would reset the values of the fields we proxy. We don't want that here, so we keep
+        # track whether we are in the initialization state and only set the proxy values outside of the __init__ method.
+        self._initialized = False
+        super().__init__(
+            settings_dict=main_connection.settings_dict,
+            alias=main_connection.alias,
+            allow_thread_sharing=main_connection.allow_thread_sharing
+        )
+        self._initialized = True
+
+        if self.shard_options.schema_name == PUBLIC_SCHEMA_NAME:
+            raise ValueError('Connection to the public schema should be handled by the default DatabaseWrapper.')
+
+        self.schema_name = options.schema_name
+        self.include_public_schema = options.kwargs.get('include_public', True)
+
+        # Determine whether we need to set an advisory lock or not. If use_shard on the options is True, this means that
+        # we activated this connection in a context manager, meaning that we already activated the lock and we don't
+        # have to do that in the cursor's execute method.
+        self.lock_on_execute = bool(options.lock and not options.use_shard and options.lock_keys)
+
+    @property
+    def alias(self):
+        return '{}|{}'.format(self._main_connection.alias, self.schema_name)
+
+    @alias.setter
+    def alias(self, value):
+        if value != self._main_connection.alias:
+            raise ValueError('The alias is managed by the main connection and cannot be changed.')
+
+    def __getattribute__(self, item):
+        if item in ShardDatabaseWrapper._PROXY_FIELDS:
+            return getattr(self._main_connection, item)
+        return super().__getattribute__(item)
+
+    def __setattr__(self, key, value):
+        # We don’t want to reset the attributes on the main connection when initializing this class instance, hence we
+        # check on the value of self._initialized here.
+        if key in ShardDatabaseWrapper._PROXY_FIELDS and self._initialized:
+            return setattr(self._main_connection, key, value)
+        return super().__setattr__(key, value)
+
+    def acquire_locks(self, shared=True):
+        for key in self.shard_options.lock_keys:
+            self.acquire_advisory_lock(key, shared=shared)
+
+    def release_locks(self, shared=True):
+        for key in self.shard_options.lock_keys:
+            self.release_advisory_lock(key, shared=shared)

@@ -3,12 +3,11 @@ from unittest import mock
 
 from django.core.management import call_command, CommandError
 from django.db import IntegrityError
-from django.test import TestCase, override_settings, SimpleTestCase, TransactionTestCase
+from django.test import override_settings
 
-from example.models import Shard, User, MirroredUser, UserManager, DefaultUser
+from example.models import Shard, User, MirroredUser, DefaultUser
 from sharding import State
-from sharding.contrib.authentication.management.commands.createsuperuser import patch_user_manager, BaseManagerMixin
-from sharding.tests.utils import ShardingTransactionTestCase, ShardingTestCase
+from sharding.tests import ShardingTransactionTestCase, ShardingTestCase
 from sharding.utils import create_template_schema, use_shard
 
 
@@ -24,6 +23,7 @@ class CreateSuperUserTestCaseMixin:
         )
 
 
+@override_settings(AUTH_USER_MODEL='example.User')
 class CreateSuperUserShardedUserModelTestCase(CreateSuperUserTestCaseMixin, ShardingTestCase):
     """
     Test cases for usage of the `createsuperuser` command in combination with a user model that's a sharded model.
@@ -243,101 +243,3 @@ class CreateSuperUserNoShardingModeTestCase(CreateSuperUserTestCaseMixin, Shardi
 
         with use_shard(node_name='default', schema_name='public'):
             self.assertTrue(DefaultUser.objects.filter(email='paragus@saiyans.zgt').exists())
-
-
-class PatchUserManagerTestCase(SimpleTestCase):
-    def setUp(self):
-        super().setUp()
-
-        self.user_model = MirroredUser
-
-    def test_contextmanager(self):
-        """
-        Case: Patch the user manager with the `patch_user_manager` contextmanager
-        Expected: Within the context manager, the default manager is an instance of BaseManagerMixin, outside the
-                  contextmanager, the default manager is not an instance of BaseManagerMixin anymore and is equal to the
-                  manager it was before.
-        """
-        old_default_manager = self.user_model._default_manager
-
-        with patch_user_manager(self.user_model):
-            self.assertIsInstance(self.user_model._default_manager, BaseManagerMixin)
-
-        self.assertNotIsInstance(self.user_model._default_manager, BaseManagerMixin)
-        self.assertIs(self.user_model._default_manager, old_default_manager)
-
-    def test_contextmanager_exception_raised(self):
-        """
-        Case: Patch the user manager with the `patch_user_manager` contextmanager and raise an exception within the
-              contextmanager
-        Expected: The old default manager is correctly restored on the user model after the exception has been raised
-        """
-        old_default_manager = self.user_model._default_manager
-
-        class DummyError(Exception):
-            pass
-
-        with self.assertRaises(DummyError):
-            with patch_user_manager(self.user_model):
-                raise DummyError()
-
-            self.assertNotIsInstance(self.user_model._default_manager, BaseManagerMixin)
-            self.assertIs(self.user_model._default_manager, old_default_manager)
-
-
-class BaseManagerMixinTestCase(SimpleTestCase):
-    def setUp(self):
-        super().setUp()
-
-        self.user_model = MirroredUser
-
-    @mock.patch.object(UserManager, 'get_by_natural_key', mock.Mock(return_value=True))
-    def test_get_by_natural_key_exists(self):
-        """
-        Case: Call `get_by_natural_key` for a manager that inherits BaseManagerMixin and where the user exists on each
-              database
-        Expected: No exception raised and None returned
-        """
-        class TestManager(BaseManagerMixin, UserManager):
-            pass
-
-        TestManager().contribute_to_class(self.user_model, 'test_manager')
-
-        self.assertIsNone(self.user_model.test_manager.get_by_natural_key('foo'))
-
-    @mock.patch.object(UserManager, 'get_by_natural_key', mock.Mock(side_effect=MirroredUser.DoesNotExist()))
-    def test_get_by_natural_key_does_not_exist_all_databases(self):
-        """
-        Case: Call `get_by_natural_key` for a manager that inherits BaseManagerMixin and where the user does not exists
-              on each database
-        Expected: MirroredUser.DoesNotExists raised
-        """
-        class TestManager(BaseManagerMixin, UserManager):
-            pass
-
-        TestManager().contribute_to_class(self.user_model, 'test_manager')
-
-        with self.assertRaises(MirroredUser.DoesNotExist):
-            self.user_model.test_manager.get_by_natural_key('foo')
-
-    @mock.patch.object(UserManager, 'get_by_natural_key')
-    def test_get_by_natural_key_does_not_exist_one_database(self, mock_get_by_natural_key):
-        """
-        Case: Call `get_by_natural_key` for a manager that inherits BaseManagerMixin and where the user does not exists
-              on one database
-        Expected: No exception raised and None returned
-        """
-        def get_by_natural_key(username):
-            from sharding.db import connection
-            if connection.db_alias == 'default':
-                # The username does not exist on the default database
-                raise MirroredUser.DoesNotExist()
-            return True  # But it does exist on all the other databases
-        mock_get_by_natural_key.side_effect = get_by_natural_key
-
-        class TestManager(BaseManagerMixin, UserManager):
-            pass
-
-        TestManager().contribute_to_class(self.user_model, 'test_manager')
-
-        self.assertIsNone(self.user_model.test_manager.get_by_natural_key('foo'))

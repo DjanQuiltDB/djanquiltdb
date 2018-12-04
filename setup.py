@@ -19,7 +19,7 @@ setup(
     packages=find_packages('django_sharding', exclude=('example*', 'config*', '*test*')),
     include_package_data=True,
     install_requires=[
-        "django>=1.8",
+        "django>=1.8,<1.9",
     ],
     classifiers=[
         "Development Status :: 1 - Planning",

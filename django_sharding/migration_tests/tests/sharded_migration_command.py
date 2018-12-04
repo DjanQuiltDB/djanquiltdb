@@ -13,7 +13,7 @@ from example.models import Shard
 from migration_tests.tests.migration_base import MigrationTestCase
 from sharding.db import connection
 from sharding.management.commands.migrate_shards import Command as MigrateShards
-from sharding.tests.utils import ShardingTestCase
+from sharding.tests import ShardingTestCase
 from sharding.utils import State, use_shard, get_template_name, get_all_databases, get_all_sharded_models, \
     create_template_schema, schema_exists
 
@@ -25,7 +25,7 @@ class ShardedMigrationSystemTestCase(MigrationTestCase):
     def setUp(self):
         super().setUp()
         # this is not added as decorator, for that won't work for the setup.
-        self.mock_router = mock.patch('sharding.utils.DynamicDbRouter.allow_migrate').start()
+        self.mock_router = mock.patch('sharding.router.DynamicDbRouter.allow_migrate').start()
         self.addCleanup(mock.patch.stopall)
 
         # Unlike other migrations, these test migrations are NOT applied during the creation of the testcase
@@ -637,8 +637,8 @@ class ShardedMigrationGetPlanForShardTestCase(MigrationTestCase):
         MigrateShards().get_plan_for_shard(self.targets, self.sina.node_name, self.sina.schema_name)
 
         self.assertEqual(mock_use_shard_enter.call_count, 1)
-        self.assertEqual(mock_use_shard_enter.call_args[0][0].node_name, 'default')
-        self.assertEqual(mock_use_shard_enter.call_args[0][0].schema_name, 'test_sina')
+        self.assertEqual(mock_use_shard_enter.call_args[0][0].options.node_name, 'default')
+        self.assertEqual(mock_use_shard_enter.call_args[0][0].options.schema_name, 'test_sina')
         self.assertEqual(mock_executor.call_count, 1)
         mock_executor.return_value.migration_plan.assert_called_once_with(self.targets)
         self.assertEqual(mock_use_shard_exit.call_count, 1)
@@ -675,8 +675,8 @@ class ShardedMigrationPerformMigrationTestCase(MigrationTestCase):
         MigrateShards().perform_migration(self.plan, ['default'], self.rose.schema_name, False, False)
 
         self.assertEqual(mock_use_shard_enter.call_count, 1)
-        self.assertEqual(mock_use_shard_enter.call_args[0][0].node_name, 'default')
-        self.assertEqual(mock_use_shard_enter.call_args[0][0].schema_name, 'test_rose')
+        self.assertEqual(mock_use_shard_enter.call_args[0][0].options.node_name, 'default')
+        self.assertEqual(mock_use_shard_enter.call_args[0][0].options.schema_name, 'test_rose')
         self.assertEqual(mock_executor.call_count, 1)
         mock_executor.return_value.migrate.assert_called_once_with(targets=None, plan=self.plan,
                                                                    fake=False, fake_initial=False)
@@ -736,8 +736,8 @@ class ShardedMigrationCheckOrMigrateSchemaTestCase(MigrationTestCase):
         """
         self.migrateShards.check_or_migrate_schema('other', 'public', self.plan[0], False, False)
         self.assertEqual(mock_use_shard_enter.call_count, 1)
-        self.assertEqual(mock_use_shard_enter.call_args[0][0].node_name, 'other')
-        self.assertEqual(mock_use_shard_enter.call_args[0][0].schema_name, 'public')
+        self.assertEqual(mock_use_shard_enter.call_args[0][0].options.node_name, 'other')
+        self.assertEqual(mock_use_shard_enter.call_args[0][0].options.schema_name, 'public')
         self.assertEqual(mock_use_shard_exit.call_count, 1)
 
     @mock.patch('sharding.management.commands.migrate_shards.MigrationExecutor', autospec=True)
@@ -840,8 +840,8 @@ class ShardedMigrationCheckOrMigrateShardTestCase(MigrationTestCase):
         """
         self.migrateShards.check_or_migrate_shard(self.rose, self.plan[0], False, False)
         self.assertEqual(mock_use_shard_enter.call_count, 1)
-        self.assertEqual(mock_use_shard_enter.call_args[0][0].node_name, 'other')
-        self.assertEqual(mock_use_shard_enter.call_args[0][0].schema_name, 'test_rose')
+        self.assertEqual(mock_use_shard_enter.call_args[0][0].options.node_name, 'other')
+        self.assertEqual(mock_use_shard_enter.call_args[0][0].options.schema_name, 'test_rose')
         self.assertEqual(mock_use_shard_exit.call_count, 1)
 
     @mock.patch('sharding.management.commands.migrate_shards.MigrationExecutor', autospec=True)
@@ -932,7 +932,7 @@ class SeparateDatabaseAndStateTestCase(MigrationTestCase):
             create_template_schema('other')  # The template won't have any migration applied to it initially
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_remove_model'})
-    @mock.patch('sharding.utils.DynamicDbRouter.allow_migrate')
+    @mock.patch('sharding.router.DynamicDbRouter.allow_migrate')
     def test(self, mock_allow_migrate):
         """
         Case: Migrate with a SeparateDatabaseAndState operation and a model that does not exist in the apps.
@@ -1015,7 +1015,7 @@ class UnroutableMigrationTestCase(ShardingTestCase):
 class UnroutableMigrationTestCase2(ShardingTestCase):
     available_apps = ['migration_tests', 'sharding']
 
-    @mock.patch('sharding.utils.logger.warning')
+    @mock.patch('sharding.router.logger.warning')
     def test(self, mock_logger_warning):
         """
         Case: Run migrations for a model that no longer exists.
@@ -1026,6 +1026,11 @@ class UnroutableMigrationTestCase2(ShardingTestCase):
         call_command('migrate_shards', 'migration_tests', '0003', database='default', verbosity=0)
 
         self.assertEqual(mock_logger_warning.call_count, 3)
+        mock_logger_warning.assert_has_calls([
+            mock.call('Migration operation for unknown models are ignored. Are you sure this model still exists?'),
+            mock.call('Migration operation for unknown models are ignored. Are you sure this model still exists?'),
+            mock.call('Migration operation for unknown models are ignored. Are you sure this model still exists?'),
+        ])
 
 
 class DisableMigrations(object):
@@ -1033,7 +1038,7 @@ class DisableMigrations(object):
         return True
 
     def __getitem__(self, item):
-        return "no_migrations"
+        return 'no_migrations'
 
 
 @override_settings(MIGRATION_MODULES=DisableMigrations())

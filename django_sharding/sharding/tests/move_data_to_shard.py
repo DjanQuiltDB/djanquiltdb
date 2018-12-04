@@ -8,7 +8,7 @@ from django.test import override_settings
 from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Suborganization, \
     Cake
 from sharding.collector import SimpleCollector
-from sharding.tests.utils import ShardingTestCase, ShardingTransactionTestCase
+from sharding.tests import ShardingTestCase, ShardingTransactionTestCase
 from sharding.utils import use_shard, create_template_schema, State
 from sharding.management.commands.move_data_to_shard import Command as MoveCommand
 
@@ -51,9 +51,8 @@ class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
         with use_shard(self.source_shard):
             self.assertFalse(Organization.objects.all().exists())
 
-        with use_shard(self.target_shard, override_class_method_use_shard=True):
-            self.organization.refresh_from_db()
-            self.user.refresh_from_db()
+        self.organization.refresh_from_db(using=self.target_shard)
+        self.user.refresh_from_db(using=self.target_shard)
 
         with use_shard(self.target_shard):
             # make new organization and user, check if the id does not collide
@@ -259,10 +258,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
             self.assertEqual(Statement.objects.get(id=self.statement_1.id).content, "'Luke'!")
             self.assertEqual(Statement.objects.get(id=self.statement_2.id).content, 'Try to; solve this "puzzle."')
 
-        with use_shard(self.target_shard, override_class_method_use_shard=True):
-            # Refresh the organization to make sure that it really exists on this shard (refresh would error if the
-            # object does not exist anymore in the shard)
-            self.organization_1.refresh_from_db()
+        # Refresh the organization to make sure that it really exists on this shard (refresh would error if the
+        # object does not exist anymore in the shard)
+        self.organization_1.refresh_from_db(using=self.target_shard)
 
     def test_no_delete(self):
         """
@@ -317,9 +315,8 @@ class MoveDataToShardTestCase(ShardingTestCase):
             self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3])
             self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3])
 
-        with use_shard(self.target_shard, override_class_method_use_shard=True):
-            self.organization_1.refresh_from_db()
-            self.organization_2.refresh_from_db()
+        self.organization_1.refresh_from_db(using=self.target_shard)
+        self.organization_2.refresh_from_db(using=self.target_shard)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert', side_effect=DatabaseError)
     def test_failure_on_move(self, mock_copy_expert):
@@ -376,7 +373,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.assertTrue(mock_copy_expert.called)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.delete_data', side_effect=DatabaseError)
-    def test_failure_on_delete(self, mock_copy_expert):
+    def test_failure_on_delete(self, mock_delete_data):
         """
         Case: Call move_data_to_shard command, and let it fail during delete_data.
         Expected: Transaction to be rolled back, no data moved or lost.
@@ -400,7 +397,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
             self.assertFalse(User.objects.all().exists())
             self.assertFalse(Statement.objects.all().exists())
 
-        self.assertTrue(mock_copy_expert.called)
+        self.assertTrue(mock_delete_data.called)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_target_shard')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.pre_execution')

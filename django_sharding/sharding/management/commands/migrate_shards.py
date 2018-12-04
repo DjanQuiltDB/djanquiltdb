@@ -305,7 +305,7 @@ class Command(MigrateCommand):
 
         if self.verbosity >= 1:
             if action in ('apply_start', 'unapply_start', 'render_start'):
-                self.stdout.write('[{}|{}] '.format(connection.alias, connection.schema_name), ending='')
+                self.stdout.write('[{}] '.format(connection.alias), ending='')
 
         return super().migration_progress_callback(action, migration=migration, fake=fake)
 

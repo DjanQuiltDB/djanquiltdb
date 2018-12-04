@@ -1,7 +1,7 @@
 from django.core.urlresolvers import reverse
 
 from example.models import Organization, User, Type, Shard
-from sharding.tests.utils import ShardingTestCase
+from sharding.tests import ShardingTestCase
 from sharding.utils import use_shard, State, create_template_schema
 
 

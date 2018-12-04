@@ -8,7 +8,7 @@ from django.db import ProgrammingError
 from example.models import Organization, Shard, Statement
 from sharding.db import connection
 from sharding.management.commands.move_sharded_models import Command as MoveCommand
-from sharding.tests.utils import ShardingTransactionTestCase
+from sharding.tests import ShardingTransactionTestCase
 from sharding.utils import migrate_schema, use_shard, create_template_schema, State, get_all_sharded_models, \
     get_template_name
 
@@ -34,7 +34,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # We do this by flushing the public schema, and migrating it with the router disabled
         with use_shard(node_name='default', schema_name='public') as env:
             env.connection.flush_schema(schema_name='public')
-        with mock.patch('sharding.utils.DynamicDbRouter.allow_migrate', side_effect=self.fake_allow_migrate):
+        with mock.patch('sharding.router.DynamicDbRouter.allow_migrate', side_effect=self.fake_allow_migrate):
             migrate_schema(node_name='default', schema_name='public')
 
         all_models = [m for m in apps.get_models(include_auto_created=True) if not m._meta.proxy]
@@ -80,7 +80,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # We do this by flushing the public schema, and migrating it with the router disabled
         with use_shard(node_name='default', schema_name='public') as env:
             env.connection.flush_schema(schema_name='public')
-        with mock.patch('sharding.utils.DynamicDbRouter.allow_migrate', side_effect=self.fake_allow_migrate):
+        with mock.patch('sharding.router.DynamicDbRouter.allow_migrate', side_effect=self.fake_allow_migrate):
             migrate_schema(node_name='default', schema_name='public')
 
         all_models = apps.get_models(include_auto_created=True)
@@ -121,7 +121,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # We do this by flushing the public schema, and migrating it with the router disabled
         with use_shard(node_name='default', schema_name='public') as env:
             env.connection.flush_schema(schema_name='public')
-        with mock.patch('sharding.utils.DynamicDbRouter.allow_migrate', side_effect=self.fake_allow_migrate):
+        with mock.patch('sharding.router.DynamicDbRouter.allow_migrate', side_effect=self.fake_allow_migrate):
             migrate_schema(node_name='default', schema_name='public')
 
         all_models = apps.get_models(include_auto_created=True)
