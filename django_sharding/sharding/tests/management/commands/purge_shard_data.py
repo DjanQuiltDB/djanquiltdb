@@ -1,12 +1,11 @@
+import re
 from unittest import mock
 
 from django.contrib.admin.utils import NestedObjects
 from django.core.management import CommandError, call_command
 from django.db import DatabaseError
 
-from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Suborganization, \
-    Cake
-from sharding.decorators import override_sharding_setting
+from example.models import *
 from sharding.tests import ShardingTestCase
 from sharding.utils import use_shard, create_template_schema, State
 from sharding.management.commands.purge_shard_data import Command
@@ -84,7 +83,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
 
             self.user_cake_4 = self.user_cake_model.objects.get(cake=self.cake_4, user=self.user_3)
 
-        self.data = {
+        self.expected_data = {
             Organization: {
                 self.organization_1
             },
@@ -127,13 +126,12 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         }
 
         # Used for unit tests
-        # self.command = Command(no_color=True)
         self.command = Command()
         self.command.shard = self.source_shard
         self.command.options['shard_alias'] = self.source_shard.alias
         self.command.options['model_name'] = 'example.Organization'
-        self.command.options['mapping_value'] = str(self.organization_1.pk)
-        self.command.options['mapping_field'] = 'id'
+        self.command.options['object_value'] = str(self.organization_1.pk)
+        self.command.options['object_field'] = 'id'
         self.command.options['simple_collector'] = False
         self.command.options['verbosity'] = 0
         self.command.options['interactive'] = False
@@ -142,47 +140,17 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         self.args = [
             self.command.options['shard_alias'],
             self.command.options['model_name'],
-            self.command.options['mapping_value']
+            self.command.options['object_value']
         ]
         self.options = {
             'shard_alias': self.command.options['shard_alias'],
             'model_name': self.command.options['model_name'],
-            'mapping_value': self.command.options['mapping_value'],
-            'mapping_field': self.command.options['mapping_field'],
+            'object_value': self.command.options['object_value'],
+            'object_field': self.command.options['object_field'],
             'simple_collector': self.command.options['simple_collector'],
             'verbosity': self.command.options['verbosity'],
             'interactive': self.command.options['interactive'],
         }
-
-    @mock.patch('sharding.management.commands.purge_shard_data.Command.get_shard')
-    @mock.patch('sharding.management.commands.purge_shard_data.Command.get_objects')
-    @mock.patch('sharding.management.commands.purge_shard_data.Command.get_data_collector')
-    @mock.patch('sharding.management.commands.purge_shard_data.Command.confirm')
-    @mock.patch('sharding.management.commands.purge_shard_data.Command.delete_data')
-    def test_handle(self, mock_delete_data, mock_confirm, mock_get_data_collector, mock_get_objects, mock_get_shard):
-        """
-        Case: Call Command.handle().
-        Expected: All sub-functions to be called with the correct arguments.
-        """
-        data = {Statement: [self.statement_1, self.statement_2]}  # Dummy data
-
-        mock_get_shard.return_value = self.source_shard
-
-        mock_get_objects.return_value = self.organization_1
-
-        mock_get_data_collector_value = mock.Mock()
-        mock_get_data_collector_value.data = data
-        mock_get_data_collector.return_value = mock_get_data_collector_value
-
-        mock_confirm.return_value = True
-
-        self.command.handle(**self.options)
-
-        mock_get_shard.assert_called_once_with(alias=self.command.options['shard_alias'])
-        mock_get_objects.assert_called_once_with()
-        mock_get_data_collector.assert_any_call(objects=self.organization_1, use_original_collector=True)
-        mock_confirm.assert_called_once_with(data)
-        mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
 
     def test_get_objects(self):
         """
@@ -197,44 +165,47 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         Expected: CommandError raised.
         """
         self.command.options['model_name'] = 'example.type'
-        self.command.options['mapping_value'] = str(self.type_1.id)
+        self.command.options['object_value'] = str(self.type_1.id)
 
         msg = "'example.type' is not a sharded model.".format(self.command.options['model_name'])
 
-        with self.assertRaisesMessage(CommandError, msg):
+        with self.assertRaisesRegex(CommandError, '^{}$'.format(re.escape(msg))):
             self.command.get_objects()
 
-    def test_get_objects_mapping_field_does_not_exist(self):
+    def test_get_objects_object_field_does_not_exist(self):
         """
-        Case: Call get_objects() with a mapping field that does not exist.
+        Case: Call get_objects() with an object field that does not exist.
         Expected: CommandError is raised with a specific message.
         """
-        self.command.options['mapping_field'] = 'dummy'
+        self.command.options['object_field'] = 'dummy'
 
-        msg = 'No object could be found with mapping field {} and mapping value {}.'.format(
-            self.command.options['mapping_field'], self.command.options['mapping_value']
+        msg = "Object field '{}' is not valid for model '{}'.".format(
+            self.command.options['object_field'],
+            self.command.options['model_name'],
         )
 
-        with self.assertRaisesMessage(CommandError, msg):
+        with self.assertRaisesRegex(CommandError, '^{}$'.format(re.escape(msg))):
             self.command.get_objects()
 
-    def test_get_objects_mapping_value_does_not_exist(self):
+    def test_get_objects_object_value_does_not_exist(self):
         """
-        Case: Call get_objects() with a mapping value that does not exist.
+        Case: Call get_objects() with an object value that does not exist.
         Expected: CommandError is raised with a specific message.
         """
-        self.command.options['mapping_value'] = 0
+        self.command.options['object_value'] = 0
 
-        msg = 'No object could be found with mapping field {} and mapping value {}.'.format(
-            self.command.options['mapping_field'], self.command.options['mapping_value']
+        msg = "No object could be found with object field '{}' and object value '{}' for model '{}'.".format(
+            self.command.options['object_field'],
+            self.command.options['object_value'],
+            self.command.options['model_name']
         )
 
-        with self.assertRaisesMessage(CommandError, msg):
+        with self.assertRaisesRegex(CommandError, '^{}$'.format(re.escape(msg))):
             self.command.get_objects()
 
-    def test_get_objects_mapping_value_multiple_objects_exist(self):
+    def test_get_objects_object_value_multiple_objects_exist(self):
         """
-        Case: Call get_objects() with a mapping value that returns multiple objects.
+        Case: Call get_objects() with an object value that returns multiple objects.
         Expected: CommandError is raised with a specific message.
         """
         self.organization_1.name = 'Test'
@@ -243,28 +214,33 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         self.organization_2.name = 'Test'
         self.organization_2.save(update_fields=['name'])
 
-        self.command.options['mapping_field'] = 'name'
-        self.command.options['mapping_value'] = 'Test'
+        self.command.options['object_field'] = 'name'
+        self.command.options['object_value'] = 'Test'
 
-        msg = 'Multiple objects found with mapping field {} and mapping value {}.'.format(
-            self.command.options['mapping_field'], self.command.options['mapping_value']
+        msg = "Multiple objects found with object field '{}' and object value '{}' for model '{}'.".format(
+            self.command.options['object_field'],
+            self.command.options['object_value'],
+            self.command.options['model_name']
         )
 
-        with self.assertRaisesMessage(CommandError, msg):
+        with self.assertRaisesRegex(CommandError, '^{}$'.format(re.escape(msg))):
             self.command.get_objects()
 
-    def test_get_objects_mapping_value_invalid_type(self):
+    def test_get_objects_object_value_invalid_type(self):
         """
-        Case: Call get_objects() with a mapping value that is an invalid type for the mapping field.
+        Case: Call get_objects() with an object value that is an invalid type for the object field.
         Expected: CommandError is raised with a specific message.
         """
-        self.command.options['mapping_value'] = 'dummy'
+        self.command.options['field'] = 'id'
+        self.command.options['object_value'] = 'dummy'
 
-        msg = 'No object could be found with mapping field {} and mapping value {}.'.format(
-            self.command.options['mapping_field'], self.command.options['mapping_value']
+        msg = "Provided object value '{}' is invalid for object field '{}' for model '{}'.".format(
+            self.command.options['object_value'],
+            self.command.options['object_field'],
+            self.command.options['model_name']
         )
 
-        with self.assertRaisesMessage(CommandError, msg):
+        with self.assertRaisesRegex(CommandError, '^{}$'.format(re.escape(msg))):
             self.command.get_objects()
 
     def test_get_shard(self):
@@ -305,7 +281,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         Expected: A dict with the correct data to be returned, with only sharded models and no mirrored models
         """
         collector = self.command.get_data_collector(objects=[self.organization_1])
-        self.assertEqual(collector.data, self.data)
+        self.assertEqual(collector.data, self.expected_data)
 
     @mock.patch('sharding.management.commands.purge_shard_data.NestedObjects.collect')
     def test_get_data_collector_nested_collector(self, mock_collect):
@@ -323,7 +299,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         Expected: A dict with the correct data to be returned, with only sharded models and no mirrored models
         """
         collector = self.command.get_data_collector(objects=[self.organization_1], use_original_collector=True)
-        self.assertEqual(collector.data, self.data)
+        self.assertEqual(collector.data, self.expected_data)
 
     def test_delete_data(self):
         """
@@ -337,7 +313,8 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
 
         mock_collector.delete.assert_called_once_with()
 
-    @mock.patch('sharding.management.commands.purge_shard_data.NestedObjects.collect', mock.Mock(side_effect=DatabaseError))
+    @mock.patch('sharding.management.commands.purge_shard_data.NestedObjects.collect',
+                mock.Mock(side_effect=DatabaseError))
     @mock.patch('sharding.management.commands.purge_shard_data.Command.delete_data')
     def test_no_change_on_failure_get_data_collector(self, mock_delete_data):
         """
@@ -367,8 +344,8 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
     @mock.patch('sharding.management.commands.purge_shard_data.NestedObjects')
     def test_get_data_collector_mirrored_models(self, mock_collector):
         """
-        Case: Have the collector return mirrored models
-        Expected: Only sharded models are in the collector's data, and mirrored models are removed from the data
+        Case: Have the collector return mirrored models.
+        Expected: CommandError is raised with a specific message.
         """
         class FakeCollector(NestedObjects):
             def collect(self, objs, *args, **kwargs):
@@ -376,9 +353,13 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
                 self.data = {User: {obj}, Type: {obj.type}}
 
         mock_collector.side_effect = FakeCollector
-        collector = self.command.get_data_collector(objects=[self.user_1], use_original_collector=True)
 
-        self.assertEqual(collector.data, {User: {self.user_1}})
+        msg = 'There might be something wrong with your data structure, because the collector ' \
+            'collected mirrored models. Check your data points closely to see if no unexpected ' \
+            'model instances are collected.'
+
+        with self.assertRaisesRegex(CommandError, '^{}$'.format(re.escape(msg))):
+            self.command.get_data_collector(objects=[self.user_1], use_original_collector=True)
 
     def test_move_no_delete_and_purge(self):
         """
@@ -393,7 +374,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
             'move_data_to_shard',
             '--source-shard-alias=' + self.options['shard_alias'],
             '--target-shard-alias=' + self.target_shard.alias,
-            '--root-object-id=' + str(self.options['mapping_value']),
+            '--root-object-id=' + str(self.options['object_value']),
             '--model-name=' + self.options['model_name'],
             '--no-input',
             '--quiet',
@@ -401,7 +382,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         )
 
         # Check if all the initial data is still on the source shard
-        for model, instances in self.data.items():
+        for model, instances in self.expected_data.items():
             self.assertEqual(
                 list(model.objects.using(self.source_shard).all()),
                 list(instances) + list(self.leftover_data[model])
@@ -410,39 +391,25 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         call_command('purge_shard_data', *self.args, **self.options)
 
         # Check that only the leftover data remains on the source shard
-        for model, instances in self.data.items():
+        for model, instances in self.expected_data.items():
             self.assertEqual(list(model.objects.using(self.source_shard).all()), list(self.leftover_data[model]))
 
         # Check if all the data is still on the target shard
-        for model, instances in self.data.items():
-            self.assertEqual(list(model.objects.using(self.target_shard).all()), list(self.data[model]))
+        for model, instances in self.expected_data.items():
+            self.assertEqual(list(model.objects.using(self.target_shard).all()), list(self.expected_data[model]))
 
+    @mock.patch('sharding.management.commands.purge_shard_data.Command.confirm')
     @mock.patch('sharding.management.commands.purge_shard_data.Command.log')
-    def test_delete_for_active_shard_message(self, mock_log):
+    @mock.patch('sharding.management.commands.purge_shard_data.Command.delete_data')
+    def test_confirm_not_yes_cancels_operation(self, mock_delete_data, mock_log, mock_confirm):
         """
-        Case: Call the command while the shard is the active shard.
-        Expected: A message is shown indicating the user is deleting data for an active shard.
+        Case: Call command and do not confirm.
+        Expected: A message is shown and `delete_data` is not called.
         """
-        self.command.confirm(data={})
+        mock_confirm.return_value = False
 
-        mock_log.assert_any_call(
-            '\nYou are about to delete data from an active shard!',
-            level=1
-        )
+        call_command('purge_shard_data', *self.args, **self.options)
 
-    @override_sharding_setting('MAPPING_MODEL')
-    @mock.patch('sharding.management.commands.purge_shard_data.Command.log')
-    def test_mapping_model_not_set_message(self, mock_log):
-        """
-        Case: Call the command while the MAPPING_MODEL setting not set.
-        Expected: A message is shown indicating we cannot determine if data from an active shard is being deleted.
-        """
-        self.command.handle(*self.args, **self.options)
+        mock_log.assert_any_call('\nOperation cancelled.', level=1)
 
-        mock_log.assert_any_call(
-            'WARNING: You have not not set the MAPPING_MODEL configuration setting. Without\nit, it is not '
-            'possible to check and warn if the data belongs to an active shard.\n',
-            level=1
-        )
-
-
+        self.assertFalse(mock_delete_data.called)

@@ -7,6 +7,22 @@ from sharding.decorators import mirrored_model, sharded_model, shard_mapping_mod
 from sharding.models import BaseShard, MappingQuerySet
 
 
+__all__ = [
+    'Shard',
+    'OrganizationShards',
+    'SuperType',
+    'Type',
+    'Organization',
+    'Suborganization',
+    'Cake',
+    'ProxyCake',
+    'User',
+    'MirroredUser',
+    'DefaultUser',
+    'Statement',
+]
+
+
 class Shard(BaseShard):
 
     class Meta:

@@ -9,11 +9,11 @@ from sharding import ShardingMode
 from sharding.apps import apps
 from sharding.collector import SimpleCollector
 from sharding.options import ShardOptions
-from sharding.utils import get_shard_class, get_all_sharded_models, get_model_sharding_mode, get_mapping_class
+from sharding.utils import get_shard_class, get_all_sharded_models, get_model_sharding_mode
 
 
 class Command(BaseCommand):
-    help = 'Purge all data belonging to an object.'
+    help = 'Purge all data belonging to an object on a specific shard.'
 
     shard, options = None, {}
 
@@ -33,13 +33,12 @@ class Command(BaseCommand):
         parser.add_argument(dest='model_name',
                             help='Dot notation of the module path to the root object model class, e.g. '
                                  '"app_label.model_name".')
-        parser.add_argument(dest='mapping_value',
-                            help="Mapping value of the object to delete, e.g. the object ID")
-        parser.add_argument('--mapping-field',
+        parser.add_argument(dest='object_value',
+                            help='The object value for the object field.')
+        parser.add_argument('--object-field',
                             action='store',
-                            dest='mapping_field',
-                            help="The field to map the root object mapping value to. If not specified, it requires the "
-                                 "MAPPING_MODEL setting is configured. Defaults to 'id'.",
+                            dest='object_field',
+                            help="The field to map the object object value to. Defaults to 'id'.",
                             default='id')
         parser.add_argument('--simple-collector',
                             action='store_true',
@@ -50,7 +49,7 @@ class Command(BaseCommand):
         parser.add_argument('--noinput',
                             action='store_false',
                             dest='interactive',
-                            help="Do NOT prompt the user for input of any kind.",
+                            help='Do NOT prompt the user for input of any kind and assume "yes" on all questions.',
                             default=True)
 
     def log(self, msg, level=2):
@@ -69,16 +68,8 @@ class Command(BaseCommand):
             use_original_collector=not self.options['simple_collector'],
         )
 
-        if not get_mapping_class():
-            self.log(
-                self.style.WARNING(
-                    'WARNING: You have not not set the MAPPING_MODEL configuration setting. Without\nit, it is not '
-                    'possible to check and warn if the data belongs to an active shard.\n'
-                ),
-                level=1
-            )
-
         if not self.confirm(collector.data):
+            self.log('\nOperation cancelled.', level=1)
             return
 
         self.delete_data(collector=collector)
@@ -90,28 +81,13 @@ class Command(BaseCommand):
             self.log(self.style.ACCENT(model))
             self.log('\t{} data points'.format(len(instances)))
 
-        mapping_class = get_mapping_class()
-
-        # If the mapping class is known, we ask confirmation if the data to be purged belongs to an active shard
-        if mapping_class:
-            try:
-                active_shard = mapping_class.objects.for_target(self.options['mapping_value']).shard
-            except ObjectDoesNotExist:
-                pass
-            else:
-                if active_shard == self.shard:
-                    self.log(
-                        self.style.WARNING('\nYou are about to delete data from an active shard!'),
-                        level=1
-                    )
-
         if self.options['interactive']:
             confirm_msg = \
-                '\nYou have requested to purge all data for root object with mapping value\n{} on shard {}.\nThis ' \
-                'will IRREVERSIBLY DESTROY all data for this object on the given shard.\n' \
-                'Are you sure you want to do this?\n' \
+                "\nYou have requested to purge all data for object with object value\n{} on shard {}.\nThis " \
+                "will IRREVERSIBLY DESTROY all data for this object on the given shard.\n" \
+                "Are you sure you want to do this?\n" \
                 "\n\tType 'yes' to continue, or 'no' to cancel: ".format(
-                    self.style.BOLD(self.options['mapping_value']), self.style.BOLD(self.shard)
+                    self.style.BOLD(self.options['object_value']), self.style.BOLD(self.shard)
                 )
 
             confirm = input(confirm_msg)
@@ -128,21 +104,33 @@ class Command(BaseCommand):
             raise CommandError("'{}' is not a sharded model.".format(self.options['model_name']))
 
         using = ShardOptions.from_shard(shard=self.shard, active_only_schemas=False)
+        fmt = {
+            'object_field': self.options['object_field'],
+            'object_value': self.options['object_value'],
+            'model_name': self.options['model_name'],
+        }  # Shortcut
 
         try:
-            return [model.objects.using(using).get(**{self.options['mapping_field']: self.options['mapping_value']})]
-        except (ValueError, FieldError, ObjectDoesNotExist) as e:
+            return [model.objects.using(using).get(**{self.options['object_field']: self.options['object_value']})]
+        except ValueError:
             raise CommandError(
-                'No object could be found with mapping field {} and mapping value {}.'.format(
-                    self.options['mapping_field'], self.options['mapping_value']
-                )
-            ) from e
-        except MultipleObjectsReturned as e:
+                "Provided object value '{object_value}' is invalid for object field '{object_field}' for model "
+                "'{model_name}'.".format(**fmt)
+            )
+        except FieldError:
             raise CommandError(
-                'Multiple objects found with mapping field {} and mapping value {}.'.format(
-                    self.options['mapping_field'], self.options['mapping_value']
-                )
-            ) from e
+                "Object field '{object_field}' is not valid for model '{model_name}'.".format(**fmt)
+            )
+        except ObjectDoesNotExist:
+            raise CommandError(
+                "No object could be found with object field '{object_field}' and object value "
+                "'{object_value}' for model '{model_name}'.".format(**fmt)
+            )
+        except MultipleObjectsReturned:
+            raise CommandError(
+                "Multiple objects found with object field '{object_field}' and object value '{object_value}' for model "
+                "'{model_name}'.".format(**fmt)
+            )
 
     @staticmethod
     def get_shard(alias):
@@ -174,16 +162,13 @@ class Command(BaseCommand):
         # Collect the data
         collector.collect(objects)
 
-        # And make sure we only collect data from sharded models
-        for model in list(collector.data.keys()):
-            if model not in sharded_models:
-                self.log(
-                    'There might be something wrong with your data structure, because the collector '
-                    'collected mirrored models. Check your data points closely to see if no unexpected '
-                    'model instances are collected.',
-                    level=1
-                )
-                del collector.data[model]
+        # Stop execution if we collected data for mirrored models
+        if any((model not in sharded_models for model in list(collector.data.keys()))):
+            raise CommandError(
+                'There might be something wrong with your data structure, because the collector '
+                'collected mirrored models. Check your data points closely to see if no unexpected '
+                'model instances are collected.',
+            )
 
         return collector
 

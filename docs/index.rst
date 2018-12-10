@@ -1,6 +1,6 @@
 Django Sharding
 ===============
-Easy horizontal database sharding that allows for scaling an faster queries.
+Easy horizontal database sharding that allows for scaling and faster queries.
 
 
 Release |version|.

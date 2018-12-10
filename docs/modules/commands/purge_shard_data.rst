@@ -32,29 +32,30 @@ The name of the shard the data is located.
 
 ``model_name``
 ~~~~~~~~~~~~~~
-The app name and the model name of the model the object belongs to as dot notation. Eg. ``example.Organization``
+The app name and the model name of the model the object belongs to as dot notation. E.g. ``example.Organization``
 
-``mapping_value``
+``object_value``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The mapping value of the object.
+The object value of the object field setting. This defaults to `id` and is usually the primary key value for a Django
+model such as ``example.Organization.id``.
 
-``--mapping-field``
+``--object-field``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The field to map the mapping value to on the model and defaults to ``id``. Take for example this Django model:
+The field to map the object value to on the model and defaults to ``id``. Take for example this Django model:
 
 .. code-block:: python
 
     class Organization(models.Model):
         uuid = UUIDField()
 
-If ``model_name`` is set to ``example.Organization``, ``mapping_value`` is a UUID and ``--mapping-field`` is set to
+If ``model_name`` is set to ``example.Organization``, ``object_value`` is a UUID and ``--object-field`` is set to
 ``uuid``, it will select the organization object with that UUID.
 
 ``--simple-collector``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The default behaviour is to use Django's ``django.contrib.admin.utils.NestedObjects`` collector to collect data, but
 this collector doesn't follow ``on_delete=SET_NULL`` relations. If this option is passed, the
-``harding.collector.SimpleCollector`` is used which does follow these relations.
+``sharding.collector.SimpleCollector`` is used which does follow these relations.
 
 ``--verbosity``
 ~~~~~~~~~~~~~~~~~~~~~~~
@@ -62,4 +63,4 @@ Verbosity level; 0=minimal output, 1=normal output, 2=verbose output, 3=very ver
 
 ``--noinput``
 ~~~~~~~~~~~~~~
-Do NOT prompt the user for input of any kind.
+Do NOT prompt the user for input of any kind and assume "yes" on all questions.
