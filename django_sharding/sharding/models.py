@@ -89,7 +89,7 @@ class BaseShard(models.Model):
                              .format(self.node_name))
 
     def __str__(self):
-        return "Shard {}({}|{})".format(self.alias, self.node_name, self.schema_name)
+        return "{}({}|{})".format(self.alias, self.node_name, self.schema_name)
 
     def use(self, *args, **kwargs):
         return use_shard(self, *args, **kwargs)

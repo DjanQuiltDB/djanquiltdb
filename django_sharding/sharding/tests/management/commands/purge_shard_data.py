@@ -1,0 +1,448 @@
+from unittest import mock
+
+from django.contrib.admin.utils import NestedObjects
+from django.core.management import CommandError, call_command
+from django.db import DatabaseError
+
+from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Suborganization, \
+    Cake
+from sharding.decorators import override_sharding_setting
+from sharding.tests import ShardingTestCase
+from sharding.utils import use_shard, create_template_schema, State
+from sharding.management.commands.purge_shard_data import Command
+
+
+class PurgeShardDataTransactionTestCase(ShardingTestCase):
+    maxDiff = None
+
+    def setUp(self):
+        super().setUp()
+
+        create_template_schema()
+
+        self.source_shard = Shard.objects.create(alias='CuriousVillage', node_name='default',
+                                                 schema_name='test', state=State.ACTIVE)
+
+        with use_shard(self.source_shard):
+            self.super = SuperType.objects.create(name='Character')
+
+            self.type_1 = Type.objects.create(name='Professor', super=self.super)
+            self.type_2 = Type.objects.create(name='Child', super=self.super)
+
+            self.organization_1 = Organization.objects.create(name='Layton inc.')
+            self.organization_2 = Organization.objects.create(name='Curious Village')
+            self.suborganization = Suborganization.objects.create(parent=self.organization_1,
+                                                                  child=self.organization_2)
+
+            self.user_1 = User.objects.create(name='Layton', email='professor@layton.l5',
+                                              organization=self.organization_1, type=self.type_1)
+            self.user_2 = User.objects.create(name='Luke', email='luke@layton.l5',
+                                              organization=self.organization_1, type=self.type_2)
+            self.user_3 = User.objects.create(name='Flora', email='f@reinhold.cap',
+                                              organization=self.organization_2, type=self.type_2)
+
+            self.statement_1 = Statement.objects.create(content="'Luke'!", user=self.user_1, offset=1)
+            self.statement_2 = Statement.objects.create(content='Try to; solve this "puzzle."', user=self.user_1,
+                                                        offset=2)
+            self.statement_3 = Statement.objects.create(content='Do you see the sun?', user=self.user_3, offset=3)
+
+            self.organization_shard1 = OrganizationShards.objects.create(shard=self.source_shard,
+                                                                         organization_id=self.organization_1.id,
+                                                                         state=State.ACTIVE)
+            self.organization_shard2 = OrganizationShards.objects.create(shard=self.source_shard,
+                                                                         organization_id=self.organization_2.id,
+                                                                         state=State.ACTIVE)
+
+            self.type_3 = Type.objects.create(name='Attorney', super=self.super)
+            self.organization_3 = Organization.objects.create(name='Ace',)
+            self.user_4 = User.objects.create(name='Phoenix Wright', email='p@wright.cap',
+                                              organization=self.organization_3, type=self.type_3)
+            self.statement_4 = Statement.objects.create(content='Objection!', user=self.user_4, offset=4)
+            self.statement_5 = Statement.objects.create(content='discrepancy', user=self.user_4, offset=5)
+
+            self.organization_shard3 = OrganizationShards.objects.create(shard=self.source_shard,
+                                                                         organization_id=self.organization_3.id,
+                                                                         state=State.ACTIVE)
+
+            # Some many-to-many models
+            self.cake_1 = Cake.objects.create(name='Butter cake')
+            self.cake_2 = Cake.objects.create(name='Chocolate cake')
+            self.cake_3 = Cake.objects.create(name='Sponge cake')
+            self.cake_4 = Cake.objects.create(name='Coffee cake')
+
+            self.user_1.cake.add(self.cake_1)
+            self.user_1.cake.add(self.cake_2)
+
+            self.user_2.cake.add(self.cake_3)
+
+            self.user_3.cake.add(self.cake_4)
+
+            self.user_cake_model = User.cake.through  # Auto-created model
+            self.user_cake_1 = self.user_cake_model.objects.get(cake=self.cake_1, user=self.user_1)
+            self.user_cake_2 = self.user_cake_model.objects.get(cake=self.cake_2, user=self.user_1)
+            self.user_cake_3 = self.user_cake_model.objects.get(cake=self.cake_3, user=self.user_2)
+
+            self.user_cake_4 = self.user_cake_model.objects.get(cake=self.cake_4, user=self.user_3)
+
+        self.data = {
+            Organization: {
+                self.organization_1
+            },
+            Suborganization: {
+                self.suborganization
+            },
+            User: {
+                self.user_1,
+                self.user_2
+            },
+            Statement: {
+                self.statement_1,
+                self.statement_2
+            },
+            self.user_cake_model: {
+                self.user_cake_1,
+                self.user_cake_2,
+                self.user_cake_3
+            }
+        }
+
+        self.leftover_data = {
+            Organization: {
+                self.organization_2,
+                self.organization_3,
+            },
+            Suborganization: {},
+            User: {
+                self.user_3,
+                self.user_4,
+            },
+            Statement: {
+                self.statement_3,
+                self.statement_4,
+                self.statement_5,
+            },
+            self.user_cake_model: {
+                self.user_cake_4,
+            }
+        }
+
+        # Used for unit tests
+        # self.command = Command(no_color=True)
+        self.command = Command()
+        self.command.shard = self.source_shard
+        self.command.options['shard_alias'] = self.source_shard.alias
+        self.command.options['model_name'] = 'example.Organization'
+        self.command.options['mapping_value'] = str(self.organization_1.pk)
+        self.command.options['mapping_field'] = 'id'
+        self.command.options['simple_collector'] = False
+        self.command.options['verbosity'] = 0
+        self.command.options['interactive'] = False
+
+        # Used for system tests with `call_command`
+        self.args = [
+            self.command.options['shard_alias'],
+            self.command.options['model_name'],
+            self.command.options['mapping_value']
+        ]
+        self.options = {
+            'shard_alias': self.command.options['shard_alias'],
+            'model_name': self.command.options['model_name'],
+            'mapping_value': self.command.options['mapping_value'],
+            'mapping_field': self.command.options['mapping_field'],
+            'simple_collector': self.command.options['simple_collector'],
+            'verbosity': self.command.options['verbosity'],
+            'interactive': self.command.options['interactive'],
+        }
+
+    @mock.patch('sharding.management.commands.purge_shard_data.Command.get_shard')
+    @mock.patch('sharding.management.commands.purge_shard_data.Command.get_objects')
+    @mock.patch('sharding.management.commands.purge_shard_data.Command.get_data_collector')
+    @mock.patch('sharding.management.commands.purge_shard_data.Command.confirm')
+    @mock.patch('sharding.management.commands.purge_shard_data.Command.delete_data')
+    def test_handle(self, mock_delete_data, mock_confirm, mock_get_data_collector, mock_get_objects, mock_get_shard):
+        """
+        Case: Call Command.handle().
+        Expected: All sub-functions to be called with the correct arguments.
+        """
+        data = {Statement: [self.statement_1, self.statement_2]}  # Dummy data
+
+        mock_get_shard.return_value = self.source_shard
+
+        mock_get_objects.return_value = self.organization_1
+
+        mock_get_data_collector_value = mock.Mock()
+        mock_get_data_collector_value.data = data
+        mock_get_data_collector.return_value = mock_get_data_collector_value
+
+        mock_confirm.return_value = True
+
+        self.command.handle(**self.options)
+
+        mock_get_shard.assert_called_once_with(alias=self.command.options['shard_alias'])
+        mock_get_objects.assert_called_once_with()
+        mock_get_data_collector.assert_any_call(objects=self.organization_1, use_original_collector=True)
+        mock_confirm.assert_called_once_with(data)
+        mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
+
+    def test_get_objects(self):
+        """
+        Case: Call get_objects.
+        Expected: The correct objects to be returned.
+        """
+        self.assertEqual(self.command.get_objects(), [self.organization_1])
+
+    def test_get_objects_that_are_not_sharded(self):
+        """
+        Case: Call get_objects for model that is not sharded.
+        Expected: CommandError raised.
+        """
+        self.command.options['model_name'] = 'example.type'
+        self.command.options['mapping_value'] = str(self.type_1.id)
+
+        msg = "'example.type' is not a sharded model.".format(self.command.options['model_name'])
+
+        with self.assertRaisesMessage(CommandError, msg):
+            self.command.get_objects()
+
+    def test_get_objects_mapping_field_does_not_exist(self):
+        """
+        Case: Call get_objects() with a mapping field that does not exist.
+        Expected: CommandError is raised with a specific message.
+        """
+        self.command.options['mapping_field'] = 'dummy'
+
+        msg = 'No object could be found with mapping field {} and mapping value {}.'.format(
+            self.command.options['mapping_field'], self.command.options['mapping_value']
+        )
+
+        with self.assertRaisesMessage(CommandError, msg):
+            self.command.get_objects()
+
+    def test_get_objects_mapping_value_does_not_exist(self):
+        """
+        Case: Call get_objects() with a mapping value that does not exist.
+        Expected: CommandError is raised with a specific message.
+        """
+        self.command.options['mapping_value'] = 0
+
+        msg = 'No object could be found with mapping field {} and mapping value {}.'.format(
+            self.command.options['mapping_field'], self.command.options['mapping_value']
+        )
+
+        with self.assertRaisesMessage(CommandError, msg):
+            self.command.get_objects()
+
+    def test_get_objects_mapping_value_multiple_objects_exist(self):
+        """
+        Case: Call get_objects() with a mapping value that returns multiple objects.
+        Expected: CommandError is raised with a specific message.
+        """
+        self.organization_1.name = 'Test'
+        self.organization_1.save(update_fields=['name'])
+
+        self.organization_2.name = 'Test'
+        self.organization_2.save(update_fields=['name'])
+
+        self.command.options['mapping_field'] = 'name'
+        self.command.options['mapping_value'] = 'Test'
+
+        msg = 'Multiple objects found with mapping field {} and mapping value {}.'.format(
+            self.command.options['mapping_field'], self.command.options['mapping_value']
+        )
+
+        with self.assertRaisesMessage(CommandError, msg):
+            self.command.get_objects()
+
+    def test_get_objects_mapping_value_invalid_type(self):
+        """
+        Case: Call get_objects() with a mapping value that is an invalid type for the mapping field.
+        Expected: CommandError is raised with a specific message.
+        """
+        self.command.options['mapping_value'] = 'dummy'
+
+        msg = 'No object could be found with mapping field {} and mapping value {}.'.format(
+            self.command.options['mapping_field'], self.command.options['mapping_value']
+        )
+
+        with self.assertRaisesMessage(CommandError, msg):
+            self.command.get_objects()
+
+    def test_get_shard(self):
+        """
+        Case: Call get_shard.
+        Expected: The correct shard object to be returned.
+        """
+        self.assertEqual(self.command.get_shard(alias='CuriousVillage'), self.source_shard)
+
+    def test_get_shard_for_nonexistent_model(self):
+        """
+        Case: Call get_shard with an nonexistent alias.
+        Expected: CommandError to be raised.
+        """
+        with self.assertRaises(CommandError):
+            self.command.get_shard(alias='void')
+
+    def test_get_shard_for_mirrored_model(self):
+        """
+        Case: Call get_shard with an alias to a mirrored model.
+        Expected: CommandError to be raised.
+        """
+        with self.assertRaises(CommandError):
+            self.command.get_shard(alias='type')
+
+    @mock.patch('sharding.management.commands.purge_shard_data.SimpleCollector.collect')
+    def test_get_data_collector(self, mock_collect):
+        """
+        Case: Call get_data_collector using the simple collector.
+        Expected: SimpleCollector.collect() called.
+        """
+        self.command.get_data_collector(objects=[self.organization_1])
+        mock_collect.assert_called_once_with([self.organization_1])
+
+    def test_get_data_collector_result(self):
+        """
+        Case: Call get_data_collector using the simple collector and check the data attribute
+        Expected: A dict with the correct data to be returned, with only sharded models and no mirrored models
+        """
+        collector = self.command.get_data_collector(objects=[self.organization_1])
+        self.assertEqual(collector.data, self.data)
+
+    @mock.patch('sharding.management.commands.purge_shard_data.NestedObjects.collect')
+    def test_get_data_collector_nested_collector(self, mock_collect):
+        """
+        Case: Call get_data, with use_original_collector set to True.
+        Expected: NestedObjects.collect() called
+        """
+        self.command.get_data_collector(objects=[self.organization_1], use_original_collector=True)
+
+        mock_collect.assert_called_once_with([self.organization_1])
+
+    def test_get_data_collector_nested_collector_result(self):
+        """
+        Case: Call get_data_collector using Django's NestedCollector and check the data attribute
+        Expected: A dict with the correct data to be returned, with only sharded models and no mirrored models
+        """
+        collector = self.command.get_data_collector(objects=[self.organization_1], use_original_collector=True)
+        self.assertEqual(collector.data, self.data)
+
+    def test_delete_data(self):
+        """
+        Case: Call delete_data.
+        Expected: The delete method of the collector will be called
+        """
+        mock_collector = mock.Mock()
+
+        self.command.shard = self.source_shard
+        self.command.delete_data(collector=mock_collector)
+
+        mock_collector.delete.assert_called_once_with()
+
+    @mock.patch('sharding.management.commands.purge_shard_data.NestedObjects.collect', mock.Mock(side_effect=DatabaseError))
+    @mock.patch('sharding.management.commands.purge_shard_data.Command.delete_data')
+    def test_no_change_on_failure_get_data_collector(self, mock_delete_data):
+        """
+        Case: Call the handle while NestedObjects.collect() will raise an exception.
+        Expected: `delete_data` is not called and data is not deleted.
+        """
+        with self.assertRaises(DatabaseError):
+            self.command.handle(**self.options)
+
+        self.organization_shard1.refresh_from_db()
+        self.assertEqual(self.organization_shard1.shard, self.source_shard)
+        self.assertEqual(mock_delete_data.call_count, 0)
+
+    @mock.patch('sharding.management.commands.purge_shard_data.Command.delete_data', side_effect=DatabaseError)
+    def test_no_change_on_failure_delete_data(self, mock_delete_data):
+        """
+        Case: Call the handle while `delete_data` will raise an exception.
+        Expected: `delete_data` is called, but data is not deleted.
+        """
+        with self.assertRaises(DatabaseError):
+            self.command.handle(**self.options)
+
+        self.organization_shard1.refresh_from_db()
+        self.assertEqual(self.organization_shard1.shard, self.source_shard)
+        self.assertEqual(mock_delete_data.call_count, 1)
+
+    @mock.patch('sharding.management.commands.purge_shard_data.NestedObjects')
+    def test_get_data_collector_mirrored_models(self, mock_collector):
+        """
+        Case: Have the collector return mirrored models
+        Expected: Only sharded models are in the collector's data, and mirrored models are removed from the data
+        """
+        class FakeCollector(NestedObjects):
+            def collect(self, objs, *args, **kwargs):
+                obj = objs[0]
+                self.data = {User: {obj}, Type: {obj.type}}
+
+        mock_collector.side_effect = FakeCollector
+        collector = self.command.get_data_collector(objects=[self.user_1], use_original_collector=True)
+
+        self.assertEqual(collector.data, {User: {self.user_1}})
+
+    def test_move_no_delete_and_purge(self):
+        """
+        Case: Call `move_data_to_shard` with the --no-delete option and call the `purge_shard_data` command after.
+        Expected: The object's data is deleted on the source shard and (still) exists on the target shard. The leftover
+                  data is untouched and remains on the source shard.
+        """
+        self.target_shard = Shard.objects.create(alias='Court', node_name='default',
+                                                 schema_name='test_target', state=State.ACTIVE)
+
+        call_command(
+            'move_data_to_shard',
+            '--source-shard-alias=' + self.options['shard_alias'],
+            '--target-shard-alias=' + self.target_shard.alias,
+            '--root-object-id=' + str(self.options['mapping_value']),
+            '--model-name=' + self.options['model_name'],
+            '--no-input',
+            '--quiet',
+            '--no-delete'
+        )
+
+        # Check if all the initial data is still on the source shard
+        for model, instances in self.data.items():
+            self.assertEqual(
+                list(model.objects.using(self.source_shard).all()),
+                list(instances) + list(self.leftover_data[model])
+            )
+
+        call_command('purge_shard_data', *self.args, **self.options)
+
+        # Check that only the leftover data remains on the source shard
+        for model, instances in self.data.items():
+            self.assertEqual(list(model.objects.using(self.source_shard).all()), list(self.leftover_data[model]))
+
+        # Check if all the data is still on the target shard
+        for model, instances in self.data.items():
+            self.assertEqual(list(model.objects.using(self.target_shard).all()), list(self.data[model]))
+
+    @mock.patch('sharding.management.commands.purge_shard_data.Command.log')
+    def test_delete_for_active_shard_message(self, mock_log):
+        """
+        Case: Call the command while the shard is the active shard.
+        Expected: A message is shown indicating the user is deleting data for an active shard.
+        """
+        self.command.confirm(data={})
+
+        mock_log.assert_any_call(
+            '\nYou are about to delete data from an active shard!',
+            level=1
+        )
+
+    @override_sharding_setting('MAPPING_MODEL')
+    @mock.patch('sharding.management.commands.purge_shard_data.Command.log')
+    def test_mapping_model_not_set_message(self, mock_log):
+        """
+        Case: Call the command while the MAPPING_MODEL setting not set.
+        Expected: A message is shown indicating we cannot determine if data from an active shard is being deleted.
+        """
+        self.command.handle(*self.args, **self.options)
+
+        mock_log.assert_any_call(
+            'WARNING: You have not not set the MAPPING_MODEL configuration setting. Without\nit, it is not '
+            'possible to check and warn if the data belongs to an active shard.\n',
+            level=1
+        )
+
+
