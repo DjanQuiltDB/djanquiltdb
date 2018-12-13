@@ -258,14 +258,6 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         with self.assertRaises(CommandError):
             self.command.get_shard(alias='void')
 
-    def test_get_shard_for_mirrored_model(self):
-        """
-        Case: Call get_shard with an alias to a mirrored model.
-        Expected: CommandError to be raised.
-        """
-        with self.assertRaises(CommandError):
-            self.command.get_shard(alias='type')
-
     @mock.patch('sharding.management.commands.purge_shard_data.SimpleCollector.collect')
     def test_get_data_collector(self, mock_collect):
         """

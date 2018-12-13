@@ -147,15 +147,14 @@ class Command(BaseCommand):
     def get_data_collector(self, objects, use_original_collector=False):
         sharded_models = get_all_sharded_models(include_auto_created=True)
 
-        # Define the sharding context
-        using = ShardOptions.from_shard(
-            shard=self.shard,
-            active_only_schemas=False,  # Do not raise exception if the schema is inactive
-            lock=False,  # We're selecting stale and unused data so no locking required
-        )
-
         if use_original_collector:
-            collector = NestedObjects(using=using)
+            collector = NestedObjects(
+                using=ShardOptions.from_shard(
+                    shard=self.shard,
+                    active_only_schemas=False,  # Do not raise exception if the schema is inactive
+                    lock=False,  # We're selecting stale and unused data so no locking required
+                )
+            )
         else:
             collector = SimpleCollector(connection=connections[self.shard], verbose=bool(self.options['verbosity']))
 
