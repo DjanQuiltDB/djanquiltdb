@@ -1,6 +1,6 @@
-=================
-Move Data Command
-=================
+==================
+Move Data To Shard
+==================
 
 Introduction
 ============
@@ -68,28 +68,28 @@ To solve this, you can easily extend the command and override the function it ca
 Options
 -------
 Most options the command recognizes are mandatory.
-Example: ``migrate_shards --source_shard_alias earth --target_shard_alias mars --model_name example.organization --root_object_id 1``
+Example: ``move_data_to_shard --source-shard-alias earth --target-shard-alias mars --model-name example.organization --root-object-id 1``
 
-``--source_shard_alias``
+``--source-shard-alias``
 ~~~~~~~~~~~~~~~~~~~~~~~~
-The ``--source_shard_alias`` argument must be the name of the shard the data is currently located.
+The ``--source-shard-alias`` argument must be the name of the shard the data is currently located.
 
-``--target_shard_alias``
+``--target-shard-alias``
 ~~~~~~~~~~~~~~~~~~~~~~~~
-The ``--target_shard_alias`` argument must be the name of the shard that will receive the data.
+The ``--target-shard-alias`` argument must be the name of the shard that will receive the data.
 
-``--model_name``
+``--model-name``
 ~~~~~~~~~~~~~~~~
-The ``--model_name`` argument must contain the app name and the model name of the model the root_object belongs to, separated by a dot.
-Eg. ``--model_name example.Organization``
+The ``--model-name`` argument must contain the app name and the model name of the model the root_object belongs to, separated by a dot.
+Eg. ``--model-name example.Organization``
 
-``--root_object_id``
+``--root-object-id``
 ~~~~~~~~~~~~~~~~~~~~
-The ``--root_object_id`` argument must be the id of the root_object.
+The ``--root-object-id`` argument must be the id of the root_object.
 
-``--use_original_collector``
+``--use-original-collector``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The ``--reuse_simple_collector_for_delete`` argument forces the command to reuse to data gathered for the copy step for deletion as well.
+The ``--reuse-simple-collector-for-delete`` argument forces the command to reuse to data gathered for the copy step for deletion as well.
 During the data collection for copy step, it uses the SimpleCollector within this library. This collector does not follow delete constrains or patterns (such as on_delete=CASCADE or on_delete=PROTECTED) to get the complete picture.
 Per default it will run Django's delete collector to collect data to delete from the source shard.
 Naturally, this collector does take constrains into account and will not delete data that might be used by objects outside the collected objects.
@@ -99,9 +99,9 @@ Setting this argument to true will allow the command to use the same data to del
 ~~~~~~~~~~~
 The ``--quiet`` allows you to silence the output of the command. It will normally notify the user what it is doing by printing the step it is performing and listing per model that it is copying data.
 
-``--no_input``
+``--no-input``
 ~~~~~~~~~~~~~~
-The ``--no_input`` argument allows you to suppress the confirmation the command will prompt.
+The ``--no-input`` argument allows you to suppress the confirmation the command will prompt.
 
 ``--no-delete``
 ~~~~~~~~~~~~~~~

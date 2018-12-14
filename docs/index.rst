@@ -1,14 +1,16 @@
-.. Django-sharding documentation master file, created by
-   sphinx-quickstart on Thu May 25 18:46:41 2017.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+Django Sharding
+===============
+Easy horizontal database sharding that allows for scaling and faster queries.
 
-Welcome to Django-sharding's documentation!
-===========================================
+
+Release |version|.
+
+
+The User Guide
+--------------
 
 .. toctree::
     :maxdepth: 2
-    :caption: Contents:
 
     modules/installation
     modules/structure
@@ -19,12 +21,12 @@ Welcome to Django-sharding's documentation!
     modules/connection
     modules/migrations
     modules/celery
-    modules/move_data
+    modules/commands
     modules/contrib
 
 
 Indices and tables
-==================
+------------------
 
 * :ref:`genindex`
 * :ref:`modindex`
