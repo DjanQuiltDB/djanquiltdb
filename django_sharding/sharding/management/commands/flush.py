@@ -37,13 +37,14 @@ class Command(FlushCommand):
 
         node_names, schema_name = get_databases_and_schema_from_options(options)
 
+        options['interactive'] = False  # Don't want this each time we flush a schema as well
+
         template_name = get_template_name()
 
         for node_name in node_names:
             if schema_name:
                 schema_options = options.copy()
                 schema_options['database'] = ShardOptions(node_name=node_name, schema_name=schema_name)
-                schema_options['interactive'] = False
                 super().handle(**schema_options)
             else:
                 connection_ = connections[node_name]
@@ -55,7 +56,6 @@ class Command(FlushCommand):
                     template_options = options.copy()
                     template_options['database'] = ShardOptions(node_name=node_name, schema_name=template_name,
                                                                 include_public=False)
-                    template_options['interactive'] = False
                     super().handle(**template_options)
 
                 # And now all other shards, but only if the shard table exists on the public schema. If not, we can
@@ -64,14 +64,12 @@ class Command(FlushCommand):
                     for shard in get_shard_class().objects.filter(node_name__in=node_names):
                         shard_options = options.copy()
                         shard_options['database'] = ShardOptions.from_shard(shard)
-                        shard_options['interactive'] = False
                         super().handle(**shard_options)
 
                 # And finally do the public schema. We do this as last, to make sure we don't face constraints for
                 # flushing.
                 public_options = options.copy()
                 public_options['database'] = node_name
-                public_options['interactive'] = False
 
                 # We can set allow_cascade to True, since there shouldn't be any other entries anymore in other
                 # shards or the template schema.
