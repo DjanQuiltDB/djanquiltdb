@@ -20,15 +20,11 @@ class DynamicDbRouter:
 
     def db_for_read(self, model, **hints):
         shard_options = hints.get('_shard_options')
-        instance_options = hints.get('instance') and hints['instance']._state.db
+        instance_options = hints.get('instance') is not None and hints['instance']._state.db
 
-        return shard_options or instance_options or self.active_connection
+        return instance_options or shard_options or self.active_connection
 
-    def db_for_write(self, model, **hints):
-        shard_options = hints.get('_shard_options')
-        instance_options = 'instance' in hints and hints['instance']._state.db
-
-        return shard_options or instance_options or self.active_connection
+    db_for_write = db_for_read
 
     def allow_relation(self, obj1, obj2, *args, **kwargs):
         obj1_mode = get_model_sharding_mode(obj1)
