@@ -44,11 +44,6 @@ def _node_exists(node_name):
         raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(node_name))
 
 
-def _set_active_connection(connection_alias):
-    from sharding.router import DynamicDbRouter
-    setattr(DynamicDbRouter, 'active_connection', connection_alias)
-
-
 class use_shard(object):
     """
     use_shard can be used as a decorator and as context manager to send all queries in the scope to the correct shard.
@@ -128,20 +123,20 @@ class use_shard(object):
         self.connection.release_locks()
 
     def enable(self):
-        from sharding.router import DynamicDbRouter  # Prevent cyclic imports
+        from sharding.router import get_active_connection, set_active_connection  # Prevent cyclic imports
 
         # First: Set the connection
         self.connection = connections[self.options]
 
         # Second: Save the old connection
-        self._old_connection = DynamicDbRouter.active_connection
+        self._old_connection = get_active_connection()
 
         # Third: Set an advisory lock on the shard and mapping object (if available)
         if self.options.lock:
             self.acquire_lock()
 
         # Fourth: Set the new active schema
-        _set_active_connection(self.options)
+        set_active_connection(self.options)
 
         self._enabled = True
 
@@ -151,11 +146,13 @@ class use_shard(object):
         if not self._enabled:
             return
 
+        from sharding.router import set_active_connection  # Prevent cyclic imports
+
         if self.options.lock:
             self.release_lock()
 
         # Set the active connection to the old connection
-        _set_active_connection(self._old_connection)
+        set_active_connection(self._old_connection)
 
         self._enabled = False  # Make sure we cannot call disable multiple times
 

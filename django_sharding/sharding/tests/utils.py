@@ -14,14 +14,13 @@ from example.models import Shard, OrganizationShards, Type, SuperType, User, Org
 from sharding.db import connection
 from sharding.decorators import atomic_write_to_every_node
 from sharding.options import ShardOptions
-from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from sharding.router import DynamicDbRouter
+from sharding.router import DynamicDbRouter, set_active_connection, get_active_connection
 from sharding.tests import ShardingTestCase, ShardingTransactionTestCase, ResetConnectionTestCaseMixin
 from sharding.utils import use_shard, create_schema_on_node, create_template_schema, migrate_schema, \
     get_template_name, _node_exists, StateException, use_shard_for, get_shard_for, for_each_shard, State, \
     for_each_node, transaction_for_every_node, move_model_to_schema, get_all_databases, ShardingMode, \
     get_sharding_mode, get_model_sharding_mode, get_all_sharded_models, get_shard_class, get_mapping_class, \
-    transaction_for_nodes, get_all_mirrored_models, delete_schema, schema_exists, _set_active_connection
+    transaction_for_nodes, get_all_mirrored_models, delete_schema, schema_exists
 
 
 class GetShardClass(SimpleTestCase):
@@ -79,11 +78,11 @@ class SetActiveConnectionTestCase(ResetConnectionTestCaseMixin, SimpleTestCase):
     def test(self):
         """
         Case: Set the active connection to something else
-        Expected: DynamicDbRouter.active_connection should change
+        Expected: Active connection should change
         """
-        self.assertEqual(DynamicDbRouter.active_connection, 'default')
-        _set_active_connection('other')
-        self.assertEqual(DynamicDbRouter.active_connection, 'other')
+        self.assertEqual(get_active_connection(), 'default')
+        set_active_connection('other')
+        self.assertEqual(get_active_connection(), 'other')
 
 
 class UseShardTestCase(ShardingTestCase):
@@ -99,11 +98,11 @@ class UseShardTestCase(ShardingTestCase):
         self.inactive_shard = Shard.objects.create(alias='inactive_shard', schema_name='test_inactive_schema',
                                                    node_name='other', state=State.MAINTENANCE)
 
-    @mock.patch('sharding.utils._set_active_connection')
+    @mock.patch('sharding.router.set_active_connection')
     def test_use_shard(self, mock_set_active_connection):
         """
         Case: Call use_shard with a valid shard object
-        Expected: _set_active_connection to be called with the correct options
+        Expected: set_active_connection to be called with the correct options
         """
         with use_shard(self.shard):
             pass
@@ -120,7 +119,7 @@ class UseShardTestCase(ShardingTestCase):
             mock.call('default'),
         ])
 
-    @mock.patch('sharding.utils._set_active_connection')
+    @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_with_invalid_argument(self, mock_set_active_connection):
         """
         Case: Call use_shard with an invalid argument
@@ -132,7 +131,7 @@ class UseShardTestCase(ShardingTestCase):
 
         self.assertFalse(mock_set_active_connection.called)
 
-    @mock.patch('sharding.utils._set_active_connection')
+    @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_with_inactive_shard(self, mock_set_active_connection):
         """
         Case: Call use_shard with a shard that is not active
@@ -145,7 +144,7 @@ class UseShardTestCase(ShardingTestCase):
 
         self.assertFalse(mock_set_active_connection.called)
 
-    @mock.patch('sharding.utils._set_active_connection')
+    @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_with_inactive_shard_with_state_test_disabled(self, mock_set_active_connection):
         """
         Case: Call use_shard with a shard that is not active, but active_only_schemas is False
@@ -156,7 +155,7 @@ class UseShardTestCase(ShardingTestCase):
 
         self.assertTrue(mock_set_active_connection.called)
 
-    @mock.patch('sharding.utils._set_active_connection')
+    @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_without_public(self, mock_set_active_connection):
         """
         Case: Call use_shard within with include_public set to False.
@@ -170,11 +169,11 @@ class UseShardTestCase(ShardingTestCase):
 
             mock_set_active_connection.assert_called_once_with(options)
 
-    @mock.patch('sharding.utils._set_active_connection')
+    @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_inception(self, mock_set_active_connection):
         """
         Case: Call use_shard within a use_shard environment
-        Expected: Connection to switch twice and _set_active_connection to be called accordingly
+        Expected: Connection to switch twice and set_active_connection to be called accordingly
         """
         with use_shard(self.shard) as env1:
             options1 = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
@@ -213,30 +212,30 @@ class UseShardTestCase(ShardingTestCase):
         Case: Call use_shard within a use_shard environment
         Expected: Connection to switch twice, and django.db.connection returning the correct connection
         """
-        self.assertEqual(DynamicDbRouter.active_connection, 'default')
+        self.assertEqual(get_active_connection(), 'default')
         self.assertEqual(connection.alias, 'default')
 
         with use_shard(self.shard):
             options1 = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
                                     shard_id=self.shard.id, use_shard=True)
 
-            self.assertEqual(DynamicDbRouter.active_connection, options1)
+            self.assertEqual(get_active_connection(), options1)
             self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
 
             with use_shard(self.other_shard):
                 options2 = ShardOptions(node_name=self.other_shard.node_name, schema_name=self.other_shard.schema_name,
                                         shard_id=self.other_shard.id, use_shard=True)
 
-                self.assertEqual(DynamicDbRouter.active_connection, options2)
+                self.assertEqual(get_active_connection(), options2)
                 self.assertEqual(connection.alias, '{}|{}'.format(self.other_shard.node_name,
                                                                   self.other_shard.schema_name))
-            self.assertEqual(DynamicDbRouter.active_connection, options1)
+            self.assertEqual(get_active_connection(), options1)
             self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
 
-        self.assertEqual(DynamicDbRouter.active_connection, 'default')
+        set_active_connection('default')
         self.assertEqual(connection.alias, 'default')
 
-    @mock.patch('sharding.utils._set_active_connection')
+    @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_invalid_node_name(self, mock_set_active_connection):
         """
         Case: Call use_shard with a valid shard object referring to a non-default node
@@ -248,7 +247,7 @@ class UseShardTestCase(ShardingTestCase):
 
         self.assertFalse(mock_set_active_connection.called)
 
-    @mock.patch('sharding.utils._set_active_connection')
+    @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_with_inactive_mapping_objects(self, mock_set_active_connection):
         """
         Case: Call use_shard with a valid shard object that contains inactive mapping objects, with setting
@@ -280,7 +279,7 @@ class UseShardTestCase(ShardingTestCase):
                 pass
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
-    @mock.patch('sharding.utils._set_active_connection')
+    @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_for_inactive_schemas(self, mock_set_active_connection):
         """
         Case: Call use_shard with a valid shard object while no mapping_model exists.
@@ -304,7 +303,7 @@ class UseShardTestCase(ShardingTestCase):
             self.assertEqual(env.connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
             self.assertEqual(env.connection.schema_name, self.shard.schema_name)
 
-    @mock.patch('sharding.utils._set_active_connection', mock.Mock())
+    @mock.patch('sharding.router.set_active_connection', mock.Mock())
     @mock.patch('sharding.utils.use_shard.acquire_lock')
     def test_enable_acquire_advisory_lock(self, mock_acquire_lock):
         """
@@ -314,7 +313,7 @@ class UseShardTestCase(ShardingTestCase):
         use_shard(self.shard).enable()
         mock_acquire_lock.assert_called_once_with()
 
-    @mock.patch('sharding.utils._set_active_connection', mock.Mock())
+    @mock.patch('sharding.router.set_active_connection', mock.Mock())
     @mock.patch('sharding.utils.use_shard.release_lock')
     def test_disable_release_advisory_lock(self, mock_release_lock):
         """
@@ -359,12 +358,12 @@ class UseShardTestCase(ShardingTestCase):
         env = use_shard(self.shard)
         env.enable()
 
-        with mock.patch('sharding.utils._set_active_connection') as mock_set_active_connection:
+        with mock.patch('sharding.router.set_active_connection') as mock_set_active_connection:
             env.disable()
 
         self.assertTrue(mock_set_active_connection.called)
 
-        with mock.patch('sharding.utils._set_active_connection') as mock_set_active_connection:
+        with mock.patch('sharding.router.set_active_connection') as mock_set_active_connection:
             env.disable()
 
         self.assertFalse(mock_set_active_connection.called)
@@ -376,7 +375,7 @@ class UseShardTestCase(ShardingTestCase):
         """
         env = use_shard(self.shard)
 
-        with mock.patch('sharding.utils._set_active_connection') as mock_set_active_connection:
+        with mock.patch('sharding.router.set_active_connection') as mock_set_active_connection:
             env.disable()
 
         self.assertFalse(mock_set_active_connection.called)
@@ -394,7 +393,7 @@ class UseShardForTestCase(ShardingTestCase):
         self.org_shard2 = OrganizationShards.objects.create(organization_id=2, shard=self.shard1,
                                                             state=State.MAINTENANCE)
 
-    @mock.patch('sharding.utils._set_active_connection')
+    @mock.patch('sharding.router.set_active_connection')
     @mock.patch.object(use_shard_for, 'acquire_lock')
     @mock.patch.object(use_shard_for, 'release_lock')
     def test_use_shard_for(self, mock_release_lock, mock_acquire_lock, mock_set_active_connection):
@@ -408,7 +407,7 @@ class UseShardForTestCase(ShardingTestCase):
         self.assertEqual(mock_acquire_lock.call_count, 1)
         self.assertEqual(mock_release_lock.call_count, 1)
 
-    @mock.patch('sharding.utils._set_active_connection')
+    @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_for_inactive_object(self, mock_set_active_connection):
         """
         Case: Use use_shard_for with an inactive mapping object
@@ -419,7 +418,7 @@ class UseShardForTestCase(ShardingTestCase):
                 pass
         self.assertFalse(mock_set_active_connection.called)
 
-    @mock.patch('sharding.utils._set_active_connection')
+    @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_for_inactive_shard(self, mock_set_active_connection):
         """
         Case: Use use_shard_for with an active mapping object, but inactive shard
@@ -433,7 +432,7 @@ class UseShardForTestCase(ShardingTestCase):
                 pass
         self.assertFalse(mock_set_active_connection.called)
 
-    @mock.patch('sharding.utils._set_active_connection')
+    @mock.patch('sharding.router.set_active_connection')
     @mock.patch.object(use_shard_for, 'acquire_lock')
     @mock.patch.object(use_shard_for, 'release_lock')
     def test_use_shard_for_inactive_object_include_inactive(self, mock_release_lock, mock_acquire_lock,
