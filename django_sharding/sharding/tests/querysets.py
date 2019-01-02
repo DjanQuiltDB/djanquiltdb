@@ -2,7 +2,7 @@ import pickle
 
 from django.db import IntegrityError
 
-from example.models import Shard, Organization, Cake, SuperType
+from example.models import Shard, Organization, Cake, SuperType, Suborganization
 from sharding import State
 from sharding.options import ShardOptions
 from sharding.tests import ShardingTestCase
@@ -86,6 +86,29 @@ class QuerySetTestCase(ShardingTestCase):
         dump = pickle.dumps(all_organizations)  # Should not trigger an exception
 
         self.assertEqual(list(pickle.loads(dump)), list(all_organizations))
+
+    def test_prefetch_related(self):
+        """
+        Case: In shard B, initialize a new queryset of a related object that's retrieved in shard A, and call a
+              prefetch_related of related objects
+        Expected: Despite the fact that the queryset is initialized in a different shard context, the results are
+                  retrieved from the shard the related object was living on, as expected.
+        """
+        other_shard = Shard.objects.create(alias='other', schema_name='test_other', node_name='default',
+                                           state=State.ACTIVE)
+
+        with use_shard(self.shard):
+            organization1 = Organization.objects.create(name='Foo')
+            organization2 = Organization.objects.create(name='Bar')
+            organization3 = Organization.objects.create(name='Baz')
+
+            Suborganization.objects.create(parent=organization1, child=organization2)
+            Suborganization.objects.create(parent=organization1, child=organization3)
+
+        with use_shard(other_shard):
+            suborganizations = organization1.parent.prefetch_related('child').all()
+
+        self.assertCountEqual(list(map(lambda x: x.child, suborganizations)), [organization2, organization3])
 
 
 class UsingTestCase(ShardingTestCase):
