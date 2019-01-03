@@ -1,5 +1,4 @@
-from threading import Thread
-from time import sleep
+from threading import Thread, Event
 from unittest import mock
 
 from django.db import connections, ProgrammingError, models, DEFAULT_DB_ALIAS
@@ -85,15 +84,21 @@ class ActiveConnectionTestCase(ShardingTransactionTestCase):
         Expected: The active connection should be the one set by that current thread, and should not be shared among
                   threads
         """
-        def run(shard):
+        def run(shard, sync_event, wait_for):
             with shard.use() as env:
-                sleep(1)  # We need a sleep to make sure that both threads are running the same time
+                sync_event.set()  # Notify that this thread is in a shard context now
+
+                # Do not wait longer than 5 seconds for the other thread to be in the shard context.
+                if not wait_for.wait(5):
+                    return
 
                 # Save the active connection at this moment for this thread, and save also it's expected value
                 self.active_connections[shard] = (get_active_connection(), env.options)
 
-        thread1 = Thread(target=run, kwargs={'shard': self.shard1})
-        thread2 = Thread(target=run, kwargs={'shard': self.shard2})
+        sync_event1 = Event()
+        sync_event2 = Event()
+        thread1 = Thread(target=run, kwargs={'shard': self.shard1, 'sync_event': sync_event1, 'wait_for': sync_event2})
+        thread2 = Thread(target=run, kwargs={'shard': self.shard2, 'sync_event': sync_event2, 'wait_for': sync_event1})
 
         thread1.start()
         thread2.start()
@@ -101,6 +106,8 @@ class ActiveConnectionTestCase(ShardingTransactionTestCase):
         # Wait until the threads are finished
         thread1.join()
         thread2.join()
+
+        self.assertEqual(len(self.active_connections), 2, 'Threads did not start properly')
 
         # Now assert that the active connection in the thread is the one we expect
         for shard, (active_connection, shard_options) in self.active_connections.items():
