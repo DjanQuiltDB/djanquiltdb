@@ -8,8 +8,8 @@ class DefaultConnectionProxy(object):
 
     @property
     def db_alias(self):
-        from sharding.router import DynamicDbRouter
-        return DynamicDbRouter.active_connection
+        from sharding.router import get_active_connection
+        return get_active_connection()
 
     def __getattr__(self, item):
         return getattr(connections[self.db_alias], item)

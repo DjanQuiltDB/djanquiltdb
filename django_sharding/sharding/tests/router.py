@@ -1,12 +1,14 @@
+from threading import Thread, Event
 from unittest import mock
 
-from django.db import connections, ProgrammingError, models
+from django.db import connections, ProgrammingError, models, DEFAULT_DB_ALIAS
 from django.test import override_settings
 
-from example.models import Organization
+from example.models import Organization, Shard
+from sharding import State
 from sharding.decorators import sharded_model, mirrored_model
-from sharding.router import DynamicDbRouter
-from sharding.tests import ShardingTestCase
+from sharding.router import DynamicDbRouter, set_active_connection, get_active_connection, _active_connection
+from sharding.tests import ShardingTestCase, ShardingTransactionTestCase
 from sharding.utils import create_schema_on_node, create_template_schema, migrate_schema, \
     ShardingMode
 
@@ -37,6 +39,85 @@ class DummyNonShardedModel(models.Model):
         managed = False
 
 
+class ActiveConnectionTestCase(ShardingTransactionTestCase):
+    def setUp(self):
+        super().setUp()
+
+        create_template_schema()
+        self.shard1 = Shard.objects.create(state=State.ACTIVE, alias='test1', schema_name='test1', node_name='default')
+        self.shard2 = Shard.objects.create(state=State.ACTIVE, alias='test2', schema_name='test2', node_name='default')
+
+        self.active_connections = {}
+
+    def test_get_active_connection_none_set(self):
+        """
+        Case: Have no active connection set
+        Expected: get_active_connection() returns the DEFAULT_DB_ALIAS
+        """
+        delattr(_active_connection, 'connection')
+        self.assertEqual(get_active_connection(), DEFAULT_DB_ALIAS)
+
+    def test_get_active_connection(self):
+        """
+        Case: Get the result of get_active_connection()
+        Expected: Returns the value of _active_connection.connection
+        """
+        sentinel = object()
+
+        _active_connection.connection = sentinel
+        self.assertIs(get_active_connection(), sentinel)
+
+    def test_set_active_connection(self):
+        """
+        Case: Set the active connection
+        Expected: _active_connection.connection is equal to what we set
+        """
+        sentinel = object()
+
+        set_active_connection(sentinel)
+        self.assertIs(get_active_connection(), sentinel)
+
+    def test_multiple_threads(self):
+        """
+        Case: When having multiple threads, go to a different shard with a context manager in both the threads and
+              save the current active connection at that time
+        Expected: The active connection should be the one set by that current thread, and should not be shared among
+                  threads
+        """
+        def run(shard, sync_event, wait_for):
+            with shard.use() as env:
+                sync_event.set()  # Notify that this thread is in a shard context now
+
+                # Do not wait longer than 5 seconds for the other thread to be in the shard context.
+                if not wait_for.wait(5):
+                    return
+
+                # Save the active connection at this moment for this thread, and save also it's expected value
+                self.active_connections[shard] = (get_active_connection(), env.options)
+
+        sync_event1 = Event()
+        sync_event2 = Event()
+        thread1 = Thread(target=run, kwargs={'shard': self.shard1, 'sync_event': sync_event1, 'wait_for': sync_event2})
+        thread2 = Thread(target=run, kwargs={'shard': self.shard2, 'sync_event': sync_event2, 'wait_for': sync_event1})
+
+        thread1.start()
+        thread2.start()
+
+        # Wait until the threads are finished
+        thread1.join()
+        thread2.join()
+
+        self.assertEqual(len(self.active_connections), 2, 'Threads did not start properly')
+
+        # Now assert that the active connection in the thread is the one we expect
+        for shard, (active_connection, shard_options) in self.active_connections.items():
+            self.assertEqual(
+                active_connection,
+                shard_options,
+                'Active connection for {} is incorrect. Is the active connection thread safe?'.format(shard)
+            )
+
+
 class DynamicDbRouterTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
@@ -48,7 +129,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Case: Call db_for_read with the active_connection being None
         Expected: None returned
         """
-        DynamicDbRouter.active_connection = None
+        set_active_connection(None)
         self.assertIsNone(self.router.db_for_read(model=mock.MagicMock()))
 
     def test_db_for_read_while_set(self):
@@ -56,7 +137,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Case: Call db_for_read with the active_connection being test_node
         Expected: Name of the correct node returned
         """
-        DynamicDbRouter.active_connection = 'test_node'
+        set_active_connection('test_node')
         self.assertEqual(self.router.db_for_read(model=mock.MagicMock()), 'test_node')
 
     def test_db_for_write_while_not_set(self):
@@ -64,7 +145,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Case: Call db_for_write with the active_connection being None
         Expected: None returned
         """
-        DynamicDbRouter.active_connection = None
+        set_active_connection(None)
         self.assertIsNone(self.router.db_for_write(model=mock.MagicMock()))
 
     def test_db_for_write_while_set(self):
@@ -72,7 +153,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Case: Call db_for_write with the active_connection being test_node
         Expected: Name of the correct node returned
         """
-        DynamicDbRouter.active_connection = 'test_node'
+        set_active_connection('test_node')
         self.assertEqual(self.router.db_for_write(model=mock.MagicMock()), 'test_node')
 
     def test_allow_relation_between_non_sharded_models(self):

@@ -11,7 +11,7 @@ from sharding import ShardingMode, STATES
 from sharding.db import connection
 from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from sharding.router import DynamicDbRouter
+from sharding.router import DynamicDbRouter, get_active_connection
 from sharding.utils import transaction_for_every_node, get_all_databases, use_shard
 
 shard_mapping_models = False
@@ -46,7 +46,7 @@ def class_method_use_shard(func):
         override_class_method_use_shard = hasattr(connection, 'shard_options') \
             and connection.shard_options.kwargs.get('override_class_method_use_shard', False)
 
-        if shard_options == DynamicDbRouter.active_connection or override_class_method_use_shard:
+        if shard_options == get_active_connection() or override_class_method_use_shard:
             return func(self, *args, **kwargs)
 
         with shard_options.use():

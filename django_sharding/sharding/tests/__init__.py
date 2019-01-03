@@ -1,10 +1,11 @@
 import itertools
 
 from django.apps import apps
-from django.db import connections
+from django.db import connections, DEFAULT_DB_ALIAS
 from django.test import TestCase, TransactionTestCase
 
-from sharding.utils import ShardingMode, get_model_sharding_mode, _set_active_connection
+from sharding.router import set_active_connection
+from sharding.utils import ShardingMode, get_model_sharding_mode
 
 
 class CleanShardingArtifactsMixin:
@@ -47,7 +48,7 @@ class ResetConnectionTestCaseMixin:
         super()._post_teardown()
 
     def _reset_connections_to_public(self):
-        _set_active_connection('default')
+        set_active_connection(DEFAULT_DB_ALIAS)
 
 
 class ShardingTestCase(ResetConnectionTestCaseMixin, TestCase):

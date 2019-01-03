@@ -1,4 +1,5 @@
 import logging
+from threading import local
 
 from django.db import DEFAULT_DB_ALIAS, ProgrammingError
 
@@ -9,20 +10,26 @@ from sharding.utils import get_model_sharding_mode, get_sharding_mode
 
 logger = logging.getLogger(__name__)
 
+_active_connection = local()
+
+
+def get_active_connection():
+    return getattr(_active_connection, 'connection', DEFAULT_DB_ALIAS)
+
+
+def set_active_connection(connection):
+    setattr(_active_connection, 'connection', connection)
+
 
 class DynamicDbRouter:
     """
     A router that decides what db to read from based on a variable local to the current thread.
     """
-
-    # Save the active connection on the class instance, so we know in which connection we are at the moment.
-    active_connection = DEFAULT_DB_ALIAS
-
     def db_for_read(self, model, **hints):
         shard_options = hints.get('_shard_options')
         instance_options = hints.get('instance') is not None and hints['instance']._state.db
 
-        return instance_options or shard_options or self.active_connection
+        return instance_options or shard_options or get_active_connection()
 
     db_for_write = db_for_read
 
