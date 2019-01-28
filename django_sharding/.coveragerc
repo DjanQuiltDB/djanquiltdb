@@ -2,3 +2,10 @@
 omit =
     */.virtualenv/*
     */.tox/*
+
+[run]
+branch = True
+source = ./
+
+[html]
+directory = ./coverage/

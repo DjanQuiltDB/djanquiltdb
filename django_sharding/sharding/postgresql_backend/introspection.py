@@ -208,7 +208,7 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
             'table': table_name
         })
         field_map = {line[0]: line[1:] for line in cursor.fetchall()}
-        cursor.execute('SELECT * FROM %s LIMIT 1', [self.connection.ops.quote_name(table_name)])
+        cursor.execute('SELECT * FROM %s LIMIT 1' % self.connection.ops.quote_name(table_name))
 
         return [
             FieldInfo(*(

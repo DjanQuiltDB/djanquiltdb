@@ -1050,7 +1050,7 @@ class SyncDbTestCase(MigrationTestCase):
         Case: Disable the migrations and check whether the template schema is built from the state
         Expected: All tables from the example app are created in the template schema
         """
-        call_command('migrate_shards', verbosity=0)
+        call_command('migrate_shards', verbosity=0, run_syncdb=True)
         
         with use_shard(node_name='default', schema_name=get_template_name()):
             for model in get_all_sharded_models(include_auto_created=True):

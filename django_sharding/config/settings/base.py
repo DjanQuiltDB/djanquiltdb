@@ -22,7 +22,7 @@ except OSError:
 # Set the defaults to those defined in secrets.json
 get_secret = functools.partial(get_secret, fallback_dict=secrets_from_file)
 
-SECRET_KEY = get_secret('SECRET_KEY')
+SECRET_KEY = get_secret('SECRET_KEY', '07hkbkb*dlw-%=%ivclp^h)scx9_b$f6rty4611iqk2=b=r*an')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
