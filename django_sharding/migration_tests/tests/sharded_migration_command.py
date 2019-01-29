@@ -1,5 +1,6 @@
-from unittest import mock
+from unittest import mock, skipIf
 
+import django
 from django.conf import settings
 from django.core.management import CommandError, call_command, get_commands
 from django.db import ProgrammingError, connections
@@ -1050,12 +1051,39 @@ class SyncDbTestCase(MigrationTestCase):
         Case: Disable the migrations and check whether the template schema is built from the state
         Expected: All tables from the example app are created in the template schema
         """
-        call_command('migrate_shards', verbosity=0)
+        call_command('migrate_shards', verbosity=0, interactive=False, run_syncdb=True)
         
         with use_shard(node_name='default', schema_name=get_template_name()):
             for model in get_all_sharded_models(include_auto_created=True):
                 if model._meta.app_label == 'example':
                     self.assertTableExists(model._meta.db_table)
+
+    @skipIf(django.VERSION < (1, 9), 'This test is only needed for Django 1.9+')
+    def test_emit_pre_migrate_signal_django_19_plus(self):
+        """
+        Case: In migrate_shards, run the sync db phase and don't run the sync db phase
+        Expected: In both cases, emit_pre_migrate_signal is called
+        """
+        verbosity = 0
+        interactive = False
+
+        with mock.patch('sharding.management.commands.migrate_shards.emit_pre_migrate_signal') as mock_signal:
+            call_command('migrate_shards', verbosity=verbosity, run_syncdb=True, interactive=interactive)
+            mock_signal.assert_called_once_with(verbosity, interactive, 'default')
+
+        with mock.patch('sharding.management.commands.migrate_shards.emit_pre_migrate_signal') as mock_signal:
+            call_command('migrate_shards', verbosity=verbosity, run_syncdb=False, interactive=interactive)
+            mock_signal.assert_called_once_with(verbosity, interactive, 'default')
+
+    @skipIf(django.VERSION >= (1, 9), 'This test is only needed for Django 1.8')
+    @mock.patch('sharding.management.commands.migrate_shards.emit_pre_migrate_signal')
+    def test_emit_pre_migrate_signal_django_18(self, mock_signal):
+        """
+        Case: In migrate_shards, run the sync db phase
+        Expected: emit_pre_migrate_signal is not called
+        """
+        call_command('migrate_shards', verbosity=0, interactive=False)
+        self.assertFalse(mock_signal.called)
 
 
 class StagesMigrationTestCase(ShardingTestCase):

@@ -14,6 +14,7 @@ IN THE SOFTWARE.
 import logging
 import re
 
+import django
 from django.conf import settings
 from django.db.backends.base.base import NO_DB_ALIAS, BaseDatabaseWrapper as DjangoBaseDatabaseWrapper
 from django.db.backends.postgresql_psycopg2.base import DatabaseWrapper as BaseDatabaseWrapper
@@ -353,6 +354,9 @@ class ShardDatabaseWrapper(DatabaseWrapper):
                      'in_atomic_block', 'savepoint_state', 'savepoint_ids', 'commit_on_exit', 'needs_rollback',
                      'close_at', 'closed_in_transaction', 'errors_occurred', 'allow_thread_sharing', '_thread_ident',
                      'current_search_paths')
+
+    if django.VERSION >= (1, 9):
+        _PROXY_FIELDS += ('run_on_commit', 'run_commit_hooks_on_set_autocommit_on')
 
     def __init__(self, main_connection, options):
         self._main_connection = main_connection

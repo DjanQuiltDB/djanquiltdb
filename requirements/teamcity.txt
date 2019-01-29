@@ -1,9 +1,0 @@
--r base.txt
-
-coverage
-teamcity-messages
-
-bandit
-flake8
-
-tox
