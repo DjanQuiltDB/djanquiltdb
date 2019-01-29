@@ -1034,12 +1034,20 @@ class UnroutableMigrationTestCase2(ShardingTestCase):
         ])
 
 
-class DisableMigrations(object):
-    def __contains__(self, item):
-        return True
+if django.VERSION >= (1, 11):
+    class DisableMigrations(dict):
+        def __contains__(self, item):
+            return True
 
-    def __getitem__(self, item):
-        return 'no_migrations'
+        def __getitem__(self, item):
+            return None
+else:
+    class DisableMigrations:
+        def __contains__(self, item):
+            return True
+
+        def __getitem__(self, item):
+            return 'no_migrations'
 
 
 @override_settings(MIGRATION_MODULES=DisableMigrations())
@@ -1052,7 +1060,7 @@ class SyncDbTestCase(MigrationTestCase):
         Expected: All tables from the example app are created in the template schema
         """
         call_command('migrate_shards', verbosity=0, interactive=False, run_syncdb=True)
-        
+
         with use_shard(node_name='default', schema_name=get_template_name()):
             for model in get_all_sharded_models(include_auto_created=True):
                 if model._meta.app_label == 'example':

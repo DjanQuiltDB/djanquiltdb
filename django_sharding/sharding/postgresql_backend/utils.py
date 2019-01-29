@@ -5,16 +5,20 @@ from django.db.backends import utils
 
 
 class LockCursorWrapperMixin:
+    def __init__(self, *args, lock, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.lock = lock
+
     @contextmanager
     def _lock(self):
-        if not getattr(self.db, 'lock_on_execute', False):
+        if not self.lock or not self.db.shard_options.lock_keys:
             # No need to set an advisory lock on executing SQL queries, so we return early.
             yield
             return
 
         # Need to ask for a new cursor. Not doing that can cause methods like fetchall() to return results of our
         # locking queries instead of the query we actually want to perform.
-        cursor = self.db.cursor()
+        cursor = self.db._get_cursor(skip_lock=True)
 
         for key in self.db.shard_options.lock_keys:
             cursor.acquire_advisory_lock(key, shared=True)

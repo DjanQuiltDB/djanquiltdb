@@ -29,6 +29,7 @@ class CreateSuperUserShardedUserModelTestCase(CreateSuperUserTestCaseMixin, Shar
     Test cases for usage of the `createsuperuser` command in combination with a user model that's a sharded model.
     """
     available_apps = None  # We do want all apps installed
+
     def setUp(self):
         super().setUp()
 

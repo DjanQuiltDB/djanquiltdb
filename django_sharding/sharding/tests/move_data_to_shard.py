@@ -777,7 +777,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @override_settings(SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards',
                                  'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
-    def test_post_execution_with_mapping(self, mock_release_lock):
+    def test_post_execution_with_mapping_multiple_objects(self, mock_release_lock):
         """
         Case: Call post_execution with a mapping_model and multiple objects, where one of the original states was in
               maintenance.

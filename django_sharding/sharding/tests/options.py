@@ -374,7 +374,6 @@ class ShardOptionsTestCase(ShardingTestCase):
             self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
             self.assertEqual(connection.shard_options.shard_id, self.shard.id)
 
-
     def test_use_integration(self):
         """
         Case: Call ShardOptions's use() method while having a no mapping value and no shard id set

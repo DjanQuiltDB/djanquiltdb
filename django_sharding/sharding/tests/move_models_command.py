@@ -284,7 +284,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # We do this from the template schema so the schema name is added to the column's default value.
         with use_shard(node_name='default', schema_name='template') as env:
             cursor = env.connection.cursor()
-            cursor.execute("SELECT column_default FROM information_schema.columns "
+            cursor.execute("SELECT column_default FROM information_schema.columns "  # nosec
                            "WHERE table_schema='{}' AND table_name='django_migrations' AND column_name='id';"
                            .format(shard.schema_name))
             self.assertCountEqual(cursor.fetchall(),

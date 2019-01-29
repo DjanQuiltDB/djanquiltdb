@@ -11,7 +11,7 @@ from django.utils.module_loading import import_string
 
 from sharding import ShardingMode
 from sharding.db import connection
-from sharding.decorators import class_method_use_shard, _add_decorator_reference
+from sharding.decorators import class_method_use_shard
 from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import ShardDatabaseWrapper
 from sharding.utils import get_all_sharded_models
@@ -50,7 +50,8 @@ class ShardingConfig(AppConfig):
         settings.SHARDING['OVERRIDE_SHARDING_MODE'] = dict((tuple(x.lower() for x in k), v)
                                                            for k, v in override_sharding_mode.items())
 
-        if 'DATABASE_ROUTERS' not in dir(settings) or 'sharding.router.DynamicDbRouter' not in settings.DATABASE_ROUTERS:
+        if 'DATABASE_ROUTERS' not in dir(settings) or 'sharding.router.DynamicDbRouter' \
+                not in settings.DATABASE_ROUTERS:
             raise ImproperlyConfigured(
                 'sharding.router.DynamicDbRouter must be present in the DATABASE_ROUTERS setting.')
 

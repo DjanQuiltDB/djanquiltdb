@@ -5,7 +5,8 @@ from django.contrib.admin.utils import NestedObjects
 from django.core.management import CommandError, call_command
 from django.db import DatabaseError
 
-from example.models import *
+from example.models import Shard, OrganizationShards, SuperType, Type, Organization, Suborganization, User, Statement, \
+    Cake
 from sharding.tests import ShardingTestCase
 from sharding.utils import use_shard, create_template_schema, State
 from sharding.management.commands.purge_shard_data import Command

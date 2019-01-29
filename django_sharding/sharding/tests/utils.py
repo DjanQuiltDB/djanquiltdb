@@ -14,7 +14,7 @@ from example.models import Shard, OrganizationShards, Type, SuperType, User, Org
 from sharding.db import connection
 from sharding.decorators import atomic_write_to_every_node
 from sharding.options import ShardOptions
-from sharding.router import DynamicDbRouter, set_active_connection, get_active_connection
+from sharding.router import set_active_connection, get_active_connection
 from sharding.tests import ShardingTestCase, ShardingTransactionTestCase, ResetConnectionTestCaseMixin
 from sharding.utils import use_shard, create_schema_on_node, create_template_schema, migrate_schema, \
     get_template_name, _node_exists, StateException, use_shard_for, get_shard_for, for_each_shard, State, \
