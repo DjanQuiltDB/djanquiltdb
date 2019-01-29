@@ -1051,7 +1051,7 @@ class SyncDbTestCase(MigrationTestCase):
         Case: Disable the migrations and check whether the template schema is built from the state
         Expected: All tables from the example app are created in the template schema
         """
-        call_command('migrate_shards', verbosity=0, run_syncdb=True)
+        call_command('migrate_shards', verbosity=0, interactive=False, run_syncdb=True)
         
         with use_shard(node_name='default', schema_name=get_template_name()):
             for model in get_all_sharded_models(include_auto_created=True):
@@ -1065,7 +1065,7 @@ class SyncDbTestCase(MigrationTestCase):
         Expected: In both cases, emit_pre_migrate_signal is called
         """
         verbosity = 0
-        interactive = True
+        interactive = False
 
         with mock.patch('sharding.management.commands.migrate_shards.emit_pre_migrate_signal') as mock_signal:
             call_command('migrate_shards', verbosity=verbosity, run_syncdb=True, interactive=interactive)
@@ -1082,7 +1082,7 @@ class SyncDbTestCase(MigrationTestCase):
         Case: In migrate_shards, run the sync db phase
         Expected: emit_pre_migrate_signal is not called
         """
-        call_command('migrate_shards', verbosity=0)
+        call_command('migrate_shards', verbosity=0, interactive=False)
         self.assertFalse(mock_signal.called)
 
 
