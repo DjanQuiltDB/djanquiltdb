@@ -11,9 +11,9 @@ To setup your development environment it is important to install the development
 
     pip install -e .[dev]
 
-Next, copy the example environment file and adjust their parameters::
+Next, copy the example secrets file in the ``django_sharding`` directory and adjust the parameters::
 
-    cp .env.example .env
+    cp secrets.json.example secrets.json
 
 Tests
 -----
