@@ -57,9 +57,8 @@ class Command(MigrateCommand):
 
         # Import the 'management' module within each installed app,
         # to register dispatcher events.
-        for app_config in apps.get_app_configs():
-            if module_has_submodule(app_config.module, 'management'):
-                import_module('.management', app_config.name)
+        for app_config in filter(lambda x: module_has_submodule(x.module, 'management'), apps.get_app_configs()):
+            import_module('.management', app_config.name)
 
         databases, schema_name = get_databases_and_schema_from_options(options)
 
@@ -112,8 +111,7 @@ class Command(MigrateCommand):
 
         if not plan:
             executor.check_replacements()
-            if self.verbosity >= 1:
-                self.check_for_changes(executor)
+            self.verbosity >= 1 and self.check_for_changes(executor)
         else:
             self.perform_migration(plan, databases, schema_name,
                                    fake=options.get('fake'), fake_initial=options.get('fake_initial'))
@@ -166,8 +164,7 @@ class Command(MigrateCommand):
             for database in databases:
                 schema_plan = self.get_plan_for_shard(targets, database, schema_name)
 
-                if len(schema_plan) > len(plan):
-                    plan = schema_plan
+                plan = schema_plan if len(schema_plan) > len(plan) else plan
 
             return plan
 
@@ -330,24 +327,24 @@ class Command(MigrateCommand):
         if schema_name:
             for database in databases:
                 with use_shard(node_name=database, schema_name=schema_name) as env:
-                    created_models.update(self.sync_apps(env.connection, app_labels))
+                    created_models.update(self.sync_apps(env.connection, app_labels) or {})
         else:
             for database in databases:
                 # Public schema
                 with use_shard(node_name=database, schema_name='public') as env:
-                    created_models.update(self.sync_apps(env.connection, app_labels))
+                    created_models.update(self.sync_apps(env.connection, app_labels) or {})
 
                 # Template schema, if it exists.
                 template_name = get_template_name()
 
                 if schema_exists(database, template_name):
                     with use_shard(node_name=database, schema_name=template_name) as env:
-                        created_models.update(self.sync_apps(env.connection, app_labels))
+                        created_models.update(self.sync_apps(env.connection, app_labels) or {})
 
             # Sync all other shards, if the shards table exist.
             if shard_table_exists():
                 for shard in get_shard_class().objects.filter(node_name__in=databases):
                     with use_shard(shard) as env:
-                        created_models.update(self.sync_apps(env.connection, app_labels))
+                        created_models.update(self.sync_apps(env.connection, app_labels) or {})
 
         return created_models

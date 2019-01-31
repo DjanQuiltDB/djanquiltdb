@@ -1,5 +1,4 @@
 from django.core.management import call_command
-from django.db import connections
 
 from example.models import Shard, Type, Organization
 from sharding import State

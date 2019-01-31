@@ -24,4 +24,4 @@ class LoginTestCase(ShardingTestCase):
         Expected: No errors to occur
         """
         with use_shard(self.shard):
-            self.client.login(email=self.user.email, password='password')
+            self.client.login(email=self.user.email, password='password')  # nosec

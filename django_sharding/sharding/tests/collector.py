@@ -27,7 +27,8 @@ class SimpleCollectorTestCase(ShardingTestCase):
 
             # Other organization, not to be collected
             other_organization = Organization.objects.create(name='Beach')
-            other_user = User.objects.create(organization=other_organization, name='Seagull', email='s@b.mine', type=type)
+            other_user = User.objects.create(organization=other_organization, name='Seagull', email='s@b.mine',
+                                             type=type)
             Statement.objects.create(content='Mine', user=other_user)
 
     def test(self):

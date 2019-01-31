@@ -1,7 +1,8 @@
 from contextlib import contextmanager
 from unittest import mock
 
-from django.db import ProgrammingError, connections, IntegrityError
+import django
+from django.db import connections, IntegrityError
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.test import override_settings
 from psycopg2 import InternalError
@@ -12,7 +13,7 @@ from sharding.db import connection
 from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import get_validated_schema_name, PUBLIC_SCHEMA_NAME, \
     DatabaseWrapper, ShardDatabaseWrapper
-from sharding.postgresql_backend.utils import LockCursorWrapperMixin, CursorWrapper
+from sharding.postgresql_backend.utils import LockCursorWrapperMixin
 from sharding.tests import ShardingTransactionTestCase, ShardingTestCase
 from sharding.utils import create_schema_on_node, create_template_schema, use_shard, get_template_name
 
@@ -354,7 +355,7 @@ class CursorTestCase(ShardingTestCase):
         """
         self.assertEqual(connection_.current_search_paths, old_search_paths)
         with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema, \
-             mock.patch.object(connection_, 'connection') as mock_connection:
+                mock.patch.object(connection_, 'connection') as mock_connection:
             yield
 
         self.assertTrue(mock_get_ps_schema.called)
@@ -364,7 +365,12 @@ class CursorTestCase(ShardingTestCase):
             'SET search_path = {}'.format(','.join(new_search_paths))
         )
 
-        mock_connection.cursor.return_value.close.assert_called_once_with()
+        self.assertEqual(mock_connection.cursor.return_value.close.call_count, 3)
+        mock_connection.cursor.return_value.close.assert_has_calls([
+            mock.call(),  # Cursor for get_ps_schema
+            mock.call(),  # Cursor for setting the search path
+            mock.call(),  # Actual cursor inside the context manager
+        ])
 
     @contextmanager
     def assertSearchPathNotChanged(self, connection_, old_search_paths):
@@ -374,7 +380,7 @@ class CursorTestCase(ShardingTestCase):
         """
         self.assertEqual(connection_.current_search_paths, old_search_paths)
         with mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema, \
-             mock.patch.object(connection_, 'connection') as mock_connection:
+                mock.patch.object(connection_, 'connection') as mock_connection:
             yield
 
         self.assertFalse(mock_get_ps_schema.called)
@@ -436,6 +442,95 @@ class CursorTestCase(ShardingTestCase):
         with self.assertRaisesMessage(IntegrityError, "Schema '{}' does not exist.".format('foo')):
             with connection_.cursor():
                 pass
+
+    @mock.patch.object(DatabaseWrapper, '_cursor')
+    def test_cursor(self, mock_cursor):
+        """
+        Case: Call connection's `cursor` method
+        Expected: Return value of `_cursor` returned
+        """
+        self.assertEqual(self.connection.cursor(), mock_cursor.return_value)
+        mock_cursor.assert_called_once_with()
+
+    @mock.patch.object(DatabaseWrapper, 'ensure_connection')
+    @mock.patch.object(DatabaseWrapper, 'create_cursor')
+    @mock.patch.object(DatabaseWrapper, '_prepare_cursor')
+    def test_get_cursor(self, mock_prepare_cursor, mock_create_cursor, mock_ensure_connection):
+        """
+        Case: Call DatabaseWrapper._get_cursor() with `skip_lock` being False.
+        Expected: `ensure_connection` called, `create_cursor` called (with the `name` passed in Django 1.11+) and
+                  `_prepare_cursor` called with the return value of `create_cursor` and `skip_lock` being False.
+        """
+        name = 'foo'
+        skip_lock = False
+
+        self.assertEqual(self.connection._get_cursor(name, skip_lock=skip_lock), mock_prepare_cursor.return_value)
+
+        mock_ensure_connection.assert_called_once_with()
+
+        # Named cursors is only a thing in Django 1.11+
+        if django.VERSION >= (1, 11):
+            mock_create_cursor.assert_called_once_with(name)
+        else:
+            mock_create_cursor.assert_called_once_with()
+
+        mock_prepare_cursor.assert_called_once_with(mock_create_cursor.return_value, skip_lock=skip_lock)
+
+    @mock.patch.object(DatabaseWrapper, 'ensure_connection')
+    @mock.patch.object(DatabaseWrapper, 'create_cursor')
+    @mock.patch.object(DatabaseWrapper, '_prepare_cursor')
+    def test_get_cursor_skip_lock(self, mock_prepare_cursor, mock_create_cursor, mock_ensure_connection):
+        """
+        Case: Call DatabaseWrapper._get_cursor() with `skip_lock` being True.
+        Expected: `ensure_connection` called, `create_cursor` called (with the `name` passed in Django 1.11+) and
+                  `_prepare_cursor` called with the return value of `create_cursor` and `skip_lock` being True.
+        """
+        name = 'foo'
+        skip_lock = True
+
+        self.assertEqual(self.connection._get_cursor(name, skip_lock=skip_lock), mock_prepare_cursor.return_value)
+
+        mock_ensure_connection.assert_called_once_with()
+
+        # Named cursors is only a thing in Django 1.11+
+        if django.VERSION >= (1, 11):
+            mock_create_cursor.assert_called_once_with(name)
+        else:
+            mock_create_cursor.assert_called_once_with()
+
+        mock_prepare_cursor.assert_called_once_with(mock_create_cursor.return_value, skip_lock=skip_lock)
+
+    @mock.patch.object(DatabaseWrapper, 'validate_thread_sharing')
+    @mock.patch.object(DatabaseWrapper, 'make_cursor')
+    @mock.patch.object(DatabaseWrapper, 'queries_logged', False)
+    def test_prepare_cursor(self, mock_make_cursor, mock_validate_thread_sharing):
+        """
+        Case: Call DatabaseWrapper._get_cursor() with `queries_logged` being False.
+        Expected: Returns the return value of `make_cursor` and calls `validate_thread_sharing`.
+        """
+        cursor = mock.Mock()
+        skip_lock = mock.Mock()
+
+        self.assertEqual(self.connection._prepare_cursor(cursor, skip_lock), mock_make_cursor.return_value)
+
+        mock_validate_thread_sharing.assert_called_once_with()
+        mock_make_cursor.assert_called_once_with(cursor, skip_lock=skip_lock)
+
+    @mock.patch.object(DatabaseWrapper, 'validate_thread_sharing')
+    @mock.patch.object(DatabaseWrapper, 'make_debug_cursor')
+    @mock.patch.object(DatabaseWrapper, 'queries_logged', True)
+    def test_prepare_cursor_queries_logged(self, mock_make_debug_cursor, mock_validate_thread_sharing):
+        """
+        Case: Call DatabaseWrapper._get_cursor() with `queries_logged` being True.
+        Expected: Returns the return value of `make_debug_cursor` and calls `validate_thread_sharing`.
+        """
+        cursor = mock.Mock()
+        skip_lock = mock.Mock()
+
+        self.assertEqual(self.connection._prepare_cursor(cursor, skip_lock), mock_make_debug_cursor.return_value)
+
+        mock_validate_thread_sharing.assert_called_once_with()
+        mock_make_debug_cursor.assert_called_once_with(cursor, skip_lock=skip_lock)
 
 
 class AdvisoryLockingTestCase(ShardingTransactionTestCase):
@@ -562,8 +657,8 @@ class AdvisoryLockingIntegrationTestCase(ShardingTestCase):
     @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock')
     def test_lock_use_shard(self, mock_release_advisory_lock, mock_acquire_advisory_lock):
         """
-        Case:
-        Expected:
+        Case: Retrieve an object in a use_shard context
+        Expected: Acquiring and releasing an advisory lock only done once
         """
         with self.shard.use():
             Organization.objects.create(name='Hogwarts')
@@ -575,8 +670,8 @@ class AdvisoryLockingIntegrationTestCase(ShardingTestCase):
     @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock')
     def test_lock_on_execute(self, mock_release_advisory_lock, mock_acquire_advisory_lock):
         """
-        Case:
-        Expected:
+        Case: Retrieve an object with the using method
+        Expected: Acquiring and releasing an advisory lock only done once
         """
         Organization.objects.using(self.shard).create(name='Hogwarts')
 
@@ -625,14 +720,33 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
     def test_expected_proxy_fields(self):
         """
         Case: Check whether the ShardDatabaseWrapper._PROXY_FIELDS are the same as the fields defined in
-              BaseDatabaseWrapper's init fields, minus the alias and plus the current_search_path (defined in
-              DatabaseWrapper)
+              BaseDatabaseWrapper's init fields, including the current_search_path, but excluding:
+                * alias
+                * client
+                * creation
+                * features
+                * introspection
+                * ops
+                * validation
         Expected: List is as we expected
         Note: if in future versions of Django the fields we define in BaseDatabaseWrapper changes, this test will tell
               us. We want to proxy all those fields (except for the alias).
         """
-        proxy_fields = list(BaseDatabaseWrapper({}).__dict__.keys())
+        exclude_classes = ['client', 'creation', 'features', 'introspection', 'ops', 'validation']
+
+        class DummyDatabaseWrapper(BaseDatabaseWrapper):
+            pass
+
+        for exclude_class in exclude_classes:
+            setattr(DummyDatabaseWrapper, '{}_class'.format(exclude_class), mock.Mock())
+
+        proxy_fields = list(DummyDatabaseWrapper({}).__dict__.keys())
         proxy_fields.remove('alias')
+
+        for exclude_class in exclude_classes:
+            if exclude_class in proxy_fields:
+                proxy_fields.remove(exclude_class)
+
         proxy_fields.append('current_search_paths')
 
         self.assertCountEqual(ShardDatabaseWrapper._PROXY_FIELDS, proxy_fields)
@@ -755,15 +869,13 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
         ]
 
         for options in dont_lock_on_execute:
-            with self.subTest(options):
-                shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                             **options)
-                connection_ = ShardDatabaseWrapper(self.connection, shard_options)
-                self.assertFalse(connection_.lock_on_execute)
+            shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
+                                         **options)
+            connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+            self.assertFalse(connection_.lock_on_execute)
 
         for options in lock_on_execute:
-            with self.subTest(options):
-                shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                             **options)
-                connection_ = ShardDatabaseWrapper(self.connection, shard_options)
-                self.assertTrue(connection_.lock_on_execute)
+            shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
+                                         **options)
+            connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+            self.assertTrue(connection_.lock_on_execute)

@@ -1,5 +1,6 @@
 from unittest import mock
 
+import django
 from django.core.management import call_command
 
 from example.models import Shard
@@ -14,8 +15,8 @@ class LoadDataTestCase(ShardingTestCase):
         shard_options = ShardOptions.from_alias(database)
         with mock.patch('sharding.management.commands.loaddata.LoadDataCommand.handle') as mock_handle:
             call_command('loaddata', 'foo', database=database)
-            mock_handle.assert_called_once_with(
-                'foo',
+            call_args = ('foo',)
+            call_kwargs = dict(
                 database='{}|{}'.format(shard_options.node_name, shard_options.schema_name),
                 verbosity=1,
                 traceback=False,
@@ -26,6 +27,11 @@ class LoadDataTestCase(ShardingTestCase):
                 ignore=False,
                 settings=None
             )
+
+            if django.VERSION >= (1, 11):
+                call_kwargs['exclude'] = []
+
+            mock_handle.assert_called_once_with(*call_args, **call_kwargs)
 
     def test_database_tuple(self):
         """

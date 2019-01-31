@@ -16,7 +16,7 @@ import re
 
 import django
 from django.conf import settings
-from django.db.backends.base.base import NO_DB_ALIAS, BaseDatabaseWrapper as DjangoBaseDatabaseWrapper
+from django.db.backends.base.base import NO_DB_ALIAS
 from django.db.backends.postgresql_psycopg2.base import DatabaseWrapper as BaseDatabaseWrapper
 from django.db.utils import DatabaseError, IntegrityError
 from django.utils.module_loading import import_string
@@ -257,17 +257,17 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                     )
         cursor.execute(';\n'.join(statements))
 
-    def make_debug_cursor(self, cursor):
+    def make_debug_cursor(self, cursor, skip_lock=False):
         """
         Creates a cursor that logs all queries in self.queries_log, and that can set advisory locks as well.
         """
-        return CursorDebugWrapper(cursor, self)
+        return CursorDebugWrapper(cursor, self, lock=getattr(self, 'lock_on_execute', False) and not skip_lock)
 
-    def make_cursor(self, cursor):
+    def make_cursor(self, cursor, skip_lock=False):
         """
         Creates a cursor without debug logging, and that can set advisory locks as well.
         """
-        return CursorWrapper(cursor, self)
+        return CursorWrapper(cursor, self, lock=getattr(self, 'lock_on_execute', False) and not skip_lock)
 
     def acquire_advisory_lock(self, key, shared=True, _cursor=None):
         """
@@ -283,6 +283,12 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         cursor = _cursor or self.cursor()
         cursor.release_advisory_lock(key, shared=shared)
 
+    def cursor(self):
+        """
+        Note that this is backported from Django 1.11 to have the same behaviour between Django 1.8 to Django 1.11.
+        """
+        return self._cursor()
+
     def _cursor(self, name=None):
         """Database cursor to write whatever we want.
 
@@ -291,11 +297,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         will create it if it doesn't yet exist. Finally, it will
         point to that schema.
         """
-        if name:
-            # Only supported and required by Django 1.11 (server-side cursor)
-            cursor = super()._cursor(name=name)
-        else:
-            cursor = super()._cursor()
+        cursor = self._get_cursor(name=name)
 
         if self.include_public_schema and self.schema_name != PUBLIC_SCHEMA_NAME:
             search_paths = [self.schema_name, PUBLIC_SCHEMA_NAME]
@@ -307,33 +309,49 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         if self.alias == NO_DB_ALIAS or self.current_search_paths == search_paths:
             return cursor
 
-        if self.schema_name != PUBLIC_SCHEMA_NAME and not self.get_ps_schema(self.schema_name, cursor):
-            raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
+        with self._get_cursor(name=name, skip_lock=True) as cursor_for_get_ps_schema:
+            if self.schema_name != PUBLIC_SCHEMA_NAME \
+                    and not self.get_ps_schema(self.schema_name, cursor_for_get_ps_schema):
+                raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
 
-        if name:
-            # Named cursor can only be used once
-            cursor_for_search_path = self.connection.cursor()
-        else:
-            # Reuse
-            cursor_for_search_path = cursor
-
-        # In the event that an error already happened in this transaction and we are going
-        # to rollback we should just ignore database error when setting the search_path
-        # if the next instruction is not a rollback it will just fail also, so
-        # we do not have to worry that it's not the good one
-        try:
-            sql_ = 'SET search_path = {}'.format(','.join(sql.Identifier(x).string for x in search_paths))
-            cursor_for_search_path.execute(sql_)
-            logger.debug(sql_)
-        except (DatabaseError, InternalError):
-            logger.warning('Something went wrong with setting the search path.', exc_info=True)
-        else:
-            self.current_search_paths = search_paths
-
-        if name:
-            cursor_for_search_path.close()
+        with self._get_cursor(name=name, skip_lock=True) as cursor_for_search_path:
+            # In the event that an error already happened in this transaction and we are going
+            # to rollback we should just ignore database error when setting the search_path
+            # if the next instruction is not a rollback it will just fail also, so
+            # we do not have to worry that it's not the good one
+            try:
+                sql_ = 'SET search_path = {}'.format(','.join(sql.Identifier(x).string for x in search_paths))
+                cursor_for_search_path.execute(sql_)
+                logger.debug(sql_)
+            except (DatabaseError, InternalError):
+                logger.warning('Something went wrong with setting the search path.', exc_info=True)
+            else:
+                self.current_search_paths = search_paths
 
         return cursor
+
+    def _get_cursor(self, name=None, skip_lock=False):
+        """
+        Copied from Django 1.11's _cursor() method with the addition of `skip_lock`. Note that this is different from
+        the _cursor() method from previous versions. For this library to work easily with multiple Django versions, we
+        backported this from Django 1.11.
+        """
+        self.ensure_connection()
+        with self.wrap_database_errors:
+            cursor = self.create_cursor(name) if django.VERSION >= (1, 11) else self.create_cursor()
+            return self._prepare_cursor(cursor, skip_lock=skip_lock)
+
+    def _prepare_cursor(self, cursor, skip_lock=False):
+        """
+        Validate the connection is usable and perform database cursor wrapping. Copied from Django 1.11, but with an
+        addition of `skip_lock`, which will return a cursor that doesn't do locking if `skip_lock` is True.
+        """
+        self.validate_thread_sharing()
+        if self.queries_logged:
+            wrapped_cursor = self.make_debug_cursor(cursor, skip_lock=skip_lock)
+        else:
+            wrapped_cursor = self.make_cursor(cursor, skip_lock=skip_lock)
+        return wrapped_cursor
 
     def _start_transaction_under_autocommit(self):
         pass

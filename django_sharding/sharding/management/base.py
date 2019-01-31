@@ -1,8 +1,8 @@
-from django.core.management import  CommandError
+from django.core.management import CommandError
 from django.db import DEFAULT_DB_ALIAS, connections
 
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from sharding.utils import get_shard_class, get_all_databases, get_template_name, use_shard
+from sharding.utils import get_shard_class, get_all_databases, get_template_name
 
 
 def shard_table_exists(node_name=DEFAULT_DB_ALIAS):

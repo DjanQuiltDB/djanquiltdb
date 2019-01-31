@@ -11,7 +11,7 @@ from sharding import ShardingMode, STATES
 from sharding.db import connection
 from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from sharding.router import DynamicDbRouter, get_active_connection
+from sharding.router import get_active_connection
 from sharding.utils import transaction_for_every_node, get_all_databases, use_shard
 
 shard_mapping_models = False

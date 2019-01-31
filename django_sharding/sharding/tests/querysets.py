@@ -1,4 +1,4 @@
-import pickle
+import pickle  # nosec
 
 from django.db import IntegrityError
 
@@ -85,7 +85,7 @@ class QuerySetTestCase(ShardingTestCase):
 
         dump = pickle.dumps(all_organizations)  # Should not trigger an exception
 
-        self.assertEqual(list(pickle.loads(dump)), list(all_organizations))
+        self.assertEqual(list(pickle.loads(dump)), list(all_organizations))  # nosec
 
     def test_prefetch_related(self):
         """

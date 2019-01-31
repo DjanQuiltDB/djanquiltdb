@@ -32,7 +32,7 @@ setup(
     packages=find_packages('django_sharding', exclude=('example*', 'config*', '*test*')),
     include_package_data=True,
     install_requires=[
-        'django>=1.8,<1.11',
+        'django>=1.8,<2.0',
         'psycopg2',
         'progressbar2',
     ],
