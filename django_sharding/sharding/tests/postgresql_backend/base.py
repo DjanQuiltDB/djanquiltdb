@@ -457,48 +457,80 @@ class CursorTestCase(ShardingTestCase):
     @mock.patch.object(DatabaseWrapper, '_prepare_cursor')
     def test_get_cursor(self, mock_prepare_cursor, mock_create_cursor, mock_ensure_connection):
         """
-        Case: Call DatabaseWrapper._get_cursor() with `skip_lock` being False and being True.
+        Case: Call DatabaseWrapper._get_cursor() with `skip_lock` being False.
         Expected: `ensure_connection` called, `create_cursor` called (with the `name` passed in Django 1.11+) and
-                  `_prepare_cursor` called with the return value of `create_cursor` and the passed in `skip_lock`.
+                  `_prepare_cursor` called with the return value of `create_cursor` and `skip_lock` being False.
         """
         name = 'foo'
+        skip_lock = False
 
-        for skip_lock in (True, False):
-            mock_ensure_connection.reset_mock()
-            mock_create_cursor.reset_mock()
-            mock_prepare_cursor.reset_mock()
+        self.assertEqual(self.connection._get_cursor(name, skip_lock=skip_lock), mock_prepare_cursor.return_value)
 
-            self.assertEqual(self.connection._get_cursor(name, skip_lock=skip_lock), mock_prepare_cursor.return_value)
+        mock_ensure_connection.assert_called_once_with()
 
-            mock_ensure_connection.assert_called_once_with()
+        # Named cursors is only a thing in Django 1.11+
+        if django.VERSION >= (1, 11):
+            mock_create_cursor.assert_called_once_with(name)
+        else:
+            mock_create_cursor.assert_called_once_with()
 
-            # Named cursors is only a thing in Django 1.11+
-            if django.VERSION >= (1, 11):
-                mock_create_cursor.assert_called_once_with(name)
-            else:
-                mock_create_cursor.assert_called_once_with()
+        mock_prepare_cursor.assert_called_once_with(mock_create_cursor.return_value, skip_lock=skip_lock)
 
-            mock_prepare_cursor.assert_called_once_with(mock_create_cursor.return_value, skip_lock=skip_lock)
+    @mock.patch.object(DatabaseWrapper, 'ensure_connection')
+    @mock.patch.object(DatabaseWrapper, 'create_cursor')
+    @mock.patch.object(DatabaseWrapper, '_prepare_cursor')
+    def test_get_cursor_skip_lock(self, mock_prepare_cursor, mock_create_cursor, mock_ensure_connection):
+        """
+        Case: Call DatabaseWrapper._get_cursor() with `skip_lock` being True.
+        Expected: `ensure_connection` called, `create_cursor` called (with the `name` passed in Django 1.11+) and
+                  `_prepare_cursor` called with the return value of `create_cursor` and `skip_lock` being True.
+        """
+        name = 'foo'
+        skip_lock = True
+
+        self.assertEqual(self.connection._get_cursor(name, skip_lock=skip_lock), mock_prepare_cursor.return_value)
+
+        mock_ensure_connection.assert_called_once_with()
+
+        # Named cursors is only a thing in Django 1.11+
+        if django.VERSION >= (1, 11):
+            mock_create_cursor.assert_called_once_with(name)
+        else:
+            mock_create_cursor.assert_called_once_with()
+
+        mock_prepare_cursor.assert_called_once_with(mock_create_cursor.return_value, skip_lock=skip_lock)
 
     @mock.patch.object(DatabaseWrapper, 'validate_thread_sharing')
-    def test_prepare_cursor(self, mock_validate_thread_sharing):
+    @mock.patch.object(DatabaseWrapper, 'make_cursor')
+    @mock.patch.object(DatabaseWrapper, 'queries_logged', False)
+    def test_prepare_cursor(self, mock_make_cursor, mock_validate_thread_sharing):
         """
-        Case: Call DatabaseWrapper._get_cursor() with `queries_logged` being False and being True.
-        Expected: When `queries_logged` is False, returns the return value of `make_cursor` and returns the return value
-                  of `make_debug_cursor` otherwise. Also, it calls `validate_thread_sharing` as well.
+        Case: Call DatabaseWrapper._get_cursor() with `queries_logged` being False.
+        Expected: Returns the return value of `make_cursor` and calls `validate_thread_sharing`.
         """
-        for queries_logged, make_cursor_func in ((True, 'make_debug_cursor'), (False, 'make_cursor')):
-            cursor = mock.Mock()
-            skip_lock = mock.Mock()
+        cursor = mock.Mock()
+        skip_lock = mock.Mock()
 
-            mock_validate_thread_sharing.reset_mock()
+        self.assertEqual(self.connection._prepare_cursor(cursor, skip_lock), mock_make_cursor.return_value)
 
-            with mock.patch.object(DatabaseWrapper, make_cursor_func) as make_cursor_mock, \
-                    mock.patch.object(DatabaseWrapper, 'queries_logged', queries_logged):
-                self.assertEqual(self.connection._prepare_cursor(cursor, skip_lock), make_cursor_mock.return_value)
+        mock_validate_thread_sharing.assert_called_once_with()
+        mock_make_cursor.assert_called_once_with(cursor, skip_lock=skip_lock)
 
-            mock_validate_thread_sharing.assert_called_once_with()
-            make_cursor_mock.assert_called_once_with(cursor, skip_lock=skip_lock)
+    @mock.patch.object(DatabaseWrapper, 'validate_thread_sharing')
+    @mock.patch.object(DatabaseWrapper, 'make_debug_cursor')
+    @mock.patch.object(DatabaseWrapper, 'queries_logged', True)
+    def test_prepare_cursor_queries_logged(self, mock_make_debug_cursor, mock_validate_thread_sharing):
+        """
+        Case: Call DatabaseWrapper._get_cursor() with `queries_logged` being True.
+        Expected: Returns the return value of `make_debug_cursor` and calls `validate_thread_sharing`.
+        """
+        cursor = mock.Mock()
+        skip_lock = mock.Mock()
+
+        self.assertEqual(self.connection._prepare_cursor(cursor, skip_lock), mock_make_debug_cursor.return_value)
+
+        mock_validate_thread_sharing.assert_called_once_with()
+        mock_make_debug_cursor.assert_called_once_with(cursor, skip_lock=skip_lock)
 
 
 class AdvisoryLockingTestCase(ShardingTransactionTestCase):
