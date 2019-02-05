@@ -1286,7 +1286,11 @@ class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
         # supertype is not moved, so should remain accessible from the public schema.
         supertype.refresh_from_db(using='default')
 
-        with use_shard(shard=other_shard, include_public=False, override_class_method_use_shard=True) as env:
+        # Note that we pick the node name and schema name instead of shard=other_shard. We do this to prevent looking up
+        # the shard in the organization and user sharded model's from_db method (because we exclude the public schema
+        # in our shard context, so the shard table is not known to the search path).
+        with use_shard(node_name=other_shard.node_name, schema_name=other_shard.schema_name, include_public=False,
+                       override_class_method_use_shard=True) as env:
             # Now that we moved the Type table, we should be able to access it from the shard.
             type.refresh_from_db(using=env.options)
 
@@ -1295,8 +1299,8 @@ class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
                 supertype.refresh_from_db(using=env.options)
 
             # Organization and User are not moved, so should be on the shard still
-            organization.refresh_from_db()
-            user.refresh_from_db()
+            organization.refresh_from_db(using=env.options)
+            user.refresh_from_db(using=env.options)
 
         # Confirm Data integrity, now they are refreshed
         self.assertEqual(user.type_id, 3)

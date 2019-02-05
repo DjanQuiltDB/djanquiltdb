@@ -294,7 +294,7 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
             org = Organization.objects.create(name='The Empire')
             user = User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw', organization=org)
 
-            with mock.patch('sharding.options.use_shard') as mock_use_shard:
+            with mock.patch('sharding.options.use_shard') as mock_use_shard, mock.patch.object(Organization, 'objects'):
                 user.get_organization_name()
                 self.assertFalse(mock_use_shard.called)
 
