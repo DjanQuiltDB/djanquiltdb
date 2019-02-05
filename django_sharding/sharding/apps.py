@@ -11,7 +11,7 @@ from django.utils.module_loading import import_string
 
 from sharding import ShardingMode
 from sharding.db import connection
-from sharding.decorators import class_method_use_shard, _from_db
+from sharding.decorators import class_method_use_shard, class_method_use_shard_from_db
 from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import ShardDatabaseWrapper
 from sharding.utils import get_all_sharded_models
@@ -91,7 +91,8 @@ def _validate_override_sharding_mode_entry(key, value):
 def _initialize_sharded_models():
     """
     Initialize sharded models by overriding all methods to add a use_shard context manager that makes sure all queries
-    are done in that same shard as the object is living in.
+    are done in that same shard as the object is living in. The `from_db` attribute is handled separately, to cope with
+    a Django signaling bug, which is resolved in version 2.1.
     """
     for model in get_all_sharded_models():
         for attr, func in inspect.getmembers(model, inspect.isfunction):
@@ -103,8 +104,7 @@ def _initialize_sharded_models():
                 # instance is living in
                 setattr(model, attr, class_method_use_shard(func))
 
-        # Overwrite the `from_db` attribute
-        setattr(model, 'from_db', _from_db(model.from_db))
+        setattr(model, 'from_db', class_method_use_shard_from_db(model.from_db))
 
         _initialize_sharded_model_querysets(model)
 
