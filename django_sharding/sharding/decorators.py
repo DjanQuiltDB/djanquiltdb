@@ -54,8 +54,11 @@ def class_method_use_shard(func):
     return _add_decorator_reference(inner, decorator=class_method_use_shard, args=(func,))
 
 
-# Decorator to cope with a Django signaling bug, which is resolved in version 2.1.
 def class_method_use_shard_from_db(func):
+    """
+    Decorator to cope with a Django signaling bug, which is resolved in version 2.1.
+    (https://code.djangoproject.com/ticket/30083)
+    """
     def inner(db, field_names, values):
         with ShardOptions.from_alias(db).use():
             return func(db, field_names, values)

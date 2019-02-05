@@ -321,13 +321,13 @@ class ShardedModelFromDbTestCase(ShardingTestCase):
         super().setUp()
         create_template_schema()
 
-    def test(self):
+    def test_post_init_signal(self):
         """
         Case: For a sharded model, get an instance from the database with .using() while having a post_init signal
               coupled.
-        Expected: The model is instantiated in a use_shard context due to the sharding.decorators._from_db decorator and
-                  thus the active connection inside the post_init signal is the same connection as the object was
-                  retrieved with.
+        Expected: The model is instantiated in a use_shard context due to the
+                  sharding.decorators.class_method_use_shard_from_db decorator and thus the active connection inside
+                  the post_init signal is the same connection as the object was retrieved with.
         """
         shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
                                      state=State.ACTIVE)
@@ -341,7 +341,7 @@ class ShardedModelFromDbTestCase(ShardingTestCase):
         using_connection = shard  # We're going to retrieve the User object with this shard
 
         def post_init_signal(instance, **kwargs):
-            # The current active connection is the one we retrievd the instance with
+            # The current active connection is the one we retrieved the instance with
             self.assertEqual(get_active_connection().node_name, using_connection.node_name)
             self.assertEqual(get_active_connection().schema_name, using_connection.schema_name)
             self.assertEqual(get_active_connection().shard_id, using_connection.id)

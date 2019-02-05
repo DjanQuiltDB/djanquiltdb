@@ -3,9 +3,12 @@ from unittest import mock
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 
+from example.models import Organization, Shard
 from sharding import ShardingMode, State, STATES
 from sharding.decorators import sharded_model, shard_mapping_model, mirrored_model, _reset_shard_mapping_models
+from sharding.router import get_active_connection
 from sharding.tests import ShardingTestCase
+from sharding.utils import create_template_schema
 
 
 class ModelTestCase(ShardingTestCase):
@@ -237,3 +240,39 @@ class MappingModelDecoratorTestCase(ModelTestCase):
 
                 class Meta:
                     app_label = 'sharding'
+
+
+class ShardedModelFromDbTestCase(ModelTestCase):
+    def setUp(self):
+        super().setUp()
+        create_template_schema()
+
+    def test(self):
+        """
+        Case: Call a model-class from_db
+        Expected: The model-class __new__ function to be called from within a use_shard context for the given shard
+        """
+        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                     state=State.ACTIVE)
+        other_shard = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default',
+                                           state=State.ACTIVE)
+
+        with shard.use():
+            organization = Organization.objects.create(name='The Empire')
+
+        using_connection = shard  # We're going to retrieve the User object with this shard
+
+        def fake_new(*args, **kwargs):
+            # The current active connection is the one we retrieved the instance with
+            self.assertEqual(get_active_connection().node_name, using_connection.node_name)
+            self.assertEqual(get_active_connection().schema_name, using_connection.schema_name)
+            self.assertEqual(get_active_connection().shard_id, using_connection.id)
+
+            return mock.Mock()
+
+        with other_shard.use():
+            with mock.patch.object(Organization, '__new__', side_effect=fake_new) as mock_new:
+                Organization.from_db(db=shard,
+                                     field_names=['id', 'name', 'created_at'],
+                                     values=[organization.id, organization.name, organization.created_at])
+            mock_new.assert_called_once_with(Organization, organization.id, organization.name, organization.created_at)
