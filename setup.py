@@ -10,6 +10,7 @@ test_requirements = [
     'tox==3.4.0',
     'dj-database-url==0.5.0',
     'django-braces==1.13.0',
+    'tblib==1.3.2',
 ]
 
 
