@@ -11,7 +11,7 @@ from django.utils.module_loading import import_string
 
 from sharding import ShardingMode
 from sharding.db import connection
-from sharding.decorators import class_method_use_shard
+from sharding.decorators import class_method_use_shard, _from_db
 from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import ShardDatabaseWrapper
 from sharding.utils import get_all_sharded_models
@@ -102,6 +102,9 @@ def _initialize_sharded_models():
                 # And decorate all model methods so that the methods will all run in the same shard context as the
                 # instance is living in
                 setattr(model, attr, class_method_use_shard(func))
+
+        # Overwrite the `from_db` attribute
+        setattr(model, 'from_db', _from_db(model.from_db))
 
         _initialize_sharded_model_querysets(model)
 

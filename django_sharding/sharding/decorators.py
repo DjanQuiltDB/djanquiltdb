@@ -54,6 +54,13 @@ def class_method_use_shard(func):
     return _add_decorator_reference(inner, decorator=class_method_use_shard, args=(func,))
 
 
+def _from_db(func):
+    def inner(db, field_names, values):
+        with ShardOptions.from_alias(db).use():
+            return func(db, field_names, values)
+    return inner
+
+
 def mirrored_model():
     """
     A decorator for marking a model for being mirror across the various nodes.
