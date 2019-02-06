@@ -2,13 +2,14 @@ from unittest import mock
 
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
+from django.test import SimpleTestCase
 
-from example.models import Organization, Shard
 from sharding import ShardingMode, State, STATES
-from sharding.decorators import sharded_model, shard_mapping_model, mirrored_model, _reset_shard_mapping_models
-from sharding.router import get_active_connection
-from sharding.tests import ShardingTestCase
-from sharding.utils import create_template_schema
+from sharding.decorators import sharded_model, shard_mapping_model, mirrored_model, _reset_shard_mapping_models, \
+    class_method_use_shard_from_db
+from sharding.options import ShardOptions
+from sharding.tests import ShardingTestCase, DecoratorTestCaseMixin
+from sharding.utils import create_template_schema, get_all_sharded_models, use_shard
 
 
 class ModelTestCase(ShardingTestCase):
@@ -242,37 +243,44 @@ class MappingModelDecoratorTestCase(ModelTestCase):
                     app_label = 'sharding'
 
 
-class ShardedModelFromDbTestCase(ModelTestCase):
+class ClassMethodUseShardFromDbTestCase(DecoratorTestCaseMixin, SimpleTestCase):
+
     def setUp(self):
         super().setUp()
         create_template_schema()
 
     def test(self):
         """
-        Case: Call a model-class from_db
-        Expected: The model-class __new__ function to be called from within a use_shard context for the given shard
+        Case: Create a function and decorate it with class_method_use_shard_from_db; Check that the decoration works.
+        Expected: The use_shard context manager is open and closed at the right point.
         """
-        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
-                                     state=State.ACTIVE)
-        other_shard = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default',
-                                           state=State.ACTIVE)
+        mock_db = mock.Mock()
+        mock_field_names = mock.Mock()
+        mock_values = mock.Mock()
 
-        with shard.use():
-            organization = Organization.objects.create(name='The Empire')
+        with mock.patch.object(ShardOptions, 'from_alias') as mock_shard_options:
+            mock_shard_options.use.return_value = mock_use = mock.MagicMock(spec=use_shard)
 
-        using_connection = shard  # We're going to retrieve the User object with this shard
+            def func(db, field_names, values):
+                self.assertEqual(db, mock_db)
+                self.assertEqual(field_names, mock_field_names)
+                self.assertEqual(values, mock_values)
 
-        def fake_new(*args, **kwargs):
-            # The current active connection is the one we retrieved the instance with
-            self.assertEqual(get_active_connection().node_name, using_connection.node_name)
-            self.assertEqual(get_active_connection().schema_name, using_connection.schema_name)
-            self.assertEqual(get_active_connection().shard_id, using_connection.id)
+                # We are inside the function, so we know that the use_shard context manager is opened, but not closed
+                mock_use.__enter__.assert_called_once_with()
+                self.assertFalse(mock_use.__exit__.called)
 
-            return mock.Mock()
+            class_method_use_shard_from_db(func)(mock_db, mock_field_names, mock_values)
 
-        with other_shard.use():
-            with mock.patch.object(Organization, '__new__', side_effect=fake_new) as mock_new:
-                Organization.from_db(db=shard,
-                                     field_names=['id', 'name', 'created_at'],
-                                     values=[organization.id, organization.name, organization.created_at])
-            mock_new.assert_called_once_with(Organization, organization.id, organization.name, organization.created_at)
+        # The function call is finished. We knew earlier that the use_shard context manager opened, but we also know it
+        # closed at this point.
+        mock_use.__enter__.assert_called_once_with()
+        mock_use.__exit__.assert_called_once_with(None, None, None)
+
+    def test_decorated_with(self):
+        """
+        Case: For all sharded models, check that from_db is decorated with `class_method_use_shard_from_db`
+        Expected: The from_db method from all sharded models is decorated with `class_method_use_shard_from_db`
+        """
+        for model in get_all_sharded_models():
+            self.assertDecoratedWith(model.from_db, class_method_use_shard_from_db)

@@ -1,3 +1,4 @@
+import inspect
 import itertools
 
 from django.apps import apps
@@ -71,3 +72,39 @@ class ShardingTransactionTestCase(ResetConnectionTestCaseMixin, CleanShardingArt
         models = apps.get_models()
         return [model for model in models if get_model_sharding_mode(model) == ShardingMode.MIRRORED
                 and not getattr(model, 'test_model', False)]
+
+
+class DecoratorTestCaseMixin:
+    def get_decorators_recursive(self, func):
+        # `functools.wraps` adds a `__wrapped__` attribute that indicates
+        # the function is decorated.
+        if hasattr(func, '__wrapped__'):
+            # Use the `__decorator__` attribute to identify the decorator.
+            if hasattr(func, '__decorator__'):
+                yield func.__decorator__
+
+            yield from self.get_decorators_recursive(func.__wrapped__)
+
+    def assertDecoratedWith(self, func, decorator):
+        """
+        Tests whether the given method is decorated with the given decorator.
+        """
+        decorators = list(self.get_decorators_recursive(func))
+        self.assertIn(decorator, [fn for fn, _ in decorators])
+
+    def assertDecoratorCalledWith(self, func, decorator, *args, **kwargs):
+        """
+        Tests whether the given method is decorated with the given decorator
+        and called with the given args and kwargs.
+        """
+        self.assertDecoratedWith(func, decorator)
+
+        # Get the decorator we are looking for
+        for decorator_func, decorator_bound_arguments in self.get_decorators_recursive(func):
+            if decorator_func == decorator:
+                break
+
+        bound_arguments = inspect.signature(decorator).bind(*args, **kwargs)
+
+        self.assertEqual(bound_arguments.args, decorator_bound_arguments.args)
+        self.assertEqual(bound_arguments.kwargs, decorator_bound_arguments.kwargs)

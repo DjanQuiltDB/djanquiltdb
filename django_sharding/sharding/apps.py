@@ -92,7 +92,7 @@ def _initialize_sharded_models():
     """
     Initialize sharded models by overriding all methods to add a use_shard context manager that makes sure all queries
     are done in that same shard as the object is living in. The `from_db` attribute is handled separately, to cope with
-    a Django signaling bug, which is resolved in version 2.1.
+    a Django model initialization bug (https://code.djangoproject.com/ticket/30083)
     """
     for model in get_all_sharded_models():
         for attr, func in inspect.getmembers(model, inspect.isfunction):
