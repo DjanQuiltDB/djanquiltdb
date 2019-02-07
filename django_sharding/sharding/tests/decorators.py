@@ -1,4 +1,3 @@
-from pprint import pprint
 from unittest import mock
 
 from django.core.exceptions import ImproperlyConfigured
@@ -10,7 +9,7 @@ from sharding.decorators import sharded_model, shard_mapping_model, mirrored_mod
     class_method_use_shard_from_db
 from sharding.options import ShardOptions
 from sharding.tests import ShardingTestCase, DecoratorTestCaseMixin
-from sharding.utils import create_template_schema, get_all_sharded_models, use_shard
+from sharding.utils import get_all_sharded_models, use_shard
 
 
 class ModelTestCase(ShardingTestCase):
