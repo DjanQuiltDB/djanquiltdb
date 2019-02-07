@@ -1,4 +1,3 @@
-import inspect
 import itertools
 
 from django.apps import apps
@@ -91,20 +90,3 @@ class DecoratorTestCaseMixin:
         """
         decorators = list(self.get_decorators_recursive(func))
         self.assertIn(decorator, [fn for fn, _ in decorators])
-
-    def assertDecoratorCalledWith(self, func, decorator, *args, **kwargs):
-        """
-        Tests whether the given method is decorated with the given decorator
-        and called with the given args and kwargs.
-        """
-        self.assertDecoratedWith(func, decorator)
-
-        # Get the decorator we are looking for
-        for decorator_func, decorator_bound_arguments in self.get_decorators_recursive(func):
-            if decorator_func == decorator:
-                break
-
-        bound_arguments = inspect.signature(decorator).bind(*args, **kwargs)
-
-        self.assertEqual(bound_arguments.args, decorator_bound_arguments.args)
-        self.assertEqual(bound_arguments.kwargs, decorator_bound_arguments.kwargs)

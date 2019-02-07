@@ -358,33 +358,3 @@ class ShardedModelFromDbTestCase(ShardingTestCase):
 
         with other_shard.use():  # Enter a different shard, to be sure that we aren't in the correct shard already
             User.objects.using(using_connection).get(pk=user.pk)
-
-    def test_class_method_use_shard_from_db(self):
-        """
-        Case: Call a model-class from_db
-        Expected: The model-class __new__ function to be called from within a use_shard context for the given shard
-        """
-        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
-                                     state=State.ACTIVE)
-        other_shard = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default',
-                                           state=State.ACTIVE)
-
-        with shard.use():
-            organization = Organization.objects.create(name='The Empire')
-
-        using_connection = shard  # We're going to retrieve the User object with this shard
-
-        def fake_new(*args, **kwargs):
-            # The current active connection is the one we retrieved the instance with
-            self.assertEqual(get_active_connection().node_name, using_connection.node_name)
-            self.assertEqual(get_active_connection().schema_name, using_connection.schema_name)
-            self.assertEqual(get_active_connection().shard_id, using_connection.id)
-
-            return mock.Mock()
-
-        with other_shard.use():
-            with mock.patch.object(Organization, '__new__', side_effect=fake_new) as mock_new:
-                Organization.from_db(db=shard,
-                                     field_names=['id', 'name', 'created_at'],
-                                     values=[organization.id, organization.name, organization.created_at])
-            mock_new.assert_called_once_with(Organization, organization.id, organization.name, organization.created_at)

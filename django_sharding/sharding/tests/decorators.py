@@ -1,3 +1,4 @@
+from pprint import pprint
 from unittest import mock
 
 from django.core.exceptions import ImproperlyConfigured
@@ -245,10 +246,6 @@ class MappingModelDecoratorTestCase(ModelTestCase):
 
 class ClassMethodUseShardFromDbTestCase(DecoratorTestCaseMixin, SimpleTestCase):
 
-    def setUp(self):
-        super().setUp()
-        create_template_schema()
-
     def test(self):
         """
         Case: Create a function and decorate it with class_method_use_shard_from_db; Check that the decoration works.
@@ -259,7 +256,7 @@ class ClassMethodUseShardFromDbTestCase(DecoratorTestCaseMixin, SimpleTestCase):
         mock_values = mock.Mock()
 
         with mock.patch.object(ShardOptions, 'from_alias') as mock_shard_options:
-            mock_shard_options.use.return_value = mock_use = mock.MagicMock(spec=use_shard)
+            mock_shard_options.return_value.use = mock_use = mock.MagicMock(spec=use_shard)
 
             def func(db, field_names, values):
                 self.assertEqual(db, mock_db)
@@ -267,20 +264,20 @@ class ClassMethodUseShardFromDbTestCase(DecoratorTestCaseMixin, SimpleTestCase):
                 self.assertEqual(values, mock_values)
 
                 # We are inside the function, so we know that the use_shard context manager is opened, but not closed
-                mock_use.__enter__.assert_called_once_with()
-                self.assertFalse(mock_use.__exit__.called)
+                mock_use().__enter__.assert_called_once_with()
+                self.assertFalse(mock_use().__exit__.called)
 
             class_method_use_shard_from_db(func)(mock_db, mock_field_names, mock_values)
 
         # The function call is finished. We knew earlier that the use_shard context manager opened, but we also know it
         # closed at this point.
-        mock_use.__enter__.assert_called_once_with()
-        mock_use.__exit__.assert_called_once_with(None, None, None)
+        mock_use().__enter__.assert_called_once_with()
+        mock_use().__exit__.assert_called_once_with(None, None, None)
 
     def test_decorated_with(self):
         """
         Case: For all sharded models, check that from_db is decorated with `class_method_use_shard_from_db`
-        Expected: The from_db method from all sharded models is decorated with `class_method_use_shard_from_db`
+        Expected: The `from_db` method from all sharded models is decorated with `class_method_use_shard_from_db`
         """
         for model in get_all_sharded_models():
             self.assertDecoratedWith(model.from_db, class_method_use_shard_from_db)
