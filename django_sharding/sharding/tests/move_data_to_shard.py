@@ -1,4 +1,6 @@
 import copy
+import os
+import subprocess
 from unittest import mock
 
 from django.core.management import call_command, CommandError
@@ -63,6 +65,8 @@ class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
                                            organization=organization_new)
             self.assertEqual(user_new.id, self.user.id+1)
 
+
+original_run = subprocess.run
 
 class MoveDataToShardTestCase(ShardingTestCase):
     maxDiff = None
@@ -651,10 +655,10 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.assertCountEqual(mock_reset_sequence.call_args[1]['model_list'], [User, Statement, Organization,
                                                                                Suborganization, self.user_cake_model])
 
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command._sort', return_value='sorted_file')
     @mock.patch('sharding.management.commands.move_data_to_shard.filecmp.cmp', return_value=True)
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
-    def test_data_integrity(self, mock_copy_expert, mock_filecmp):
-        # from psycopg2._psycopg import cursor
+    def test_data_integrity(self, mock_copy_expert, mock_filecmp, mock_sort):
         """
         Case: Call data_integrity.
         Expected: copy_expert to be called for each model for both shards, and compare_files called with file paths.
@@ -664,8 +668,97 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.assertTrue(self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock()))
         # Since a cursor object is given, we cannot assert the calls specifically.
         self.assertEqual(mock_copy_expert.call_count, len(self.data) * 2)
-        # We callot specifically assert the filecmp call, since the given arguments are randomly named temp files
+        # We cannot specifically assert the filecmp call, since the given arguments are randomly named temp files
         self.assertEqual(mock_filecmp.call_count, 1)
+        self.assertEqual(mock_sort.call_count, 2)
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command._sort', mock.Mock())
+    @mock.patch('sharding.management.commands.move_data_to_shard.filecmp.cmp', mock.Mock())
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
+    def test_data_integrity_file_cleanup(self, mock_copy_expert):
+        """
+        Case: Call data_integrity.
+        Expected: The temporary directory to be removed, and so too all the files in it.
+        """
+        self.command.source_shard = self.source_shard
+        self.command.target_shard = self.target_shard
+        self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock())
+
+        temp_file = mock_copy_expert.call_args[0][2]
+
+        self.assertFalse(os.path.isfile(temp_file.name))
+        self.assertFalse(os.path.isdir(os.path.dirname(temp_file.name)))
+
+    def fake_copy_expert(self, _, __, file):
+        """
+        Always write the same content to the file, but in a random order.
+        """
+        from random import shuffle
+
+        lines = list(range(0, 42))
+        shuffle(lines)
+        for l in lines:
+            file.write(f'{l}\n'.encode('UTF8'))
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
+    def test_data_integrity_unsorted(self, mock_copy_expert):
+        """
+        Case: Call data_integrity, with an assurance the copy_export produced their contents out of order
+        Expected:
+        """
+        mock_copy_expert.side_effect = self.fake_copy_expert
+
+        self.command.source_shard = self.source_shard
+        self.command.target_shard = self.target_shard
+        self.assertTrue(self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock()))
+
+    def fake_subsystem_run(self, *args, **kwargs):
+        """
+        Call subsystem.run() with an unavailable shell command as first argument.
+        """
+        arguments = args[0]
+        arguments[0] = 'unavailable_command'
+        return original_run(arguments, **kwargs)
+
+    def test_no_sort_command_available(self):
+        """
+        Case: Call _sort while the sort command is replace with an unavailable command
+        Expected: UserWarning raised with the correct message.
+        Note: We cannot uninstall or fake the native 'sort' shell command of course. So we replace the call.
+        """
+        with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run',
+                        side_effect=self.fake_subsystem_run):
+            with self.assertRaisesMessage(UserWarning, "'sort' seems not to be available on your system"):
+                self.command._sort('file')
+
+    def subsystem_sleep(self, *args, **kwargs):
+        """
+        Check if a timeout argument has been given, then reduce it (so the test doesn't take so long to run).
+        Call subsystem.run() with a command that will trigger the timeout.
+        """
+        self.assertIsNotNone(kwargs.get('timeout'))
+        kwargs['timeout'] = 1
+        return original_run(['sleep', '2'], **kwargs)
+
+    def test_sort_command_timeout(self):
+        """
+        Case: Call _sort while the sort command is replace with a command that will timeout.
+        Expected: TimeoutExpired raised.
+        """
+        with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run',
+                        side_effect=self.subsystem_sleep):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                self.command._sort('file')
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run')
+    def test_sort(self, mock_run):
+        """
+        Case: Call command._sort
+        Expected: subprocess.run called with arguments for the sort command. Sorted file name to be returned
+        """
+        result = self.command._sort('file')
+        mock_run.assert_called_once_with(['sort', 'file', '-o', 'file-sorted'], shell=False, check=True, timeout=60)
+        self.assertEqual(result, 'file-sorted')
 
     def test_delete_data(self):
         """
