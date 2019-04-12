@@ -1,6 +1,6 @@
 import copy
 import os
-import subprocess
+import subprocess  # nosec
 from unittest import mock
 
 from django.core.management import call_command, CommandError
@@ -65,8 +65,6 @@ class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
                                            organization=organization_new)
             self.assertEqual(user_new.id, self.user.id+1)
 
-
-original_run = subprocess.run
 
 class MoveDataToShardTestCase(ShardingTestCase):
     maxDiff = None
@@ -684,12 +682,12 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.command.target_shard = self.target_shard
         self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock())
 
-        temp_file = mock_copy_expert.call_args[0][2]
+        (_, _, temp_file), _ = mock_copy_expert.call_args
 
         self.assertFalse(os.path.isfile(temp_file.name))
         self.assertFalse(os.path.isdir(os.path.dirname(temp_file.name)))
 
-    def fake_copy_expert(self, _, __, file):
+    def fake_copy_expert(self, _, __, target_file):
         """
         Always write the same content to the file, but in a random order.
         """
@@ -698,7 +696,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         lines = list(range(0, 42))
         shuffle(lines)
         for l in lines:
-            file.write(f'{l}\n'.encode('UTF8'))
+            target_file.write('{}\n'.format(l).encode('UTF8'))
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
     def test_data_integrity_unsorted(self, mock_copy_expert):
@@ -718,7 +716,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         """
         arguments = args[0]
         arguments[0] = 'unavailable_command'
-        return original_run(arguments, **kwargs)
+        return self.original_run(arguments, **kwargs)
 
     def test_no_sort_command_available(self):
         """
@@ -726,6 +724,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         Expected: UserWarning raised with the correct message.
         Note: We cannot uninstall or fake the native 'sort' shell command of course. So we replace the call.
         """
+        self.original_run = subprocess.run  # have a reference to the original before mocking it.
         with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run',
                         side_effect=self.fake_subsystem_run):
             with self.assertRaisesMessage(UserWarning, "'sort' seems not to be available on your system"):
@@ -738,13 +737,14 @@ class MoveDataToShardTestCase(ShardingTestCase):
         """
         self.assertIsNotNone(kwargs.get('timeout'))
         kwargs['timeout'] = 1
-        return original_run(['sleep', '2'], **kwargs)
+        return self.original_run(['sleep', '2'], **kwargs)
 
     def test_sort_command_timeout(self):
         """
         Case: Call _sort while the sort command is replace with a command that will timeout.
         Expected: TimeoutExpired raised.
         """
+        self.original_run = subprocess.run  # have a reference to the original before mocking it.
         with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run',
                         side_effect=self.subsystem_sleep):
             with self.assertRaises(subprocess.TimeoutExpired):

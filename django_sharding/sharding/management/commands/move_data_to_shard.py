@@ -1,7 +1,7 @@
 import csv
 import filecmp
 import functools
-import subprocess
+import subprocess  # nosec
 from io import StringIO
 from tempfile import NamedTemporaryFile, TemporaryDirectory
 import progressbar
@@ -256,13 +256,20 @@ class Command(BaseCommand):
             env.connection.reset_sequence(model_list=list(data.keys()))
 
     def _sort(self, source_file_name):
+        """
+        PostgreSQL's copy command will dump the data for the given table rows into a file for us. But it does not do so
+        in a guaranteed order. So if we were to compare two data dumps, as we do in confirm_data_integrity, than
+        we will find the resulting files to differ in order. Since we only need to know the same data is in both tables,
+        we do not care for the export order. We use the external 'sort' command to order the data dumps alphabetically,
+        so make them identical to each other if their contents are the same.
+        """
         source_file_sorted_name = f'{source_file_name}-sorted'
 
         try:
             subprocess.run(['sort', source_file_name, '-o', source_file_sorted_name], shell=False, check=True,
                            timeout=60)
-        except FileNotFoundError:
-            raise UserWarning("'sort' seems not to be available on your system")
+        except RuntimeError:
+            raise RuntimeError("'sort' command is not available on your system")
 
         return source_file_sorted_name
 
@@ -282,23 +289,24 @@ class Command(BaseCommand):
                          ' Confirming data integrity; ',
                          progressbar.Timer()])
 
+        # We create a temporary directory so all temporary files and 'sort' artifacts are all neatly removed at the end.
+        # Even when something fails halfway.
         with TemporaryDirectory() as temp_dir:
             with NamedTemporaryFile(dir=temp_dir, delete=False) as source_file, \
                     NamedTemporaryFile(dir=temp_dir, delete=False) as target_file:
-                for model, pk_set in pk_set.items():
+                for model, keys in pk_set.items():
                     fields = model_fields.get(model)
-                    pk_list = list(pk_set)
                     # Export
                     query_string = 'COPY (SELECT {f} FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(  # nosec
                         t=model._meta.db_table, f=fields)
 
                     # We let the copy functions just append to the output file
                     with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
-                        query = env.connection.cursor().mogrify(query_string, [pk_list])
+                        query = env.connection.cursor().mogrify(query_string, [keys])
                         self.copy_expert(env.connection.cursor(), query, source_file)
 
                     with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
-                        query = env.connection.cursor().mogrify(query_string, [pk_list])
+                        query = env.connection.cursor().mogrify(query_string, [keys])
                         self.copy_expert(env.connection.cursor(), query, target_file)
 
                     if not self.quiet:
