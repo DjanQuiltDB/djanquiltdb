@@ -263,7 +263,7 @@ class Command(BaseCommand):
         we do not care for the export order. We use the external 'sort' command to order the data dumps alphabetically,
         so make them identical to each other if their contents are the same.
         """
-        source_file_sorted_name = f'{source_file_name}-sorted'
+        source_file_sorted_name = '{}-sorted'.format(source_file_name)
 
         try:
             subprocess.run(['sort', source_file_name, '-o', source_file_sorted_name], shell=False, check=True,
