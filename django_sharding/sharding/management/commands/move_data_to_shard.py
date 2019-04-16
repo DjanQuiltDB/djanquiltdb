@@ -266,10 +266,16 @@ class Command(BaseCommand):
         source_file_sorted_name = '{}-sorted'.format(source_file_name)
 
         try:
-            subprocess.run(['sort', source_file_name, '-o', source_file_sorted_name], shell=False, check=True,
-                           timeout=60)
-        except RuntimeError:
-            raise RuntimeError("'sort' command is not available on your system")
+            # subprocess.run has been added in Python 3.5 to keep compatibility with python 3.4 we use Popen as a
+            # fallback
+            if hasattr(subprocess, 'run'):
+                subprocess.run(['sort', source_file_name, '-o', source_file_sorted_name], shell=False, check=True,
+                               timeout=60)
+            else:
+                p = subprocess.Popen(['sort', source_file_name, '-o', source_file_sorted_name])
+                p.wait()
+        except (RuntimeError, FileNotFoundError):
+            raise CommandError("'sort' command is not available on your system")
 
         return source_file_sorted_name
 

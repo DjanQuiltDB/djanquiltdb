@@ -1,6 +1,7 @@
 import copy
 import os
 import subprocess  # nosec
+from tempfile import TemporaryDirectory, NamedTemporaryFile
 from unittest import mock
 
 from django.core.management import call_command, CommandError
@@ -723,12 +724,20 @@ class MoveDataToShardTestCase(ShardingTestCase):
         Case: Call _sort while the sort command is replace with an unavailable command
         Expected: UserWarning raised with the correct message.
         Note: We cannot uninstall or fake the native 'sort' shell command of course. So we replace the call.
+              Do the same for subprocess.Popen for python 3.4
         """
-        self.original_run = subprocess.run  # have a reference to the original before mocking it.
-        with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run',
-                        side_effect=self.fake_subsystem_run):
-            with self.assertRaisesMessage(UserWarning, "'sort' seems not to be available on your system"):
-                self.command._sort('file')
+        if hasattr(subprocess, 'run'):
+            self.original_run = subprocess.run  # have a reference to the original before mocking it.
+            with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run',
+                            side_effect=self.fake_subsystem_run):
+                with self.assertRaises(CommandError):
+                    self.command._sort('file')
+        else:
+            self.original_run = subprocess.Popen  # have a reference to the original before mocking it.
+            with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.Popen',
+                            side_effect=self.fake_subsystem_run):
+                with self.assertRaises(CommandError):
+                    self.command._sort('file')
 
     def subsystem_sleep(self, *args, **kwargs):
         """
@@ -743,22 +752,51 @@ class MoveDataToShardTestCase(ShardingTestCase):
         """
         Case: Call _sort while the sort command is replace with a command that will timeout.
         Expected: TimeoutExpired raised.
+        Note: Since subprocess.run does not exist in python 3.4 it will can Popen instead.
         """
-        self.original_run = subprocess.run  # have a reference to the original before mocking it.
-        with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run',
-                        side_effect=self.subsystem_sleep):
-            with self.assertRaises(subprocess.TimeoutExpired):
-                self.command._sort('file')
+        if not hasattr(subprocess, 'run'):
+            self.skipTest('Python 3.4 does not support subprocess.run')
 
-    @mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run')
-    def test_sort(self, mock_run):
+        with self.assertRaises(subprocess.TimeoutExpired):
+                self.original_run = subprocess.run  # have a reference to the original before mocking it.
+                with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run',
+                                side_effect=self.subsystem_sleep):
+                    self.command._sort('file')
+
+    def test_sort_call(self):
         """
-        Case: Call command._sort
-        Expected: subprocess.run called with arguments for the sort command. Sorted file name to be returned
+        Case: Call command._sort, with subprocess.run and subprocess.Popen mocked
+        Expected: subprocess.run or subprocess.Popen called with arguments for the sort command.
+                  Sorted file name to be returned
+        Note: Since subprocess.run does not exist in python 3.4 it will can Popen instead.
         """
-        result = self.command._sort('file')
-        mock_run.assert_called_once_with(['sort', 'file', '-o', 'file-sorted'], shell=False, check=True, timeout=60)
+        if hasattr(subprocess, 'run'):
+            with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run') as mock_run:
+                result = self.command._sort('file')
+                mock_run.assert_called_once_with(['sort', 'file', '-o', 'file-sorted'], shell=False, check=True,
+                                                 timeout=60)
+        else:
+            with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.Popen') as mock_popen:
+                result = self.command._sort('file')
+                mock_popen.assert_called_once_with(['sort', 'file', '-o', 'file-sorted'])
+
         self.assertEqual(result, 'file-sorted')
+
+    def test_sort(self):
+        """
+        Case: Call command._sort targeting a temporary file
+        Expect: The temporary file to be sorted
+        """
+        with TemporaryDirectory() as temp_dir:
+            with NamedTemporaryFile(dir=temp_dir, delete=False) as temp_file:
+                temp_file.write(b'B\nA\n')
+
+            resulting_file_name = self.command._sort(temp_file.name)
+
+            self.assertEqual(resulting_file_name, '{}-sorted'.format(temp_file.name))
+
+            with open(resulting_file_name) as f:
+                self.assertEqual(f.read(), 'A\nB\n')
 
     def test_delete_data(self):
         """
