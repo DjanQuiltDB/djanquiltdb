@@ -34,7 +34,7 @@ setup(
     include_package_data=True,
     install_requires=[
         'django>=1.8,<2.0',
-        'psycopg2',
+        'psycopg2-binary<2.8',
         'progressbar2',
     ],
     extras_require={
