@@ -697,7 +697,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         lines = list(range(0, 42))
         shuffle(lines)
         for l in lines:
-            target_file.write('{}\n'.format(l).encode('UTF8'))
+            target_file.write('{}\n'.format(l).encode('utf-8'))
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
     def test_data_integrity_unsorted(self, mock_copy_expert):
