@@ -1,8 +1,9 @@
 import csv
 import filecmp
 import functools
+import subprocess  # nosec
 from io import StringIO
-from tempfile import NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 import progressbar
 
 from django.apps import apps
@@ -254,9 +255,38 @@ class Command(BaseCommand):
         with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
             env.connection.reset_sequence(model_list=list(data.keys()))
 
+    def _sort(self, source_file_name):
+        """
+        PostgreSQL's copy command will dump the data for the given table rows into a file for us. But it does not do so
+        in a guaranteed order. So if we were to compare two data dumps, as we do in confirm_data_integrity, than
+        we will find the resulting files to differ in order. Since we only need to know the same data is in both tables,
+        we do not care for the export order. We use the external 'sort' command to order the data dumps alphabetically,
+        so make them identical to each other if their contents are the same.
+        """
+        source_file_sorted_name = '{}-sorted'.format(source_file_name)
+
+        try:
+            # subprocess.run has been added in Python 3.5 to keep compatibility with python 3.4 we use Popen as a
+            # fallback
+            if hasattr(subprocess, 'run'):
+                subprocess.run(['sort', source_file_name, '-o', source_file_sorted_name], shell=False, check=True,
+                               timeout=60)
+            else:
+                p = subprocess.Popen(['sort', source_file_name, '-o', source_file_sorted_name])  # nosec
+                p.wait()
+        except (RuntimeError, FileNotFoundError):
+            raise CommandError("'sort' command is not available on your system")
+
+        return source_file_sorted_name
+
     def confirm_data_integrity(self, pk_set, model_fields):
         """
         Let both the source_shard and the target_shard export the data to a file and compare them.
+        This happens in the following steps:
+         - Create two temporary files
+         - Per model, export the pk set to the files
+         - Sort the two files to new files
+         - Compare the two sorted files
         """
         if not self.quiet:
             bar = progressbar.ProgressBar(
@@ -265,31 +295,40 @@ class Command(BaseCommand):
                          ' Confirming data integrity; ',
                          progressbar.Timer()])
 
-        with NamedTemporaryFile() as source_file, NamedTemporaryFile() as target_file:
-            for model, pk_set in pk_set.items():
-                fields = model_fields.get(model)
-                pk_list = list(pk_set)
-                # Export
-                query_string = 'COPY (SELECT {f} FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(  # nosec
-                    t=model._meta.db_table, f=fields)
+        # We create a temporary directory so all temporary files and 'sort' artifacts are all neatly removed at the end.
+        # Even when something fails halfway.
+        with TemporaryDirectory() as temp_dir:
+            with NamedTemporaryFile(dir=temp_dir, delete=False) as source_file, \
+                    NamedTemporaryFile(dir=temp_dir, delete=False) as target_file:
+                for model, keys in pk_set.items():
+                    fields = model_fields.get(model)
+                    # Export
+                    query_string = 'COPY (SELECT {f} FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(  # nosec
+                        t=model._meta.db_table, f=fields)
 
-                # We let the copy functions just append to the output file
-                with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
-                    query = env.connection.cursor().mogrify(query_string, [pk_list])
-                    self.copy_expert(env.connection.cursor(), query, source_file)
+                    # We let the copy functions just append to the output file
+                    with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
+                        query = env.connection.cursor().mogrify(query_string, [keys])
+                        self.copy_expert(env.connection.cursor(), query, source_file)
 
-                with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
-                    query = env.connection.cursor().mogrify(query_string, [pk_list])
-                    self.copy_expert(env.connection.cursor(), query, target_file)
+                    with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
+                        query = env.connection.cursor().mogrify(query_string, [keys])
+                        self.copy_expert(env.connection.cursor(), query, target_file)
 
-                if not self.quiet:
-                    bar.update()
+                    if not self.quiet:
+                        bar.update()
 
-            source_file.seek(0)
-            target_file.seek(0)
+            # Sort the files alphabetically
+            source_file_sorted_name = self._sort(source_file.name)
+            if not self.quiet:
+                bar.update()
 
-            # Tempfiles are removed when we leave their context manager.
-            return filecmp.cmp(source_file.name, target_file.name)
+            target_file_sorted_name = self._sort(target_file.name)
+            if not self.quiet:
+                bar.update()
+
+            # Compare
+            return filecmp.cmp(source_file_sorted_name, target_file_sorted_name)
 
     def delete_data(self, collector):
         with use_shard(self.source_shard, active_only_schemas=False, lock=False):

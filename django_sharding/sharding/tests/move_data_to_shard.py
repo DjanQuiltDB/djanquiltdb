@@ -1,4 +1,7 @@
 import copy
+import os
+import subprocess  # nosec
+from tempfile import TemporaryDirectory, NamedTemporaryFile
 from unittest import mock
 
 from django.core.management import call_command, CommandError
@@ -651,10 +654,10 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.assertCountEqual(mock_reset_sequence.call_args[1]['model_list'], [User, Statement, Organization,
                                                                                Suborganization, self.user_cake_model])
 
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command._sort', return_value='sorted_file')
     @mock.patch('sharding.management.commands.move_data_to_shard.filecmp.cmp', return_value=True)
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
-    def test_data_integrity(self, mock_copy_expert, mock_filecmp):
-        # from psycopg2._psycopg import cursor
+    def test_data_integrity(self, mock_copy_expert, mock_filecmp, mock_sort):
         """
         Case: Call data_integrity.
         Expected: copy_expert to be called for each model for both shards, and compare_files called with file paths.
@@ -664,8 +667,136 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.assertTrue(self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock()))
         # Since a cursor object is given, we cannot assert the calls specifically.
         self.assertEqual(mock_copy_expert.call_count, len(self.data) * 2)
-        # We callot specifically assert the filecmp call, since the given arguments are randomly named temp files
+        # We cannot specifically assert the filecmp call, since the given arguments are randomly named temp files
         self.assertEqual(mock_filecmp.call_count, 1)
+        self.assertEqual(mock_sort.call_count, 2)
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command._sort', mock.Mock())
+    @mock.patch('sharding.management.commands.move_data_to_shard.filecmp.cmp', mock.Mock())
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
+    def test_data_integrity_file_cleanup(self, mock_copy_expert):
+        """
+        Case: Call data_integrity.
+        Expected: The temporary directory to be removed, and so too all the files in it.
+        """
+        self.command.source_shard = self.source_shard
+        self.command.target_shard = self.target_shard
+        self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock())
+
+        (_, _, temp_file), _ = mock_copy_expert.call_args
+
+        self.assertFalse(os.path.isfile(temp_file.name))
+        self.assertFalse(os.path.isdir(os.path.dirname(temp_file.name)))
+
+    def fake_copy_expert(self, _, __, target_file):
+        """
+        Always write the same content to the file, but in a random order.
+        """
+        from random import shuffle
+
+        lines = list(range(0, 42))
+        shuffle(lines)
+        for l in lines:
+            target_file.write('{}\n'.format(l).encode('utf-8'))
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
+    def test_data_integrity_unsorted(self, mock_copy_expert):
+        """
+        Case: Call data_integrity, with an assurance the copy_export produced their contents out of order
+        Expected:
+        """
+        mock_copy_expert.side_effect = self.fake_copy_expert
+
+        self.command.source_shard = self.source_shard
+        self.command.target_shard = self.target_shard
+        self.assertTrue(self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock()))
+
+    def fake_subsystem_run(self, *args, **kwargs):
+        """
+        Call subsystem.run() with an unavailable shell command as first argument.
+        """
+        arguments = args[0]
+        arguments[0] = 'unavailable_command'
+        return self.original_run(arguments, **kwargs)
+
+    def test_no_sort_command_available(self):
+        """
+        Case: Call _sort while the sort command is replace with an unavailable command
+        Expected: UserWarning raised with the correct message.
+        Note: We cannot uninstall or fake the native 'sort' shell command of course. So we replace the call.
+              Do the same for subprocess.Popen for python 3.4
+        """
+        if hasattr(subprocess, 'run'):
+            self.original_run = subprocess.run  # have a reference to the original before mocking it.
+            with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run',
+                            side_effect=self.fake_subsystem_run):
+                with self.assertRaises(CommandError):
+                    self.command._sort('file')
+        else:
+            self.original_run = subprocess.Popen  # have a reference to the original before mocking it.
+            with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.Popen',
+                            side_effect=self.fake_subsystem_run):
+                with self.assertRaises(CommandError):
+                    self.command._sort('file')
+
+    def subsystem_sleep(self, *args, **kwargs):
+        """
+        Check if a timeout argument has been given, then reduce it (so the test doesn't take so long to run).
+        Call subsystem.run() with a command that will trigger the timeout.
+        """
+        self.assertIsNotNone(kwargs.get('timeout'))
+        kwargs['timeout'] = 1
+        return self.original_run(['sleep', '2'], **kwargs)
+
+    def test_sort_command_timeout(self):
+        """
+        Case: Call _sort while the sort command is replace with a command that will timeout.
+        Expected: TimeoutExpired raised.
+        Note: Since subprocess.run does not exist in python 3.4 it will can Popen instead.
+        """
+        if not hasattr(subprocess, 'run'):
+            self.skipTest('Python 3.4 does not support subprocess.run')
+
+        with self.assertRaises(subprocess.TimeoutExpired):
+                self.original_run = subprocess.run  # have a reference to the original before mocking it.
+                with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run',
+                                side_effect=self.subsystem_sleep):
+                    self.command._sort('file')
+
+    def test_sort_call(self):
+        """
+        Case: Call command._sort, with subprocess.run and subprocess.Popen mocked
+        Expected: subprocess.run or subprocess.Popen called with arguments for the sort command.
+                  Sorted file name to be returned
+        Note: Since subprocess.run does not exist in python 3.4 it will can Popen instead.
+        """
+        if hasattr(subprocess, 'run'):
+            with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.run') as mock_run:
+                result = self.command._sort('file')
+                mock_run.assert_called_once_with(['sort', 'file', '-o', 'file-sorted'], shell=False, check=True,
+                                                 timeout=60)
+        else:
+            with mock.patch('sharding.management.commands.move_data_to_shard.subprocess.Popen') as mock_popen:
+                result = self.command._sort('file')
+                mock_popen.assert_called_once_with(['sort', 'file', '-o', 'file-sorted'])
+
+        self.assertEqual(result, 'file-sorted')
+
+    def test_sort(self):
+        """
+        Case: Call command._sort targeting a temporary file
+        Expect: The temporary file to be sorted
+        """
+        with TemporaryDirectory() as temp_dir:
+            with NamedTemporaryFile(dir=temp_dir, delete=False) as temp_file:
+                temp_file.write(b'B\nA\n')
+
+            resulting_file_name = self.command._sort(temp_file.name)
+
+            self.assertEqual(resulting_file_name, '{}-sorted'.format(temp_file.name))
+
+            with open(resulting_file_name) as f:
+                self.assertEqual(f.read(), 'A\nB\n')
 
     def test_delete_data(self):
         """
