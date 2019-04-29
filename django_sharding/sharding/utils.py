@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 class StateException(Exception):
     def __init__(self, message, state, *args, **kwargs):
-        super().__init__(message, *args, **kwargs)
+        super().__init__(message, state, *args, **kwargs)
         self.state = state
 
 
