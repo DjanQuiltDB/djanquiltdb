@@ -1,16 +1,11 @@
-from unittest import mock, skipIf
+from unittest import mock
 
-import django
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
-from django.test import SimpleTestCase
 
 from sharding import ShardingMode, State, STATES
-from sharding.decorators import sharded_model, shard_mapping_model, mirrored_model, _reset_shard_mapping_models, \
-    class_method_use_shard_from_db
-from sharding.options import ShardOptions
-from sharding.tests import ShardingTestCase, DecoratorTestCaseMixin
-from sharding.utils import get_all_sharded_models, use_shard
+from sharding.decorators import sharded_model, shard_mapping_model, mirrored_model, _reset_shard_mapping_models
+from sharding.tests import ShardingTestCase
 
 
 class ModelTestCase(ShardingTestCase):
@@ -242,43 +237,3 @@ class MappingModelDecoratorTestCase(ModelTestCase):
 
                 class Meta:
                     app_label = 'sharding'
-
-
-class ClassMethodUseShardFromDbTestCase(DecoratorTestCaseMixin, SimpleTestCase):
-
-    def test(self):
-        """
-        Case: Create a function and decorate it with class_method_use_shard_from_db; Check that the decoration works.
-        Expected: The use_shard context manager is open and closed at the right point.
-        """
-        mock_db = mock.Mock()
-        mock_field_names = mock.Mock()
-        mock_values = mock.Mock()
-
-        with mock.patch.object(ShardOptions, 'from_alias') as mock_shard_options:
-            mock_shard_options.return_value.use = mock_use = mock.MagicMock(spec=use_shard)
-
-            def func(db, field_names, values):
-                self.assertEqual(db, mock_db)
-                self.assertEqual(field_names, mock_field_names)
-                self.assertEqual(values, mock_values)
-
-                # We are inside the function, so we know that the use_shard context manager is opened, but not closed
-                mock_use().__enter__.assert_called_once_with()
-                self.assertFalse(mock_use().__exit__.called)
-
-            class_method_use_shard_from_db(func)(mock_db, mock_field_names, mock_values)
-
-        # The function call is finished. We knew earlier that the use_shard context manager opened, but we also know it
-        # closed at this point.
-        mock_use().__enter__.assert_called_once_with()
-        mock_use().__exit__.assert_called_once_with(None, None, None)
-
-    @skipIf(django.VERSION >= (1, 9), 'This test fails for Django 1.9+')  # TODO(SHARDING-79): Re-enable
-    def test_decorated_with(self):
-        """
-        Case: For all sharded models, check that from_db is decorated with `class_method_use_shard_from_db`
-        Expected: The `from_db` method from all sharded models is decorated with `class_method_use_shard_from_db`
-        """
-        for model in get_all_sharded_models():
-            self.assertDecoratedWith(model.from_db, class_method_use_shard_from_db)
