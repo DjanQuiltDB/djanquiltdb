@@ -1,12 +1,10 @@
 from unittest import mock
 
-from django.db.models.signals import post_init
 from django.test import SimpleTestCase, override_settings
 
 from example.models import Shard, Organization, User, Type
 from sharding import ShardingMode, State
 from sharding.models import BaseShard
-from sharding.router import get_active_connection
 from sharding.tests import ShardingTestCase
 from sharding.tests.app_config import DummyShard
 from sharding.utils import get_shard_class, use_shard, create_template_schema, create_schema_on_node
@@ -294,7 +292,7 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
             org = Organization.objects.create(name='The Empire')
             user = User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw', organization=org)
 
-            with mock.patch('sharding.options.use_shard') as mock_use_shard, mock.patch.object(Organization, 'objects'):
+            with mock.patch('sharding.options.use_shard') as mock_use_shard:
                 user.get_organization_name()
                 self.assertFalse(mock_use_shard.called)
 
@@ -314,47 +312,3 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         user = User.objects.using(shard).get()
 
         self.assertEqual(user.organization, organization)
-
-
-class ShardedModelFromDbTestCase(ShardingTestCase):
-    def setUp(self):
-        super().setUp()
-        create_template_schema()
-
-    def test_post_init_signal(self):
-        """
-        Case: For a sharded model, get an instance from the database with .using() while having a post_init signal
-              coupled.
-        Expected: The model is instantiated in a use_shard context due to the
-                  sharding.decorators.class_method_use_shard_from_db decorator and thus the active connection inside
-                  the post_init signal is the same connection as the object was retrieved with.
-        """
-        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
-                                     state=State.ACTIVE)
-        other_shard = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default',
-                                           state=State.ACTIVE)
-
-        with shard.use():
-            organization = Organization.objects.create(name='The Empire')
-            user = User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw', organization=organization)
-
-        using_connection = shard  # We're going to retrieve the User object with this shard
-
-        def post_init_signal(instance, **kwargs):
-            # The current active connection is the one we retrieved the instance with
-            self.assertEqual(get_active_connection().node_name, using_connection.node_name)
-            self.assertEqual(get_active_connection().schema_name, using_connection.schema_name)
-            self.assertEqual(get_active_connection().shard_id, using_connection.id)
-
-            # And if we get a related object, that related object's _state.db is equal to the active connection
-            self.assertEqual(instance.organization._state.db, get_active_connection())
-
-        def disconnect():
-            # For proper test isolation, we disconnect the signal
-            post_init.disconnect(post_init_signal, sender=User)
-
-        post_init.connect(post_init_signal, sender=User)
-        self.addCleanup(disconnect)  # Make sure the signal is disconnected, even if the test fails
-
-        with other_shard.use():  # Enter a different shard, to be sure that we aren't in the correct shard already
-            User.objects.using(using_connection).get(pk=user.pk)
