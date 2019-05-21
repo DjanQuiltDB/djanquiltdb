@@ -3,7 +3,7 @@ import filecmp
 import functools
 import subprocess  # nosec
 from io import StringIO
-from tempfile import NamedTemporaryFile, TemporaryDirectory
+from tempfile import NamedTemporaryFile, TemporaryDirectory, gettempdir
 import progressbar
 
 from django.apps import apps
@@ -61,6 +61,10 @@ class Command(BaseCommand):
         parser.add_argument('--no-delete', action='store_true', dest='no_delete', help='Skip deleting data from the '
                                                                                        'old shard.',
                             default=False)
+        parser.add_argument('--keep-validation-files', action='store_true', dest='keep_validation_files',
+                            help='Keep the two artifacts the validation step creates in /tmp/ containing the postgres '
+                                 'dump of all collected and written data.',
+                            default=False)
 
     def handle(self, *args, **options):
         """
@@ -112,7 +116,7 @@ class Command(BaseCommand):
                 model_fields = self.copy_data(pk_set=pk_set)
                 self.reset_sequencers(data=data)
 
-                if not self.confirm_data_integrity(pk_set=pk_set, model_fields=model_fields):
+                if not self.confirm_data_integrity(pk_set=pk_set, model_fields=model_fields, options=options):
                     raise IntegrityError('Data was not successfully copied.')
 
                 if not options.get('no_delete'):
@@ -279,7 +283,7 @@ class Command(BaseCommand):
 
         return source_file_sorted_name
 
-    def confirm_data_integrity(self, pk_set, model_fields):
+    def validate_data_integrity(self, pk_set, model_fields, temp_dir):
         """
         Let both the source_shard and the target_shard export the data to a file and compare them.
         This happens in the following steps:
@@ -295,40 +299,51 @@ class Command(BaseCommand):
                          ' Confirming data integrity; ',
                          progressbar.Timer()])
 
-        # We create a temporary directory so all temporary files and 'sort' artifacts are all neatly removed at the end.
-        # Even when something fails halfway.
-        with TemporaryDirectory() as temp_dir:
-            with NamedTemporaryFile(dir=temp_dir, delete=False) as source_file, \
-                    NamedTemporaryFile(dir=temp_dir, delete=False) as target_file:
-                for model, keys in pk_set.items():
-                    fields = model_fields.get(model)
-                    # Export
-                    query_string = 'COPY (SELECT {f} FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(  # nosec
-                        t=model._meta.db_table, f=fields)
+        with NamedTemporaryFile(dir=temp_dir, prefix='source_', delete=False) as source_file, \
+                NamedTemporaryFile(dir=temp_dir, prefix='target_', delete=False) as target_file:
+            for model, keys in pk_set.items():
+                fields = model_fields.get(model)
+                # Export
+                query_string = 'COPY (SELECT {f} FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(  # nosec
+                    t=model._meta.db_table, f=fields)
 
-                    # We let the copy functions just append to the output file
-                    with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
-                        query = env.connection.cursor().mogrify(query_string, [keys])
-                        self.copy_expert(env.connection.cursor(), query, source_file)
+                # We let the copy functions just append to the output file
+                with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
+                    query = env.connection.cursor().mogrify(query_string, [keys])
+                    self.copy_expert(env.connection.cursor(), query, source_file)
 
-                    with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
-                        query = env.connection.cursor().mogrify(query_string, [keys])
-                        self.copy_expert(env.connection.cursor(), query, target_file)
+                with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
+                    query = env.connection.cursor().mogrify(query_string, [keys])
+                    self.copy_expert(env.connection.cursor(), query, target_file)
 
-                    if not self.quiet:
-                        bar.update()
+                if not self.quiet:
+                    bar.update()
 
-            # Sort the files alphabetically
-            source_file_sorted_name = self._sort(source_file.name)
-            if not self.quiet:
-                bar.update()
+        # Sort the files alphabetically
+        source_file_sorted_name = self._sort(source_file.name)
+        if not self.quiet:
+            bar.update()
 
-            target_file_sorted_name = self._sort(target_file.name)
-            if not self.quiet:
-                bar.update()
+        target_file_sorted_name = self._sort(target_file.name)
+        if not self.quiet:
+            bar.update()
 
-            # Compare
-            return filecmp.cmp(source_file_sorted_name, target_file_sorted_name)
+        # Compare
+        return filecmp.cmp(source_file_sorted_name, target_file_sorted_name)
+
+    def confirm_data_integrity(self, pk_set, model_fields, options):
+        """
+        Call validate_data_integrity with or without a temporaryDirectory wrapped around it.
+        For details about how the validation process works, see validate_data_integrity.
+        """
+        if not options.get('keep_validation_files', False):
+            # We create a temporary directory so all temporary files and 'sort' artifacts are all neatly removed
+            # at the end. Even when something fails halfway.
+            with TemporaryDirectory(prefix='move_data_to_shard_validation_') as temp_dir:
+                return self.validate_data_integrity(pk_set=pk_set, model_fields=model_fields, temp_dir=temp_dir)
+        else:
+            self.print('Validation artifacts can be found in: {}'.format(gettempdir()))
+            return self.validate_data_integrity(pk_set=pk_set, model_fields=model_fields, temp_dir=None)
 
     def delete_data(self, collector):
         with use_shard(self.source_shard, active_only_schemas=False, lock=False):

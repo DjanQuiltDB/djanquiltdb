@@ -437,7 +437,8 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_get_data_collector.assert_any_call(objects=self.organization_1, use_original_collector=True)
         mock_copy_data.assert_called_once_with(pk_set=pk_set)
         mock_reset_sequencers.assert_called_once_with(data=data)
-        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value)
+        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value,
+                                             options=self.options)
         mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
         mock_post_execution.assert_called_once_with(succeeded=True)
 
@@ -477,7 +478,8 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.assertEqual(mock_pre_execution.call_count, 1)
         mock_get_data_collector.assert_called_once_with(objects=self.organization_1)
         mock_copy_data.assert_called_once_with(pk_set=pk_set)
-        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value)
+        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value,
+                                             options=self.options)
         mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
         self.assertEqual(mock_post_execution.call_count, 1)
 
@@ -517,11 +519,53 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_get_data_collector.assert_any_call(objects=self.organization_1)
         mock_copy_data.assert_called_once_with(pk_set=pk_set)
         mock_reset_sequencers.assert_called_once_with(data=data)
-        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value)
+        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value,
+                                             options=self.options)
         self.assertFalse(mock_delete_data.called)
         mock_post_execution.assert_called_once_with(succeeded=True)
 
         mock_print.assert_any_call('Skipped deleting data from the source shard.')
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_target_shard')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.pre_execution')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_objects')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_data_collector')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.reset_sequencers')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.confirm_data_integrity')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.delete_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.print')
+    def test_handle_keep_validating_files(self, mock_print, mock_post_execution, mock_delete_data,
+                                          mock_confirm, mock_copy_data, mock_reset_sequencers, mock_get_data_collector,
+                                          mock_get_objects, mock_pre_execution, mock_get_target_shard):
+        """
+        Case: Call the handle while providing --keep-validation-files.
+        Expected: All sub-functions to be called with the correct arguments, but `delete_data` not called
+        """
+        data = {Statement: [self.statement_1, self.statement_2]}  # Dummy data
+        pk_set = self.get_pk_set_from_data(data)
+
+        mock_get_target_shard.return_value = self.target_shard
+        mock_get_objects.return_value = self.organization_1
+
+        mock_get_data_collector_value = mock.Mock()
+        mock_get_data_collector_value.data = data
+        mock_get_data_collector.return_value = mock_get_data_collector_value
+
+        self.options['keep_validation_files'] = True
+        self.command.handle(**self.options)
+
+        mock_get_target_shard.assert_called_once_with(options=self.options)
+        mock_get_objects.assert_called_once_with(self.source_shard)
+        self.assertEqual(mock_pre_execution.call_count, 1)
+        mock_get_data_collector.assert_any_call(objects=self.organization_1)
+        mock_copy_data.assert_called_once_with(pk_set=pk_set)
+        mock_reset_sequencers.assert_called_once_with(data=data)
+        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value,
+                                             options=self.options)
+        mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
+        self.assertEqual(mock_post_execution.call_count, 1)
 
     @mock.patch('sharding.management.commands.move_data_to_shard.transaction_for_nodes')
     def test_handle_transaction(self, mock_transaction_for_nodes):
@@ -657,36 +701,79 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @mock.patch('sharding.management.commands.move_data_to_shard.Command._sort', return_value='sorted_file')
     @mock.patch('sharding.management.commands.move_data_to_shard.filecmp.cmp', return_value=True)
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
-    def test_data_integrity(self, mock_copy_expert, mock_filecmp, mock_sort):
+    def test_validate_data_integrity(self, mock_copy_expert, mock_filecmp, mock_sort):
         """
-        Case: Call data_integrity.
+        Case: Call validate_data_integrity.
         Expected: copy_expert to be called for each model for both shards, and compare_files called with file paths.
         """
         self.command.source_shard = self.source_shard
         self.command.target_shard = self.target_shard
-        self.assertTrue(self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock()))
+        self.assertTrue(self.command.validate_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock(),
+                                                             temp_dir=None))
         # Since a cursor object is given, we cannot assert the calls specifically.
         self.assertEqual(mock_copy_expert.call_count, len(self.data) * 2)
         # We cannot specifically assert the filecmp call, since the given arguments are randomly named temp files
         self.assertEqual(mock_filecmp.call_count, 1)
         self.assertEqual(mock_sort.call_count, 2)
 
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.validate_data_integrity')
+    def test_confirm_data_integrity(self, mock_validate):
+        """
+        Case: Call confirm_data_integrity.
+        Expected: validate_data_integrity to be called.
+        """
+        self.command.source_shard = self.source_shard
+        self.command.target_shard = self.target_shard
+
+        self.assertTrue(self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock(), options={}))
+
+        self.assertEqual(mock_validate.call_count, 1)
+
     @mock.patch('sharding.management.commands.move_data_to_shard.Command._sort', mock.Mock())
     @mock.patch('sharding.management.commands.move_data_to_shard.filecmp.cmp', mock.Mock())
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
     def test_data_integrity_file_cleanup(self, mock_copy_expert):
         """
-        Case: Call data_integrity.
+        Case: Call data_integrity, with keep_validation_files=False.
         Expected: The temporary directory to be removed, and so too all the files in it.
         """
         self.command.source_shard = self.source_shard
         self.command.target_shard = self.target_shard
-        self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock())
+        self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock(), options={})
 
         (_, _, temp_file), _ = mock_copy_expert.call_args
 
         self.assertFalse(os.path.isfile(temp_file.name))
         self.assertFalse(os.path.isdir(os.path.dirname(temp_file.name)))
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command._sort', mock.Mock())
+    @mock.patch('sharding.management.commands.move_data_to_shard.filecmp.cmp', mock.Mock())
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.print')
+    def test_data_integrity_file_keep(self, mock_print, mock_copy_expert):
+        """
+        Case: Call data_integrity, with keep_validation_files=True.
+        Expected: No temporary directory created, temporary files to remain after conclusion.
+                  Correct print message called
+        """
+        self.command.source_shard = self.source_shard
+        self.command.target_shard = self.target_shard
+        self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock(),
+                                            options={'keep_validation_files': True})
+
+        temp_files = set([temp_file for (_, _, temp_file), _ in mock_copy_expert.call_args_list])
+
+        # Temp files should still exist
+        for temp_file in temp_files:
+            self.assertTrue(os.path.isfile(temp_file.name))
+            os.remove(temp_file.name)  # Cleanup :)
+
+        # There should be two files, one source, one target
+        self.assertEqual(len(temp_files), 2)
+
+        self.assertEqual(mock_print.call_count, 1)
+        mock_print.assert_called_once_with('Validation artifacts can be found in: {}'
+                                           .format(os.path.dirname(temp_file.name)))
 
     def fake_copy_expert(self, _, __, target_file):
         """
@@ -709,7 +796,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
         self.command.source_shard = self.source_shard
         self.command.target_shard = self.target_shard
-        self.assertTrue(self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock()))
+        self.assertTrue(self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock(), options={}))
 
     def fake_subsystem_run(self, *args, **kwargs):
         """
