@@ -541,7 +541,8 @@ class MoveDataToShardTestCase(ShardingTestCase):
                                           mock_get_objects, mock_pre_execution, mock_get_target_shard):
         """
         Case: Call the handle while providing --keep-validation-files.
-        Expected: All sub-functions to be called with the correct arguments, but `delete_data` not called
+        Expected: All sub-functions to be called with the correct arguments.
+                  mock_confirm called with keep_validation_files=True
         """
         data = {Statement: [self.statement_1, self.statement_2]}  # Dummy data
         pk_set = self.get_pk_set_from_data(data)
