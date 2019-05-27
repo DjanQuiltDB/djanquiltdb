@@ -152,10 +152,102 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             cursor.execute("ROLLBACK;")
             self.fail("PostgreSQL internal error")
 
-    def test_clone_schema(self):
+    @staticmethod
+    def get_oid(schema_name, table_name, cursor):
+        """
+        Return internal id for tables to use in queries to gather metadata for them
+        """
+        cursor.execute('SELECT c.oid '
+                       'FROM pg_catalog.pg_class c '
+                       'JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace '
+                       'WHERE n.nspname = \'{}\''
+                       'AND c.relname = \'{}\''
+                       'AND c.relkind = \'r\' -- only tables;'.format(schema_name, table_name))
+        return cursor.fetchall()[0][0]
+
+    def test_clone_schema_table_attributes(self):
         """
         Case: Call connection.migrate_schema.
-        Expected: The given schema to have correct table headers and sequencers.
+        Expected: The given schema to have the same tables and all the table's info is the same.
+                  This include indexes, sequences, constraints and foreign-key constraints
+        """
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        cursor = connection.cursor()
+        cursor.execute("SELECT * FROM pg_catalog.pg_tables WHERE schemaname = 'template';")
+        template_tables = [table[1] for table in cursor.fetchall()]
+        cursor.execute("SELECT * FROM pg_catalog.pg_tables WHERE schemaname = 'test_schema';")
+        new_schema_tables = [table[1] for table in cursor.fetchall()]
+
+        self.assertCountEqual(template_tables, new_schema_tables)
+
+        # These queries are based on the queries ran by Postgres when executing '\d table_name'. You can reveal
+        # these by running `psql -E`.
+        info_queries = {
+            'table info': 'SELECT c.relchecks, c.relkind, c.relhasindex, c.relhasrules, '
+                          'c.relrowsecurity, c.relforcerowsecurity, c.relhasoids, \'\', c.reltablespace, '
+                          'CASE WHEN c.reloftype = 0 THEN \'\' '
+                          'ELSE c.reloftype::pg_catalog.regtype::pg_catalog.text END, c.relpersistence, '
+                          'c.relreplident FROM pg_catalog.pg_class c '
+                          'LEFT JOIN pg_catalog.pg_class tc ON (c.reltoastrelid = tc.oid) '
+                          'WHERE c.oid = \'{}\'',
+            'field info': 'SELECT a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod), '
+                          '(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid) for 128) '
+                          'FROM pg_catalog.pg_attrdef d '
+                          'WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef), '
+                          'a.attnotnull, a.attnum, '
+                          '(SELECT c.collname FROM pg_catalog.pg_collation c, pg_catalog.pg_type t '
+                          'WHERE c.oid = a.attcollation AND t.oid = a.atttypid '
+                          'AND a.attcollation <> t.typcollation) AS attcollation, NULL AS indexdef, '
+                          'NULL AS attfdwoptions '
+                          'FROM pg_catalog.pg_attribute a '
+                          'WHERE a.attrelid = \'{}\' AND a.attnum > 0 AND NOT a.attisdropped '
+                          'ORDER BY a.attnum;',
+            'field constraints':
+                'SELECT c2.relname, i.indisprimary, i.indisunique, i.indisclustered, i.indisvalid, '
+                'pg_catalog.pg_get_indexdef(i.indexrelid, 0, true), pg_catalog.pg_get_constraintdef(con.oid, true), '
+                'contype, condeferrable, condeferred, i.indisreplident, c2.reltablespace '
+                'FROM pg_catalog.pg_class c, pg_catalog.pg_class c2, pg_catalog.pg_index i '
+                'LEFT JOIN pg_catalog.pg_constraint con ON (conrelid = i.indrelid AND conindid = i.indexrelid '
+                'AND contype IN (\'p\',\'u\',\'x\')) '
+                'WHERE c.oid = \'{}\' AND c.oid = i.indrelid AND i.indexrelid = c2.oid '
+                'ORDER BY i.indisprimary DESC, i.indisunique DESC, c2.relname;',
+            'unknown constraints': 'SELECT r.conname, pg_catalog.pg_get_constraintdef(r.oid, true) '
+                                   'FROM pg_catalog.pg_constraint r '
+                                   'WHERE r.conrelid = \'{}\' AND r.contype = \'c\' ORDER BY 1;',
+            'foreign key constraints': 'SELECT conname, pg_catalog.pg_get_constraintdef(r.oid, true) as condef '
+                                       'FROM pg_catalog.pg_constraint r '
+                                       'WHERE r.conrelid = \'{}\' AND r.contype = \'f\' ORDER BY 1;'
+        }
+
+        for table_name in template_tables:
+            oid_template = self.get_oid('template', table_name, connection.cursor())
+            oid_test_schema = self.get_oid('test_schema', table_name, connection.cursor())
+
+            for name, query in info_queries.items():
+                with use_shard(node_name='default', schema_name='template') as env:
+                    cursor = env.connection.cursor()
+                    cursor.execute(query.format(oid_template))
+                    template_result = next(iter(cursor.fetchall()), [])  # get the first element, or empty list
+                with use_shard(node_name='default', schema_name='test_schema') as env:
+                    cursor = env.connection.cursor()
+                    cursor.execute(query.format(oid_test_schema))
+                    test_schema_result = next(iter(cursor.fetchall()), [])  # get the first element, or empty list
+
+                # Replace schema names to a generic name, so they can be compared.
+                self.assertCountEqual(
+                    list(map(lambda i: i.replace('test_schema', 'schema') if type(i) == 'string' else i,
+                             test_schema_result)),
+                    list(map(lambda i: i.replace('template', 'schema') if type(i) == 'string' else i,
+                             template_result)),
+                    '{} does not appear to be cloned successfully'.format(name))
+
+    def test_clone_schema_sequences(self):
+        """
+        Case: Call connection.migrate_schema.
+        Expected: The given schema to have correct sequencers.
         """
         create_template_schema('default')
         connection.create_schema('test_schema')

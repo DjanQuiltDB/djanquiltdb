@@ -37,8 +37,15 @@ DECLARE
   buffer TEXT;
   default_ TEXT;
   column_ TEXT;
+  name_ TEXT;
+  tablefrom_ TEXT;
+  columnfrom_ TEXT;
+  tableto_ TEXT;
+  tableto_schema_ TEXT;
+  columnto_ TEXT;
 
 BEGIN
+  /* Create all sequences that exist on the source schema on the target schema  */
   FOR object IN
     SELECT sequence_name::text FROM information_schema.SEQUENCES WHERE sequence_schema = source_schema
   LOOP
@@ -51,10 +58,11 @@ BEGIN
     SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
   LOOP
     buffer := dest_schema || '.' || object;
-    EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || source_schema || '.' || object || ' INCLUDING CONSTRAINTS ' ||
-     'INCLUDING INDEXES INCLUDING DEFAULTS)';
+    /* Create all table on the target schema */
+    EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || source_schema || '.' || object || ' INCLUDING ALL)';
     EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || source_schema || '.' || object || ')';
 
+    /* For all tables, link the fields default value to their respecitve sequences made earlier */
     FOR column_, default_ IN
       SELECT column_name::TEXT, regexp_replace(column_default::TEXT, source_schema, dest_schema)
         FROM information_schema.COLUMNS WHERE table_schema = dest_schema AND TABLE_NAME = object
@@ -64,6 +72,33 @@ BEGIN
     END LOOP;
   END LOOP;
 
+  /* For all tables, create their foreign key constraints */
+  FOR object IN
+    SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
+  LOOP
+    buffer := dest_schema || '.' || object;
+    FOR name_, tablefrom_, columnfrom_, tableto_, tableto_schema_, columnto_ IN
+      SELECT DISTINCT tc.constraint_name AS name_,
+                      tc.table_name AS tablefrom_,
+                      kcu.column_name AS columnto_,
+                      ccu.table_name AS tableto_,
+                      /* replace the source schema with destination schema.
+                         Keep others schema's (like 'public') in tact. */
+                      REPLACE (ccu.table_schema, source_schema, dest_schema) AS tableto_schema_,
+                      ccu.column_name AS columnto_
+      FROM information_schema.table_constraints AS tc
+      JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name
+      JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name
+      WHERE constraint_type = 'FOREIGN KEY'
+        AND tc.constraint_schema = source_schema
+        AND kcu.constraint_schema = source_schema
+        AND ccu.constraint_schema = source_schema
+        AND tc.table_name=object
+    LOOP
+      EXECUTE 'ALTER TABLE ' || buffer || ' ADD CONSTRAINT ' || name_ || ' FOREIGN KEY (' || columnfrom_ || ') 
+        REFERENCES ' || tableto_schema_ || '.' || tableto_ || ' (' || columnto_ || ') DEFERRABLE INITIALLY DEFERRED';
+    END LOOP;
+  END LOOP;
 END;
 $BODY$
 LANGUAGE plpgsql VOLATILE;
