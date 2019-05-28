@@ -157,12 +157,12 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         """
         Return internal id for tables to use in queries to gather metadata for them
         """
-        cursor.execute('SELECT c.oid '
-                       'FROM pg_catalog.pg_class c '
-                       'JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace '
-                       'WHERE n.nspname = \'{}\''
-                       'AND c.relname = \'{}\''
-                       'AND c.relkind = \'r\' -- only tables;'.format(schema_name, table_name))
+        cursor.execute("""SELECT c.oid
+                          FROM pg_catalog.pg_class c
+                          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+                          WHERE n.nspname = %s
+                          AND c.relname = %s
+                          AND c.relkind = 'r' -- only tables;""", [schema_name, table_name])
         return cursor.fetchall()[0][0]
 
     def test_clone_schema_table_attributes(self):
@@ -186,40 +186,45 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         # These queries are based on the queries ran by Postgres when executing '\d table_name'. You can reveal
         # these by running `psql -E`.
         info_queries = {
-            'table info': 'SELECT c.relchecks, c.relkind, c.relhasindex, c.relhasrules, '
-                          'c.relrowsecurity, c.relforcerowsecurity, c.relhasoids, \'\', c.reltablespace, '
-                          'CASE WHEN c.reloftype = 0 THEN \'\' '
-                          'ELSE c.reloftype::pg_catalog.regtype::pg_catalog.text END, c.relpersistence, '
-                          'c.relreplident FROM pg_catalog.pg_class c '
-                          'LEFT JOIN pg_catalog.pg_class tc ON (c.reltoastrelid = tc.oid) '
-                          'WHERE c.oid = \'{}\'',
-            'field info': 'SELECT a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod), '
-                          '(SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid) for 128) '
-                          'FROM pg_catalog.pg_attrdef d '
-                          'WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef), '
-                          'a.attnotnull, a.attnum, '
-                          '(SELECT c.collname FROM pg_catalog.pg_collation c, pg_catalog.pg_type t '
-                          'WHERE c.oid = a.attcollation AND t.oid = a.atttypid '
-                          'AND a.attcollation <> t.typcollation) AS attcollation, NULL AS indexdef, '
-                          'NULL AS attfdwoptions '
-                          'FROM pg_catalog.pg_attribute a '
-                          'WHERE a.attrelid = \'{}\' AND a.attnum > 0 AND NOT a.attisdropped '
-                          'ORDER BY a.attnum;',
+            'table info':
+                """SELECT c.relchecks, c.relkind, c.relhasindex, c.relhasrules,
+                       c.relrowsecurity, c.relforcerowsecurity, c.relhasoids, '', c.reltablespace,
+                     CASE WHEN c.reloftype = 0 THEN ''
+                       ELSE c.reloftype::pg_catalog.regtype::pg_catalog.text END, c.relpersistence, c.relreplident
+                   FROM pg_catalog.pg_class c
+                     LEFT JOIN pg_catalog.pg_class tc ON (c.reltoastrelid = tc.oid)
+                   WHERE c.oid = %s""",
+            'field info':
+                """SELECT a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod),
+                     (SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid) for 128)
+                        FROM pg_catalog.pg_attrdef d
+                        WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef),
+                     a.attnotnull, a.attnum,
+                     (SELECT c.collname FROM pg_catalog.pg_collation c, pg_catalog.pg_type t
+                        WHERE c.oid = a.attcollation AND t.oid = a.atttypid
+                        AND a.attcollation <> t.typcollation) AS attcollation,
+                     NULL AS indexdef,
+                     NULL AS attfdwoptions
+                   FROM pg_catalog.pg_attribute a
+                     WHERE a.attrelid = %s AND a.attnum > 0 AND NOT a.attisdropped
+                   ORDER BY a.attnum;""",
             'field constraints':
-                'SELECT c2.relname, i.indisprimary, i.indisunique, i.indisclustered, i.indisvalid, '
-                'pg_catalog.pg_get_indexdef(i.indexrelid, 0, true), pg_catalog.pg_get_constraintdef(con.oid, true), '
-                'contype, condeferrable, condeferred, i.indisreplident, c2.reltablespace '
-                'FROM pg_catalog.pg_class c, pg_catalog.pg_class c2, pg_catalog.pg_index i '
-                'LEFT JOIN pg_catalog.pg_constraint con ON (conrelid = i.indrelid AND conindid = i.indexrelid '
-                'AND contype IN (\'p\',\'u\',\'x\')) '
-                'WHERE c.oid = \'{}\' AND c.oid = i.indrelid AND i.indexrelid = c2.oid '
-                'ORDER BY i.indisprimary DESC, i.indisunique DESC, c2.relname;',
-            'unknown constraints': 'SELECT r.conname, pg_catalog.pg_get_constraintdef(r.oid, true) '
-                                   'FROM pg_catalog.pg_constraint r '
-                                   'WHERE r.conrelid = \'{}\' AND r.contype = \'c\' ORDER BY 1;',
-            'foreign key constraints': 'SELECT conname, pg_catalog.pg_get_constraintdef(r.oid, true) as condef '
-                                       'FROM pg_catalog.pg_constraint r '
-                                       'WHERE r.conrelid = \'{}\' AND r.contype = \'f\' ORDER BY 1;'
+                """SELECT c2.relname, i.indisprimary, i.indisunique, i.indisclustered, i.indisvalid,
+                     pg_catalog.pg_get_indexdef(i.indexrelid, 0, true), pg_catalog.pg_get_constraintdef(con.oid, true),
+                     contype, condeferrable, condeferred, i.indisreplident, c2.reltablespace
+                   FROM pg_catalog.pg_class c, pg_catalog.pg_class c2, pg_catalog.pg_index i
+                     LEFT JOIN pg_catalog.pg_constraint con ON (conrelid = i.indrelid AND conindid = i.indexrelid
+                       AND contype IN ('p','u','x')) --- primary key constraint, unique constraint and exclusion constraint
+                   WHERE c.oid = %s AND c.oid = i.indrelid AND i.indexrelid = c2.oid
+                   ORDER BY i.indisprimary DESC, i.indisunique DESC, c2.relname;""",
+            'unknown constraints':
+                """SELECT r.conname, pg_catalog.pg_get_constraintdef(r.oid, true)
+                   FROM pg_catalog.pg_constraint r
+                   WHERE r.conrelid = %s AND r.contype = 'c' ORDER BY 1;""",
+            'foreign key constraints':
+                """SELECT conname, pg_catalog.pg_get_constraintdef(r.oid, true) as condef
+                   FROM pg_catalog.pg_constraint r
+                   WHERE r.conrelid = %s AND r.contype = 'f' ORDER BY 1;"""
         }
 
         for table_name in template_tables:
@@ -229,12 +234,12 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             for name, query in info_queries.items():
                 with use_shard(node_name='default', schema_name='template') as env:
                     cursor = env.connection.cursor()
-                    cursor.execute(query.format(oid_template))
-                    template_result = next(iter(cursor.fetchall()), [])  # get the first element, or empty list
+                    cursor.execute(query, [oid_template])
+                    template_result = next(iter(cursor.fetchall()), [])  # Get the first element, or empty list
                 with use_shard(node_name='default', schema_name='test_schema') as env:
                     cursor = env.connection.cursor()
-                    cursor.execute(query.format(oid_test_schema))
-                    test_schema_result = next(iter(cursor.fetchall()), [])  # get the first element, or empty list
+                    cursor.execute(query, [oid_test_schema])
+                    test_schema_result = next(iter(cursor.fetchall()), [])  # Get the first element, or empty list
 
                 # Replace schema names to a generic name, so they can be compared.
                 self.assertCountEqual(
@@ -247,7 +252,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
     def test_clone_schema_sequences(self):
         """
         Case: Call connection.migrate_schema.
-        Expected: The given schema to have correct sequencers.
+        Expected: The given schema to have correct sequences.
         """
         create_template_schema('default')
         connection.create_schema('test_schema')
@@ -268,8 +273,8 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         # Get sequencer names and start value
         cursor.execute("SELECT sequence_name, start_value FROM information_schema.sequences "
                        "WHERE sequence_schema = 'test_schema';")
-        new_sequencers = cursor.fetchall()
-        self.assertCountEqual(new_sequencers,
+        new_sequences = cursor.fetchall()
+        self.assertCountEqual(new_sequences,
                               [('{}_id_seq'.format(table_name), '1') for table_name in new_schema_tables])
 
         # Check if the new tables have the new sequences assigned
@@ -290,7 +295,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
                                "nextval('test_schema.example_statement_type_id_seq'::regclass)",
                                "nextval('test_schema.django_migrations_id_seq'::regclass)"])
 
-    def test_sequencers_of_cloned_schema(self):
+    def test_sequences_of_cloned_schema(self):
         """
         Case: Create two shards and write similar data to both shards.
         Expected: Each schema to have their own sequences and thus we get the same ids across shards.
@@ -313,10 +318,10 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             user_4 = User.objects.create(name='Sjonnie', email='sjonnie@gast.bv', organization=organization_2)
 
         self.assertEqual(user_1.id, 1)  # Sequence starts at 1
-        self.assertEqual(user_1.id, user_2.id)  # Both on different schema's, both new sequencers.
+        self.assertEqual(user_1.id, user_2.id)  # Both on different schema's, both new sequences.
         self.assertEqual(user_3.id, user_4.id)  # Both on different schema's, continuation of above sequencer.
         self.assertEqual(organization_1.id, 1)  # Sequence starts at 1
-        self.assertEqual(organization_1.id, organization_2.id)  # different schema's, both new sequencers
+        self.assertEqual(organization_1.id, organization_2.id)  # different schema's, both new sequences
         self.assertNotEqual(user_1.id, user_3.id)  # Both on same schema
         self.assertNotEqual(user_2.id, user_4.id)  # Both on same schema
 
@@ -343,7 +348,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
     def test_flush_schema(self):
         """
         Case: Create a template schema and call 'flush_schema' on it.
-        Expected: We end up with an empty schema. Stripped from all tables and sequencers.
+        Expected: We end up with an empty schema. Stripped from all tables and sequences.
         """
         create_template_schema('default')
         with use_shard(node_name='default', schema_name='template') as env:
