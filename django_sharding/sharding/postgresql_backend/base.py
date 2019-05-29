@@ -38,11 +38,11 @@ DECLARE
   default_ TEXT;
   column_ TEXT;
   name_ TEXT;
-  tablefrom_ TEXT;
-  columnfrom_ TEXT;
-  tableto_ TEXT;
-  tableto_schema_ TEXT;
-  columnto_ TEXT;
+  child_table_ TEXT;
+  child_column_ TEXT;
+  parent_table_ TEXT;
+  parent_schema_ TEXT;
+  parent_column_ TEXT;
 
 BEGIN
   /* Create all sequences that exist on the source schema on the target schema.  */
@@ -72,31 +72,43 @@ BEGIN
     END LOOP;
   END LOOP;
 
-  /* For all tables, create their foreign key constraints. */
+  /* For all tables, create their foreign key constraints.
+     Do not use the information_schema for this. The views there are very slow. We use pg_catalog directly */
   FOR object IN
     SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
   LOOP
     buffer := dest_schema || '.' || object;
-    FOR name_, tablefrom_, columnfrom_, tableto_, tableto_schema_, columnto_ IN
-      SELECT DISTINCT tc.constraint_name AS name_,
-                      tc.table_name AS tablefrom_,
-                      kcu.column_name AS columnto_,
-                      ccu.table_name AS tableto_,
-                      /* Replace the source schema with destination schema.
-                         Keep others schema's (like 'public') in tact. */
-                      REPLACE (ccu.table_schema, source_schema, dest_schema) AS tableto_schema_,
-                      ccu.column_name AS columnto_
-      FROM information_schema.table_constraints AS tc
-      JOIN information_schema.key_column_usage AS kcu ON tc.constraint_name = kcu.constraint_name
-      JOIN information_schema.constraint_column_usage AS ccu ON ccu.constraint_name = tc.constraint_name
-      WHERE constraint_type = 'FOREIGN KEY'
-        AND tc.constraint_schema = source_schema
-        AND kcu.constraint_schema = source_schema
-        AND ccu.constraint_schema = source_schema
-        AND tc.table_name = object
+    FOR name_, child_column_, parent_schema_, parent_table_, parent_column_ IN
+      SELECT
+        con.constraint_name AS "name_",
+        a2.attname AS "child_column_",
+        /* Replace the source schema with destination schema. Keep others schema's (like 'public') in tact. */
+        REPLACE (n.nspname, source_schema, dest_schema) AS "parent_schema_",
+        c.relname AS "parent_table_",
+        a1.attname AS "parent_column_"
+      FROM
+        ( SELECT
+            unnest(r.conkey) as "parent",
+            unnest(r.confkey) as "child",
+            r.conname as constraint_name,
+            r.confrelid,
+            r.conrelid
+          FROM pg_catalog.pg_class AS c
+            JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+            JOIN pg_catalog.pg_constraint AS r ON r.conrelid = c.oid
+          WHERE  r.contype = 'f'
+            AND n.nspname = source_schema
+            AND c.relname = object  /* child_table */
+            AND c.relkind = 'r'
+        ) AS con
+        JOIN pg_catalog.pg_attribute AS a1 ON a1.attrelid = con.confrelid AND a1.attnum = con.child
+        JOIN pg_catalog.pg_class AS c ON c.oid = con.confrelid
+        JOIN pg_catalog.pg_attribute AS a2 ON a2.attrelid = con.conrelid AND a2.attnum = con.parent
+        JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
     LOOP
-      EXECUTE 'ALTER TABLE ' || buffer || ' ADD CONSTRAINT ' || name_ || ' FOREIGN KEY (' || columnfrom_ || ')
-        REFERENCES ' || tableto_schema_ || '.' || tableto_ || ' (' || columnto_ || ') DEFERRABLE INITIALLY DEFERRED';
+      EXECUTE 'ALTER TABLE ' || buffer || ' ADD CONSTRAINT ' || name_ || ' FOREIGN KEY (' || child_column_ || ')
+        REFERENCES ' || parent_schema_ || '.' || parent_table_ || ' (' || parent_column_ || ')
+        DEFERRABLE INITIALLY DEFERRED';
     END LOOP;
   END LOOP;
 END;
