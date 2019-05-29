@@ -73,7 +73,11 @@ BEGIN
   END LOOP;
 
   /* For all tables, create their foreign key constraints.
-     Do not use the information_schema for this. The views there are very slow. We use pg_catalog directly */
+     Do not use the information_schema for this. The views there are very slow. We use pg_catalog directly.
+     This endeavor has two sources:
+     hielkehoeve on feb 2014 - for the contraint cloning loop: https://gist.github.com/hielkehoeve/8818562 .
+     Cervo on may 2015 - for the pg_catalog query: https://stackoverflow.com/a/30178351 .
+     */
   FOR object IN
     SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
   LOOP
