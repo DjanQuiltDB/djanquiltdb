@@ -33,84 +33,86 @@ clone_function = """
 CREATE OR REPLACE FUNCTION clone_schema(source_schema TEXT, dest_schema TEXT) RETURNS VOID AS
 $BODY$
 DECLARE
-  object TEXT;
-  buffer TEXT;
   default_ TEXT;
   column_ TEXT;
   name_ TEXT;
-  child_table_ TEXT;
   child_column_ TEXT;
+  dest_table TEXT;
+  dest_table_path TEXT;
   parent_table_ TEXT;
   parent_schema_ TEXT;
   parent_column_ TEXT;
 
 BEGIN
   /* Create all sequences that exist on the source schema on the target schema.  */
-  FOR object IN
+  FOR dest_table IN
     SELECT sequence_name::text FROM information_schema.SEQUENCES WHERE sequence_schema = source_schema
   LOOP
-    EXECUTE 'CREATE SEQUENCE ' || dest_schema || '.' || object;
+    EXECUTE 'CREATE SEQUENCE ' || dest_schema || '.' || dest_table;
     EXECUTE format('SELECT setval(%L, (SELECT last_value FROM %I.%I), (SELECT is_called FROM %I.%I))',
-      dest_schema || '.' || object, source_schema, object, source_schema, object);
+      dest_schema || '.' || dest_table, source_schema, dest_table, source_schema, dest_table);
   END LOOP;
 
-  FOR object IN
+  FOR dest_table IN
     SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
   LOOP
-    buffer := dest_schema || '.' || object;
+    dest_table_path := dest_schema || '.' || dest_table;
     /* Create all table on the target schema. */
-    EXECUTE 'CREATE TABLE ' || buffer || ' (LIKE ' || source_schema || '.' || object || ' INCLUDING ALL)';
-    EXECUTE 'INSERT INTO ' || buffer || '(SELECT * FROM ' || source_schema || '.' || object || ')';
+    EXECUTE 'CREATE TABLE ' || dest_table_path || ' (LIKE ' || source_schema || '.' || dest_table || ' INCLUDING ALL)';
+    EXECUTE 'INSERT INTO ' || dest_table_path || '(SELECT * FROM ' || source_schema || '.' || dest_table || ')';
 
     /* For all tables, link the fields default value to their respective sequences made earlier. */
     FOR column_, default_ IN
       SELECT column_name::TEXT, regexp_replace(column_default::TEXT, source_schema, dest_schema)
-        FROM information_schema.COLUMNS WHERE table_schema = dest_schema AND TABLE_NAME = object
+        FROM information_schema.COLUMNS WHERE table_schema = dest_schema AND TABLE_NAME = dest_table
         AND column_default LIKE 'nextval(%' || source_schema || '%)'
     LOOP
-      EXECUTE 'ALTER TABLE ' || buffer || ' ALTER COLUMN ' || column_ || ' SET DEFAULT ' || default_;
+      EXECUTE 'ALTER TABLE ' || dest_table_path || ' ALTER COLUMN ' || column_ || ' SET DEFAULT ' || default_;
     END LOOP;
   END LOOP;
 
   /* For all tables, create their foreign key constraints.
      Do not use the information_schema for this. The views there are very slow. We use pg_catalog directly.
      This endeavor has two sources:
-     hielkehoeve on feb 2014 - for the contraint cloning loop: https://gist.github.com/hielkehoeve/8818562 .
+     hielkehoeve on feb 2014 - for the constraint cloning loop: https://gist.github.com/hielkehoeve/8818562 .
      Cervo on may 2015 - for the pg_catalog query: https://stackoverflow.com/a/30178351 .
      */
-  FOR object IN
+  FOR dest_table IN
     SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
   LOOP
-    buffer := dest_schema || '.' || object;
+    dest_table_path := dest_schema || '.' || dest_table;
     FOR name_, child_column_, parent_schema_, parent_table_, parent_column_ IN
       SELECT
         con.constraint_name AS "name_",
-        a2.attname AS "child_column_",
+        pg_attribute2.attname AS "child_column_",
         /* Replace the source schema with destination schema. Keep others schema's (like 'public') in tact. */
-        REPLACE (n.nspname, source_schema, dest_schema) AS "parent_schema_",
-        c.relname AS "parent_table_",
-        a1.attname AS "parent_column_"
+        REPLACE (pg_namespace.nspname, source_schema, dest_schema) AS "parent_schema_",
+        pg_class.relname AS "parent_table_",
+        pg_attribute1.attname AS "parent_column_"
       FROM
         ( SELECT
-            unnest(r.conkey) as "parent",
-            unnest(r.confkey) as "child",
-            r.conname as constraint_name,
-            r.confrelid,
-            r.conrelid
-          FROM pg_catalog.pg_class AS c
-            JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
-            JOIN pg_catalog.pg_constraint AS r ON r.conrelid = c.oid
-          WHERE  r.contype = 'f'
-            AND n.nspname = source_schema
-            AND c.relname = object  /* child_table */
-            AND c.relkind = 'r'
+            unnest(pg_constraint.conkey) as "parent",
+            unnest(pg_constraint.confkey) as "child",
+            pg_constraint.conname as constraint_name,
+            pg_constraint.confrelid,
+            pg_constraint.conrelid
+          FROM pg_catalog.pg_class AS pg_class
+            JOIN pg_catalog.pg_namespace AS pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+            JOIN pg_catalog.pg_constraint AS pg_constraint ON pg_constraint.conrelid = pg_class.oid
+          WHERE  pg_constraint.contype = 'f'  /* foreign key */
+            AND pg_namespace.nspname = source_schema
+            AND pg_class.relname = dest_table  /* child_table */
+            AND pg_class.relkind = 'r' /* ordinary table, */
         ) AS con
-        JOIN pg_catalog.pg_attribute AS a1 ON a1.attrelid = con.confrelid AND a1.attnum = con.child
-        JOIN pg_catalog.pg_class AS c ON c.oid = con.confrelid
-        JOIN pg_catalog.pg_attribute AS a2 ON a2.attrelid = con.conrelid AND a2.attnum = con.parent
-        JOIN pg_catalog.pg_namespace AS n ON n.oid = c.relnamespace
+        JOIN pg_catalog.pg_attribute AS pg_attribute1 ON pg_attribute1.attrelid = con.confrelid
+                                                      AND pg_attribute1.attnum = con.child
+        JOIN pg_catalog.pg_class AS pg_class ON pg_class.oid = con.confrelid
+        JOIN pg_catalog.pg_attribute AS pg_attribute2 ON pg_attribute2.attrelid = con.conrelid
+                                                      AND pg_attribute2.attnum = con.parent
+        JOIN pg_catalog.pg_namespace AS pg_namespace ON pg_namespace.oid = pg_class.relnamespace
     LOOP
-      EXECUTE 'ALTER TABLE ' || buffer || ' ADD CONSTRAINT ' || name_ || ' FOREIGN KEY (' || child_column_ || ')
+      EXECUTE 'ALTER TABLE ' || dest_table_path || ' ADD CONSTRAINT ' || name_ || '
+        FOREIGN KEY (' || child_column_ || ')
         REFERENCES ' || parent_schema_ || '.' || parent_table_ || ' (' || parent_column_ || ')
         DEFERRABLE INITIALLY DEFERRED';
     END LOOP;
