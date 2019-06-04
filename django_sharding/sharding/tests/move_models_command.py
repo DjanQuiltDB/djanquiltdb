@@ -303,7 +303,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
 
         with use_shard(shard) as env:
             cursor = env.connection.cursor()
-            cursor.execute('DROP TABLE "{}";'.format(Statement._meta.db_table))
+            cursor.execute('DROP TABLE "{}" CASCADE;'.format(Statement._meta.db_table))
 
         with self.assertRaises(ValidationError) as error:
             MoveCommand().validate(target_shard=shard)
