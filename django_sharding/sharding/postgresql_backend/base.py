@@ -86,7 +86,7 @@ BEGIN
         con.constraint_name AS "name_",
         pg_attribute2.attname AS "child_column_",
         /* Replace the source schema with destination schema. Keep others schema's (like 'public') in tact. */
-        REPLACE (pg_namespace.nspname, source_schema, dest_schema) AS "parent_schema_",
+        REPLACE (pg_namespace_outer.nspname, source_schema, dest_schema) AS "parent_schema_",
         pg_class.relname AS "parent_table_",
         pg_attribute1.attname AS "parent_column_"
       FROM
@@ -97,10 +97,10 @@ BEGIN
             pg_constraint.confrelid,
             pg_constraint.conrelid
           FROM pg_catalog.pg_class AS pg_class
-            JOIN pg_catalog.pg_namespace AS pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+            JOIN pg_catalog.pg_namespace AS pg_namespace_inner ON pg_namespace_inner.oid = pg_class.relnamespace
             JOIN pg_catalog.pg_constraint AS pg_constraint ON pg_constraint.conrelid = pg_class.oid
           WHERE  pg_constraint.contype = 'f'  /* foreign key */
-            AND pg_namespace.nspname = source_schema
+            AND pg_namespace_inner.nspname = source_schema
             AND pg_class.relname = dest_table  /* child_table */
             AND pg_class.relkind = 'r' /* ordinary table, */
         ) AS con
@@ -109,7 +109,7 @@ BEGIN
         JOIN pg_catalog.pg_class AS pg_class ON pg_class.oid = con.confrelid
         JOIN pg_catalog.pg_attribute AS pg_attribute2 ON pg_attribute2.attrelid = con.conrelid
                                                       AND pg_attribute2.attnum = con.parent
-        JOIN pg_catalog.pg_namespace AS pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+        JOIN pg_catalog.pg_namespace AS pg_namespace_outer ON pg_namespace_outer.oid = pg_class.relnamespace
     LOOP
       EXECUTE 'ALTER TABLE ' || dest_table_path || ' ADD CONSTRAINT ' || name_ || '
         FOREIGN KEY (' || child_column_ || ')
