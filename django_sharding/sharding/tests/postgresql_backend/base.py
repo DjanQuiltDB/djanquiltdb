@@ -2,7 +2,7 @@ from contextlib import contextmanager
 from unittest import mock
 
 import django
-from django.db import connections, IntegrityError
+from django.db import connections, IntegrityError, InterfaceError
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.test import override_settings
 from psycopg2 import InternalError
@@ -421,6 +421,81 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         connection.delete_schema('test_schema')
         self.assertIsNone(connection.get_ps_schema('test_schema'))  # Schema does not exist anymore
 
+    @mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable')
+    def test_reconnect(self, mock_is_usable):
+        """
+        Case: Call for a cursor while the connection is stale
+        Expected: self.is_usable() to be used and self.close() to be called if needed
+        """
+        with self.subTest("Connection stale"):
+            mock_is_usable.return_value = False
+
+            with mock.patch.object(connection, 'close') as mock_close:
+                connection.cursor()
+
+            mock_is_usable.assert_called_once_with()
+            mock_close.assert_called_once_with()
+
+        with self.subTest("Connection open"):
+            mock_is_usable.reset_mock()
+            mock_is_usable.return_value = True
+
+            with mock.patch.object(connection, 'close') as mock_close:
+                connection.cursor()
+
+            mock_is_usable.assert_called_once_with()
+            self.assertFalse(mock_close.called)
+
+    def test_dropped_connection(self):
+        """
+        Case: Forcefully disconnect the database connection and perform a query.
+        Expected: Database connection to be remade and the query executed without a problem.
+        """
+        def disconnect():
+            """
+            Send a SQL that will disconnect all current connections to this database.
+            """
+            from psycopg2 import OperationalError as OperationalError1
+            from django.db.utils import OperationalError as OperationalError2
+
+            with use_shard(node_name='default', schema_name='public') as env:
+                cursor = env.connection._get_cursor()  # Force the creation of a new cursor
+                try:
+                    cursor.execute("select pg_terminate_backend(pid) from pg_stat_activity where "
+                                   "datname='test_sharding';")
+                except (InterfaceError, OperationalError1, OperationalError2):
+                    # We know this will raise errors.
+                    # Disconnecting the connection from a connection does not pass silently.
+                    pass
+
+        create_template_schema('default')
+        shard = Shard.objects.create(alias='org_1_shard', schema_name='org_1_shard', node_name='default',
+                                     state=State.ACTIVE)
+
+        with self.subTest("With reconnecting logic enabled"):
+            with use_shard(shard):
+                organization = Organization.objects.create(name='Nail!')
+                organization.refresh_from_db()
+
+                disconnect()
+
+                # This should use the refreshed connection and raise no errors.
+                organization.refresh_from_db()
+
+        with self.subTest("With reconnecting logic disabled"):
+            with use_shard(shard):
+                organization = Organization.objects.create(name='Nail!')
+                organization.refresh_from_db()
+
+                # Tell the connectionwrapper the connection is always usuable, so it won't see it is disconnected,
+                # and thus will no reconnecting when needed.
+                with mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable',
+                                return_value=True):
+                    disconnect()
+
+                    with self.assertRaisesMessage(InterfaceError, 'connection already closed'):
+                        organization.refresh_from_db()
+
 
 class CursorTestCase(ShardingTestCase):
     def close_connections(self):
@@ -505,9 +580,12 @@ class CursorTestCase(ShardingTestCase):
         shard_options = ShardOptions(node_name='default', schema_name='template', include_public=False)
         connection_ = ShardDatabaseWrapper(self.connection, shard_options)
 
-        with self.assertSearchPathChanged(connection_, ['public'], ['template']):
-            with connection_.cursor():
-                pass
+        # Disable the reconnect logic, to prevent it making queries
+        with mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable',
+                        return_value=True):
+            with self.assertSearchPathChanged(connection_, ['public'], ['template']):
+                with connection_.cursor():
+                    pass
 
     def test_no_db_operation(self):
         """
