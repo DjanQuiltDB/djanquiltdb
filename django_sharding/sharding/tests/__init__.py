@@ -1,4 +1,6 @@
+import functools
 import itertools
+from unittest import mock
 
 from django.apps import apps
 from django.db import connections, DEFAULT_DB_ALIAS
@@ -71,3 +73,13 @@ class ShardingTransactionTestCase(ResetConnectionTestCaseMixin, CleanShardingArt
         models = apps.get_models()
         return [model for model in models if get_model_sharding_mode(model) == ShardingMode.MIRRORED
                 and not getattr(model, 'test_model', False)]
+
+
+def disable_db_reconnect(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        with mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable',
+                        return_value=True):
+            return func(*args, **kwargs)
+
+    return wrapper

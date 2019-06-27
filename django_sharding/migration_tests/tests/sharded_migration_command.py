@@ -14,7 +14,7 @@ from example.models import Shard
 from migration_tests.tests.migration_base import MigrationTestCase
 from sharding.db import connection
 from sharding.management.commands.migrate_shards import Command as MigrateShards
-from sharding.tests import ShardingTestCase
+from sharding.tests import ShardingTestCase, disable_db_reconnect
 from sharding.utils import State, use_shard, get_template_name, get_all_databases, get_all_sharded_models, \
     create_template_schema, schema_exists
 
@@ -191,6 +191,7 @@ class OriginalMigrationTestCase(MigrationTestCase):
         self.assertTableNotExists('migration_tests_book')
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
+    @disable_db_reconnect
     def test_migrate_fake_initial(self):
         """
         Case: #24184 - Tests that --fake-initial only works if all tables created in

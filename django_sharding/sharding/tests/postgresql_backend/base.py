@@ -14,7 +14,7 @@ from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import get_validated_schema_name, PUBLIC_SCHEMA_NAME, \
     DatabaseWrapper, ShardDatabaseWrapper
 from sharding.postgresql_backend.utils import LockCursorWrapperMixin
-from sharding.tests import ShardingTransactionTestCase, ShardingTestCase
+from sharding.tests import ShardingTransactionTestCase, ShardingTestCase, disable_db_reconnect
 from sharding.utils import create_schema_on_node, create_template_schema, use_shard, get_template_name
 
 
@@ -461,8 +461,8 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             with use_shard(node_name='default', schema_name='public') as env:
                 cursor = env.connection._get_cursor()  # Force the creation of a new cursor
                 try:
-                    cursor.execute("select pg_terminate_backend(pid) from pg_stat_activity where "
-                                   "datname='test_sharding';")
+                    cursor.execute('select pg_terminate_backend(pid) from pg_stat_activity where '
+                                   'datname=%s;', [env.connection.settings_dict['NAME']])
                 except (InterfaceError, OperationalError1, OperationalError2):
                     # We know this will raise errors.
                     # Disconnecting the connection from a connection does not pass silently.
@@ -559,6 +559,7 @@ class CursorTestCase(ShardingTestCase):
         self.assertEqual(connection_.current_search_paths, old_search_paths)
         self.assertFalse(mock_connection.cursor.return_value.execute.called)
 
+    @disable_db_reconnect  # Disable the reconnect logic, to prevent it making queries
     def test_select_schema_operation(self):
         """
         Case: While the connection's current search path is 'public' only, get a cursor for a connection to the template
@@ -570,6 +571,7 @@ class CursorTestCase(ShardingTestCase):
             with self.template_connection.cursor():
                 pass
 
+    @disable_db_reconnect  # Disable the reconnect logic, to prevent it making queries
     def test_dont_include_public_schema(self):
         """
         Case: While the connection's current search path is 'public' only, get a cursor for a connection to the template
@@ -580,12 +582,9 @@ class CursorTestCase(ShardingTestCase):
         shard_options = ShardOptions(node_name='default', schema_name='template', include_public=False)
         connection_ = ShardDatabaseWrapper(self.connection, shard_options)
 
-        # Disable the reconnect logic, to prevent it making queries
-        with mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable',
-                        return_value=True):
-            with self.assertSearchPathChanged(connection_, ['public'], ['template']):
-                with connection_.cursor():
-                    pass
+        with self.assertSearchPathChanged(connection_, ['public'], ['template']):
+            with connection_.cursor():
+                pass
 
     def test_no_db_operation(self):
         """
@@ -596,6 +595,7 @@ class CursorTestCase(ShardingTestCase):
             with self.connection._nodb_connection.cursor():
                 pass
 
+    @disable_db_reconnect  # Disable the reconnect logic, to prevent it making queries
     def test_search_path_equal(self):
         """
         Case: While the connection's current search path is already 'template' and 'public', get a cursor for the
