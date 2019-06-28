@@ -202,6 +202,10 @@ class MoveDataToShardTestCase(ShardingTestCase):
             'quiet': True
         }
 
+    def _should_check_constraints(self, connection):
+        # Some of the test artifacts will be constraint noncomplient. Do not check for constraints during teardown.
+        return False
+
     def format_options_to_args(self, options=None):
         """
         Helper method that change the options to command line args, needed if we want to call the command with

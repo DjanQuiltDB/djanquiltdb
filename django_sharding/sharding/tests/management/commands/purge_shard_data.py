@@ -153,6 +153,10 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
             'interactive': self.command.options['interactive'],
         }
 
+    def _should_check_constraints(self, connection):
+        # Some of the test artifacts will be constraint noncomplient. Do not check for constraints during teardown.
+        return False
+
     def test_get_objects(self):
         """
         Case: Call get_objects.
