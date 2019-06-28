@@ -191,7 +191,7 @@ class OriginalMigrationTestCase(MigrationTestCase):
         self.assertTableNotExists('migration_tests_book')
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
-    @disable_db_reconnect
+    @disable_db_reconnect()
     def test_migrate_fake_initial(self):
         """
         Case: #24184 - Tests that --fake-initial only works if all tables created in

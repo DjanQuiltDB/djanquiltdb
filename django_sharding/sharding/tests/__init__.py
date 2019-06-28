@@ -75,11 +75,12 @@ class ShardingTransactionTestCase(ResetConnectionTestCaseMixin, CleanShardingArt
                 and not getattr(model, 'test_model', False)]
 
 
-def disable_db_reconnect(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        with mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable',
-                        return_value=True):
-            return func(*args, **kwargs)
-
-    return wrapper
+def disable_db_reconnect():
+    def outer(func):
+        @functools.wraps(func)
+        def inner(*args, **kwargs):
+            with mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable',
+                            return_value=True):
+                return func(*args, **kwargs)
+        return inner
+    return outer

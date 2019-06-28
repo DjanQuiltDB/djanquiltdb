@@ -203,7 +203,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         }
 
     def _should_check_constraints(self, connection):
-        # Some of the test artifacts will be constraint noncomplient. Do not check for constraints during teardown.
+        # Some of the test artifacts will be constraint non compliant. Do not check for constraints during teardown.
         return False
 
     def format_options_to_args(self, options=None):
