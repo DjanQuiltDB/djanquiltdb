@@ -349,7 +349,15 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         to see if SCHEMA_NAME is set or not. If it is, then it
         will create it if it doesn't yet exist. Finally, it will
         point to that schema.
+
+        Check for a connection and see if it is usable. If not: close the connection and the Super() class will
+        automatically reconnect in its _cursor() function.
         """
+        if self.connection is not None and self.errors_occurred:
+            if not self.is_usable():
+                logger.warning('Database connection is unusable. Reconnecting and continuing.')
+                self.close()
+
         cursor = self._get_cursor(name=name)
 
         if self.include_public_schema and self.schema_name != PUBLIC_SCHEMA_NAME:
