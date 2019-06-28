@@ -421,12 +421,38 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         connection.delete_schema('test_schema')
         self.assertIsNone(connection.get_ps_schema('test_schema'))  # Schema does not exist anymore
 
-    @mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable')
-    def test_reconnect(self, mock_is_usable):
+    @mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable', return_value=False)
+    def test_reconnect_on_error(self, mock_is_usable):
         """
-        Case: Call for a cursor while the connection is stale
+        Case: Call for a cursor while the connection has errors or not
+        Expected: self.is_usable() and self.close() to be called if needed
+        """
+        with self.subTest('Errors occured'):
+            connection.errors_occurred = True
+
+            with mock.patch.object(connection, 'close') as mock_close:
+                connection.cursor()
+
+            mock_is_usable.assert_called_once_with()
+            mock_close.assert_called_once_with()
+
+        with self.subTest('No errors occured'):
+            connection.errors_occurred = False
+            mock_is_usable.reset_mock()
+
+            with mock.patch.object(connection, 'close') as mock_close:
+                connection.cursor()
+
+            self.assertFalse(mock_is_usable.called)
+            self.assertFalse(mock_close.called)
+
+    @mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable')
+    def test_reconnect_on_stale_connection(self, mock_is_usable):
+        """
+        Case: Call for a cursor while the connection had errors and the connection is stale or not
         Expected: self.is_usable() to be used and self.close() to be called if needed
         """
+        connection.errors_occurred = True
         with self.subTest('Connection stale'):
             mock_is_usable.return_value = False
 

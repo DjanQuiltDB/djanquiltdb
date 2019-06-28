@@ -353,7 +353,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         Check for a connection and see if it is usable. If not: close the connection and the Super() class will
         automatically reconnect in its _cursor() function.
         """
-        if self.connection:
+        if self.connection is not None and self.errors_occurred:
             if not self.is_usable():
                 logger.warning('Database connection is unusable. Reconnecting and continuing.')
                 self.close()
