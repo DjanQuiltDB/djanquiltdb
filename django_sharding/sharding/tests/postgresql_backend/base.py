@@ -483,6 +483,10 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
                 organization.refresh_from_db()
 
         with self.subTest("With reconnecting logic disabled"):
+            """
+            Should this test ever fail, that means that either the disconnect query does not work, or Django/psycopg
+            reconnects for us. The latter might lead to us removing the reconnect feature added in SHARDING-90.
+            """
             with use_shard(shard):
                 organization = Organization.objects.create(name='Nail!')
                 organization.refresh_from_db()
