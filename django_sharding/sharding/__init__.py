@@ -1,6 +1,6 @@
 from enum import Enum
 
-__version__ = '0.4.5'
+__version__ = '0.4.6'
 
 default_app_config = 'sharding.apps.ShardingConfig'
 
