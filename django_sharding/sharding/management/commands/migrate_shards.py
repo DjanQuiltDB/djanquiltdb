@@ -73,16 +73,7 @@ class Command(MigrateCommand):
         executor = MigrationExecutor(connection)
 
         # Before anything else, drop out hard if there are conflicting apps.
-        conflicts = executor.loader.detect_conflicts()
-        if conflicts:
-            name_str = '; '.join(
-                '{} in {}'.format(', '.join(names), app)
-                for app, names in conflicts.items()
-            )
-            raise CommandError(
-                "Conflicting migrations detected ({}).\nTo fix them run "
-                "'python manage.py makemigrations --merge'".format(name_str)
-            )
+        self.check_for_app_conflicts(executor)
 
         # If they supplied command line arguments, work out what they mean.
         run_syncdb, targets = self.get_targets_from_options(executor, options)
@@ -160,6 +151,21 @@ class Command(MigrateCommand):
 
         # Nothing is given, just return all end nodes
         return True, executor.loader.graph.leaf_nodes()
+
+    def check_for_app_conflicts(self, executor):
+        """
+        Check app to check if there are conflicts. Raise an error if there are.
+        """
+        conflicts = executor.loader.detect_conflicts()
+        if conflicts:
+            name_str = '; '.join(
+                '{} in {}'.format(', '.join(names), app)
+                for app, names in conflicts.items()
+            )
+            raise CommandError(
+                "Conflicting migrations detected ({}).\nTo fix them run "
+                "'python manage.py makemigrations --merge'".format(name_str)
+            )
 
     def get_plan(self, targets, databases, schema_name):
         plan = []

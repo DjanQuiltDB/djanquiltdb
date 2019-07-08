@@ -363,7 +363,7 @@ class ShardedMigrationHandleTestCase(MigrationTestCase):
     @mock.patch('sharding.management.commands.migrate_shards.Command.get_plan')
     @mock.patch('sharding.management.commands.migrate_shards.Command.get_targets_from_options',
                 return_value=(mock.Mock(), mock.Mock()))
-    @mock.patch('django.db.migrations.loader.MigrationLoader.detect_conflicts')
+    @mock.patch('sharding.management.commands.migrate_shards.Command.check_for_app_conflicts')
     @mock.patch('django.db.backends.base.base.BaseDatabaseWrapper.prepare_database')
     @mock.patch('sharding.management.commands.migrate_shards.get_databases_and_schema_from_options')
     @mock.patch('sharding.management.commands.migrate_shards.import_module')
@@ -371,7 +371,7 @@ class ShardedMigrationHandleTestCase(MigrationTestCase):
                             mock_import_module,
                             mock_get_db_from_options,
                             mock_prepare_database,
-                            mock_detect_conflicts,
+                            mock_check_conflicts,
                             mock_get_targets,
                             mock_get_plan,
                             mock_perform_migration,
@@ -381,7 +381,7 @@ class ShardedMigrationHandleTestCase(MigrationTestCase):
         Expected: A ton of external functions to be called. No specific sys.exit called.
         """
         mock_get_db_from_options.return_value = ([db for db in settings.DATABASES], None)
-        mock_detect_conflicts.return_value = False
+        mock_check_conflicts.return_value = False
 
         options = {
             'database': 'all',
@@ -393,7 +393,7 @@ class ShardedMigrationHandleTestCase(MigrationTestCase):
         mock_import_module.assert_called_once_with('.management', 'sharding')
         mock_get_db_from_options.assert_called_once_with(options)
         self.assertEqual(mock_prepare_database.call_count, 2)  # We have 2 databases
-        mock_detect_conflicts.assert_called_once_with()
+        self.assertEqual(mock_check_conflicts.call_count, 1)
         self.assertEqual(mock_get_targets.call_count, 1)
         self.assertEqual(mock_get_plan.call_count, 1)
         self.assertEqual(mock_perform_migration.call_count, 1)
@@ -664,6 +664,18 @@ class ShardedMigrationGetPlanForShardTestCase(MigrationTestCase):
         self.assertEqual(mock_executor.call_count, 1)
         mock_executor.return_value.migration_plan.assert_called_once_with(self.targets)
         self.assertEqual(mock_use_shard_exit.call_count, 1)
+
+
+class ShardedMigrationCheckForAppConflicts(MigrationTestCase):
+    def test_migrate_conflict_exit(self):
+        """
+        Case: Call check_for_app_conflicts with a conflicting migration set
+        Expected: Raise a CommandError
+        """
+        with self.assertRaisesMessage(CommandError, 'Conflicting migrations detected'):
+            mock_executor = mock.Mock()
+            mock_executor.loader.detect_conflicts.return_value = {'an app': 'a conflict'}
+            MigrateShards().check_for_app_conflicts(executor=mock_executor)
 
 
 @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
