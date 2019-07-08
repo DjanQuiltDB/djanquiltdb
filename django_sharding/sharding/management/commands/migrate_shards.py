@@ -1,3 +1,4 @@
+import sys
 from importlib import import_module
 
 import django
@@ -109,17 +110,21 @@ class Command(MigrateCommand):
         # Execute the plan
         self.verbosity >= 1 and self.stdout.write(self.style.MIGRATE_HEADING('Running migrations:'))
 
+        error = False
         if not plan:
             executor.check_replacements()
             self.verbosity >= 1 and self.check_for_changes(executor)
         else:
-            self.perform_migration(plan, databases, schema_name,
-                                   fake=options.get('fake'), fake_initial=options.get('fake_initial'))
+            error = self.perform_migration(plan, databases, schema_name,
+                                           fake=options.get('fake'), fake_initial=options.get('fake_initial'))
 
         if django.VERSION >= (1, 9):
             emit_post_migrate_signal(self.verbosity, self.interactive, connection.alias)
         else:
             emit_post_migrate_signal(created_models, self.verbosity, self.interactive, connection.alias)
+
+        if error:
+            sys.exit(1)
 
     def get_targets_from_options(self, executor, options):
         if options.get('app_label') and options.get('migration_name'):
@@ -221,30 +226,32 @@ class Command(MigrateCommand):
                 with use_shard(node_name=database, schema_name=schema_name) as env:
                     shard_executor = MigrationExecutor(env.connection)
                     shard_executor.migrate(targets=None, plan=plan, fake=fake, fake_initial=fake_initial)
-        else:  # We have multiple shards to migrate. Do the breath-first
-            template_name = get_template_name()
+            return False  # Report no errors
 
-            stop = False
+        # We have multiple shards to migrate. Do the breath-first
+        template_name = get_template_name()
+        stop = False
 
-            for node in plan:
-                # Migrate all public schemas and templates
-                for database in databases:
-                    stop |= self.check_or_migrate_schema(database, PUBLIC_SCHEMA_NAME, node, fake, fake_initial)
+        for node in plan:
+            # Migrate all public schemas and templates
+            for database in databases:
+                stop |= self.check_or_migrate_schema(database, PUBLIC_SCHEMA_NAME, node, fake, fake_initial)
 
-                    if schema_exists(database, template_name):
-                        stop |= self.check_or_migrate_schema(database, template_name, node, fake, fake_initial)
+                if schema_exists(database, template_name):
+                    stop |= self.check_or_migrate_schema(database, template_name, node, fake, fake_initial)
 
-                # Migrate all shards, if the shard table exists.
-                if shard_table_exists():
-                    for shard in get_shard_class().objects.filter(node_name__in=databases):
-                        stop |= self.check_or_migrate_shard(shard, node, fake, fake_initial)
+            # Migrate all shards, if the shard table exists.
+            if shard_table_exists():
+                for shard in get_shard_class().objects.filter(node_name__in=databases):
+                    stop |= self.check_or_migrate_shard(shard, node, fake, fake_initial)
 
-                # If one or more migrations failed, don't move to the next.
-                if stop:
-                    self.stdout.write(self.style.ERROR(
-                        'Migration stopped due to errors after completing {}.'.format(node[0])
-                    ))
-                    break
+            # If one or more migrations failed, don't move to the next.
+            if stop:
+                self.stdout.write(self.style.ERROR(
+                    'Migration stopped due to errors after completing {}.'.format(node[0])
+                ))
+                break
+        return stop
 
     def check_or_migrate_schema(self, database, schema_name, plan_node, fake, fake_initial):
         with use_shard(node_name=database, schema_name=schema_name) as env:
