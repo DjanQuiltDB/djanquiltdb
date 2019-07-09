@@ -234,7 +234,7 @@ class Command(MigrateCommand):
                     shard_executor.migrate(targets=None, plan=plan, fake=fake, fake_initial=fake_initial)
             return False  # Report no errors
 
-        # We have multiple shards to migrate. Do the breath-first
+        # We have multiple shards to migrate. Do this breadth-first
         template_name = get_template_name()
         stop = False
 

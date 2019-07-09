@@ -744,33 +744,25 @@ class ShardedMigrationPerformMigrationTestCase(MigrationTestCase):
                 autospec=True)
     @mock.patch('sharding.management.commands.migrate_shards.Command.check_or_migrate_shard', return_value=True,
                 autospec=True)
-    def test_return_value_true(self, mock_check_or_migrate_shard, mock_check_or_migrate_schema):
+    def test_return_values(self, mock_check_or_migrate_shard, mock_check_or_migrate_schema):
         """
-        Case: Call perform_migration while check_or_migrate_schema/shard returns True
-        Expected: perform_migration to return True as well
+        Case: Call perform_migration while check_or_migrate_schema/shard returns a combination of True and False
+        Expected: perform_migration to return True when either check_or_migrate returns True
         """
-        migrate_shards = MigrateShards()
-        return_value = migrate_shards.perform_migration(self.plan, self.databases, None, False, False)
+        for schema_value in [True, False]:
+            for shard_value in [True, False]:
+                with self.subTest('Return value {}, {}'.format(schema_value, shard_value)):
+                    mock_check_or_migrate_shard.reset_mock()
+                    mock_check_or_migrate_shard.return_value = shard_value
+                    mock_check_or_migrate_schema.reset_mock()
+                    mock_check_or_migrate_schema.return_value = schema_value
 
-        self.assertTrue(return_value)
-        self.assertTrue(mock_check_or_migrate_shard.called)
-        self.assertTrue(mock_check_or_migrate_schema.called)
+                    migrate_shards = MigrateShards()
+                    return_value = migrate_shards.perform_migration(self.plan, self.databases, None, False, False)
 
-    @mock.patch('sharding.management.commands.migrate_shards.Command.check_or_migrate_schema', return_value=False,
-                autospec=True)
-    @mock.patch('sharding.management.commands.migrate_shards.Command.check_or_migrate_shard', return_value=False,
-                autospec=True)
-    def test_return_value_false(self, mock_check_or_migrate_shard, mock_check_or_migrate_schema):
-        """
-        Case: Call perform_migration while check_or_migrate_schema/shard returns False
-        Expected: perform_migration to return False as well
-        """
-        migrate_shards = MigrateShards()
-        return_value = migrate_shards.perform_migration(self.plan, self.databases, None, False, False)
-
-        self.assertFalse(return_value)
-        self.assertTrue(mock_check_or_migrate_shard.called)
-        self.assertTrue(mock_check_or_migrate_schema.called)
+                    self.assertEqual(return_value, schema_value | shard_value)
+                    self.assertTrue(mock_check_or_migrate_shard.called)
+                    self.assertTrue(mock_check_or_migrate_schema.called)
 
 
 @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
