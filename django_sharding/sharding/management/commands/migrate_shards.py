@@ -1,3 +1,4 @@
+import sys
 from importlib import import_module
 
 import django
@@ -72,16 +73,7 @@ class Command(MigrateCommand):
         executor = MigrationExecutor(connection)
 
         # Before anything else, drop out hard if there are conflicting apps.
-        conflicts = executor.loader.detect_conflicts()
-        if conflicts:
-            name_str = '; '.join(
-                '{} in {}'.format(', '.join(names), app)
-                for app, names in conflicts.items()
-            )
-            raise CommandError(
-                "Conflicting migrations detected ({}).\nTo fix them run "
-                "'python manage.py makemigrations --merge'".format(name_str)
-            )
+        self.check_for_app_conflicts(executor)
 
         # If they supplied command line arguments, work out what they mean.
         run_syncdb, targets = self.get_targets_from_options(executor, options)
@@ -109,17 +101,21 @@ class Command(MigrateCommand):
         # Execute the plan
         self.verbosity >= 1 and self.stdout.write(self.style.MIGRATE_HEADING('Running migrations:'))
 
+        error = False
         if not plan:
             executor.check_replacements()
             self.verbosity >= 1 and self.check_for_changes(executor)
         else:
-            self.perform_migration(plan, databases, schema_name,
-                                   fake=options.get('fake'), fake_initial=options.get('fake_initial'))
+            error = self.perform_migration(plan, databases, schema_name,
+                                           fake=options.get('fake'), fake_initial=options.get('fake_initial'))
 
         if django.VERSION >= (1, 9):
             emit_post_migrate_signal(self.verbosity, self.interactive, connection.alias)
         else:
             emit_post_migrate_signal(created_models, self.verbosity, self.interactive, connection.alias)
+
+        if error:
+            sys.exit(1)
 
     def get_targets_from_options(self, executor, options):
         if options.get('app_label') and options.get('migration_name'):
@@ -155,6 +151,21 @@ class Command(MigrateCommand):
 
         # Nothing is given, just return all end nodes
         return True, executor.loader.graph.leaf_nodes()
+
+    def check_for_app_conflicts(self, executor):
+        """
+        Check app to check if there are conflicts. Raise an error if there are.
+        """
+        conflicts = executor.loader.detect_conflicts()
+        if conflicts:
+            name_str = '; '.join(
+                '{} in {}'.format(', '.join(names), app)
+                for app, names in conflicts.items()
+            )
+            raise CommandError(
+                "Conflicting migrations detected ({}).\nTo fix them run "
+                "'python manage.py makemigrations --merge'".format(name_str)
+            )
 
     def get_plan(self, targets, databases, schema_name):
         plan = []
@@ -221,30 +232,32 @@ class Command(MigrateCommand):
                 with use_shard(node_name=database, schema_name=schema_name) as env:
                     shard_executor = MigrationExecutor(env.connection)
                     shard_executor.migrate(targets=None, plan=plan, fake=fake, fake_initial=fake_initial)
-        else:  # We have multiple shards to migrate. Do the breath-first
-            template_name = get_template_name()
+            return False  # Report no errors
 
-            stop = False
+        # We have multiple shards to migrate. Do this breadth-first
+        template_name = get_template_name()
+        stop = False
 
-            for node in plan:
-                # Migrate all public schemas and templates
-                for database in databases:
-                    stop |= self.check_or_migrate_schema(database, PUBLIC_SCHEMA_NAME, node, fake, fake_initial)
+        for node in plan:
+            # Migrate all public schemas and templates
+            for database in databases:
+                stop |= self.check_or_migrate_schema(database, PUBLIC_SCHEMA_NAME, node, fake, fake_initial)
 
-                    if schema_exists(database, template_name):
-                        stop |= self.check_or_migrate_schema(database, template_name, node, fake, fake_initial)
+                if schema_exists(database, template_name):
+                    stop |= self.check_or_migrate_schema(database, template_name, node, fake, fake_initial)
 
-                # Migrate all shards, if the shard table exists.
-                if shard_table_exists():
-                    for shard in get_shard_class().objects.filter(node_name__in=databases):
-                        stop |= self.check_or_migrate_shard(shard, node, fake, fake_initial)
+            # Migrate all shards, if the shard table exists.
+            if shard_table_exists():
+                for shard in get_shard_class().objects.filter(node_name__in=databases):
+                    stop |= self.check_or_migrate_shard(shard, node, fake, fake_initial)
 
-                # If one or more migrations failed, don't move to the next.
-                if stop:
-                    self.stdout.write(self.style.ERROR(
-                        'Migration stopped due to errors after completing {}.'.format(node[0])
-                    ))
-                    break
+            # If one or more migrations failed, don't move to the next.
+            if stop:
+                self.stdout.write(self.style.ERROR(
+                    'Migration stopped due to errors after completing {}.'.format(node[0])
+                ))
+                break
+        return stop
 
     def check_or_migrate_schema(self, database, schema_name, plan_node, fake, fake_initial):
         with use_shard(node_name=database, schema_name=schema_name) as env:
