@@ -6,6 +6,7 @@ from unittest import mock
 from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connections, ProgrammingError, InterfaceError, OperationalError, transaction
+from django.db.models.signals import *
 from django.db.utils import ConnectionDoesNotExist
 from django.test import SimpleTestCase, override_settings
 
@@ -20,7 +21,7 @@ from sharding.utils import use_shard, create_schema_on_node, create_template_sch
     get_template_name, _node_exists, StateException, use_shard_for, get_shard_for, for_each_shard, State, \
     for_each_node, transaction_for_every_node, move_model_to_schema, get_all_databases, ShardingMode, \
     get_sharding_mode, get_model_sharding_mode, get_all_sharded_models, get_shard_class, get_mapping_class, \
-    transaction_for_nodes, get_all_mirrored_models, delete_schema, schema_exists
+    transaction_for_nodes, get_all_mirrored_models, delete_schema, schema_exists, disable_signals
 
 
 class GetShardClass(SimpleTestCase):
@@ -1341,3 +1342,137 @@ class SchemaExistsTestCase(ShardingTestCase):
         Expected: Returns False
         """
         self.assertFalse(schema_exists('default', get_template_name()))
+
+
+class DisableSignalsTestCase(ShardingTestCase):
+    def setUp(self):
+        super().setUp()
+
+    def test(self):
+        """
+        Case: Wrap an instance.save() call in disable_signals
+        Expected: Disconnected signals not called
+        Note: Happy flow system test
+        """
+        fake_pre_save_signal = mock.Mock()
+        fake_post_save_signal = mock.Mock()
+        pre_save.connect(fake_pre_save_signal, sender='example.Organization')
+        post_save.connect(fake_post_save_signal, sender='example.Organization')
+
+        create_template_schema()
+        self.shard = Shard.objects.create(alias='light', node_name='default', schema_name='test_light',
+                                          state=State.ACTIVE)
+
+        with use_shard(self.shard):
+            organization = Organization(name='EastShade')
+
+            with self.subTest('Signal enabled'):
+                organization.save()
+                self.assertEqual(fake_pre_save_signal.call_count, 1)
+                self.assertEqual(fake_post_save_signal.call_count, 1)
+
+            with self.subTest('Signal disabled'):
+                fake_pre_save_signal.reset_mock()
+                fake_post_save_signal.reset_mock()
+
+                with disable_signals([post_save]):
+                    organization.name = 'WestShade'
+                    organization.save()
+
+                organization.refresh_from_db()
+                self.assertEqual(organization.name, 'WestShade')
+
+                self.assertEqual(fake_pre_save_signal.call_count, 1)
+                self.assertEqual(fake_post_save_signal.call_count, 0)
+
+            with self.subTest('Signal reenabled'):
+                fake_pre_save_signal.reset_mock()
+                fake_post_save_signal.reset_mock()
+
+                organization.name = 'NorthShade'
+                organization.save()
+                self.assertEqual(fake_pre_save_signal.call_count, 1)
+                self.assertEqual(fake_post_save_signal.call_count, 1)
+
+    def test_init_without_arguments(self):
+        """
+        Case: Call disable_signals.__init__ without any arguments
+        Expected: Resulting object to have an empty dict as stashed_signals and all common django signals in
+                  disabled_signals
+        """
+        manager = disable_signals()
+
+        self.assertEqual(manager.stashed_signals, {})
+        self.assertEqual(manager.disabled_signals, [pre_init, post_init, pre_save, post_save, pre_delete, post_delete,
+                                                    pre_migrate, post_migrate])
+
+    def test_init_with_argument(self):
+        """
+        Case: Call disable_signals.__init__ with a signal as argument
+        Expected: Resulting object to have an empty dict as stashed_signals and only the given signal in
+                  disabled_signals
+        """
+        manager = disable_signals([pre_save])
+
+        self.assertEqual(manager.stashed_signals, {})
+        self.assertEqual(manager.disabled_signals, [pre_save])
+
+    def test_enter(self):
+        """
+        Case: Call disable_signals.__enter__
+        Expected: Disconnect called for each signal in disabled_signals
+        """
+        manager = disable_signals([pre_save])
+
+        with mock.patch.object(manager, 'disconnect') as mock_disconnect:
+            manager.__enter__()
+
+        self.assertEqual(mock_disconnect.call_count, 1)
+
+    def test_exit(self):
+        """
+        Case: Call disable_signals.__exit__
+        Expected: Reconnect called for each signal in stashed_signals
+        """
+        manager = disable_signals([pre_save])
+        manager.stashed_signals = {pre_save: 'some_receiver'}
+
+        with mock.patch.object(manager, 'reconnect') as mock_disconnect:
+            manager.__exit__(None, None, None)
+
+        self.assertEqual(mock_disconnect.call_count, 1)
+
+    def test_disconnect(self):
+        """
+        Case: Call disable_signals.disconnect with a given signal
+        Expected: Signal's original receivers to be stored in stashed_signals and then emptied
+        """
+        manager = disable_signals()
+
+        fake_signal = mock.Mock()
+        fake_signal.receivers = ['some_receiver']
+        manager.disconnect(fake_signal)
+
+        self.assertEqual(manager.stashed_signals, {fake_signal: ['some_receiver']})
+        self.assertEqual(fake_signal.receivers, [])
+
+    def test_reconnect(self):
+        """
+        Case: Call disable_signals.reconnect with a given signal
+        Expected: Only the given signal's original receivers to be restored and removed from stashed_signals
+        """
+        manager = disable_signals()
+
+        fake_signal_1 = mock.Mock()
+        fake_signal_1.receivers = []
+        fake_signal_2 = mock.Mock()
+        fake_signal_2.receivers = []
+
+        manager.stashed_signals = {fake_signal_1: ['some_receiver'],
+                                   fake_signal_2: ['some_other_receiver']}
+        manager.reconnect(fake_signal_1)
+
+        # fake_signal_2 left untouched
+        self.assertEqual(manager.stashed_signals, {fake_signal_2: ['some_other_receiver']})
+        self.assertEqual(fake_signal_1.receivers, ['some_receiver'])
+        self.assertEqual(fake_signal_2.receivers, [])

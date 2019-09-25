@@ -4,6 +4,7 @@ from unittest import mock
 from django.contrib.admin.utils import NestedObjects
 from django.core.management import CommandError, call_command
 from django.db import DatabaseError
+from django.db.models.signals import pre_delete, post_delete
 
 from example.models import Shard, OrganizationShards, SuperType, Type, Organization, Suborganization, User, Statement, \
     Cake
@@ -298,10 +299,11 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         collector = self.command.get_data_collector(objects=[self.organization_1], use_original_collector=True)
         self.assertEqual(collector.data, self.expected_data)
 
-    def test_delete_data(self):
+    @mock.patch('sharding.management.commands.purge_shard_data.disable_signals' )
+    def test_delete_data(self, mock_disable_signals):
         """
         Case: Call delete_data.
-        Expected: The delete method of the collector will be called
+        Expected: The delete method of the collector will be called within a disable_signals context manager.
         """
         mock_collector = mock.Mock()
 
@@ -309,6 +311,26 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         self.command.delete_data(collector=mock_collector)
 
         mock_collector.delete.assert_called_once_with()
+
+        mock_disable_signals.assert_called_once_with([pre_delete, post_delete])
+
+    def test_disconnect_delete_signals(self):
+        """
+        Case: Call the handle while the re are pre_delete and post_delete signals on models that will be collected.
+        Expected: Objects are deleted, but no delete signals are called.
+        """
+        fake_pre_delete_signal = mock.Mock()
+        fake_post_delete_signal = mock.Mock()
+        pre_delete.connect(fake_pre_delete_signal, sender='example.Organization')
+        post_delete.connect(fake_post_delete_signal, sender='example.Organization')
+
+        self.command.handle(**self.options)
+
+        self.assertEqual(fake_pre_delete_signal.call_count, 0)
+        self.assertEqual(fake_post_delete_signal.call_count, 0)
+
+        with use_shard(self.source_shard):
+            self.assertFalse(Organization.objects.filter(id=self.organization_1.id).exists())
 
     @mock.patch('sharding.management.commands.purge_shard_data.NestedObjects.collect',
                 mock.Mock(side_effect=DatabaseError))
