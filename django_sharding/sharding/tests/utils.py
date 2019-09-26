@@ -6,7 +6,8 @@ from unittest import mock
 from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connections, ProgrammingError, InterfaceError, OperationalError, transaction
-from django.db.models.signals import *
+from django.db.models.signals import pre_init, post_init, pre_save, post_save, pre_delete, post_delete, pre_migrate, \
+    post_migrate
 from django.db.utils import ConnectionDoesNotExist
 from django.test import SimpleTestCase, override_settings
 
@@ -1345,9 +1346,6 @@ class SchemaExistsTestCase(ShardingTestCase):
 
 
 class DisableSignalsTestCase(ShardingTestCase):
-    def setUp(self):
-        super().setUp()
-
     def test(self):
         """
         Case: Wrap an instance.save() call in disable_signals

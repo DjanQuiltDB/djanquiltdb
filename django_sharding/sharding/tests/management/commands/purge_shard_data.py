@@ -299,7 +299,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         collector = self.command.get_data_collector(objects=[self.organization_1], use_original_collector=True)
         self.assertEqual(collector.data, self.expected_data)
 
-    @mock.patch('sharding.management.commands.purge_shard_data.disable_signals' )
+    @mock.patch('sharding.management.commands.purge_shard_data.disable_signals')
     def test_delete_data(self, mock_disable_signals):
         """
         Case: Call delete_data.
