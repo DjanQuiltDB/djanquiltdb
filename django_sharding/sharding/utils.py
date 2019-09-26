@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 from functools import wraps
 
 from django.apps import apps
@@ -6,6 +7,8 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
 from django.db import connections, ProgrammingError
+from django.db.models.signals import pre_init, post_init, pre_save, post_save, pre_delete, post_delete, pre_migrate, \
+    post_migrate
 from django.db.transaction import Atomic
 from django.utils.module_loading import import_string
 
@@ -571,3 +574,45 @@ def move_model_to_schema(model, node_name, to_schema_name, from_schema_name=PUBL
 def schema_exists(node_name, schema_name):
     _node_exists(node_name)
     return bool(connections[node_name].get_ps_schema(schema_name))
+
+
+class disable_signals(object):
+    """
+    Context Manager that temporarily disconnects given or all common django signals.
+
+    Example usage:
+        from django.db.models.signals import pre_save, post_save
+
+        with disable_signals([pre_save, post_save]):
+            user.save()  # Will not call save related signals
+    """
+    def __init__(self, disabled_signals=None):
+        self.stashed_signals = defaultdict(list)
+        self.disabled_signals = disabled_signals or [
+            pre_init, post_init,
+            pre_save, post_save,
+            pre_delete, post_delete,
+            pre_migrate, post_migrate,
+        ]
+
+    def __enter__(self):
+        for signal in self.disabled_signals:
+            self.disconnect(signal)
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        for signal in list(self.stashed_signals):
+            self.reconnect(signal)
+
+    def disconnect(self, signal):
+        with signal.lock:
+            signal._clear_dead_receivers()
+            self.stashed_signals[signal] = signal.receivers
+            signal.receivers = []
+            signal.sender_receivers_cache.clear()
+
+    def reconnect(self, signal):
+        with signal.lock:
+            signal._clear_dead_receivers()
+            signal.receivers = self.stashed_signals.get(signal, [])
+            signal.sender_receivers_cache.clear()
+        del self.stashed_signals[signal]

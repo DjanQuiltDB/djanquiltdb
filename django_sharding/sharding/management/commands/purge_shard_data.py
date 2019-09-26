@@ -3,13 +3,14 @@ from django.core.exceptions import FieldError, MultipleObjectsReturned
 from django.core.management import BaseCommand, CommandError
 from django.db import connections
 from django.db.models import ObjectDoesNotExist
+from django.db.models.signals import pre_delete, post_delete
 from django.utils import termcolors
 
 from sharding import ShardingMode
 from sharding.apps import apps
 from sharding.collector import SimpleCollector
 from sharding.options import ShardOptions
-from sharding.utils import get_shard_class, get_all_sharded_models, get_model_sharding_mode
+from sharding.utils import get_shard_class, get_all_sharded_models, get_model_sharding_mode, disable_signals
 
 
 class Command(BaseCommand):
@@ -172,4 +173,8 @@ class Command(BaseCommand):
         return collector
 
     def delete_data(self, collector):
-        collector.delete()
+        """
+        Delete all the collected data after disconnecting pre_delete and post_delete signals
+        """
+        with disable_signals([pre_delete, post_delete]):
+            collector.delete()
