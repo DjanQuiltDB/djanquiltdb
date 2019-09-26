@@ -604,9 +604,15 @@ class disable_signals(object):
             self.reconnect(signal)
 
     def disconnect(self, signal):
-        self.stashed_signals[signal] = signal.receivers
-        signal.receivers = []
+        with signal.lock:
+            signal._clear_dead_receivers()
+            self.stashed_signals[signal] = signal.receivers
+            signal.receivers = []
+            signal.sender_receivers_cache.clear()
 
     def reconnect(self, signal):
-        signal.receivers = self.stashed_signals.get(signal, [])
+        with signal.lock:
+            signal._clear_dead_receivers()
+            signal.receivers = self.stashed_signals.get(signal, [])
+            signal.sender_receivers_cache.clear()
         del self.stashed_signals[signal]

@@ -1443,16 +1443,24 @@ class DisableSignalsTestCase(ShardingTestCase):
     def test_disconnect(self):
         """
         Case: Call disable_signals.disconnect with a given signal
-        Expected: Signal's original receivers to be stored in stashed_signals and then emptied
+        Expected: Signal's original receivers to be stored in stashed_signals and then emptied, the signal's lock and
+                  clear functions called
         """
         manager = disable_signals()
 
         fake_signal = mock.Mock()
+        fake_signal.lock = mock.Mock()
+        fake_signal.lock.__enter__ = mock.Mock()
+        fake_signal.lock.__exit__ = mock.Mock()
         fake_signal.receivers = ['some_receiver']
         manager.disconnect(fake_signal)
 
         self.assertEqual(manager.stashed_signals, {fake_signal: ['some_receiver']})
         self.assertEqual(fake_signal.receivers, [])
+
+        fake_signal.lock.__enter__.assert_called_once_with()
+        fake_signal._clear_dead_receivers.assert_called_once_with()
+        fake_signal.sender_receivers_cache.clear.assert_called_once_with()
 
     def test_reconnect(self):
         """
@@ -1462,15 +1470,30 @@ class DisableSignalsTestCase(ShardingTestCase):
         manager = disable_signals()
 
         fake_signal_1 = mock.Mock()
+        fake_signal_1.lock = mock.Mock()
+        fake_signal_1.lock.__enter__ = mock.Mock()
+        fake_signal_1.lock.__exit__ = mock.Mock()
         fake_signal_1.receivers = []
+
         fake_signal_2 = mock.Mock()
+        fake_signal_2.lock = mock.Mock()
+        fake_signal_2.lock.__enter__ = mock.Mock()
+        fake_signal_2.lock.__exit__ = mock.Mock()
         fake_signal_2.receivers = []
 
         manager.stashed_signals = {fake_signal_1: ['some_receiver'],
                                    fake_signal_2: ['some_other_receiver']}
         manager.reconnect(fake_signal_1)
 
+        # fake_signal_1 locked, cleared and restored
+        self.assertEqual(fake_signal_1.receivers, ['some_receiver'])
+        fake_signal_1.lock.__enter__.assert_called_once_with()
+        fake_signal_1._clear_dead_receivers.assert_called_once_with()
+        fake_signal_1.sender_receivers_cache.clear.assert_called_once_with()
+
         # fake_signal_2 left untouched
         self.assertEqual(manager.stashed_signals, {fake_signal_2: ['some_other_receiver']})
-        self.assertEqual(fake_signal_1.receivers, ['some_receiver'])
         self.assertEqual(fake_signal_2.receivers, [])
+        self.assertFalse(fake_signal_2.lock.__enter__.called)
+        self.assertFalse(fake_signal_2._clear_dead_receivers.called)
+        self.assertFalse(fake_signal_2.sender_receivers_cache.clear.called)
