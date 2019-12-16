@@ -54,6 +54,24 @@ def class_method_use_shard(func):
     return _add_decorator_reference(inner, decorator=class_method_use_shard, args=(func,))
 
 
+def class_method_use_shard_from_db_arg(func):
+    """
+    Decorator that is used to help a model that receives a target db (shard state) and wraps the __init__ function to
+    be executed on that db/shard. This is to ensure the model instancing happens within the correct shard context,
+    otherwise signals like pre_init and post_init will be outside the proper context and can lead to unwanted behavior.
+    """
+    @functools.wraps(func)
+    def inner(db, *args, **kwargs):
+        shard_options = ShardOptions.from_alias(db)
+
+        if shard_options == get_active_connection():
+            return func(db, *args, **kwargs)
+
+        with shard_options.use():
+            return func(db, *args, **kwargs)
+    return _add_decorator_reference(inner, decorator=class_method_use_shard_from_db_arg, args=(func,))
+
+
 def mirrored_model():
     """
     A decorator for marking a model for being mirror across the various nodes.

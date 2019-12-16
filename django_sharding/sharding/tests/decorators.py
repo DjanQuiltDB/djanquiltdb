@@ -3,9 +3,13 @@ from unittest import mock
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 
+from example.models import Shard
 from sharding import ShardingMode, State, STATES
-from sharding.decorators import sharded_model, shard_mapping_model, mirrored_model, _reset_shard_mapping_models
+from sharding.decorators import sharded_model, shard_mapping_model, mirrored_model, _reset_shard_mapping_models, \
+    class_method_use_shard_from_db_arg
+from sharding.options import ShardOptions
 from sharding.tests import ShardingTestCase
+from sharding.utils import create_template_schema
 
 
 class ModelTestCase(ShardingTestCase):
@@ -237,3 +241,122 @@ class MappingModelDecoratorTestCase(ModelTestCase):
 
                 class Meta:
                     app_label = 'sharding'
+
+
+class UseShardFromDbArgDecoratorTestCase(ShardingTestCase):
+    def setUp(self):
+        super().setUp()
+        create_template_schema()
+
+        self.shard = Shard.objects.create(alias='M84', schema_name='outro', node_name='default',
+                                          state=State.ACTIVE)
+
+    def test_decorated_with(self):
+        """
+        Case: Check if the function is decorator with a specific decorator
+        Expected: The function is decorated and called with the expected argument
+        """
+        @class_method_use_shard_from_db_arg
+        def test_function(db, arg):
+            pass
+
+        decorator, bound_arguments = test_function.__decorator__
+
+        self.assertEqual(decorator, class_method_use_shard_from_db_arg)
+
+    @mock.patch('sharding.decorators.get_active_connection')
+    @mock.patch('sharding.options.ShardOptions.from_alias')
+    def test_already_on_default_connection(self, mock_from_alias, mock_get_active_connection):
+        """
+        Case: Use class_method_use_shard_from_db_arg decorator on a function, call for the same connection we are
+              already active on: default
+        Expected: Functions the decorator uses are called, the retrieved shard_options not used, since we're already on
+                  the correct connection
+        """
+        default_shard_options = ShardOptions(node_name='default', schema_name='public')
+        mock_from_alias.return_value = default_shard_options
+        mock_get_active_connection.return_value = default_shard_options
+
+        with mock.patch.object(mock_from_alias.return_value, 'use') as mock_shardoptions_use:
+            @class_method_use_shard_from_db_arg
+            def test_function(db, arg):
+                self.assertEqual(arg, 'cake')
+
+            test_function(db='db_argument', arg='cake')
+
+        mock_from_alias.assert_called_once_with('db_argument')
+        self.assertEqual(mock_get_active_connection.call_count, 1)
+        self.assertFalse(mock_shardoptions_use.called)
+
+    @mock.patch('sharding.decorators.get_active_connection')
+    @mock.patch('sharding.options.ShardOptions.from_alias')
+    def test_not_yet_on_default_connection(self, mock_from_alias, mock_get_active_connection):
+        """
+        Case: Use class_method_use_shard_from_db_arg decorator on a function, call for the a different connection than
+              we're currently active on: default
+        Expected: Functions the decorator uses are called, the retrieved shard_options IS used, since we have to switch
+                  connections
+        """
+        mock_from_alias.return_value = ShardOptions(node_name='default', schema_name='public')
+        mock_get_active_connection.return_value = ShardOptions.from_shard(self.shard)
+
+        with mock.patch.object(mock_from_alias.return_value, 'use') as mock_shardoptions_use:
+            @class_method_use_shard_from_db_arg
+            def test_function(db, arg):
+                self.assertEqual(arg, 'cake')
+
+            mock_from_alias.reset_mock()  # shard.use calls from_alias.
+            test_function(db='db_argument', arg='cake')
+
+        mock_from_alias.assert_called_once_with('db_argument')
+        self.assertEqual(mock_get_active_connection.call_count, 1)
+        self.assertTrue(mock_shardoptions_use.called)
+
+    @mock.patch('sharding.decorators.get_active_connection')
+    @mock.patch('sharding.options.ShardOptions.from_alias')
+    def test_already_on_shard_connection(self, mock_from_alias, mock_get_active_connection):
+        """
+        Case: Use class_method_use_shard_from_db_arg decorator on a function, call for the same connection we are
+              already active on: a shard connection
+        Expected: Functions the decorator uses are called, the retrieved shard_options not used, since we're already on
+                  the correct connection
+        """
+        default_shard_options = ShardOptions.from_shard(self.shard)
+        mock_from_alias.return_value = default_shard_options
+        mock_get_active_connection.return_value = default_shard_options
+
+        with mock.patch.object(mock_from_alias.return_value, 'use') as mock_shardoptions_use:
+            @class_method_use_shard_from_db_arg
+            def test_function(db, arg):
+                self.assertEqual(arg, 'cake')
+
+            test_function(db='db_argument', arg='cake')
+
+        mock_from_alias.assert_called_once_with('db_argument')
+        self.assertEqual(mock_get_active_connection.call_count, 1)
+        self.assertFalse(mock_shardoptions_use.called)
+
+    @mock.patch('sharding.decorators.get_active_connection')
+    @mock.patch('sharding.options.ShardOptions.from_alias')
+    def test_not_yet_on_shard_connection(self, mock_from_alias, mock_get_active_connection):
+        """
+        Case: Use class_method_use_shard_from_db_arg decorator on a function, call for the a different connection than
+              we're currently active on: a shard connection
+        Expected: Functions the decorator uses are called, the retrieved shard_options IS used, since we have to switch
+                  connections
+        """
+        mock_from_alias.return_value = ShardOptions.from_shard(self.shard)
+        mock_get_active_connection.return_value = ShardOptions(node_name='default', schema_name='public')
+
+        with mock.patch.object(mock_from_alias.return_value, 'use') as mock_shardoptions_use:
+            @class_method_use_shard_from_db_arg
+            def test_function(db, arg):
+                self.assertEqual(arg, 'cake')
+
+            with self.shard.use():
+                mock_from_alias.reset_mock()  # shard.use calls from_alias.
+                test_function(db='db_argument', arg='cake')
+
+        mock_from_alias.assert_called_once_with('db_argument')
+        self.assertEqual(mock_get_active_connection.call_count, 1)
+        self.assertTrue(mock_shardoptions_use.called)

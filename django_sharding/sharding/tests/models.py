@@ -1,10 +1,13 @@
 from unittest import mock
 
+from django.db.models.signals import post_init
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 from example.models import Shard, Organization, User, Type
 from sharding import ShardingMode, State
 from sharding.models import BaseShard
+from sharding.options import ShardOptions
 from sharding.tests import ShardingTestCase
 from sharding.tests.app_config import DummyShard
 from sharding.utils import get_shard_class, use_shard, create_template_schema, create_schema_on_node
@@ -312,3 +315,107 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         user = User.objects.using(shard).get()
 
         self.assertEqual(user.organization, organization)
+
+
+class ShardedModelFromDbUseShardTestCase(ShardingTestCase):
+    def setUp(self):
+        super().setUp()
+        create_template_schema()
+
+        self.addCleanup(self.disconnect_signals)
+
+        self.shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
+                                          state=State.ACTIVE)
+
+        def post_init_signal(instance, *args, **kwargs):
+            from django.db import connection
+
+            self.assertIsInstance(connection.db_alias, ShardOptions)
+            self.assertEqual(connection.db_alias.node_name, self.shard.node_name)
+            self.assertEqual(connection.db_alias.schema_name, self.shard.schema_name)
+            self.assertEqual(connection.db_alias.shard_id, self.shard.id)
+
+        self.post_init_signal = post_init_signal
+
+        with self.shard.use():
+            Organization.objects.create(name='zero')
+
+    def disconnect_signals(self):
+        post_init.disconnect(self.post_init_signal, sender='example.Organization')
+
+    def test_only(self):
+        """
+        Case: Instantiate a model with .only, with and without a post_init signal
+        Expected: Only the requested fields have a value
+        """
+        now = timezone.now()
+        with self.subTest("No signals"):
+            with self.shard.use():
+                id = Organization.objects.create(name='Hope', created_at=now).id
+                organization = Organization.objects.only('id', 'created_at').get(id=id)
+
+            self.assertEqual(organization.__dict__.get('created_at'), now)
+            self.assertIsNone(organization.__dict__.get('name'))
+
+        with self.subTest("With post_init signal"):
+            post_init.connect(self.post_init_signal, sender='example.Organization', weak=False)
+
+            with self.shard.use():
+                id = Organization.objects.create(name='Hope', created_at=now).id
+                organization = Organization.objects.only('id', 'created_at').get(id=id)
+
+            self.assertEqual(organization.__dict__.get('created_at'), now)
+            self.assertIsNone(organization.__dict__.get('name'))
+
+    def test_with_db(self):
+        """
+        Case: Instantiate a model in various ways, with a post_init signal present
+        Expected: The active connection for the signals should always point to the correct shard,
+                  if retrieved from the db
+        """
+        post_init.connect(self.post_init_signal, sender='example.Organization', weak=False)
+
+        with self.subTest('Create directly within context'):
+            with self.shard.use():
+                Organization.objects.create(name='one')
+
+        with self.subTest('Create indirectly within context'):
+            with self.shard.use():
+                o = Organization(name='two')
+                o.save()
+
+        with self.subTest('Request within context'):
+            with self.shard.use():
+                Organization.objects.get(name='zero')
+
+        with self.subTest('Refresh within context'):
+            with self.shard.use():
+                object = Organization.objects.get(name='zero')
+                object.refresh_from_db()
+
+        with self.subTest('Create directly on no shard at all'):
+            # Creating an instance of a sharded model without selecting a shard is not a thing.
+            with self.assertRaises(AssertionError):
+                Organization.objects.create(name='three')
+
+        with self.subTest('Create directly outside context'):
+            # In this scenario, the post_init signal is not run in a sharded context, and the router receives no hints,
+            # since the object._state is not set on time. No from_db is called either in this flow.
+            with self.assertRaises(AssertionError):
+                Organization.objects.using(self.shard).create(name='three')
+
+        with self.subTest('Create indirectly outside context'):
+            # In this scenario, the post_init signal is not run in a sharded context, and the router receives no hints,
+            # since the object._state is not set on time. No from_db is called either in this flow.
+            with self.assertRaises(AssertionError):
+                o = Organization(name='four')
+                o.save(using=self.shard)
+
+        with self.subTest('Request outside context'):
+            Organization.objects.using(self.shard).get(name='zero')
+
+        with self.subTest('Refresh outside context'):
+            with self.shard.use():
+                object = Organization.objects.get(name='zero')
+
+            object.refresh_from_db()
