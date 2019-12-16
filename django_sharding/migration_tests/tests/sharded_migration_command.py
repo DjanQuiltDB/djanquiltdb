@@ -1,6 +1,5 @@
-from unittest import mock, skipIf
+from unittest import mock
 
-import django
 from django.conf import settings
 from django.core.management import CommandError, call_command, get_commands
 from django.db import ProgrammingError, connections
@@ -1094,20 +1093,12 @@ class UnroutableMigrationTestCase2(ShardingTestCase):
         ])
 
 
-if django.VERSION >= (1, 11):
-    class DisableMigrations(dict):
-        def __contains__(self, item):
-            return True
+class DisableMigrations(dict):
+    def __contains__(self, item):
+        return True
 
-        def __getitem__(self, item):
-            return None
-else:
-    class DisableMigrations:
-        def __contains__(self, item):
-            return True
-
-        def __getitem__(self, item):
-            return 'no_migrations'
+    def __getitem__(self, item):
+        return None
 
 
 @override_settings(MIGRATION_MODULES=DisableMigrations())
@@ -1126,8 +1117,7 @@ class SyncDbTestCase(MigrationTestCase):
                 if model._meta.app_label == 'example':
                     self.assertTableExists(model._meta.db_table)
 
-    @skipIf(django.VERSION < (1, 9), 'This test is only needed for Django 1.9+')
-    def test_emit_pre_migrate_signal_django_19_plus(self):
+    def test_emit_pre_migrate_signal(self):
         """
         Case: In migrate_shards, run the sync db phase and don't run the sync db phase
         Expected: In both cases, emit_pre_migrate_signal is called
@@ -1142,16 +1132,6 @@ class SyncDbTestCase(MigrationTestCase):
         with mock.patch('sharding.management.commands.migrate_shards.emit_pre_migrate_signal') as mock_signal:
             call_command('migrate_shards', verbosity=verbosity, run_syncdb=False, interactive=interactive)
             mock_signal.assert_called_once_with(verbosity, interactive, 'default')
-
-    @skipIf(django.VERSION >= (1, 9), 'This test is only needed for Django 1.8')
-    @mock.patch('sharding.management.commands.migrate_shards.emit_pre_migrate_signal')
-    def test_emit_pre_migrate_signal_django_18(self, mock_signal):
-        """
-        Case: In migrate_shards, run the sync db phase
-        Expected: emit_pre_migrate_signal is not called
-        """
-        call_command('migrate_shards', verbosity=0, interactive=False)
-        self.assertFalse(mock_signal.called)
 
 
 class StagesMigrationTestCase(ShardingTestCase):

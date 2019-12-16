@@ -1,7 +1,6 @@
 import sys
 from importlib import import_module
 
-import django
 from django.apps import apps
 from django.core.management.base import CommandError
 from django.core.management.commands.migrate import Command as MigrateCommand
@@ -77,26 +76,20 @@ class Command(MigrateCommand):
 
         # If they supplied command line arguments, work out what they mean.
         run_syncdb, targets = self.get_targets_from_options(executor, options)
-        run_syncdb = options.get('run_syncdb') if django.VERSION >= (1, 9) else run_syncdb
+        run_syncdb = options.get('run_syncdb')
         run_syncdb = run_syncdb and executor.loader.unmigrated_apps
 
         # Work out from which node we need to migrate
         plan = self.get_plan(targets, databases, schema_name)
 
         # Run the syncdb phase. Note that we need this for apps that don't have migrations.
-        created_models = []
-
         if run_syncdb:
             self.verbosity >= 1 and self.stdout.write(self.style.MIGRATE_HEADING('Synchronizing apps without '
                                                                                  'migrations:'))
-            if django.VERSION >= (1, 9):
-                emit_pre_migrate_signal(self.verbosity, self.interactive, connection.alias)
-            created_models = self._sync_apps(databases, schema_name, executor.loader.unmigrated_apps)
+            emit_pre_migrate_signal(self.verbosity, self.interactive, connection.alias)
+            self._sync_apps(databases, schema_name, executor.loader.unmigrated_apps)
         else:
-            if django.VERSION >= (1, 9):
-                emit_pre_migrate_signal(self.verbosity, self.interactive, connection.alias)
-            else:
-                emit_pre_migrate_signal(created_models, self.verbosity, self.interactive, connection.alias)
+            emit_pre_migrate_signal(self.verbosity, self.interactive, connection.alias)
 
         # Execute the plan
         self.verbosity >= 1 and self.stdout.write(self.style.MIGRATE_HEADING('Running migrations:'))
@@ -109,10 +102,7 @@ class Command(MigrateCommand):
             error = self.perform_migration(plan, databases, schema_name,
                                            fake=options.get('fake'), fake_initial=options.get('fake_initial'))
 
-        if django.VERSION >= (1, 9):
-            emit_post_migrate_signal(self.verbosity, self.interactive, connection.alias)
-        else:
-            emit_post_migrate_signal(created_models, self.verbosity, self.interactive, connection.alias)
+        emit_post_migrate_signal(self.verbosity, self.interactive, connection.alias)
 
         if error:
             sys.exit(1)

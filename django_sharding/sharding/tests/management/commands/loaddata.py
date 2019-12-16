@@ -1,6 +1,5 @@
 from unittest import mock
 
-import django
 from django.core.management import call_command
 
 from example.models import Shard
@@ -25,11 +24,9 @@ class LoadDataTestCase(ShardingTestCase):
                 pythonpath=None,
                 skip_checks=True,
                 ignore=False,
-                settings=None
+                settings=None,
+                exclude=[],
             )
-
-            if django.VERSION >= (1, 11):
-                call_kwargs['exclude'] = []
 
             mock_handle.assert_called_once_with(*call_args, **call_kwargs)
 

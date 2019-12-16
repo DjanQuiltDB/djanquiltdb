@@ -2,7 +2,6 @@ import functools
 import inspect
 import types
 
-import django
 from django.apps import AppConfig, apps
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -124,9 +123,6 @@ def _initialize_sharded_model_querysets(model):
     Override all the querysets of the managers, so they can remember the shard where they are initialized on
     """
     for instance in model._meta.managers:
-        if django.VERSION < (1, 10):
-            _, instance, _ = instance
-
         if hasattr(instance._queryset_class.__init__, '__decorator__') and \
                 instance._queryset_class.__init__.__decorator__ == post_init:
             continue
