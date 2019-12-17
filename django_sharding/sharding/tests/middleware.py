@@ -5,7 +5,7 @@ from django.conf.urls import url
 from django.http import HttpResponse
 from django.test import SimpleTestCase, override_settings
 from django.test.client import RequestFactory
-from django.views.generic import View
+from django.views.generic import View, TemplateView
 
 from example.models import Shard
 from sharding.middleware import BaseUseShardMiddleware, StateExceptionMiddleware, BaseUseShardForMiddleware
@@ -16,6 +16,10 @@ from sharding.utils import State, StateException, use_shard, create_template_sch
 class StateExceptionTestView(View):
     def get(self, request):
         return HttpResponse('Test exception view')
+
+
+class StateExceptionTestTemplateView(TemplateView):
+    template_name = 'example/state_exception.html'
 
 
 class TestErrorView(View):
@@ -132,20 +136,53 @@ class StateExceptionMiddlewareTestCase(SimpleTestCase):
             )
         self.assertFalse(mock_process_state_exception.called)
 
-    def test_process_state_exception_with_setting(self):
+    def test_process_state_exception_with_view_setting(self):
         """
         Case: Call the process_exception of the UseShardMiddleware with a view set.
-        Expected: The view as response.
+        Expected: The view as response, no render function called for it.
         """
         sharding_settings = settings.SHARDING
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'sharding.tests.middleware.StateExceptionTestView'
 
         with override_settings(SHARDING=sharding_settings):
-            response = UseShardMiddleware().process_state_exception(
-                RequestFactory().get('/'),
-                StateException('Shard is not in available state!', 'M')
-            )
-        self.assertEqual(response.content.decode(), 'Test exception view')
+            with self.subTest("Test renderer call"):
+                with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
+                    UseShardMiddleware().process_state_exception(
+                        RequestFactory().get('/'),
+                        StateException('Shard is not in available state!', 'M')
+                    )
+                self.assertFalse(mock_render.called)
+
+            with self.subTest("Test response"):
+                response = UseShardMiddleware().process_state_exception(
+                    RequestFactory().get('/'),
+                    StateException('Shard is not in available state!', 'M')
+                )
+                self.assertContains(response, 'Test exception view', html=True)
+
+    def test_process_state_exception_with_templateview_setting(self):
+        """
+        Case: Call the process_exception of the UseShardMiddleware with a TemplateView set.
+        Expected: The view is rendered and return as response.
+        """
+        sharding_settings = settings.SHARDING
+        sharding_settings['STATE_EXCEPTION_VIEW'] = 'sharding.tests.middleware.StateExceptionTestTemplateView'
+
+        with override_settings(SHARDING=sharding_settings):
+            with self.subTest("Test renderer call"):
+                with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
+                    UseShardMiddleware().process_state_exception(
+                        RequestFactory().get('/'),
+                        StateException('Shard is not in available state!', 'M')
+                    )
+                self.assertTrue(mock_render.called)
+
+            with self.subTest("Test response"):
+                response = UseShardMiddleware().process_state_exception(
+                    RequestFactory().get('/'),
+                    StateException('Shard is not in available state!', 'M')
+                )
+                self.assertContains(response, '<h2>Shard unavailable</h2>', html=True)
 
     def test_process_state_exception_without_setting(self):
         """

@@ -18,7 +18,11 @@ class StateExceptionMiddleware(object):
 
     def process_state_exception(self, request, exception):
         if settings.SHARDING.get('STATE_EXCEPTION_VIEW', None):  # call custom view
-            return import_string(settings.SHARDING['STATE_EXCEPTION_VIEW']).as_view()(request)
+            response = import_string(settings.SHARDING['STATE_EXCEPTION_VIEW']).as_view()(request)
+            # If we get a TemplateView that is not yet rendered, call for that here. Otherwise, just pass it.
+            if getattr(response, 'is_rendered', True):
+                return response
+            return response.render()
         else:  # no view set, return error
             response = HttpResponse()
             response.status_code = 503

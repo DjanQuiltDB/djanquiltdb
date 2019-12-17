@@ -1,7 +1,6 @@
 from contextlib import contextmanager
 from unittest import mock
 
-import django
 from django.db import connections, IntegrityError, InterfaceError
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.test import override_settings
@@ -673,11 +672,7 @@ class CursorTestCase(ShardingTestCase):
 
         mock_ensure_connection.assert_called_once_with()
 
-        # Named cursors is only a thing in Django 1.11+
-        if django.VERSION >= (1, 11):
-            mock_create_cursor.assert_called_once_with(name)
-        else:
-            mock_create_cursor.assert_called_once_with()
+        mock_create_cursor.assert_called_once_with(name)
 
         mock_prepare_cursor.assert_called_once_with(mock_create_cursor.return_value, skip_lock=skip_lock)
 
@@ -698,10 +693,7 @@ class CursorTestCase(ShardingTestCase):
         mock_ensure_connection.assert_called_once_with()
 
         # Named cursors is only a thing in Django 1.11+
-        if django.VERSION >= (1, 11):
-            mock_create_cursor.assert_called_once_with(name)
-        else:
-            mock_create_cursor.assert_called_once_with()
+        mock_create_cursor.assert_called_once_with(name)
 
         mock_prepare_cursor.assert_called_once_with(mock_create_cursor.return_value, skip_lock=skip_lock)
 
