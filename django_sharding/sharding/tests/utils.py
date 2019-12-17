@@ -1297,8 +1297,16 @@ class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
                 supertype.refresh_from_db(using=env.options)
 
             # Organization and User are not moved, so should be on the shard still
-            organization.refresh_from_db()
-            user.refresh_from_db()
+            # We have to do it with a new query, rather than `refresh_from_db()` since this presents a very unique
+            # circumstance:
+            # We've created the organization and user objects in a normal `use_shard(other_shard)` context.
+            # This context is saved on the model instances retrieved. When using `refresh_from_db` it will reuse those
+            # ShardingOptions to fetch the data from the correct place. However, it will query the shard details,
+            # which is cannot get since we are in a specific non-public-schema context.
+            # Fetching the object in a fresh query will sidestep this specific issue. Hurray for complexity!
+            # This behavior is introduced in SHARDING-84.
+            Organization.objects.get(id=organization.id)
+            User.objects.get(id=user.id)
 
         # Confirm Data integrity, now they are refreshed
         self.assertEqual(user.type_id, 3)
