@@ -476,10 +476,10 @@ def get_sharding_mode(app_label, model_name):
     return getattr(model, 'sharding_mode', False)
 
 
-def get_all_sharded_models(include_auto_created=False):
+def get_all_sharded_models(include_auto_created=False, include_proxy=False):
     models = apps.get_models(include_auto_created=include_auto_created)
     return [model for model in models
-            if not model._meta.proxy and get_model_sharding_mode(model) == ShardingMode.SHARDED]
+            if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) == ShardingMode.SHARDED]
 
 
 def get_all_mirrored_models():

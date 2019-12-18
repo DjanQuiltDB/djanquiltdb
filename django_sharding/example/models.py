@@ -116,6 +116,7 @@ class Cake(models.Model):
 class ProxyCake(Cake):
     class Meta:
         proxy = True
+        app_label = 'example'
 
 
 class UserManager(BaseUserManager):

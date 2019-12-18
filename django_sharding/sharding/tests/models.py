@@ -4,7 +4,7 @@ from django.db.models.signals import post_init
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
-from example.models import Shard, Organization, User, Type
+from example.models import Shard, Organization, User, Type, ProxyCake
 from sharding import ShardingMode, State
 from sharding.models import BaseShard
 from sharding.options import ShardOptions
@@ -339,6 +339,7 @@ class ShardedModelFromDbUseShardTestCase(ShardingTestCase):
 
         with self.shard.use():
             Organization.objects.create(name='zero')
+            ProxyCake.objects.create(name='zero')
 
     def disconnect_signals(self):
         post_init.disconnect(self.post_init_signal, sender='example.Organization')
@@ -419,3 +420,43 @@ class ShardedModelFromDbUseShardTestCase(ShardingTestCase):
                 object = Organization.objects.get(name='zero')
 
             object.refresh_from_db()
+
+    def test_with_db_proxy_model(self):
+        """
+        Case: Instantiate a Proxy Model in various ways, with a post_init signal present
+        Expected: The active connection for the signals should always point to the correct shard,
+                  if retrieved from the db
+        """
+        post_init.connect(self.post_init_signal, sender='example.Organization', weak=False)
+
+        with self.subTest('Create directly within context'):
+            with self.shard.use():
+                object = ProxyCake.objects.create(name='one')
+                self.assertIsInstance(object, ProxyCake)
+
+        with self.subTest('Create indirectly within context'):
+            with self.shard.use():
+                object = ProxyCake(name='two')
+                object.save()
+
+        with self.subTest('Request within context'):
+            with self.shard.use():
+                object = ProxyCake.objects.get(name='zero')
+                self.assertIsInstance(object, ProxyCake)
+
+        with self.subTest('Refresh within context'):
+            with self.shard.use():
+                object = ProxyCake.objects.get(name='zero')
+                object.refresh_from_db()
+                self.assertIsInstance(object, ProxyCake)
+
+        with self.subTest('Request outside context'):
+            object = ProxyCake.objects.using(self.shard).get(name='zero')
+            self.assertIsInstance(object, ProxyCake)
+
+        with self.subTest('Refresh outside context'):
+            with self.shard.use():
+                object = ProxyCake.objects.get(name='zero')
+
+            object.refresh_from_db()
+            self.assertIsInstance(object, ProxyCake)

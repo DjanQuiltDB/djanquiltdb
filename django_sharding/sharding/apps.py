@@ -92,7 +92,9 @@ def _initialize_sharded_models():
     Initialize sharded models by overriding all methods to add a use_shard context manager that makes sure all queries
     are done in that same shard as the object is living in.
     """
-    for model in get_all_sharded_models():
+    from_db_functions = {model: model.from_db for model in get_all_sharded_models(include_proxy=True)}
+
+    for model in get_all_sharded_models(include_proxy=True):
         for attr, func in inspect.getmembers(model, inspect.isfunction):
             # getattr(model, attr) will trigger dynamic lookup via the descriptor protocol,  __getattr__ or
             # __getattribute__. Therefore, we use inspect.getattr_static to strip out staticmethods (which we don't want
@@ -101,7 +103,10 @@ def _initialize_sharded_models():
                 # And decorate all model methods so that the methods will all run in the same shard context as the
                 # instance is living in
                 setattr(model, attr, class_method_use_shard(func))
-        setattr(model, 'from_db', class_method_use_shard_from_db_arg(model.from_db))
+
+        # Setting the from_db function for a Model that is the parent of a ProxyModel will corrupt the ProxyModels
+        # version of the same function. So we have saved the original from_db function at the start, and use that.
+        model.add_to_class('from_db', class_method_use_shard_from_db_arg(from_db_functions[model]))
 
         _initialize_sharded_model_querysets(model)
 

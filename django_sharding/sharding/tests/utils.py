@@ -867,6 +867,21 @@ class GetAllShardedModels(ShardingTestCase):
                                "<class 'example.models.Statement_type'>",
                                "<class 'example.models.Statement'>"])
 
+    def test_include_proxy_models(self):
+        """
+        Case: Call get_all_sharded_models, including proxy models
+        Expected: All sharded proxy and non-proxy models returned
+        """
+        # We compare it string based, since we cannot import the auto created fields as classes.
+        result = [str(model) for model in get_all_sharded_models(include_proxy=True)]
+        self.assertCountEqual(result,
+                              ["<class 'example.models.Organization'>",
+                               "<class 'example.models.Suborganization'>",
+                               "<class 'example.models.Cake'>",
+                               "<class 'example.models.ProxyCake'>",
+                               "<class 'example.models.User'>",
+                               "<class 'example.models.Statement'>"])
+
 
 class GetAllMirroredModels(ShardingTestCase):
     available_apps = ['example']
