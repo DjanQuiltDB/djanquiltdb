@@ -10,12 +10,44 @@ from django.test import override_settings
 from django.utils import six
 
 from example.models import Shard
+from migration_tests.models import SuperMirroredModel, MirroredModel, SuperShardedModel, ShardedModel
 from migration_tests.tests.migration_base import MigrationTestCase
 from sharding.db import connection
 from sharding.management.commands.migrate_shards import Command as MigrateShards
 from sharding.tests import ShardingTestCase, disable_db_reconnect
 from sharding.utils import State, use_shard, get_template_name, get_all_databases, get_all_sharded_models, \
     create_template_schema, schema_exists
+
+
+class ShardedMigrationCrossSchemaRelationTestCase(ShardingTestCase):
+    available_apps = ['sharding', 'migration_tests']
+
+    def setUp(self):
+        self.databases = get_all_databases()
+
+        super().setUp()
+
+        create_template_schema(migrate=False)
+        create_template_schema('other', migrate=False)
+
+        self.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default', state=State.ACTIVE)
+
+    def test_forward_migration(self):
+        """
+        Case: Run forwards migrations, for migrating involving sharded -> mirrored fKeys
+        Expected: No errors, and tables to be created.
+        Note: If you get 'ProgrammingError: relation "migration_tests_mirroredmodel" does not exist' that means the
+              migration performed on sina shard could not reach the model on the public schema. Making sure that
+              works is the point of this test.
+        """
+        call_command('migrate_shards', verbosity=0)
+
+        super_mirrored = SuperMirroredModel.objects.create(name='super!')
+        mirrored = MirroredModel.objects.create(name='less super', super=super_mirrored)
+
+        with use_shard(self.sina):
+            super_sharded = SuperShardedModel.objects.create(name='super shard!', to_mirrored=mirrored)
+            ShardedModel.objects.create(name='A bit lame', super=super_sharded)
 
 
 @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'sharding'}))
