@@ -12,6 +12,7 @@ from django.utils import six
 from example.models import Shard
 from migration_tests.models import SuperMirroredModel, MirroredModel, SuperShardedModel, ShardedModel
 from migration_tests.tests.migration_base import MigrationTestCase
+from sharding import ShardingMode
 from sharding.db import connection
 from sharding.management.commands.migrate_shards import Command as MigrateShards
 from sharding.tests import ShardingTestCase, disable_db_reconnect
@@ -1064,6 +1065,45 @@ class SeparateDatabaseAndStateTestCase(MigrationTestCase):
             self.assertTrue(('migration_tests', '0001_initial') in applied_migration_tests)
             # allow_migrate not called because of the SeparateDatabaseAndState
             self.assertEqual(mock_allow_migrate.call_count, 0)
+
+
+class RemoveModelMigrationTestCase(MigrationTestCase):
+    available_apps = ['migration_tests', 'sharding']
+
+    def setUp(self):
+        # Do not silently mock the router, but do create the template schema
+
+        commands = get_commands()
+        commands['migrate_shards'] = 'sharding'
+
+        with mock.patch('django.core.management.get_commands', return_value=commands):
+            create_template_schema()  # The template won't have any migration applied to it initially
+            create_template_schema('other')  # The template won't have any migration applied to it initially
+
+    @override_settings(MIGRATION_MODULES={'migration_tests':
+                                          'migration_tests.test_migrations_remove_non_existent_model'},
+                       SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                 'OVERRIDE_SHARDING_MODE':
+                                 {('migration_tests', 'nonexistingmodel'): ShardingMode.SHARDED}})
+    # @mock.patch('sharding.router.DynamicDbRouter.allow_migrate')
+    def test(self):
+        """
+        Case: Create and Remove a non existing model in migrations. This model is mentioned in the settings as sharded.
+        Expected: The model is created and removed as the migrations dictate. These are not skipped because the model
+                  definition is missing as otherwise would be the case.
+        """
+        self.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default',
+                                         state=State.ACTIVE)
+
+        call_command('migrate_shards', 'migration_tests', '0001', database='default', verbosity=0)
+
+        with use_shard(self.sina, include_public=False) as env:
+            self.assertIn('migration_tests_nonexistingmodel', env.connection.introspection.table_names())
+
+        call_command('migrate_shards', 'migration_tests', '0002', database='default', verbosity=0)
+
+        with use_shard(self.sina, include_public=False) as env:
+            self.assertNotIn('migration_tests_nonexistingmodel', env.connection.introspection.table_names())
 
 
 @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_unroutable'})

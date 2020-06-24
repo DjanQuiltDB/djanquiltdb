@@ -1,3 +1,4 @@
+from django.apps import apps
 from django.contrib.admin.utils import NestedObjects
 from django.core.exceptions import FieldError, MultipleObjectsReturned
 from django.core.management import BaseCommand, CommandError
@@ -7,7 +8,6 @@ from django.db.models.signals import pre_delete, post_delete
 from django.utils import termcolors
 
 from sharding import ShardingMode
-from sharding.apps import apps
 from sharding.collector import SimpleCollector
 from sharding.options import ShardOptions
 from sharding.utils import get_shard_class, get_all_sharded_models, get_model_sharding_mode, disable_signals

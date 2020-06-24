@@ -888,7 +888,7 @@ class GetAllMirroredModels(ShardingTestCase):
 
     def test_with_override(self):
         """
-        Case: Call get_all_mirrored_models.
+        Case: Call get_all_mirrored_models, while the settings override models.
         Expected: Only SuperType models to be returned. The rest is sharded and/or not mirrored.
         Note: System test
         """
@@ -896,6 +896,17 @@ class GetAllMirroredModels(ShardingTestCase):
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'type'): ShardingMode.SHARDED,
                                                      ('example', 'mirroreduser'): ShardingMode.SHARDED}}):
             self.assertCountEqual(get_all_mirrored_models(), [SuperType])
+
+    def test_with_override_archived_models(self):
+        """
+        Case: Call get_all_mirrored_models, while the settings override no longer existing models.
+        Expected: Only SuperType models to be returned. The rest is sharded and/or not mirrored.
+        Note: System test
+        """
+        with override_settings(
+                SHARDING={'OVERRIDE_SHARDING_MODE': {('non-existing-app', 'long_gone_model'): ShardingMode.SHARDED,
+                                                     ('example', 'mirroreduser'): ShardingMode.SHARDED}}):
+            self.assertCountEqual(get_all_mirrored_models(), [SuperType, Type])
 
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):

@@ -232,3 +232,18 @@ If you want to override the sharding_mode for a specific model or application yo
         }
     }
 
+
+This section can also be used to set sharding modes to models that no longer exist. Normally the router will look at the model definition to see if a migration for it has to be performed on the publci schema or a shard. But if the model is no longer in your code base, it cannot do this anymore. It will mention the definition is missing and skip the migration.
+If the migration is required, and the model is missing, simply mention it here so the router knows what to do:
+
+.. code-block:: python
+
+    # settings
+    SHARDING = {
+        'SHARD_CLASS': 'myapp.models.Shard',
+        'MAPPING_MODEL': 'myapp.models.MyMappingModel',
+        'OVERRIDE_SHARDING_MODE': {
+            # The entry overrides app1.NonExistentModel sharding_mode to ShardingMode.SHARDED, even though this model is no longer defined, it might still be mentioned in migrations.
+            ('app1', 'nonexistentmodel'): ShardingMode.SHARDED,
+        }
+    }

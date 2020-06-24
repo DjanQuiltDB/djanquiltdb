@@ -66,15 +66,6 @@ class ShardingSettingsTestCase(SimpleTestCase):
             with self.assertRaises(ImproperlyConfigured):
                 self.sharding_app.ready()
 
-    def test_incompatible_models_settings(self):
-        """
-        Case: Given model in SHARDING setting is incompatible (not extending BaseShard/BaseNode)
-        Expected: ImproperlyConfigured raised
-        """
-        with override_settings(SHARDING={'SHARD_CLASS': 'sharding.tests.app_config.DummyShard'}):
-            with self.assertRaises(ImproperlyConfigured):
-                self.sharding_app.ready()
-
     def test_sharded_models_settings(self):
         """
         Case: Given sharding model is sharded itself.
@@ -128,29 +119,27 @@ class ShardingSettingsTestCase(SimpleTestCase):
             with self.assertRaises(ImproperlyConfigured):
                 self.sharding_app.ready()
 
-    def test_invalid_override_shard_mode_nonexistent_app(self):
+    def test_override_shard_mode_nonexistent_app(self):
         """
         Case: Pass a non-existent app to SHARDING["OVERRIDE_SHARDING_MODE"].
-        Expected: ImproperlyConfigured raised
+        Expected: ImproperlyConfigured NOT raised
         """
         with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
                                          'OVERRIDE_SHARDING_MODE': {
                                              ('nonexistent', ): ShardingMode.MIRRORED,
                                          }}):
-            with self.assertRaises(ImproperlyConfigured):
-                self.sharding_app.ready()
+            self.sharding_app.ready()
 
-    def test_invalid_override_shard_mode_nonexistent_model(self):
+    def test_override_shard_mode_nonexistent_model(self):
         """
         Case: Pass a non-existent model to SHARDING["OVERRIDE_SHARDING_MODE"].
-        Expected: ImproperlyConfigured raised
+        Expected: ImproperlyConfigured NOT raised
         """
         with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
                                          'OVERRIDE_SHARDING_MODE': {
                                              ('example', 'nonexistent'): ShardingMode.MIRRORED,
                                          }}):
-            with self.assertRaises(ImproperlyConfigured):
-                self.sharding_app.ready()
+            self.sharding_app.ready()
 
     def test_override_shard_mode_case_insensitive(self):
         """
