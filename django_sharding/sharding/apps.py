@@ -2,7 +2,7 @@ import functools
 import inspect
 import types
 
-from django.apps import AppConfig, apps
+from django.apps import AppConfig
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
@@ -71,20 +71,6 @@ def _validate_override_sharding_mode_entry(key, value):
     if not (isinstance(key, tuple) and len(key) in (1, 2) and isinstance(value, ShardingMode)):
         raise ImproperlyConfigured('The override sharding mode entry is improperly configured: '
                                    '{{ {}: {} }}'.format(repr(key), repr(value)))
-
-    app_label = key[0].lower()
-    if len(key) == 2:
-        model_name = key[1].lower()
-        try:
-            apps.get_model(app_label, model_name)
-        except LookupError:
-            raise ImproperlyConfigured('Cannot find model to override sharding mode: ({}, {})'.format(app_label,
-                                                                                                      model_name))
-    else:  # len(key) == 1
-        try:
-            apps.get_app_config(app_label)
-        except LookupError:
-            raise ImproperlyConfigured('Cannot find app_label to override sharding mode: {}'.format(app_label))
 
 
 def _initialize_sharded_models():
