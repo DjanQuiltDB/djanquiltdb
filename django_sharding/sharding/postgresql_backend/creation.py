@@ -56,7 +56,9 @@ class TemplateDatabaseCreation(DatabaseCreation):
         test_database_name = super()._create_test_db(verbosity, autoclobber, keepdb=keepdb)
 
         # This is actually done in the `create_test_db`, but we need it now to be sure that we create a template schema
-        # on the correct database.
+        # on the correct database. We do this by closing the current connect and setting a new target for the
+        # connection that will be established when create_template_schema tries to use it.
+        self.connection.close()
         settings.DATABASES[self.connection.alias]['NAME'] = test_database_name
         self.connection.settings_dict['NAME'] = test_database_name
 
