@@ -3,7 +3,7 @@ from threading import local
 
 from django.db import DEFAULT_DB_ALIAS, ProgrammingError
 
-from sharding import ShardingMode
+from sharding import ShardingMode, public_modes
 from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from sharding.utils import get_model_sharding_mode, get_sharding_mode
@@ -37,10 +37,25 @@ class DynamicDbRouter:
         obj1_mode = get_model_sharding_mode(obj1)
         obj2_mode = get_model_sharding_mode(obj2)
 
-        if obj1_mode or obj2_mode:
-            return obj1_mode and obj2_mode  # all is good if they both have a sharding mode set.
+        # We have no opinion if neither of the models have sharding mode set.
+        if not obj1_mode and not obj2_mode:
+            return None
 
-        return None  # We have no opinion if neither of the models have sharding mode set.
+        # All is good if they both have a sharding mode set.
+        if obj1_mode == obj2_mode:
+            return True
+
+        # Also good if both belong to the pubic schema
+        if (not obj1_mode or obj1_mode in public_modes) and (not obj2_mode or obj2_mode in public_modes):
+            return True
+
+        # Allow relations between SHARDED -> MIRRORED/PUBLIC. (But not the other way around).
+        # This does not go for SHARDED -> non-sharded. We cannot confirm if those models exist on all nodes.
+        if (obj1_mode in public_modes) and obj2_mode is ShardingMode.SHARDED:
+            return True
+
+        # Do not allow any other combination
+        return False
 
     def allow_syncdb(self, *args, **kwargs):
         model = kwargs.pop('model', False)
@@ -82,7 +97,7 @@ class DynamicDbRouter:
             # Sharded models should never reside in the public schema.
             # Only on templates and the shared schemas.
             return schema_name != PUBLIC_SCHEMA_NAME
-        elif sharding_mode == ShardingMode.MIRRORED:
+        elif sharding_mode in public_modes:
             # Mirrored models belong to public schemas and no where else.
             return schema_name == PUBLIC_SCHEMA_NAME
         else:

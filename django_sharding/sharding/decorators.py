@@ -107,6 +107,40 @@ def mirrored_model():
     return configure
 
 
+def public_model():
+    """
+    A decorator for marking a model for being mirror across the various nodes.
+
+    This will tell the migration system that this model is to be available on the public schema.
+    Unlike a mirrored_model, it does not have to be available on all nodes, and data between nodes can differ.
+
+    :Example:
+        .. code-block:: python
+
+            from django.db import models
+            from sharding.decorators import public_model
+
+            @public_model()
+            class Author(models.Model):
+                name = models.CharField('name', max_length=100)
+
+                class Meta:
+                    app_label = 'example'
+
+            # Create authors for their own node.
+            with use_shard(node_name='the_cate_node', schema_name='public'):
+                Author.objects.create(name='Cate')
+
+            with use_shard(node_name='the_bob_node', schema_name='public'):
+                Author.objects.create(name='Bob')
+    """
+    def configure(cls):
+        cls.sharding_mode = ShardingMode.PUBLIC
+        return cls
+
+    return configure
+
+
 def shard_mapping_model(mapping_field):  # noqa: C901
     """
     A decorator for marking a model that maps shards and their content.

@@ -7,7 +7,11 @@ default_app_config = 'sharding.apps.ShardingConfig'
 
 class ShardingMode(Enum):
     MIRRORED = 'M'
+    PUBLIC = 'P'
     SHARDED = 'S'
+
+
+public_modes = (ShardingMode.MIRRORED, ShardingMode.PUBLIC)
 
 
 class State(object):

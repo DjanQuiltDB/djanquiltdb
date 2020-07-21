@@ -2,12 +2,10 @@ import functools
 import itertools
 from unittest import mock
 
-from django.apps import apps
 from django.db import connections, DEFAULT_DB_ALIAS
 from django.test import TestCase, TransactionTestCase
 
 from sharding.router import set_active_connection
-from sharding.utils import ShardingMode, get_model_sharding_mode
 
 
 class CleanShardingArtifactsMixin:
@@ -61,18 +59,6 @@ class ShardingTestCase(ResetConnectionTestCaseMixin, TestCase):
 class ShardingTransactionTestCase(ResetConnectionTestCaseMixin, CleanShardingArtifactsMixin, TransactionTestCase):
     available_apps = ['sharding', 'example']
     multi_db = True  # To make sure cleanup will be done on all databases
-
-    @staticmethod
-    def get_all_non_sharded_models():
-        models = apps.get_models()
-        return [model for model in models if get_model_sharding_mode(model) != ShardingMode.SHARDED
-                and not getattr(model, 'test_model', False)]
-
-    @staticmethod
-    def get_all_mirrored_models():
-        models = apps.get_models()
-        return [model for model in models if get_model_sharding_mode(model) == ShardingMode.MIRRORED
-                and not getattr(model, 'test_model', False)]
 
 
 def disable_db_reconnect():

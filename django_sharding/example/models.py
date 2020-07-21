@@ -3,7 +3,7 @@ from django.db import models, IntegrityError
 from django.utils import timezone
 
 from sharding import State, STATES
-from sharding.decorators import mirrored_model, sharded_model, shard_mapping_model
+from sharding.decorators import mirrored_model, sharded_model, shard_mapping_model, public_model
 from sharding.models import BaseShard, MappingQuerySet
 
 
@@ -40,7 +40,7 @@ class OrganizationShards(models.Model):
     objects = MappingQuerySet.as_manager()
 
 
-@mirrored_model()
+@public_model()
 class SuperType(models.Model):
     name = models.CharField('name', max_length=100)
 
