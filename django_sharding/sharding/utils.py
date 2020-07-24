@@ -12,7 +12,7 @@ from django.db.models.signals import pre_init, post_init, pre_save, post_save, p
 from django.db.transaction import Atomic
 from django.utils.module_loading import import_string
 
-from sharding import ShardingMode, State
+from sharding import ShardingMode, State, public_modes
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 
 logger = logging.getLogger(__name__)
@@ -477,15 +477,39 @@ def get_sharding_mode(app_label, model_name):
 
 
 def get_all_sharded_models(include_auto_created=False, include_proxy=False):
+    """
+    Return all models that are decorated with @sharded_model.
+    """
     models = apps.get_models(include_auto_created=include_auto_created)
     return [model for model in models
             if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) == ShardingMode.SHARDED]
 
 
 def get_all_mirrored_models():
+    """
+    Return all models that are decorated with @mirrored_model.
+    """
     models = apps.get_models()
     return [model for model in models
             if not model._meta.proxy and get_model_sharding_mode(model) == ShardingMode.MIRRORED]
+
+
+def get_all_public_models():
+    """
+    Return all models that are decorated with @public_model.
+    """
+    models = apps.get_models()
+    return [model for model in models
+            if not model._meta.proxy and get_model_sharding_mode(model) == ShardingMode.PUBLIC]
+
+
+def get_all_public_schema_models():
+    """
+    Return all models that live on the public schema. So models that are decorated with @sharded_model or @public_model.
+    """
+    models = apps.get_models()
+    return [model for model in models
+            if not model._meta.proxy and get_model_sharding_mode(model) in public_modes]
 
 
 def get_all_databases():

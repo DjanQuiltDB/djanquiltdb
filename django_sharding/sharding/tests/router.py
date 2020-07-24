@@ -6,7 +6,7 @@ from django.test import override_settings
 
 from example.models import Organization, Shard
 from sharding import State
-from sharding.decorators import sharded_model, mirrored_model
+from sharding.decorators import sharded_model, mirrored_model, public_model
 from sharding.router import DynamicDbRouter, set_active_connection, get_active_connection, _active_connection
 from sharding.tests import ShardingTestCase, ShardingTransactionTestCase
 from sharding.utils import create_schema_on_node, create_template_schema, migrate_schema, \
@@ -24,6 +24,15 @@ class DummyShardedModel(models.Model):
 
 @mirrored_model()
 class DummyMirroredModel(models.Model):
+    test_model = True
+
+    class Meta:
+        app_label = 'sharding'
+        managed = False
+
+
+@public_model()
+class DummyPublicModel(models.Model):
     test_model = True
 
     class Meta:
@@ -156,37 +165,36 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         set_active_connection('test_node')
         self.assertEqual(self.router.db_for_write(model=mock.MagicMock()), 'test_node')
 
-    def test_allow_relation_between_non_sharded_models(self):
+    def test_allow_relation(self):
         """
-        Case: Call allow_relation with two models that are not sharded
-        Expected: None, the router does not care about non-sharded models.
+        Case: Call allow_relation for two models with various modes
+        Expected: Correct return value for the given mode combinations
         """
-        self.assertIsNone(self.router.allow_relation(DummyNonShardedModel(), DummyNonShardedModel()))
-
-    def test_allow_relation_between_sharded_and_non_sharded_models(self):
-        """
-        Case: Call allow_relation with a sharded and non-sharded model.
-        Expected: False, such relationship is not allowed
-        """
-        self.assertFalse(self.router.allow_relation(DummyShardedModel(), DummyNonShardedModel()))
-
-    def test_allow_relation_between_sharded_and_mirrored_models(self):
-        """
-        Case: Call allow_relation with a sharded and mirrored model.
-        Expected: True, mirrored exists in the public schema.
-        """
-        self.assertTrue(self.router.allow_relation(DummyShardedModel(), DummyMirroredModel()))
-
-    def test_allow_relation_between_sharded_models(self):
-        """
-        Case: Call allow_relation with two sharded models
-        Expected: True, we don't check if they are on the same shard yet.
-        """
-        self.assertTrue(self.router.allow_relation(DummyShardedModel(), DummyShardedModel()))
+        combinations = [
+            ('PUBLIC -> PUBLIC', DummyPublicModel, DummyPublicModel, True),
+            ('PUBLIC -> MIRRORED', DummyPublicModel, DummyMirroredModel, True),
+            ('PUBLIC -> SHARDED', DummyPublicModel, DummyShardedModel, False),
+            ('PUBLIC -> None', DummyPublicModel, DummyNonShardedModel, True),
+            ('MIRRORED -> PUBLIC', DummyMirroredModel, DummyPublicModel, True),
+            ('MIRRORED -> MIRRORED', DummyMirroredModel, DummyMirroredModel, True),
+            ('MIRRORED -> SHARDED', DummyMirroredModel, DummyShardedModel, False),
+            ('MIRRORED -> None', DummyMirroredModel, DummyNonShardedModel, True),
+            ('SHARDED -> PUBLIC', DummyShardedModel, DummyPublicModel, True),
+            ('SHARDED -> MIRRORED', DummyShardedModel, DummyMirroredModel, True),
+            ('SHARDED -> SHARDED', DummyShardedModel, DummyShardedModel, True),
+            ('SHARDED -> None', DummyShardedModel, DummyNonShardedModel, False),
+            ('None -> PUBLIC', DummyNonShardedModel, DummyPublicModel, True),
+            ('None -> MIRRORED', DummyNonShardedModel, DummyMirroredModel, True),
+            ('None -> SHARDED', DummyNonShardedModel, DummyShardedModel, False),
+            ('None -> None', DummyNonShardedModel, DummyNonShardedModel, None),
+        ]
+        for name, model_from, model_to, result in combinations:
+            with self.subTest(name):
+                self.assertEqual(self.router.allow_relation(model_to(), model_from()), result)
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
                                  'OVERRIDE_SHARDING_MODE': {
-                                     ('sharding', 'dummynonshardedmodel'): ShardingMode.MIRRORED,
+                                     ('sharding', 'dummynonshardedmodel'): ShardingMode.SHARDED,
                                  }})
     def test_allow_relation_between_sharded_models_settings_override_model(self):
         """
@@ -197,7 +205,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
                                  'OVERRIDE_SHARDING_MODE': {
-                                     ('sharding',): ShardingMode.MIRRORED,
+                                     ('sharding',): ShardingMode.SHARDED,
                                  }})
     def test_allow_relation_between_sharded_models_settings_override_app(self):
         """
