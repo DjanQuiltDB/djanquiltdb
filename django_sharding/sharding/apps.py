@@ -13,7 +13,7 @@ from sharding.db import connection
 from sharding.decorators import class_method_use_shard, class_method_use_shard_from_db_arg
 from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import ShardDatabaseWrapper
-from sharding.utils import get_all_sharded_models
+from sharding.utils import get_all_sharded_models, get_all_public_models
 
 
 class ShardingConfig(AppConfig):
@@ -63,8 +63,28 @@ class ShardingConfig(AppConfig):
                 "to store sessions. It references the user table and won't know where to find it."
             )
 
+        _validate_public_models()
         _patch_connections()
         _initialize_sharded_models()
+
+
+def _validate_public_models():
+    for model in get_all_public_models():
+        if not hasattr(model._meta, 'unique_together') or not model._meta.unique_together:
+            raise ImproperlyConfigured(
+                f'{model._meta.app_label}.{model.__name__} must have "unique_together" meta attribute set.'
+            )
+
+        if not hasattr(model, 'natural_key'):
+            raise ImproperlyConfigured(
+                f'{model._meta.app_label}.{model.__name__} must define "natural_key" method.'
+            )
+
+        if not hasattr(model._default_manager, 'get_by_natural_key'):
+            raise ImproperlyConfigured(
+                f'The default manager for {model._meta.app_label}.{model.__name__} must'
+                'define "get_by_natural_key" method.'
+            )
 
 
 def _validate_override_sharding_mode_entry(key, value):
