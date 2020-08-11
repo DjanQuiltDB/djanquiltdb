@@ -31,13 +31,24 @@ class DummyMirroredModel(models.Model):
         managed = False
 
 
+class DummyPublicModelManager(models.Manager):
+    def get_by_natural_key(self, *args, **kwargs):
+        return self.get(*args, **kwargs)
+
+
 @public_model()
 class DummyPublicModel(models.Model):
     test_model = True
 
+    objects = DummyPublicModelManager()
+
     class Meta:
         app_label = 'sharding'
         managed = False
+        unique_together = [[]]
+
+    def natural_key(self):
+        return ()
 
 
 class DummyNonShardedModel(models.Model):

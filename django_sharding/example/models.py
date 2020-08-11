@@ -40,12 +40,23 @@ class OrganizationShards(models.Model):
     objects = MappingQuerySet.as_manager()
 
 
+class SuperTypeManager(models.Manager):
+    def get_by_natural_key(self, name):
+        return self.get(name=name)
+
+
 @public_model()
 class SuperType(models.Model):
     name = models.CharField('name', max_length=100)
 
+    objects = SuperTypeManager()
+
     class Meta:
         app_label = 'example'
+        unique_together = [['name']]
+
+    def natural_key(self):
+        return self.name,
 
 
 @mirrored_model()
