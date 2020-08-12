@@ -1413,8 +1413,12 @@ class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
         self.assertEqual(type.id, 3)
         self.assertEqual(type.name, 'tesla')
         self.assertEqual(type.super_id, 4)
-        self.assertEqual(type.super.id, 4)
         self.assertEqual(supertype.id, 4)
+
+        with use_shard(shard=other_shard):
+            # Public data is accessible
+            type = Type.objects.get(id=type.id)
+            self.assertEqual(type.super.id, 4)
 
 
 class MoveModelToExistingSchemaTestCase(ShardingTransactionTestCase):

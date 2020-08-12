@@ -71,7 +71,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
         class MappingDummyModel1(models.Model):
             test_model = True
 
-            shard = models.ForeignKey('example.Shard', verbose_name='shard')
+            shard = models.ForeignKey('example.Shard', verbose_name='shard', on_delete=models.CASCADE)
             map_field = models.PositiveSmallIntegerField()
             state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
@@ -123,7 +123,8 @@ class MappingModelDecoratorTestCase(ModelTestCase):
             class MappingDummyModel4(models.Model):
                 test_model = True
 
-                shard = models.ForeignKey('Stars', verbose_name='shard')  # NOOA (unresolved reference on purpose)
+                # NOOA (unresolved reference on purpose)
+                shard = models.ForeignKey('Stars', verbose_name='shard', on_delete=models.CASCADE)
                 map_field = models.PositiveSmallIntegerField()
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
@@ -139,7 +140,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
         class MappingDummyModel5(models.Model):
             test_model = True
 
-            shard = models.ForeignKey('example.Shard', verbose_name='shard')
+            shard = models.ForeignKey('example.Shard', verbose_name='shard', on_delete=models.CASCADE)
             map_field = models.PositiveSmallIntegerField()
             state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
@@ -151,7 +152,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
             class MappingDummyModel6(models.Model):
                 test_model = True
 
-                shard = models.ForeignKey('example.Shard', verbose_name='shard')
+                shard = models.ForeignKey('example.Shard', verbose_name='shard', on_delete=models.CASCADE)
                 map_field = models.PositiveSmallIntegerField()
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
@@ -168,7 +169,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
             class MappingDummyModel7(models.Model):
                 test_model = True
 
-                shard = models.ForeignKey('example.Shard', verbose_name='shard')
+                shard = models.ForeignKey('example.Shard', verbose_name='shard', on_delete=models.CASCADE)
                 map_field = models.PositiveSmallIntegerField()
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
@@ -185,7 +186,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
             class MappingDummyModel7(models.Model):
                 test_model = True
 
-                shard = models.ForeignKey('example.Shard', verbose_name='shard')
+                shard = models.ForeignKey('example.Shard', verbose_name='shard', on_delete=models.CASCADE)
                 map_field = models.PositiveSmallIntegerField()
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
@@ -202,7 +203,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
             class MappingDummyModel9(models.Model):
                 test_model = True
 
-                shard = models.ForeignKey('example.Shard', verbose_name='shard')
+                shard = models.ForeignKey('example.Shard', verbose_name='shard', on_delete=models.CASCADE)
                 map_field = models.PositiveSmallIntegerField()
 
                 class Meta:
@@ -218,7 +219,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
             class MappingDummyModel10(models.Model):
                 test_model = True
 
-                shard = models.ForeignKey('example.Shard', verbose_name='shard')
+                shard = models.ForeignKey('example.Shard', verbose_name='shard', on_delete=models.CASCADE)
                 map_field = models.PositiveSmallIntegerField()
                 state = models.PositiveSmallIntegerField()
 
@@ -235,7 +236,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
             class MappingDummyModel11(models.Model):
                 test_model = True
 
-                shard = models.ForeignKey('example.Shard', verbose_name='shard')
+                shard = models.ForeignKey('example.Shard', verbose_name='shard', on_delete=models.CASCADE)
                 map_field = models.PositiveSmallIntegerField()
                 state = models.CharField(choices=(('P', 'Pie'),), max_length=1, default='P')
 

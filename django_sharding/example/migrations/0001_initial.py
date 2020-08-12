@@ -1,10 +1,9 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
-from django.db import migrations, models
-import django.db.models.deletion
-from django.conf import settings
 import django.utils.timezone
+from django.conf import settings
+from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
@@ -98,8 +97,8 @@ class Migration(migrations.Migration):
             name='Suborganization',
             fields=[
                 ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
-                ('child', models.OneToOneField(to='example.Organization', verbose_name='organization', related_name='children')),
-                ('parent', models.ForeignKey(to='example.Organization', related_name='parent', verbose_name='organization')),
+                ('child', models.OneToOneField(to='example.Organization', verbose_name='organization', related_name='children', on_delete=models.CASCADE)),
+                ('parent', models.ForeignKey(to='example.Organization', related_name='parent', verbose_name='organization', on_delete=models.CASCADE)),
             ],
         ),
         migrations.CreateModel(
@@ -125,12 +124,12 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='statement',
             name='user',
-            field=models.ForeignKey(to=settings.AUTH_USER_MODEL, verbose_name='user'),
+            field=models.ForeignKey(to=settings.AUTH_USER_MODEL, verbose_name='user', on_delete=models.CASCADE),
         ),
         migrations.AddField(
             model_name='organizationshards',
             name='shard',
-            field=models.ForeignKey(to='example.Shard'),
+            field=models.ForeignKey(to='example.Shard', on_delete=models.CASCADE),
         ),
         migrations.AddField(
             model_name='user',
@@ -140,7 +139,7 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='user',
             name='organization',
-            field=models.ForeignKey(to='example.Organization', verbose_name='organization', null=True),
+            field=models.ForeignKey(to='example.Organization', verbose_name='organization', null=True, on_delete=models.SET_NULL),
         ),
         migrations.AddField(
             model_name='user',

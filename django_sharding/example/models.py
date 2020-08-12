@@ -32,7 +32,7 @@ class Shard(BaseShard):
 # mapping table
 @shard_mapping_model(mapping_field='organization_id')
 class OrganizationShards(models.Model):
-    shard = models.ForeignKey('example.Shard')
+    shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
     organization_id = models.PositiveSmallIntegerField()
     state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
     slug = models.SlugField()
@@ -92,8 +92,10 @@ class Organization(models.Model):
 
 @sharded_model()
 class Suborganization(models.Model):
-    parent = models.ForeignKey('Organization', verbose_name='organization', related_name='parent')
-    child = models.OneToOneField('Organization', verbose_name='organization', related_name='children')
+    parent = models.ForeignKey('Organization', verbose_name='organization', related_name='parent',
+                               on_delete=models.CASCADE)
+    child = models.OneToOneField('Organization', verbose_name='organization', related_name='children',
+                                 on_delete=models.CASCADE)
 
     class Meta:
         app_label = 'example'
@@ -187,7 +189,7 @@ class AbstractUser(AbstractBaseUser):
 
 @sharded_model()
 class User(AbstractUser):
-    organization = models.ForeignKey('Organization', verbose_name='organization', null=True)
+    organization = models.ForeignKey('Organization', verbose_name='organization', null=True, on_delete=models.SET_NULL)
     type = models.ForeignKey('Type', on_delete=models.DO_NOTHING, verbose_name='type', null=True)
     cake = models.ManyToManyField('Cake', verbose_name='cakes')
 
@@ -219,7 +221,7 @@ class DefaultUser(AbstractUser):
 @sharded_model()
 class Statement(models.Model):
     content = models.CharField('content', max_length=300)
-    user = models.ForeignKey('User', verbose_name='user')
+    user = models.ForeignKey('User', verbose_name='user', on_delete=models.CASCADE)
     type = models.ManyToManyField('Type', verbose_name='types')
     offset = models.PositiveIntegerField('offset', blank=True, null=True)  # Field name is a postgres reserved word
 

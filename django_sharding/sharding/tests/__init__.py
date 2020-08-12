@@ -55,6 +55,17 @@ class ShardingTestCase(ResetConnectionTestCaseMixin, TestCase):
     available_apps = ['sharding', 'example']
     multi_db = True  # To make sure cleanup will be done on all databases
 
+    # @classmethod
+    # def _enter_atomics(cls):
+    #     return {}
+    #
+    # def _fixture_teardown(self):
+    #     pass
+    #
+    # @classmethod
+    # def _rollback_atomics(cls, atomics):
+    #     pass
+
 
 class ShardingTransactionTestCase(ResetConnectionTestCaseMixin, CleanShardingArtifactsMixin, TransactionTestCase):
     available_apps = ['sharding', 'example']

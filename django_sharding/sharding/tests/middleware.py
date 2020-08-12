@@ -1,7 +1,6 @@
 from unittest import mock
 
 from django.conf import settings
-from django.conf.urls import url
 from django.http import HttpResponse
 from django.test import SimpleTestCase, override_settings
 from django.test.client import RequestFactory
@@ -10,7 +9,7 @@ from django.views.generic import View, TemplateView
 from example.models import Shard
 from sharding.middleware import BaseUseShardMiddleware, StateExceptionMiddleware, BaseUseShardForMiddleware
 from sharding.tests import ShardingTestCase
-from sharding.utils import State, StateException, use_shard, create_template_schema
+from sharding.utils import State, StateException, create_template_schema
 
 
 class StateExceptionTestView(View):
@@ -20,18 +19,6 @@ class StateExceptionTestView(View):
 
 class StateExceptionTestTemplateView(TemplateView):
     template_name = 'example/state_exception.html'
-
-
-class TestErrorView(View):
-    def get(self, request):
-        shard = Shard.objects.get(alias='test_shard')
-        with use_shard(shard):
-            return HttpResponse("Error should be raised.")
-
-
-class TestNormalView(View):
-    def get(self, request):
-        return HttpResponse("No error should be raised.")
 
 
 class UseShardMiddleware(BaseUseShardMiddleware):
@@ -44,18 +31,9 @@ class UseShardForMiddleware(BaseUseShardForMiddleware):
         return 1
 
 
-# New URLs for StateExceptionMiddlewareIntegrationTestCase
-error_urlconf = [
-    url(r'^$', TestErrorView.as_view(), name='error')
-]
-normal_urlconf = [
-    url(r'^$', TestNormalView.as_view(), name='normal')
-]
-
-
 class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
     # TestErrorView is not in django's global urls
-    @override_settings(ROOT_URLCONF='sharding.tests.middleware.error_urlconf')
+    @override_settings(ROOT_URLCONF='sharding.tests.test_urlconfs.error_urlconf')
     @mock.patch('example.middleware.UseShardMiddleware.get_shard_id')
     def test_error_in_view(self, mock_get_shard_id):
         """
@@ -78,8 +56,8 @@ class StateExceptionMiddlewareIntegrationTestCase(ShardingTestCase):
         self.assertEqual(response.status_code, 503)
         self.assertTrue(mock_get_shard_id.called)
 
-    # TestErrorView is not in django's global urls
-    @override_settings(ROOT_URLCONF='sharding.tests.middleware.normal_urlconf')
+    # TestNormalView is not in django's global urls
+    @override_settings(ROOT_URLCONF='sharding.tests.test_urlconfs.normal_urlconf')
     @mock.patch('example.middleware.UseShardMiddleware.get_shard_id')
     def test_error_in_use_shard(self, mock_get_shard_id):
         """

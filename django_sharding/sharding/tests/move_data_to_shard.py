@@ -300,6 +300,8 @@ class MoveDataToShardTestCase(ShardingTestCase):
         Expected: The organization, it's suborganization and all associated data to be moved over.
         Note: System test
         """
+        self.options['reuse_simple_collector_for_delete'] = True
+
         class AlteredCommand(MoveCommand):
             def get_objects(self, shard):
                 objects = super().get_objects(shard)
@@ -658,10 +660,12 @@ class MoveDataToShardTestCase(ShardingTestCase):
     def test_get_data_collector_nested_collector_result(self):
         """
         Case: Call get_data_collector using Django's NestedCollector and check the data attribute
-        Expected: A dict with the correct data to be returned, with only sharded models and no mirrored models
+        Expected: A dict with the incorrect data to be returned, with only organization and suborganization,
+                  NestedCollector is unreliable, hence we have a collector of our own.
         """
         collector = self.command.get_data_collector(objects=[self.organization_1], use_original_collector=True)
-        self.assertEqual(collector.data, self.data)
+        self.assertEqual(collector.data, {Organization: {self.organization_1},
+                                          Suborganization: {self.suborganization}})
 
     @mock.patch('sharding.management.commands.move_data_to_shard.csv.reader')
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
@@ -788,8 +792,8 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
         lines = list(range(0, 42))
         shuffle(lines)
-        for l in lines:
-            target_file.write('{}\n'.format(l).encode('utf-8'))
+        for line in lines:
+            target_file.write('{}\n'.format(line).encode('utf-8'))
 
     @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_expert')
     def test_data_integrity_unsorted(self, mock_copy_expert):

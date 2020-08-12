@@ -36,7 +36,7 @@ class SQLFlushTestCase(ShardingTransactionTestCase):
         self.stdout = mock.Mock()
 
     def call_command(self, **options):
-        call_command('sqlflush', verbosity=0, interactive=False, stdout=self.stdout, **options)
+        call_command('sqlflush', verbosity=0, stdout=self.stdout, **options)
 
     def test(self, mock_sql_flush):
         """
