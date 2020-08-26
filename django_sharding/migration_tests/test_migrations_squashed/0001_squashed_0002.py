@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
             "Book",
             [
                 ("id", models.AutoField(primary_key=True)),
-                ("author", models.ForeignKey("migration_tests.Author", null=True)),
+                ("author", models.ForeignKey("migration_tests.Author", null=True, on_delete=models.CASCADE)),
             ],
         ),
 

@@ -134,7 +134,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         self.command.options['model_name'] = 'example.Organization'
         self.command.options['object_value'] = str(self.organization_1.pk)
         self.command.options['object_field'] = 'id'
-        self.command.options['simple_collector'] = False
+        self.command.options['simple_collector'] = True
         self.command.options['verbosity'] = 0
         self.command.options['interactive'] = False
 
@@ -145,9 +145,6 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
             self.command.options['object_value']
         ]
         self.options = {
-            'shard_alias': self.command.options['shard_alias'],
-            'model_name': self.command.options['model_name'],
-            'object_value': self.command.options['object_value'],
             'object_field': self.command.options['object_field'],
             'simple_collector': self.command.options['simple_collector'],
             'verbosity': self.command.options['verbosity'],
@@ -294,10 +291,11 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
     def test_get_data_collector_nested_collector_result(self):
         """
         Case: Call get_data_collector using Django's NestedCollector and check the data attribute
-        Expected: A dict with the correct data to be returned, with only sharded models and no mirrored models
+        Expected: A dict with the collected data to be returned, with only sharded models and no mirrored models,
+                  but most likely also missing a lot of data as well.
         """
         collector = self.command.get_data_collector(objects=[self.organization_1], use_original_collector=True)
-        self.assertEqual(collector.data, self.expected_data)
+        self.assertEqual(collector.data, {Organization: {self.organization_1}, Suborganization: {self.suborganization}})
 
     @mock.patch('sharding.management.commands.purge_shard_data.disable_signals')
     def test_delete_data(self, mock_disable_signals):
@@ -340,6 +338,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         Case: Call the handle while NestedObjects.collect() will raise an exception.
         Expected: `delete_data` is not called and data is not deleted.
         """
+        self.options['simple_collector'] = False
         with self.assertRaises(DatabaseError):
             self.command.handle(**self.options)
 
@@ -391,10 +390,10 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
 
         call_command(
             'move_data_to_shard',
-            '--source-shard-alias=' + self.options['shard_alias'],
+            '--source-shard-alias=' + self.args[0],
             '--target-shard-alias=' + self.target_shard.alias,
-            '--root-object-id=' + str(self.options['object_value']),
-            '--model-name=' + self.options['model_name'],
+            '--root-object-id=' + str(self.args[2]),
+            '--model-name=' + self.args[1],
             '--no-input',
             '--quiet',
             '--no-delete'

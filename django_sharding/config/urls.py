@@ -16,11 +16,17 @@ Including another URLconf
 from django.conf.urls import url
 from django.contrib.auth import views as auth_views
 from example.views import HomeView
-# from django.contrib import admin
 
 
 urlpatterns = [
-    # url(r'^admin/', admin.site.urls),
-    url(r'^login/$', auth_views.login, {'template_name': 'example/login.html'}, name='login'),
     url(r'^$', HomeView.as_view(), name='home'),
 ]
+if hasattr(auth_views, 'login'):
+    # Django < 2.0
+    urlpatterns.append(
+        url(r'^login/$', auth_views.login, {'template_name': 'example/login.html'}, name='login')
+    )
+else:
+    urlpatterns.append(
+        url(r'^login/$', auth_views.LoginView.as_view(template_name='users/login.html'), name='login')
+    )

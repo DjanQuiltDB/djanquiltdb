@@ -48,6 +48,8 @@ class Command(MigrateCommand):
 
         parser.add_argument('--schema-name', '-s', action='store', dest='schema_name',
                             help='Nominates a schema to synchronize. When empty all schemas will be migrated.')
+        parser.add_argument('--check-shard', action='store_false', dest='check_shard',
+                            help='A flag used internally by the sharding library.')
 
     def handle(self, *args, **options):
         self.verbosity = options.get('verbosity', 0)

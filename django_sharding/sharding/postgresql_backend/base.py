@@ -174,6 +174,10 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self.schema_name = PUBLIC_SCHEMA_NAME
         self.include_public_schema = True
 
+        # Django < 2.0 require this attribute set, in our case it should be just a noop.
+        if hasattr(self, '_start_transaction_under_autocommit'):
+            self._start_transaction_under_autocommit = (lambda x: None)
+
     def __str__(self):
         return self.alias
 
@@ -298,7 +302,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                     )
                     break  # Only one AutoField is allowed per model, so don't bother continuing.
             for f in model._meta.many_to_many:
-                if not f.rel.through:
+                # Django < 2.0
+                remote_field = 'rel' if hasattr(f, 'rel') else 'remote_field'
+                if not getattr(f, remote_field).through:
                     statements.append(
                         "SELECT setval('{s}', coalesce(max({f}), 1), max({f}) IS NOT null) FROM {qnm}"  # nosec
                         .format(
@@ -413,9 +419,6 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             wrapped_cursor = self.make_cursor(cursor, skip_lock=skip_lock)
         return wrapped_cursor
 
-    def _start_transaction_under_autocommit(self):
-        pass
-
 
 class ShardDatabaseWrapper(DatabaseWrapper):
     """
@@ -430,8 +433,8 @@ class ShardDatabaseWrapper(DatabaseWrapper):
     """
     _PROXY_FIELDS = ('connection', 'settings_dict', 'queries_log', 'force_debug_cursor', 'autocommit',
                      'in_atomic_block', 'savepoint_state', 'savepoint_ids', 'commit_on_exit', 'needs_rollback',
-                     'close_at', 'closed_in_transaction', 'errors_occurred', 'allow_thread_sharing', '_thread_ident',
-                     'current_search_paths', 'run_on_commit', 'run_commit_hooks_on_set_autocommit_on')
+                     'close_at', 'closed_in_transaction', 'errors_occurred', '_thread_ident', 'current_search_paths',
+                     'run_on_commit', 'run_commit_hooks_on_set_autocommit_on')
 
     def __init__(self, main_connection, options):
         self._main_connection = main_connection
@@ -444,7 +447,6 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         super().__init__(
             settings_dict=main_connection.settings_dict,
             alias=main_connection.alias,
-            allow_thread_sharing=main_connection.allow_thread_sharing
         )
         self._initialized = True
 
@@ -458,6 +460,14 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         # we activated this connection in a context manager, meaning that we already activated the lock and we don't
         # have to do that in the cursor's execute method.
         self.lock_on_execute = bool(options.lock and not options.use_shard and options.lock_keys)
+
+        # Django < 2.2 #30171
+        if not hasattr(self._main_connection, '_thread_sharing_lock'):
+            self._PROXY_FIELDS = self._PROXY_FIELDS + ('allow_thread_sharing',)
+
+        # Django > 2.0
+        if hasattr(self._main_connection, 'execute_wrappers'):
+            self._PROXY_FIELDS = self._PROXY_FIELDS + ('execute_wrappers',)
 
     @property
     def alias(self):

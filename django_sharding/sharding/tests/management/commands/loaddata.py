@@ -19,6 +19,8 @@ class LoadDataTestCase(ShardingTestCase):
                 database='{}|{}'.format(shard_options.node_name, shard_options.schema_name),
                 verbosity=1,
                 traceback=False,
+                force_color=False,
+                format=None,
                 no_color=False,
                 app_label=None,
                 pythonpath=None,

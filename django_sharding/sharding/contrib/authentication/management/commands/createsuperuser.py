@@ -30,7 +30,7 @@ def patch_get_by_natural_key(func):
         exists_on_node = for_each_node(_get_by_natural_key, args=args, kwargs=kwargs)
 
         if all(exists is False for exists, _ in exists_on_node.values()):
-            raise exists_on_node.values()[0][1]
+            raise list(exists_on_node.values())[0][1]
     return get_by_natural_key
 
 

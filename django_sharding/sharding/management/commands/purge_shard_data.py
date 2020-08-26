@@ -58,7 +58,7 @@ class Command(BaseCommand):
             self.stdout.write(msg)
 
     def handle(self, *args, **options):
-        self.options = options
+        self.options.update(options)
 
         self.shard = self.get_shard(alias=self.options['shard_alias'])
 

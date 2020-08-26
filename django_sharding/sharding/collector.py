@@ -75,8 +75,10 @@ class SimpleCollector(Collector):
                 # but we don't have a nice way to turn that data into parent
                 # object instance.
                 parent_objs = [getattr(obj, ptr.name) for obj in new_objs]
+                # Django < 2.0
+                remote_field = 'rel' if hasattr(ptr, 'rel') else 'remote_field'
                 self.collect(parent_objs, source=model,
-                             source_attr=ptr.rel.related_name,
+                             source_attr=getattr(ptr, remote_field).related_name,
                              collect_related=False)
 
         if collect_related:
@@ -90,10 +92,14 @@ class SimpleCollector(Collector):
                     self.collect(sub_objs,
                                  source=model,
                                  source_attr=field.name)
-            for field in model._meta.virtual_fields:
+            # Django < 2.0
+            private_fields = 'virtual_fields' if hasattr(model._meta, 'virtual_fields') else 'private_fields'
+            for field in getattr(model._meta, private_fields):
                 if hasattr(field, 'bulk_related_objects'):
                     # Its something like generic foreign key.
                     sub_objs = field.bulk_related_objects(new_objs, self.using)
+                    # Django < 2.0
+                    remote_field = 'rel' if hasattr(field, 'rel') else 'remote_field'
                     self.collect(sub_objs,
                                  source=model,
-                                 source_attr=field.rel.related_name)
+                                 source_attr=getattr(field, remote_field).related_name)

@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from unittest import mock
 
-from django.db import connections, IntegrityError, InterfaceError
+from django.db import connections, IntegrityError, InterfaceError, DatabaseError
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.test import override_settings
 from psycopg2 import InternalError
@@ -879,7 +879,10 @@ class AdvisoryLockingIntegrationTestCase(ShardingTestCase):
 class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
     def close_connections(self):
         if hasattr(self, 'connection'):
-            self.connection.close()
+            try:
+                self.connection.close()
+            except DatabaseError:
+                pass
 
     def setUp(self):
         super().setUp()
@@ -925,11 +928,14 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
                 * introspection
                 * ops
                 * validation
+                * _thread_sharing_lock
+                * _thread_sharing_count
         Expected: List is as we expected
         Note: if in future versions of Django the fields we define in BaseDatabaseWrapper changes, this test will tell
               us. We want to proxy all those fields (except for the alias).
         """
-        exclude_classes = ['client', 'creation', 'features', 'introspection', 'ops', 'validation']
+        exclude_classes = ['client', 'creation', 'features', 'introspection', 'ops', 'validation',
+                           '_thread_sharing_lock', '_thread_sharing_count']
 
         class DummyDatabaseWrapper(BaseDatabaseWrapper):
             pass
@@ -946,7 +952,9 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
 
         proxy_fields.append('current_search_paths')
 
-        self.assertCountEqual(ShardDatabaseWrapper._PROXY_FIELDS, proxy_fields)
+        shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name)
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+        self.assertCountEqual(connection_._PROXY_FIELDS, proxy_fields)
 
     def test_current_search_paths(self):
         """

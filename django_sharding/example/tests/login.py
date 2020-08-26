@@ -1,4 +1,7 @@
-from django.core.urlresolvers import reverse
+try:
+    from django.core.urlresolvers import reverse
+except ImportError:
+    from django.urls import reverse
 
 from example.models import Organization, User, Type, Shard
 from sharding.tests import ShardingTestCase

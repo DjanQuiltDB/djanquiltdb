@@ -45,7 +45,7 @@ INSTALLED_APPS = (
     'migration_tests',
 )
 
-MIDDLEWARE_CLASSES = (
+MIDDLEWARE = (
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'example.middleware.UseShardMiddleware',
