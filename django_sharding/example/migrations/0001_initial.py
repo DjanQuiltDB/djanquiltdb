@@ -26,10 +26,22 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
+            name='CakeType',
+            fields=[
+                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('name', models.CharField(max_length=128, verbose_name='name')),
+            ],
+        ),
+        migrations.AlterUniqueTogether(
+            name='caketype',
+            unique_together=set([('name',)]),
+        ),
+        migrations.CreateModel(
             name='Cake',
             fields=[
                 ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('name', models.CharField(verbose_name='name', max_length=128)),
+                ('type', models.ForeignKey(null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='example.CakeType', verbose_name='type')),
             ],
         ),
         migrations.CreateModel(
@@ -107,6 +119,10 @@ class Migration(migrations.Migration):
                 ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('name', models.CharField(verbose_name='name', max_length=100)),
             ],
+        ),
+        migrations.AlterUniqueTogether(
+            name='supertype',
+            unique_together=set([('name',)]),
         ),
         migrations.CreateModel(
             name='Type',
