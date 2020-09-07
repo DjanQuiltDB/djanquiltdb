@@ -12,7 +12,7 @@ from django.db.utils import ConnectionDoesNotExist
 from django.test import SimpleTestCase, override_settings
 
 from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement, Suborganization, \
-    Cake, MirroredUser
+    Cake, MirroredUser, CakeType
 from sharding.db import connection
 from sharding.decorators import atomic_write_to_every_node
 from sharding.options import ShardOptions
@@ -890,23 +890,24 @@ class GetAllMirroredModels(ShardingTestCase):
     def test_with_override(self):
         """
         Case: Call get_all_mirrored_models, while the settings override models.
-        Expected: Only MirroredUser model returned. Type is overridden, the rest is sharded and/or not mirrored.
+        Expected: Only MirroredUser and Shard models returned. Type is overridden,
+                  the rest is sharded and/or not mirrored.
         Note: System test
         """
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'type'): ShardingMode.SHARDED}}):
-            self.assertCountEqual(get_all_mirrored_models(), [MirroredUser])
+            self.assertCountEqual(get_all_mirrored_models(), [MirroredUser, Shard])
 
     def test_with_override_archived_models(self):
         """
         Case: Call get_all_mirrored_models, while the settings override no longer existing models.
-        Expected: Only Type model to be returned. The rest is sharded and/or not mirrored.
+        Expected: Only Type and Shard models to be returned. The rest is sharded and/or not mirrored.
         Note: System test
         """
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('non-existing-app', 'long_gone_model'): ShardingMode.MIRRORED,
                                                      ('example', 'mirroreduser'): ShardingMode.SHARDED}}):
-            self.assertCountEqual(get_all_mirrored_models(), [Type])
+            self.assertCountEqual(get_all_mirrored_models(), [Type, Shard])
 
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):
@@ -926,23 +927,25 @@ class GetAllPublicModels(ShardingTestCase):
     def test_with_override(self):
         """
         Case: Call get_all_public_models, while the settings override models.
-        Expected: Only SuperType and MirroredModel models to be returned. The rest is sharded and/or not mirrored.
+        Expected: Only SuperType, MirroredModel and CakeType models to be returned.
+                  The rest is sharded and/or not mirrored.
         Note: System test
         """
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
-            self.assertCountEqual(get_all_public_models(), [SuperType, MirroredUser])
+            self.assertCountEqual(get_all_public_models(), [SuperType, MirroredUser, CakeType])
 
     def test_with_override_archived_models(self):
         """
         Case: Call get_all_public_models, while the settings override no longer existing models.
-        Expected: Only SuperType models to be returned. The rest is sharded and/or not mirrored, or does not exist.
+        Expected: Only SuperType and CakeType models to be returned. The rest is sharded and/or not mirrored,
+                  or does not exist.
         Note: System test
         """
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('non-existing-app', 'long_gone_model'): ShardingMode.PUBLIC,
                                                      ('example', 'type'): ShardingMode.SHARDED}}):
-            self.assertCountEqual(get_all_public_models(), [SuperType])
+            self.assertCountEqual(get_all_public_models(), [SuperType, CakeType])
 
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):
@@ -962,24 +965,25 @@ class GetAllPublicSchemaModels(ShardingTestCase):
     def test_with_override(self):
         """
         Case: Call get_all_public_schema_models, while the settings override models.
-        Expected: Only SuperType and MirroredModel models to be returned. The rest is sharded and/or not mirrored.
+        Expected: Only Shard, SuperType, MirroredModel and CakeType models to be returned.
+                  The rest is sharded and/or not mirrored.
         Note: System test
         """
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
-            self.assertCountEqual(get_all_public_schema_models(), [SuperType, Type, MirroredUser])
+            self.assertCountEqual(get_all_public_schema_models(), [Shard, SuperType, Type, MirroredUser, CakeType])
 
     def test_with_override_archived_models(self):
         """
         Case: Call get_all_public_schema_models, while the settings override no longer existing models.
-        Expected: Only SuperType and MirroredUser models to be returned.
+        Expected: Only Shard, SuperType, MirroredUser and CakeType models to be returned.
                   The rest is sharded and/or not mirrored, or does not exist.
         Note: System test
         """
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('non-existing-app', 'long_gone_model'): ShardingMode.PUBLIC,
                                                      ('example', 'type'): ShardingMode.SHARDED}}):
-            self.assertCountEqual(get_all_public_schema_models(), [SuperType, MirroredUser])
+            self.assertCountEqual(get_all_public_schema_models(), [Shard, SuperType, MirroredUser, CakeType])
 
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):

@@ -1,6 +1,7 @@
 import sys
 from unittest import mock
 
+from django.db.utils import IntegrityError
 from django.core.management import call_command, CommandError
 from django.test import override_settings
 
@@ -168,7 +169,8 @@ class CreateSuperUserMirroredUserModelTestCase(CreateSuperUserTestCaseMixin, Sha
         with use_shard(node_name='other', schema_name='public'):
             MirroredUser.objects.create(email='bardock@saiyans.zgt')
 
-        with self.assertRaises(CommandError):
+
+        with self.assertRaises(IntegrityError):
             self.command(
                 '--database', 'all',
                 '--email', 'bardock@saiyans.zgt',
