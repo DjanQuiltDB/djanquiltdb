@@ -92,41 +92,10 @@ class BaseShardTestCase(ShardingTestCase):
     def test_save_on_different_node_for_non_mirrored(self, mock_save, mock_create_schema):
         """
         Case: Call the save method from the BaseShard model on any other node than where the schema belongs to.
-              The Shard model is NOT mirrored.
         Expected: Create_schema is called, and the object is saved.
         """
         with use_shard(node_name='other', schema_name='public'):  # Shard objects are always on public
             shard = Shard(alias='test_shard', schema_name='test_schema', node_name='default')
-            shard.save()
-            self.assertTrue(mock_create_schema.called)
-            self.assertTrue(mock_save.called)
-
-    @mock.patch('sharding.utils.create_schema_on_node')
-    @mock.patch('sharding.models.models.Model.save')
-    def test_save_on_different_node_for_mirrored_on_wrong_node(self, mock_save, mock_create_schema):
-        """
-        Case: Call the save method from the BaseShard model on any other node than where the schema belongs to.
-              The Shard model IS mirrored.
-        Expected: Create_schema is NOT called, but the object is still saved.
-        """
-        with use_shard(node_name='other', schema_name='public'):  # Shard objects are always on public
-            shard = Shard(alias='test_shard', schema_name='test_schema', node_name='default')
-            shard.sharding_mode = ShardingMode.MIRRORED
-            shard.save()
-            self.assertFalse(mock_create_schema.called)
-            self.assertTrue(mock_save.called)
-
-    @mock.patch('sharding.utils.create_schema_on_node')
-    @mock.patch('sharding.models.models.Model.save')
-    def test_save_on_different_node_for_mirrored_on_correct_node(self, mock_save, mock_create_schema):
-        """
-        Case: Call the save method from the BaseShard model on the node the schema belongs to.
-              The Shard model IS mirrored.
-        Expected: Create_schema is called, and the object is saved.
-        """
-        with use_shard(node_name='other', schema_name='public'):  # Shard objects are always on public
-            shard = Shard(alias='test_shard', schema_name='test_schema', node_name='other')
-            shard.sharding_mode = ShardingMode.MIRRORED
             shard.save()
             self.assertTrue(mock_create_schema.called)
             self.assertTrue(mock_save.called)

@@ -65,17 +65,9 @@ class BaseShard(models.Model):
 
         from sharding.utils import schema_exists, create_schema_on_node  # Prevent cyclic imports
 
-        # Django 1.10+ has no base manager on the model instance anymore, but has it as a class attribute now. So first
-        # check if we can get it from the model instance and if not, lets grab it from the class.
-        base_manager = getattr(self, '_base_manager', self.__class__._base_manager)
-
-        # If we have a mirrored sharding mode, we need to work on our target node to create a schema.
-        # If this object is made within a 'use_shard' manager we will have 'using' set.
-        # Else we need to get our db alias form the manager
-        if (not hasattr(self, 'sharding_mode')
-            or (getattr(self, 'sharding_mode') == ShardingMode.MIRRORED
-                and ShardOptions.from_alias(using or base_manager.db).node_name) == self.node_name) \
-                and not schema_exists(node_name=self.node_name, schema_name=self.schema_name):
+        # Only create the schema is if does not exist yet. This prevents re-creation if the shard object is saved
+        # multiple times for different nodes. (The save-on-all-nodes style of data replication across nodes)
+        if not schema_exists(node_name=self.node_name, schema_name=self.schema_name):
             create_schema_on_node(schema_name=self.schema_name, node_name=self.node_name, migrate=True)
 
         super().save(using=using, **kwargs)
