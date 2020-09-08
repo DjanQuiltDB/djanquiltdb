@@ -395,10 +395,12 @@ class MoveDataToShardTestCase(ShardingTestCase):
             cake_type_2 = CakeType.objects.create(name='Moist', id=2)
 
         with use_shard(node_name='other', schema_name='public'):
+            # Super and CakeType are public. Their ids do not have to match across nodes.
             super_2 = SuperType.objects.create(name='Character', id=10)
 
-            Type.objects.create(name='Professor', super=super_2)
-            Type.objects.create(name='Child', super=super_2)
+            # Type is mirrored, so we need to keep the ids in sync
+            Type.objects.create(name='Professor', super=super_2, id=type_1.id)
+            Type.objects.create(name='Child', super=super_2, id=type_2.id)
 
             CakeType.objects.create(name='Lies', id=10)
             CakeType.objects.create(name='Moist', id=20)
