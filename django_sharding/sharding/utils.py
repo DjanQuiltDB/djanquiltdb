@@ -446,7 +446,11 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
 
 
 def get_model_sharding_mode(model):
-    app_label, model_name = model._meta.app_label, model._meta.model_name
+    if not hasattr(model, '_meta'):
+        # Some models (ManyToOne for example) do not have a _meta them selves, but refer to another model for that.
+        app_label, model_name = model.model._meta.app_label, model.model._meta.model_name
+    else:
+        app_label, model_name = model._meta.app_label, model._meta.model_name
     return get_sharding_mode(app_label, model_name)
 
 

@@ -1,6 +1,8 @@
+from collections import OrderedDict
 from threading import Thread, Event
 from unittest import mock
 
+from django.apps import apps
 from django.db import connections, ProgrammingError, models, DEFAULT_DB_ALIAS
 from django.test import override_settings
 
@@ -19,7 +21,7 @@ class DummyShardedModel(models.Model):
 
     class Meta:
         app_label = 'sharding'
-        managed = False
+        abstract = True
 
 
 @mirrored_model()
@@ -28,7 +30,7 @@ class DummyMirroredModel(models.Model):
 
     class Meta:
         app_label = 'sharding'
-        managed = False
+        abstract = True
 
 
 class DummyPublicModelManager(models.Manager):
@@ -44,7 +46,7 @@ class DummyPublicModel(models.Model):
 
     class Meta:
         app_label = 'sharding'
-        managed = False
+        abstract = True
         unique_together = [[]]
 
     def natural_key(self):
@@ -139,8 +141,20 @@ class ActiveConnectionTestCase(ShardingTransactionTestCase):
 
 
 class DynamicDbRouterTestCase(ShardingTestCase):
+
+    def clean_models(self):
+        apps.app_configs['sharding'].models = {}
+
     def setUp(self):
         super().setUp()
+
+        self.addCleanup(self.clean_models)
+
+        # Trick to register abstract models. We want them to be abstract or they will show up in other tests as well.
+        apps.app_configs['sharding'].models = OrderedDict([('dummyshardedmodel', DummyShardedModel),
+                                                           ('dummymirroredmodel', DummyMirroredModel),
+                                                           ('dummypublicmodel', DummyPublicModel),
+                                                           ('dummynonshardedmodel', DummyNonShardedModel)])
 
         self.router = DynamicDbRouter()
 

@@ -186,6 +186,12 @@ class Command(BaseCommand):
 
         self.bar_finish(bar)
 
+    @staticmethod
+    def get_related_model(field):
+        # Django < 2.0
+        remote_field = 'rel' if hasattr(field, 'rel') else 'remote_field'
+        return getattr(field, remote_field)
+
     def retarget_relations(self):
         """
         Retargetting of foreign keys from sharded data to public data goes as follows:
@@ -212,7 +218,8 @@ class Command(BaseCommand):
         # Select models that have a related field to a PUBLIC model
         models = [m for m in get_all_sharded_models()
                   if any(f for f in m._meta.fields
-                         if f.is_relation and get_model_sharding_mode(f.rel.model) == ShardingMode.PUBLIC)]
+                         if f.is_relation
+                         and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)]
 
         source_data = defaultdict(dict)  # <model>: {<id>: (<natural key value>, natural key value 2>, etc)}
         target_data = defaultdict(dict)  # <model>: {(<natural key value>, natural key value 2>, etc): <id>}
