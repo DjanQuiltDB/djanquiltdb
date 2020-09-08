@@ -12,7 +12,7 @@ from sharding.utils import use_shard, create_template_schema, State, use_shard_f
 from sharding.management.commands.move_shard_to_node import Command as MoveCommand
 
 
-class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
+class MoveShardToNodeTransactionTestCase(ShardingTransactionTestCase):
     maxDiff = None
 
     def setUp(self):
@@ -287,7 +287,7 @@ class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
         self.assertTrue(mock_copy_expert.called)
 
 
-class MoveDataToShardTestCase(ShardingTestCase):
+class MoveShardToNodeTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 
@@ -603,7 +603,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
                                                                      state=State.ACTIVE)
 
         self.command.old_shard_state = State.ACTIVE
-        self.command.old_source_states = {organization.id: State.ACTIVE}
+        self.command.old_source_states = {self.organization_shard1.id: State.ACTIVE}
         self.organization_shard1.state = State.MAINTENANCE
         self.organization_shard1.save(update_fields=['state'])
 

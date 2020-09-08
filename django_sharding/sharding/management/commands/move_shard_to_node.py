@@ -298,6 +298,7 @@ class Command(BaseCommand):
             # No need to fetch the objects from the shards, because we can use the old_source_state dictionary here to
             # release the locks and put the mapping objects back to their old state.
             for root_object_id, state in self.old_source_states.items():
+                print(mapping_model.objects.all())
                 mapping_object = mapping_model.objects.get(id=root_object_id)
                 mapping_object.state = state
                 mapping_object.save(update_fields=['state'])
