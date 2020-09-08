@@ -442,8 +442,8 @@ class MoveShardToNodeTestCase(ShardingTestCase):
             self.assertEqual(user_1.type_id, type_1.id)
             self.assertEqual(user_2.type_id, type_2.id)
 
-            self.assertEqual(Type.objects.get(id=user_1.id).super_id, 10)
-            self.assertEqual(Type.objects.get(id=user_2.id).super_id, 10)
+            self.assertEqual(Type.objects.get(id=user_1.type_id).super_id, 10)
+            self.assertEqual(Type.objects.get(id=user_2.type_id).super_id, 10)
 
             self.assertCountEqual(user_1.cake.all().values_list('id', flat=True), [cake_1.id, cake_2.id])
             self.assertCountEqual(user_2.cake.all().values_list('id', flat=True), [cake_3.id, cake_4.id])
@@ -608,6 +608,8 @@ class MoveShardToNodeTestCase(ShardingTestCase):
         self.organization_shard1.save(update_fields=['state'])
 
         self.assertEqual(self.source_shard.node_name, 'default')
+
+        mock_release_lock.reset_mock()
 
         self.command.source_shard = self.source_shard
         self.command.target_node = 'other'
