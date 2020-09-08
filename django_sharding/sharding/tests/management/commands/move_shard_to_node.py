@@ -442,8 +442,8 @@ class MoveShardToNodeTestCase(ShardingTestCase):
             self.assertEqual(user_1.type_id, type_1.id)
             self.assertEqual(user_2.type_id, type_2.id)
 
-            self.assertEqual(user_1.type.super_id, 1)
-            self.assertEqual(user_2.type.super_id, 1)
+            self.assertEqual(Type.objects.get(id=user_1.id).super_id, 10)
+            self.assertEqual(Type.objects.get(id=user_2.id).super_id, 10)
 
             self.assertCountEqual(user_1.cake.all().values_list('id', flat=True), [cake_1.id, cake_2.id])
             self.assertCountEqual(user_2.cake.all().values_list('id', flat=True), [cake_3.id, cake_4.id])
