@@ -2,8 +2,7 @@ from django.conf import settings
 from django.db import models, connections, transaction
 from django.db.models import Q
 
-from sharding import State, STATES, ShardingMode
-from sharding.options import ShardOptions
+from sharding import State, STATES
 from sharding.utils import get_shard_class, use_shard, delete_schema
 
 

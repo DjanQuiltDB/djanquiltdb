@@ -5,7 +5,7 @@ from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from example.models import Shard, Organization, User, Type, ProxyCake
-from sharding import ShardingMode, State
+from sharding import State
 from sharding.models import BaseShard
 from sharding.options import ShardOptions
 from sharding.tests import ShardingTestCase
