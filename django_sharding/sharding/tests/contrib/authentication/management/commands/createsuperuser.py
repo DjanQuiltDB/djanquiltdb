@@ -169,7 +169,7 @@ class CreateSuperUserMirroredUserModelTestCase(CreateSuperUserTestCaseMixin, Sha
         with use_shard(node_name='other', schema_name='public'):
             MirroredUser.objects.create(email='bardock@saiyans.zgt')
 
-        with self.assertRaises(IntegrityError):
+        with self.assertRaises((CommandError, IntegrityError)):
             self.command(
                 '--database', 'all',
                 '--email', 'bardock@saiyans.zgt',
