@@ -64,6 +64,14 @@ class Command(BaseCommand):
         if not self.quiet:
             print(*args)
 
+    def bar_update(self, bar):
+        if not self.quiet:
+            bar.update()
+
+    def bar_finish(self, bar):
+        if not self.quiet:
+            bar.finish()
+
     def get_source_shard(self, alias):
         """
         Get shard based on alias.
@@ -174,11 +182,9 @@ class Command(BaseCommand):
                                  'COPY "{t}" FROM STDIN WITH CSV DELIMITER \';\' HEADER'  # nosec
                                  .format(t=table), io)
 
-            if not self.quiet:
-                bar.update()
+            self.bar_update(bar)
 
-        if not self.quiet:
-            bar.finish()
+        self.bar_finish(bar)
 
     def retarget_relations(self):
         """
@@ -261,11 +267,9 @@ class Command(BaseCommand):
                         setattr(object, field_name, mapped_value)
                     object.save(update_fields=field_definitions.keys())
 
-                    if not self.quiet:
-                        bar.update()
+                    self.bar_update(bar)
 
-        if not self.quiet:
-            bar.finish()
+        self.bar_finish(bar)
 
     def reset_sequences(self):
         """
