@@ -190,7 +190,11 @@ class Command(BaseCommand):
     def get_related_model(field):
         # Django < 2.0
         remote_field = 'rel' if hasattr(field, 'rel') else 'remote_field'
-        return getattr(field, remote_field)
+        related_model = getattr(field, remote_field)
+        if not related_model.concrete:  # auto_created
+            # The model is a mapping table for a many-to-one/many-to-many relation.
+            # We want the target model in this case
+            return related_model.model
 
     def retarget_relations(self):
         """
@@ -233,15 +237,16 @@ class Command(BaseCommand):
         for model in models:
             field_definitions = {}
             fields = list(f for f in model._meta.fields if f.is_relation
-                          and get_model_sharding_mode(f.rel.model) == ShardingMode.PUBLIC)
+                          and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)
             for field in fields:
-                natural_keys = field.rel.model._meta.unique_together
+                related_model = self.get_related_model(field)
+                natural_keys = related_model._meta.unique_together
                 if not natural_keys:
-                    raise ValueError('Model {} does not appear to have natural keys!'.format(field.rel.model))
-                field_definitions[field.attname] = {'natural_keys': field.rel.model._meta.unique_together[0],
-                                                    'related_model': field.rel.model}
-                source_data[field.rel.model] = {}
-                target_data[field.rel.model] = {}
+                    raise ValueError('Model {} does not appear to have natural keys!'.format(related_model))
+                field_definitions[field.attname] = {'natural_keys': natural_keys[0],
+                                                    'related_model': related_model}
+                source_data[related_model] = {}
+                target_data[related_model] = {}
 
             with self.source_shard.use(active_only_schemas=False, lock=False):
                 for rel_model in source_data.keys():
@@ -298,7 +303,6 @@ class Command(BaseCommand):
             # No need to fetch the objects from the shards, because we can use the old_source_state dictionary here to
             # release the locks and put the mapping objects back to their old state.
             for root_object_id, state in self.old_source_states.items():
-                print(mapping_model.objects.all())
                 mapping_object = mapping_model.objects.get(id=root_object_id)
                 mapping_object.state = state
                 mapping_object.save(update_fields=['state'])
