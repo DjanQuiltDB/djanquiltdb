@@ -130,6 +130,7 @@ class DatabaseCreationTestCase(ShardingTestCase):
                 'pk': cake.pk,
                 'fields': {
                     'name': cake.name,
+                    'type': None,
                 },
                 'model': 'example.cake'
             }

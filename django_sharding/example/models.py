@@ -14,6 +14,7 @@ __all__ = [
     'Type',
     'Organization',
     'Suborganization',
+    'CakeType',
     'Cake',
     'ProxyCake',
     'User',
@@ -23,6 +24,7 @@ __all__ = [
 ]
 
 
+@mirrored_model()
 class Shard(BaseShard):
 
     class Meta:
@@ -101,6 +103,25 @@ class Suborganization(models.Model):
         app_label = 'example'
 
 
+class CakeTypeManager(models.Manager):
+    def get_by_natural_key(self, name):
+        return self.get(name=name)
+
+
+@public_model()
+class CakeType(models.Model):
+    name = models.CharField('name', max_length=128)
+
+    objects = CakeTypeManager()
+
+    class Meta:
+        app_label = 'example'
+        unique_together = [['name']]
+
+    def natural_key(self):
+        return self.name,
+
+
 class CakeQuerySet(models.QuerySet):
     def chocolate(self):
         return self.filter(name__icontains='chocolate')
@@ -115,6 +136,7 @@ class CakeQuerySet(models.QuerySet):
 @sharded_model()
 class Cake(models.Model):
     name = models.CharField('name', max_length=128)
+    type = models.ForeignKey('CakeType', on_delete=models.DO_NOTHING, verbose_name='type', null=True)
 
     objects = CakeQuerySet.as_manager()
 

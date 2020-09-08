@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from unittest import mock
 
 from django.apps import apps
@@ -22,6 +23,7 @@ class DummyShard(models.Model):
 
     class Meta:
         app_label = 'sharding'
+        abstract = True
 
 
 @sharded_model()
@@ -30,6 +32,7 @@ class DummyShardedShard(BaseShard):
 
     class Meta:
         app_label = 'sharding'
+        abstract = True
 
 
 @sharded_model()
@@ -38,11 +41,21 @@ class DummyUser(AbstractBaseUser):
 
     class Meta:
         app_label = 'sharding'
+        abstract = True
 
 
 class ShardingSettingsTestCase(SimpleTestCase):
+    def clean_models(self):
+        apps.app_configs['sharding'].models = {}
+
     def setUp(self):
         self.sharding_app = apps.get_app_config(app_label='sharding')
+        self.addCleanup(self.clean_models)
+
+        # Trick to register abstract models. We want them to be abstract or they will show up in other tests as well.
+        self.sharding_app.models = OrderedDict([('dummyshard', DummyShard),
+                                                ('dummyshardedshard', DummyShardedShard),
+                                                ('dummyuser', DummyUser)])
 
     def test_no_settings(self):
         """
