@@ -174,7 +174,8 @@ class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
         """
         call_command('move_shard_to_node', *self.format_options_to_args())
 
-        with use_shard(node_name='other', schema_name=self.source_shard.schema_name, active_only_schemas=False, include_public_schema=True):
+        with use_shard(node_name='other', schema_name=self.source_shard.schema_name, active_only_schemas=False,
+                       include_public_schema=True):
             # Check if all the data that we moved is on the new shard
             for model, instances in self.data.items():
                 self.assertCountEqual(model.objects.all(), instances)
@@ -543,7 +544,8 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
         self.command.source_shard = self.source_shard
         self.command.target_shard_options = self.target_shard_options
-        with self.assertRaisesMessage(ValueError, 'No related data found for Butter cake.type_id: None on target shard'):
+        with self.assertRaisesMessage(ValueError,
+                                      'No related data found for Butter cake.type_id: None on target shard'):
             self.command.retarget_relations()
 
         # Remove cake so cleanup goes without issues
