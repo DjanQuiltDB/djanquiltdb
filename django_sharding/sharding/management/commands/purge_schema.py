@@ -22,18 +22,18 @@ class Command(BaseCommand):
             self.style.BOLD = termcolors.make_style(opts=('bold',))
 
     def add_arguments(self, parser):
-        parser.add_argument('--schema_name', '-s',
+        parser.add_argument('--schema-name', '-s',
                             action='store',
                             dest='schema_name',
                             help='Name of the schema to be deleted.')
-        parser.add_argument('--node_alias', '-n',
+        parser.add_argument('--node-alias', '-n',
                             action='store',
                             dest='node_alias',
                             help="alias of the node where the schema resides.",
                             default=False)
         parser.add_argument('-q', '--quiet', '--silent', action='store_true', dest='quiet', help='Suppress output.',
                             default=False)
-        parser.add_argument('--noinput', '--no_input',
+        parser.add_argument('--no-input',
                             action='store_false',
                             dest='interactive',
                             help='Do NOT prompt the user for input of any kind and assume "yes" on all questions.',

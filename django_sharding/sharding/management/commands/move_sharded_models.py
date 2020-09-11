@@ -18,7 +18,7 @@ class Command(BaseCommand):
         parser.add_argument('--database', action='store', dest='database', default='default',
                             help="Nominates a database to execute the moving of tables. Defaults to 'default'.",
                             choices=get_all_databases())
-        parser.add_argument('--target_schema_name', action='store', dest='target_schema_name', default='default_shard',
+        parser.add_argument('--target-schema-name', action='store', dest='target_schema_name', default='default_shard',
                             help='Name of the to be created schema which will receive the moved tables.')
         parser.add_argument('--no-input', action='store_true', dest='no_input', default=False,
                             help='Skips confirmations.')

@@ -40,9 +40,9 @@ class Command(BaseCommand):
     help = 'Move all data belonging to a single root_object from one shard to another.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--source-shard-alias', action='store', dest='source_shard_alias',
+        parser.add_argument('--source-shard-alias', '-n', action='store', dest='source_shard_alias',
                             help='Name of the shard where the root_object will be migrated from.', required=True)
-        parser.add_argument('--target-shard-alias', action='store', dest='target_shard_alias',
+        parser.add_argument('--target-shard-alias', '-t', action='store', dest='target_shard_alias',
                             help='Name of the shard which will receive the data.', required=True)
         parser.add_argument('--model-name', action='store', dest='model_name', required=True,
                             help='app_label.model_name of the root object.')
