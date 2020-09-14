@@ -33,7 +33,7 @@ class Command(BaseCommand):
                             default=False)
         parser.add_argument('-q', '--quiet', '--silent', action='store_true', dest='quiet', help='Suppress output.',
                             default=False)
-        parser.add_argument('--no-input',
+        parser.add_argument('--noinput', '--no-input',
                             action='store_false',
                             dest='interactive',
                             help='Do NOT prompt the user for input of any kind and assume "yes" on all questions.',

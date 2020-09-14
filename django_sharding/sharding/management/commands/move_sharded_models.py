@@ -20,7 +20,7 @@ class Command(BaseCommand):
                             choices=get_all_databases())
         parser.add_argument('--target-schema-name', action='store', dest='target_schema_name', default='default_shard',
                             help='Name of the to be created schema which will receive the moved tables.')
-        parser.add_argument('--no-input', action='store_true', dest='no_input', default=False,
+        parser.add_argument('--noinput', '--no-input', action='store_true', dest='no_input', default=False,
                             help='Skips confirmations.')
 
     def handle(self, *args, **options):

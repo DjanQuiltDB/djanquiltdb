@@ -27,7 +27,7 @@ class Command(BaseCommand):
                             help='Name of the node which will receive the shard.', required=True)
         parser.add_argument('-q', '--quiet', '--silent', action='store_true', dest='quiet', help='Suppress output.',
                             default=False)
-        parser.add_argument('--no-input', action='store_true', dest='no_input', help='Skip confirmation.',
+        parser.add_argument('--noinput', '--no-input', action='store_true', dest='no_input', help='Skip confirmation.',
                             default=False)
 
     def handle(self, *args, **options):
