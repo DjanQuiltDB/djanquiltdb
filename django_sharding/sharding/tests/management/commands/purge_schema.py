@@ -80,6 +80,7 @@ class PurgeSchemaTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
 
+        create_template_schema('default')
         create_template_schema('other')
         create_schema_on_node(node_name='other', schema_name='desolate_lands')
 
@@ -114,7 +115,7 @@ class PurgeSchemaTestCase(ShardingTestCase):
         mock_get_schema_name.assert_called_once_with(self.options, mock_shard_options.return_value)
         mock_confirm.assert_called_once_with()
         mock_delete_schema.assert_called_once_with()
-        mock_print.assert_called_once_with("\nDone. schema 'some schema' has been removed from node some node")
+        mock_print.assert_called_once_with("\nDone. schema 'some schema' has been removed from node 'some node'")
 
     def test_get_node(self):
         """
@@ -145,7 +146,7 @@ class PurgeSchemaTestCase(ShardingTestCase):
         Expected: CommandError raised
         """
         self.options['schema_name'] = 'whoeps'
-        with self.assertRaisesMessage(CommandError, "Could not find schema 'whoeps' on node other"):
+        with self.assertRaisesMessage(CommandError, "Could not find schema 'whoeps' on node 'other'"):
             self.command.get_schema_name(self.options, self.node_options)
 
     def test_get_schema_name_for_wrong_node(self):
@@ -155,7 +156,7 @@ class PurgeSchemaTestCase(ShardingTestCase):
         """
         self.options['node_alias'] = 'default'
         self.node_options.node_name = 'default'
-        with self.assertRaisesMessage(CommandError, "Could not find schema 'desolate_lands' on node default"):
+        with self.assertRaisesMessage(CommandError, "Could not find schema 'desolate_lands' on node 'default'"):
             self.command.get_schema_name(self.options, self.node_options)
 
     def test_get_schema_name_for_active_schema(self):
@@ -164,9 +165,18 @@ class PurgeSchemaTestCase(ShardingTestCase):
         Expected: CommandError raised
         """
         Shard.objects.create(alias='desolace', node_name='other', schema_name='desolate_lands')
-        with self.assertRaisesMessage(CommandError, "schema 'desolate_lands' is in use! Delete the Shard object using "
-                                                    "it if you want to remove it."):
+        with self.assertRaisesMessage(CommandError, "schema 'desolate_lands' on node 'other' is in use! "
+                                                    "Delete the Shard object using it if you want to remove it."):
             self.command.get_schema_name(self.options, self.node_options)
+
+    def test_get_schema_name_for_schema_active_on_other_node(self):
+        """
+        Case: Call get_schema_name on the command for a name of a schema that exists on two nodes, and is active on the
+              one we are not deleting.
+        Expected: The schema name returned
+        """
+        Shard.objects.create(alias='desolace', node_name='default', schema_name='desolate_lands')
+        self.assertEqual(self.command.get_schema_name(self.options, self.node_options), 'desolate_lands')
 
     @mock.patch('sharding.management.commands.purge_schema.input')
     def test_confirm_interactive(self, mock_input):

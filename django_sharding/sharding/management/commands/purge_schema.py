@@ -57,7 +57,7 @@ class Command(BaseCommand):
 
         self.delete_schema()
 
-        self.print("\nDone. schema '{}' has been removed from node {}".format(self.schema_name, self.node))
+        self.print("\nDone. schema '{}' has been removed from node '{}'".format(self.schema_name, self.node))
 
     def get_node(self, options):
         node = options['node_alias']
@@ -68,7 +68,7 @@ class Command(BaseCommand):
 
     def get_schema_name(self, options, node_options):
         schema_name = options['schema_name']
-        error = CommandError("Could not find schema '{}' on node {}".format(schema_name, node_options.node_name))
+        error = CommandError("Could not find schema '{}' on node '{}'".format(schema_name, node_options.node_name))
         with node_options.use() as env:
             try:
                 if not env.connection.get_ps_schema(schema_name):
@@ -76,9 +76,10 @@ class Command(BaseCommand):
             except IntegrityError:
                 raise error
 
-        if get_shard_class().objects.filter(schema_name=schema_name).exists():
-            raise CommandError("schema '{}' is in use! Delete the Shard object using it if you want to remove it."
-                               .format(schema_name))
+        if get_shard_class().objects.filter(schema_name=schema_name, node_name=node_options.node_name).exists():
+            raise CommandError("schema '{}' on node '{}' is in use! Delete the Shard object using it if you want to "
+                               "remove it."
+                               .format(schema_name, node_options.node_name))
 
         return schema_name
 
