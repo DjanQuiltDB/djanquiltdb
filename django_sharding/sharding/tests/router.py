@@ -58,7 +58,7 @@ class DummyNonShardedModel(models.Model):
 
     class Meta:
         app_label = 'sharding'
-        managed = False
+        abstract = True
 
 
 class ActiveConnectionTestCase(ShardingTransactionTestCase):
