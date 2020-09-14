@@ -171,4 +171,10 @@ class Migration(migrations.Migration):
             },
             bases=('example.cake',),
         ),
+        migrations.CreateModel(
+            name='Unrelated',
+            fields=[
+                ('name', models.CharField(verbose_name='name', max_length=64)),
+            ],
+        ),
     ]

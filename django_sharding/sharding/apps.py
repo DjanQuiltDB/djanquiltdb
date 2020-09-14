@@ -13,7 +13,7 @@ from sharding.db import connection
 from sharding.decorators import class_method_use_shard, class_method_use_shard_from_db_arg
 from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import ShardDatabaseWrapper
-from sharding.utils import get_all_sharded_models, get_all_public_models
+from sharding.utils import get_all_sharded_models, get_all_public_models, get_all_mirrored_models
 
 
 class ShardingConfig(AppConfig):
@@ -40,7 +40,7 @@ class ShardingConfig(AppConfig):
 
         override_sharding_mode = settings.SHARDING.setdefault('OVERRIDE_SHARDING_MODE', {})
         if not isinstance(override_sharding_mode, dict):
-            raise ImproperlyConfigured('Incorrect setting value of SHARDING["OVERRIDE_SHARDING_MODE"].')
+            raise ImproperlyConfigured("Incorrect setting value of SHARDING['OVERRIDE_SHARDING_MODE'].")
 
         for key, value in override_sharding_mode.items():
             _validate_override_sharding_mode_entry(key, value)
@@ -62,6 +62,10 @@ class ShardingConfig(AppConfig):
                 "When the user model is sharded, you cannot use django.contrib.sessions.backends.cached_db "
                 "to store sessions. It references the user table and won't know where to find it."
             )
+
+        if ('PRIMARY_DB_ALIAS' not in settings.SHARDING or not settings.SHARDING.get('PRIMARY_DB_ALIAS', None))\
+                and get_all_mirrored_models():
+            raise ImproperlyConfigured("There are MIRRORED models, but SHARDING['PRIMARY_DB_ALIAS'] is not set.")
 
         _validate_public_models()
         _patch_connections()

@@ -83,6 +83,7 @@ DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine
 SHARDING = {
     'SHARD_CLASS': 'example.models.Shard',
     'MAPPING_MODEL': 'example.models.OrganizationShards',
+    'PRIMARY_DB_ALIAS': 'default',
     'NEW_SHARD_NODE': 'other',
     'OVERRIDE_SHARDING_MODE': {
         ('auth',): ShardingMode.MIRRORED,

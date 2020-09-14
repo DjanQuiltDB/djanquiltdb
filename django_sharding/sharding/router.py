@@ -1,6 +1,7 @@
 import logging
 from threading import local
 
+from django.conf import settings
 from django.db import DEFAULT_DB_ALIAS, ProgrammingError
 
 from sharding import ShardingMode, public_modes
@@ -14,7 +15,10 @@ _active_connection = local()
 
 
 def get_active_connection():
-    return getattr(_active_connection, 'connection', DEFAULT_DB_ALIAS)
+    """
+    Get the active connection name. Fall back to the PRIMARY_DB_ALIAS setting, or to DEFAULT_DB_ALIAS if that fails too.
+    """
+    return getattr(_active_connection, 'connection', settings.SHARDING.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS))
 
 
 def set_active_connection(connection):
@@ -26,12 +30,22 @@ class DynamicDbRouter:
     A router that decides what db to read from based on a variable local to the current thread.
     """
     def db_for_read(self, model, **hints):
+        """
+        We normally route to the active connection (usually set by `use_shard`). This is overridden by the state of
+        already retrieved objects or when explicitly provide directions (i.e. `.using()`).
+        """
         shard_options = hints.get('_shard_options')
         instance_options = hints.get('instance') is not None and hints['instance']._state.db
-
         return instance_options or shard_options or get_active_connection()
 
-    db_for_write = db_for_read
+    def db_for_write(self, model, **hints):
+        """
+        For MIRRORED models, always return the primary connection. Otherwise, refer to normal behavior of db_for_read.
+        """
+        if get_model_sharding_mode(model) is ShardingMode.MIRRORED:
+            return settings.SHARDING.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
+
+        return self.db_for_read(model, **hints)
 
     def allow_relation(self, obj1, obj2, *args, **kwargs):
         obj1_mode = get_model_sharding_mode(obj1)

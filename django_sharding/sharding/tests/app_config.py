@@ -210,6 +210,77 @@ class ShardingSettingsTestCase(SimpleTestCase):
                 self.fail('A valid configuration raises an exception')
 
 
+class PrimaryDbAliasTestCase(SimpleTestCase):
+    def test_primary_db_setting(self):
+        """
+        Case: Correct PRIMARY_DB_ALIAS setting, and there are MIRRORED models present.
+        Expected: No error raised
+        """
+        sharding_app = apps.get_app_config(app_label='sharding')
+
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': 'other'}):
+                sharding_app.ready()
+
+    def test_no_primary_db_setting(self):
+        """
+        Case: None or empty PRIMARY_DB_ALIAS setting, but there are MIRRORED models present.
+        Expected: ImproperlyConfigured error raised
+        """
+        sharding_app = apps.get_app_config(app_label='sharding')
+
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'}):
+            with self.assertRaisesMessage(ImproperlyConfigured,
+                                          "There are MIRRORED models, but SHARDING['PRIMARY_DB_ALIAS'] is not set."):
+                sharding_app.ready()
+
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': None}):
+            with self.assertRaisesMessage(ImproperlyConfigured,
+                                          "There are MIRRORED models, but SHARDING['PRIMARY_DB_ALIAS'] is not set."):
+                sharding_app.ready()
+
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': ""}):
+            with self.assertRaisesMessage(ImproperlyConfigured,
+                                          "There are MIRRORED models, but SHARDING['PRIMARY_DB_ALIAS'] is not set."):
+                sharding_app.ready()
+
+    def test_no_primary_db_setting_and_no_mirrored_models(self):
+        """
+        Case: None or empty PRIMARY_DB_ALIAS setting, but there are no MIRRORED models present.
+        Expected: no error raised.
+        """
+        sharding_app = apps.get_app_config(app_label='sharding')
+
+        # Mark all models of all apps as SHARDED.
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': None,
+                                         'OVERRIDE_SHARDING_MODE': {('auth',): ShardingMode.SHARDED,
+                                                                    ('contenttypes',): ShardingMode.SHARDED,
+                                                                    ('migration_tests',): ShardingMode.SHARDED,
+                                                                    ('example',): ShardingMode.SHARDED,
+                                                                    ('sharding',): ShardingMode.SHARDED}}):
+            sharding_app.ready()
+
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': '',
+                                         'OVERRIDE_SHARDING_MODE': {('auth',): ShardingMode.SHARDED,
+                                                                    ('contenttypes',): ShardingMode.SHARDED,
+                                                                    ('migration_tests',): ShardingMode.SHARDED,
+                                                                    ('example',): ShardingMode.SHARDED,
+                                                                    ('sharding',): ShardingMode.SHARDED}}):
+            sharding_app.ready()
+
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'OVERRIDE_SHARDING_MODE': {('auth',): ShardingMode.SHARDED,
+                                                                    ('contenttypes',): ShardingMode.SHARDED,
+                                                                    ('migration_tests',): ShardingMode.SHARDED,
+                                                                    ('example',): ShardingMode.SHARDED,
+                                                                    ('sharding',): ShardingMode.SHARDED}}):
+            sharding_app.ready()
+
+
 class SessionsBackendTestCase(SimpleTestCase):
     def test_no_sessions_setting(self):
         """
