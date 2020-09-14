@@ -619,8 +619,9 @@ class MoveShardToNodeTestCase(ShardingTestCase):
         self.assertEqual(self.organization_shard1.state, State.ACTIVE)
         self.assertEqual(self.source_shard.node_name, 'other')
 
-        mock_release_lock.assert_has_calls([mock.call(key='mapping_{}'.format(self.organization_shard1.id), shared=False),
-                                            mock.call(key='shard_{}'.format(self.source_shard.id), shared=False)])
+        mock_release_lock.assert_has_calls(
+            [mock.call(key='mapping_{}'.format(self.organization_shard1.id), shared=False),
+             mock.call(key='shard_{}'.format(self.source_shard.id), shared=False)])
 
     @mock.patch('sharding.management.commands.move_shard_to_node.Command.copy_data', side_effect=DatabaseError)
     @mock.patch('sharding.management.commands.move_shard_to_node.Command.post_execution')
