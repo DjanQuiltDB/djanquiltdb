@@ -53,9 +53,8 @@ class PurgeShardDataTransactionTestCase(ShardingTransactionTestCase):
 
     def test(self):
         """
-        Case: Call `move_data_to_shard` with the --no-delete option and call the `purge_shard_data` command after.
-        Expected: The object's data is deleted on the source shard and (still) exists on the target shard. The leftover
-                  data is untouched and remains on the source shard.
+        Case: Call `purge_schema` for a inactive schema.
+        Expected: The schema is deleted from the database. It's data cannot be access anymore.
         Note: System test
         """
         # Check if we have data on the schema
@@ -72,7 +71,7 @@ class PurgeShardDataTransactionTestCase(ShardingTransactionTestCase):
         with use_shard(node_name='other', schema_name='public') as env:
             self.assertFalse(env.connection.get_ps_schema('desolate_lands'))
 
-        # Should still not exist on defailt :p
+        # Should still not exist on default (since it never did) :p
         with use_shard(node_name='default', schema_name='public') as env:
             self.assertFalse(env.connection.get_ps_schema('desolate_lands'))
 
@@ -105,6 +104,10 @@ class PurgeSchemaTestCase(ShardingTestCase):
     @mock.patch('sharding.management.commands.purge_schema.Command.print')
     def test_handle(self, mock_print, mock_delete_schema, mock_confirm, mock_get_schema_name, mock_shard_options,
                     mock_get_node):
+        """
+        Case: Call handle on the command.
+        Expected: Bunch of functions called with correct arguments. Completion of the operation reported.
+        """
         self.command.handle({}, self.options)
 
         mock_get_node.assert_called_once_with(self.options)
@@ -170,7 +173,6 @@ class PurgeSchemaTestCase(ShardingTestCase):
         """
         Case: Call confirm on the command with interactive = True
         Expected: Confirmation input asked from the user. Return value is dependent on the user's answer.
-        :return:
         """
         self.command.schema_name = 'desolate_lands'
         self.command.options['interactive'] = True
@@ -203,8 +205,7 @@ class PurgeSchemaTestCase(ShardingTestCase):
     def test_confirm_not_interactive(self, mock_input):
         """
         Case: Call confirm on the command with interactive = False.
-        Expected: Np cnfirmation input asked from the user, True returned anyway.
-        :return:
+        Expected: No confirmation input asked from the user, True returned anyway.
         """
         self.command.schema_name = 'desolate_lands'
 
