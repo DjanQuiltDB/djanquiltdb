@@ -302,6 +302,7 @@ class SessionEngineTestCase(SimpleTestCase):
 
             class Meta:
                 app_label = 'sharding'
+                abstract = True
 
         sharding_app = apps.get_app_config(app_label='sharding')
         with mock.patch('sharding.apps.get_user_model', return_value=User2):
@@ -318,6 +319,7 @@ class SessionEngineTestCase(SimpleTestCase):
 
             class Meta:
                 app_label = 'sharding'
+                abstract = True
 
         sharding_app = apps.get_app_config(app_label='sharding')
         with mock.patch('sharding.apps.get_user_model', return_value=User3):
