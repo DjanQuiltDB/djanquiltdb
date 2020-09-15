@@ -58,8 +58,10 @@ class Command(BaseCommand):
                             default=False)
         parser.add_argument('--noinput', '--no-input', action='store_true', dest='no_input', help='Skip confirmation.',
                             default=False)
-        parser.add_argument('--nodelete', '--no-delete', action='store_true', dest='no_delete', help='Skip deleting data from the '
-                                                                                       'old shard.',
+        parser.add_argument('--nodelete', '--no-delete',
+                            action='store_true',
+                            dest='no_delete',
+                            help='Skip deleting data from the old shard.',
                             default=False)
         parser.add_argument('--keep-validation-files', action='store_true', dest='keep_validation_files',
                             help='Keep the two artifacts the validation step creates in /tmp/ containing the postgres '
