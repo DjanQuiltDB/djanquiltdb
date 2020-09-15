@@ -29,14 +29,16 @@ class Command(BaseCommand):
         parser.add_argument('--node-alias', '-n',
                             action='store',
                             dest='node_alias',
-                            help="alias of the node where the schema resides.",
-                            default=False)
-        parser.add_argument('-q', '--quiet', '--silent', action='store_true', dest='quiet', help='Suppress output.',
+                            help='alias of the node where the schema resides.')
+        parser.add_argument('-q', '--quiet', '--silent',
+                            action='store_true',
+                            dest='quiet',
+                            help='Suppress output.',
                             default=False)
         parser.add_argument('--noinput', '--no-input',
                             action='store_false',
                             dest='interactive',
-                            help='Do NOT prompt the user for input of any kind and assume "yes" on all questions.',
+                            help="Do NOT prompt the user for input of any kind and assume 'yes' on all questions.",
                             default=True)
 
     def print(self, *args):
