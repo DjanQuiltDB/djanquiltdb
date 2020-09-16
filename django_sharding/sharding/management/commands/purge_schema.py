@@ -63,6 +63,10 @@ class Command(BaseCommand):
 
     def get_node(self, options):
         node = options['node_alias']
+
+        if not node:
+            raise CommandError('A node alias must be provided.')
+
         if node not in get_all_databases():
             raise CommandError("Could not find node '{}' in known set of databases".format(node))
 
@@ -70,6 +74,10 @@ class Command(BaseCommand):
 
     def get_schema_name(self, options, node_options):
         schema_name = options['schema_name']
+
+        if not schema_name:
+            raise CommandError('A schema name must be provided.')
+
         error = CommandError("Could not find schema '{}' on node '{}'".format(schema_name, node_options.node_name))
         with node_options.use() as env:
             try:

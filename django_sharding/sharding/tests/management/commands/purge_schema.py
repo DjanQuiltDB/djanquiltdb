@@ -124,6 +124,15 @@ class PurgeSchemaTestCase(ShardingTestCase):
         """
         self.assertEqual(self.command.get_node(self.options), 'other')
 
+    def test_get_node_alias_not_provided(self):
+        """
+        Case: Call get_node on the command with no value given.
+        Expected: CommandError raised
+        """
+        self.options['node_alias'] = None
+        with self.assertRaisesMessage(CommandError, 'A node alias must be provided.'):
+            self.command.get_node(self.options)
+
     def test_get_node_for_non_existing_alias(self):
         """
         Case: Call get_node on the command for a name of a node that does not exist.
@@ -139,6 +148,15 @@ class PurgeSchemaTestCase(ShardingTestCase):
         Expected: The schema name returned.
         """
         self.assertEqual(self.command.get_schema_name(self.options, self.node_options), 'desolate_lands')
+
+    def test_get_schema_name_not_provided(self):
+        """
+        Case: Call get_schema_name on the command with an existing, unused schema.
+        Expected: The schema name returned.
+        """
+        self.options['schema_name'] = None
+        with self.assertRaisesMessage(CommandError, 'A schema name must be provided.'):
+            self.command.get_schema_name(self.options, self.node_options)
 
     def test_get_schema_name_for_non_existing_schema(self):
         """
