@@ -139,12 +139,10 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         self.command.options['interactive'] = False
 
         # Used for system tests with `call_command`
-        self.args = [
-            self.command.options['shard_alias'],
-            self.command.options['model_name'],
-            self.command.options['object_value']
-        ]
         self.options = {
+            'shard_alias': self.command.options['shard_alias'],
+            'model_name': self.command.options['model_name'],
+            'object_value': self.command.options['object_value'],
             'object_field': self.command.options['object_field'],
             'simple_collector': self.command.options['simple_collector'],
             'verbosity': self.command.options['verbosity'],
@@ -390,10 +388,10 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
 
         call_command(
             'move_data_to_shard',
-            '--source-shard-alias=' + self.args[0],
+            '--source-shard-alias=' + self.options['shard_alias'],
             '--target-shard-alias=' + self.target_shard.alias,
-            '--root-object-id=' + str(self.args[2]),
-            '--model-name=' + self.args[1],
+            '--root-object-id=' + self.options['object_value'],
+            '--model-name=' + self.options['model_name'],
             '--no-input',
             '--quiet',
             '--no-delete'
@@ -406,7 +404,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
                 list(instances) + list(self.leftover_data[model])
             )
 
-        call_command('purge_shard_data', *self.args, **self.options)
+        call_command('purge_shard_data', **self.options)
 
         # Check that only the leftover data remains on the source shard
         for model, instances in self.expected_data.items():
@@ -426,7 +424,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         """
         mock_confirm.return_value = False
 
-        call_command('purge_shard_data', *self.args, **self.options)
+        call_command('purge_shard_data', **self.options)
 
         mock_log.assert_any_call('\nOperation cancelled.', level=1)
 

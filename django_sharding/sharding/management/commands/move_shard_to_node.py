@@ -21,13 +21,13 @@ green = functools.partial(color, code='32')
 
 class Command(BaseCommand):
     def add_arguments(self, parser):
-        parser.add_argument('--source-shard-alias', action='store', dest='source_shard_alias',
+        parser.add_argument('--source-shard-alias', '-n', action='store', dest='source_shard_alias',
                             help='Name of the shard which will move.', required=True)
-        parser.add_argument('--target-node-alias', action='store', dest='target_node_alias',
+        parser.add_argument('--target-node-alias', '-t', action='store', dest='target_node_alias',
                             help='Name of the node which will receive the shard.', required=True)
         parser.add_argument('-q', '--quiet', '--silent', action='store_true', dest='quiet', help='Suppress output.',
                             default=False)
-        parser.add_argument('--no-input', action='store_true', dest='no_input', help='Skip confirmation.',
+        parser.add_argument('--noinput', '--no-input', action='store_true', dest='no_input', help='Skip confirmation.',
                             default=False)
 
     def handle(self, *args, **options):

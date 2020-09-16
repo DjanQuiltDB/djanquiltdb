@@ -29,12 +29,18 @@ class Command(BaseCommand):
             self.style.BOLD = termcolors.make_style(opts=('bold',))
 
     def add_arguments(self, parser):
-        parser.add_argument(dest='shard_alias',
+        parser.add_argument('--shard-alias', '-s',
+                            action='store',
+                            dest='shard_alias',
                             help='Name of the shard for which to purge the data.')
-        parser.add_argument(dest='model_name',
+        parser.add_argument('--model-name', '-m',
+                            action='store',
+                            dest='model_name',
                             help='Dot notation of the module path to the root object model class, e.g. '
                                  '"app_label.model_name".')
-        parser.add_argument(dest='object_value',
+        parser.add_argument('--object-value', '-o',
+                            action='store',
+                            dest='object_value',
                             help='The object value for the object field.')
         parser.add_argument('--object-field',
                             action='store',
@@ -47,7 +53,7 @@ class Command(BaseCommand):
                             help="Do not use Django's delete collector to determine what needs to be deleted from the "
                                  "shard, but use the simple collector.",
                             default=False)
-        parser.add_argument('--noinput',
+        parser.add_argument('--noinput', '--no-input',
                             action='store_false',
                             dest='interactive',
                             help='Do NOT prompt the user for input of any kind and assume "yes" on all questions.',

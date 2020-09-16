@@ -36,6 +36,7 @@ class ShardedModelDecoratorTestCase(ModelTestCase):
 
             class Meta:
                 app_label = 'sharding'
+                abstract = True
 
         self.assertEqual(TestShardedModel.sharding_mode, ShardingMode.SHARDED)
 
@@ -53,6 +54,7 @@ class MirroredModelDecoratorTestCase(ModelTestCase):
 
             class Meta:
                 app_label = 'sharding'
+                abstract = True
 
         self.assertEqual(TestMirroredModel.sharding_mode, ShardingMode.MIRRORED)
 
@@ -175,6 +177,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
 
                 class Meta:
                     app_label = 'sharding'
+                    abstract = True
 
     def test_shard_mapping_model_with_invalid_argument(self):
         """
