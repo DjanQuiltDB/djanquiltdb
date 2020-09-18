@@ -6,7 +6,7 @@ from django.apps import apps
 from django.db import connections, ProgrammingError, models, DEFAULT_DB_ALIAS
 from django.test import override_settings
 
-from example.models import Organization, Shard, Type, SuperType, DefaultUser, OrganizationShards, Unrelated
+from example.models import Organization, Shard, Type, SuperType, Unrelated
 from sharding import State
 from sharding.decorators import sharded_model, mirrored_model, public_model
 from sharding.options import ShardOptions
