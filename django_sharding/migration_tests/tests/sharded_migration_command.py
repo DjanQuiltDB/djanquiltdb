@@ -67,9 +67,16 @@ class ShardedMigrationSystemTestCase(MigrationTestCase):
         self.databases = get_all_databases()
 
         with override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'}):
-            # default|template migrates fully
-            # therefore the shards created after this will be fully migrated as well.
+
             for db in self.databases:
+                # default|public migrates fully
+                with use_shard(node_name=db, schema_name='public') as env:
+                    executor = MigrationExecutor(env.connection)
+                    executor.migrate([('migration_tests', '0003_third')])
+                    executor.loader.build_graph()
+
+                # default|template migrates fully
+                # therefore the shards created after this will be fully migrated as well.
                 with use_shard(node_name=db, schema_name='template') as env:
                     executor = MigrationExecutor(env.connection)
                     executor.migrate([('migration_tests', '0003_third')])
