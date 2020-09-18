@@ -88,6 +88,11 @@ class OverrideMirroredRoutingMixin:
     Since the sharding library doesn't actually have replication, we need to write to all nodes manually.
     To accomplish this we must override the strict Mirrored mode routing
     """
+    def reset_router_override(self):
+        DynamicDbRouter.db_for_write = self.old_db_for_write
+
     def setUp(self):
         super().setUp()
+        self.old_db_for_write = DynamicDbRouter.db_for_write
+        self.addCleanup(self.reset_router_override)
         DynamicDbRouter.db_for_write = DynamicDbRouter.db_for_read

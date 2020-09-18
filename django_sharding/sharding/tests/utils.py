@@ -17,7 +17,8 @@ from sharding.db import connection
 from sharding.decorators import atomic_write_to_every_node
 from sharding.options import ShardOptions
 from sharding.router import set_active_connection, get_active_connection
-from sharding.tests import ShardingTestCase, ShardingTransactionTestCase, ResetConnectionTestCaseMixin
+from sharding.tests import ShardingTestCase, ShardingTransactionTestCase, ResetConnectionTestCaseMixin, \
+    OverrideMirroredRoutingMixin
 from sharding.utils import use_shard, create_schema_on_node, create_template_schema, migrate_schema, \
     get_template_name, _node_exists, StateException, use_shard_for, get_shard_for, for_each_shard, State, \
     for_each_node, transaction_for_every_node, move_model_to_schema, get_all_databases, ShardingMode, \
@@ -1081,7 +1082,7 @@ class ForEachNodeTestCase(SimpleTestCase):
         self.assertTrue(mock_get_all_databases.called)
 
 
-class WriteToEveryNodeSystemTestCase(ShardingTransactionTestCase):
+class WriteToEveryNodeSystemTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):
     def test_write_to_all_nodes(self):
         """
         Case: Use the @atomic_write_to_every_node on a simple write function.
@@ -1123,7 +1124,7 @@ class WriteToEveryNodeSystemTestCase(ShardingTransactionTestCase):
         mock_transaction_for_every_node.assert_called_once_with(lock_models=((Type, 'SHARE'),))
 
 
-class TransactionForNodesTestCase(ShardingTransactionTestCase):
+class TransactionForNodesTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):
     @mock.patch('sharding.utils.Atomic.__init__')
     @mock.patch('sharding.utils.Atomic.__enter__', autospec=True)
     @mock.patch('sharding.utils.Atomic.__exit__', autospec=True)

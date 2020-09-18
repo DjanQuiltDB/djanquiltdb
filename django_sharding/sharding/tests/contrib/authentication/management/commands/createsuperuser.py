@@ -7,7 +7,7 @@ from django.test import override_settings
 
 from example.models import Shard, User, MirroredUser, DefaultUser
 from sharding import State
-from sharding.tests import ShardingTransactionTestCase, ShardingTestCase
+from sharding.tests import ShardingTransactionTestCase, ShardingTestCase, OverrideMirroredRoutingMixin
 from sharding.utils import create_template_schema, use_shard
 
 
@@ -97,7 +97,8 @@ class CreateSuperUserShardedUserModelTestCase(CreateSuperUserTestCaseMixin, Shar
 
 
 @override_settings(AUTH_USER_MODEL='example.MirroredUser')
-class CreateSuperUserMirroredUserModelTestCase(CreateSuperUserTestCaseMixin, ShardingTransactionTestCase):
+class CreateSuperUserMirroredUserModelTestCase(OverrideMirroredRoutingMixin, CreateSuperUserTestCaseMixin,
+                                               ShardingTransactionTestCase):
     """
     Test cases for usage of the `createsuperuser` command in combination with a user model that's a mirrored model.
     """

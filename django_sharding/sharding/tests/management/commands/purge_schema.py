@@ -5,12 +5,12 @@ from django.db.utils import IntegrityError
 
 from example.models import Shard, SuperType, Type, Organization, User, Cake, CakeType
 from sharding.options import ShardOptions
-from sharding.tests import ShardingTestCase, ShardingTransactionTestCase
+from sharding.tests import ShardingTestCase, ShardingTransactionTestCase, OverrideMirroredRoutingMixin
 from sharding.utils import use_shard, create_template_schema, create_schema_on_node
 from sharding.management.commands.purge_schema import Command
 
 
-class PurgeShardDataTransactionTestCase(ShardingTransactionTestCase):
+class PurgeShardDataTransactionTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):
     maxDiff = None
 
     def setUp(self):

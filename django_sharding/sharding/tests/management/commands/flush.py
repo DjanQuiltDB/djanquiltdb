@@ -3,12 +3,14 @@ from django.core.management import call_command
 from example.models import Shard, Type, Organization
 from sharding import State
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from sharding.tests import ShardingTransactionTestCase
+from sharding.tests import ShardingTransactionTestCase, OverrideMirroredRoutingMixin
 from sharding.utils import create_template_schema, use_shard
 
 
-class FlushTestCase(ShardingTransactionTestCase):
+class FlushTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):
     def setUp(self):
+        super().setUp()
+
         create_template_schema()
         create_template_schema('other')
 
