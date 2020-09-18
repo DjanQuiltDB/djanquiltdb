@@ -21,7 +21,7 @@ from sharding.utils import State, use_shard, get_template_name, get_all_database
 
 
 class ShardedMigrationCrossSchemaRelationTestCase(ShardingTestCase):
-    available_apps = ['sharding', 'migration_tests']
+    available_apps = ['sharding', 'migration_tests', 'example']
 
     def setUp(self):
         self.databases = get_all_databases()
@@ -53,7 +53,7 @@ class ShardedMigrationCrossSchemaRelationTestCase(ShardingTestCase):
 
 @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'sharding'}))
 class ShardedMigrationSystemTestCase(MigrationTestCase):
-    available_apps = ['migration_tests']
+    available_apps = ['migration_tests', 'example']
 
     def setUp(self):
         super().setUp()
@@ -1009,7 +1009,7 @@ class ShardedMigrationCheckOrMigrateShardTestCase(MigrationTestCase):
 
 
 class SeparateDatabaseAndStateTestCase(MigrationTestCase):
-    available_apps = ['migration_tests']
+    available_apps = ['migration_tests', 'example']
 
     def setUp(self):
         # Do not silently mock the router, but do create the template schema
@@ -1068,7 +1068,7 @@ class SeparateDatabaseAndStateTestCase(MigrationTestCase):
 
 
 class RemoveModelMigrationTestCase(MigrationTestCase):
-    available_apps = ['migration_tests', 'sharding']
+    available_apps = ['migration_tests', 'sharding', 'example']
 
     def setUp(self):
         # Do not silently mock the router, but do create the template schema
@@ -1085,7 +1085,6 @@ class RemoveModelMigrationTestCase(MigrationTestCase):
                        SHARDING={'SHARD_CLASS': 'example.models.Shard',
                                  'OVERRIDE_SHARDING_MODE':
                                  {('migration_tests', 'nonexistingmodel'): ShardingMode.SHARDED}})
-    # @mock.patch('sharding.router.DynamicDbRouter.allow_migrate')
     def test(self):
         """
         Case: Create and Remove a non existing model in migrations. This model is mentioned in the settings as sharded.

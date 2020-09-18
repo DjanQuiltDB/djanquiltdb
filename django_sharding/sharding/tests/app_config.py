@@ -84,7 +84,8 @@ class ShardingSettingsTestCase(SimpleTestCase):
         Case: Given sharding model is sharded itself.
         Expected: ImproperlyConfigured raised
         """
-        with override_settings(SHARDING={'SHARD_CLASS': 'sharding.tests.app_config.DummyShardedShard'}):
+        with override_settings(SHARDING={'SHARD_CLASS': 'sharding.tests.app_config.DummyShardedShard',
+                                         'PRIMARY_DB_ALIAS': 'default'}):
             with self.assertRaises(ImproperlyConfigured):
                 self.sharding_app.ready()
 
@@ -93,7 +94,8 @@ class ShardingSettingsTestCase(SimpleTestCase):
         Case: Correct SHARDING setting
         Expected: ImproperlyConfigured NOT raised
         """
-        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'}):
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': 'default'}):
             try:
                 self.sharding_app.ready()
             except ImproperlyConfigured:
@@ -104,7 +106,9 @@ class ShardingSettingsTestCase(SimpleTestCase):
         Case: Pass a list instead of a dict to SHARDING["OVERRIDE_SHARDING_MODE"].
         Expected: ImproperlyConfigured raised
         """
-        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'OVERRIDE_SHARDING_MODE': []}):
+        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': 'default',
+                                         'OVERRIDE_SHARDING_MODE': []}):
             with self.assertRaises(ImproperlyConfigured):
                 self.sharding_app.ready()
 
@@ -114,6 +118,7 @@ class ShardingSettingsTestCase(SimpleTestCase):
         Expected: ImproperlyConfigured raised
         """
         with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': 'default',
                                          'OVERRIDE_SHARDING_MODE': {
                                              ('app', 'model'): 'asd',
                                          }}):
@@ -126,6 +131,7 @@ class ShardingSettingsTestCase(SimpleTestCase):
         Expected: ImproperlyConfigured raised
         """
         with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': 'default',
                                          'OVERRIDE_SHARDING_MODE': {
                                              1: ShardingMode.MIRRORED,
                                          }}):
@@ -138,6 +144,7 @@ class ShardingSettingsTestCase(SimpleTestCase):
         Expected: ImproperlyConfigured NOT raised
         """
         with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': 'default',
                                          'OVERRIDE_SHARDING_MODE': {
                                              ('nonexistent', ): ShardingMode.MIRRORED,
                                          }}):
@@ -149,6 +156,7 @@ class ShardingSettingsTestCase(SimpleTestCase):
         Expected: ImproperlyConfigured NOT raised
         """
         with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': 'default',
                                          'OVERRIDE_SHARDING_MODE': {
                                              ('example', 'nonexistent'): ShardingMode.MIRRORED,
                                          }}):
@@ -160,6 +168,7 @@ class ShardingSettingsTestCase(SimpleTestCase):
         Expected:
         """
         with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': 'default',
                                          'OVERRIDE_SHARDING_MODE': {
                                              ('Example',): ShardingMode.MIRRORED,
                                          }}):
@@ -169,6 +178,7 @@ class ShardingSettingsTestCase(SimpleTestCase):
                 self.fail('It should not trigger an exception')
 
         with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': 'default',
                                          'OVERRIDE_SHARDING_MODE': {
                                              ('example', 'User'): ShardingMode.MIRRORED,
                                          }}):
@@ -185,6 +195,7 @@ class ShardingSettingsTestCase(SimpleTestCase):
         sharding_app = apps.get_app_config(app_label='sharding')
 
         with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': 'default',
                                          'OVERRIDE_SHARDING_MODE': {
                                              ('example', 'user'): ShardingMode.MIRRORED,
                                          }}):
@@ -201,6 +212,7 @@ class ShardingSettingsTestCase(SimpleTestCase):
         sharding_app = apps.get_app_config(app_label='sharding')
 
         with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                         'PRIMARY_DB_ALIAS': 'default',
                                          'OVERRIDE_SHARDING_MODE': {
                                              ('example', ): ShardingMode.MIRRORED,
                                          }}):
