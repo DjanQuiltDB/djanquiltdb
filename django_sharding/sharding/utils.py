@@ -193,7 +193,7 @@ def get_shard_for(target_value, active_only=True, field=None):
 
             @shard_mapping_model(mapping_field='organization_id')
             class OrganizationShards(models.Model):
-                shard = models.ForeignKey('example.Shard')
+                shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
                 organization_id = models.PositiveSmallIntegerField(db_index=True)
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
                 slug = models.SlugField(unique=True)
@@ -268,7 +268,7 @@ class use_shard_for(use_shard):
 
             @shard_mapping_model(mapping_field='organization_id')
             class OrganizationShards(models.Model):
-                shard = models.ForeignKey('example.Shard')
+                shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
                 organization_id = models.PositiveSmallIntegerField(db_index=True)
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 

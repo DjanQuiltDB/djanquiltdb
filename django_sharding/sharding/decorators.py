@@ -176,7 +176,7 @@ def shard_mapping_model(mapping_field):  # noqa: C901
             @shard_mapping_model(mapping_field='organization_id')
             class ShardMapping(models.Model):
                 # List every organization in this model, so you can easily request in which shard they live.
-                shard = models.ForeignKey('Shard', verbose_name='shard')
+                shard = models.ForeignKey('Shard', verbose_name='shard', on_delte=models.CASCADE)
                 organization_name = models.CharField('organization name', max_length=100)
                 organization_id = models.PositiveIntegerField(_('organization id'))
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
