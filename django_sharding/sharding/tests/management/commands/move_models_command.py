@@ -242,7 +242,6 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
 
         MoveCommand().move_models(target_shard=shard, sharded_models=get_all_sharded_models())
 
-        # self.assertTrue(mock_model_save.called)
         mock_flush_schema.assert_called_once_with('test_target')
 
         for model in get_all_sharded_models():

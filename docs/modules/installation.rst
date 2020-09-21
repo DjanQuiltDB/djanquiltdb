@@ -247,3 +247,47 @@ If the migration is required, and the model is missing, simply mention it here s
             ('app1', 'nonexistentmodel'): ShardingMode.SHARDED,
         }
     }
+
+PRIMARY_DB_ALIAS
+~~~~~~~~~~~~~~~~
+
+Django has the notion of a 'default' database connection. When no routing is given, that connection is used.
+In a sharded environment, the idea of a 'default' connection gains new meaning dependant on the type of model requested:
+
+* Non-decorated:
+  Will only live on the default node's public schema
+* PUBLIC:
+	Table will exist on all nodes' public schema. Their data can differ, and all nodes are writable.
+* MIRRORED
+	Table will exist on all nodes' public schema. Their data is marked as replicated, so the same across all nodes. Only the 'default' node is condsiderd writable, the others read-only.
+* SHARDED
+	Table will exist on all nodes' sharded schemas. All nodes are writable since their data is unique.
+
+MIRRORED is the interesting situation. In a replicated environment only one node is writable, the others will read from it and block any mutations of their own.
+It is wrong to assume the node that is call 'default' by Django is also always the writable replication node. These roles can failover and change over time. We cannot change the connection names in the setting to match however. A node called 'Rose' must always be called 'Rose', for that name is used to tell which data is on what node.
+In order to tell the router which node is writable, we introduce 'PRIMARY_DB_ALIAS'. It's value is a connection name of the node which is writable for MIRRORED data.
+
+.. code-block:: python
+
+  DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine='sharding.postgresql_backend'),
+               'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='sharding.postgresql_backend')}
+
+  SHARDING = {
+      'PRIMARY_DB_ALIAS': 'default',
+      'NEW_SHARD_NODE': 'other',
+  }
+
+And for replication purposes, 'default' is the primary, and 'other' is the follower.
+Once this failsover, 'other' become primary, and 'default' becomes follower. Their actual names are not to change. So we alter 'PRIMARY_DB_ALIAS' to tell that 'other' is now writable.
+
+.. code-block:: python
+
+  DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine='sharding.postgresql_backend'),
+               'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='sharding.postgresql_backend')}
+
+  SHARDING = {
+      'PRIMARY_DB_ALIAS': 'other',
+      'NEW_SHARD_NODE': 'other',
+  }
+
+It would be less confusing if we have non-suggestive names for all connections. But Django enforces the existence of a 'default' node. Even if the router will always route to the primary assigned connection by default.
