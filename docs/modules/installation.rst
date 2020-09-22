@@ -264,8 +264,11 @@ In a sharded environment, the idea of a 'default' connection gains new meaning d
 	Table will exist on all nodes' sharded schemas. All nodes are writable since their data is unique.
 
 MIRRORED is the interesting situation. In a replicated environment only one node is writable, the others will read from it and block any mutations of their own.
-It is wrong to assume the node that is call 'default' by Django is also always the writable replication node. These roles can failover and change over time. We cannot change the connection names in the setting to match however. A node called 'Rose' must always be called 'Rose', for that name is used to tell which data is on what node.
-In order to tell the router which node is writable, we introduce 'PRIMARY_DB_ALIAS'. It's value is a connection name of the node which is writable for MIRRORED data.
+It is wrong to assume the node that is call 'default' by Django is also always the writable replication node.
+These roles can failover and change over time. We cannot change the connection names in the setting to match however.
+A node called 'Rose' must always be called 'Rose', for that name is used to tell which data is on what node.
+In order to tell the router which node is writable, we introduce 'PRIMARY_DB_ALIAS'.
+It's value is a connection name of the node which is writable for MIRRORED data.
 
 .. code-block:: python
 
