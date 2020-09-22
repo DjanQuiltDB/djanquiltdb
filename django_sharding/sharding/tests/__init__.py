@@ -85,8 +85,9 @@ def disable_db_reconnect():
 
 class OverrideMirroredRoutingMixin:
     """
-    Since the sharding library doesn't actually have replication, we need to write to all nodes manually.
-    To accomplish this we must override the strict Mirrored mode routing
+    Since the sharding library doesn't actually have replication, we need to be able to write to MIRRORED models on all
+    nodes in our tests. To accomplish this we override the strict db_for_write function that does the write routing
+    with non MIRRORED enforcing db_for_read. This is restored at cleanup.
     """
     def reset_router_override(self):
         DynamicDbRouter.db_for_write = self.old_db_for_write

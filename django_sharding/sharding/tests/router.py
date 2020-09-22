@@ -249,9 +249,9 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     @mock.patch('django.db.models.base.Model._save_table')
-    def test_db_for_write_system(self, mock_save_table):
+    def test_db_for_write_system_with_sharding_context(self, mock_save_table):
         """
-        Case: Call a write for various types of models
+        Case: Call a write for various types of models from inside a use_shard context.
         Expected: All writes to happen on the connection of the context, except mirrored models: those are routed to
                   the primary connection
         Note: System test
@@ -282,7 +282,41 @@ class DynamicDbRouterTestCase(ShardingTestCase):
                 mock_save_table.reset_mock()
                 obj = DummyMirroredModel()
                 obj.save()
-                self.assert_save_table(mock_save_table, DummyMirroredModel, 'other', 'test_other_schema', options=False)
+                self.assert_save_table(mock_save_table, DummyMirroredModel, 'other', None, options=False)
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
+    @mock.patch('django.db.models.base.Model._save_table')
+    def test_db_for_write_system_without_sharding_context(self, mock_save_table):
+        """
+        Case: Call a write for various types of models, outside of a use_shard context.
+        Expected: All writes to happen on the connection on the default connection -which is what is normally active in
+                  test cases,- except mirrored models: those are routed to the primary connection.
+        Note: System test
+        """
+        with self.subTest('Non-sharded model'):
+            mock_save_table.reset_mock()
+            obj = DummyNonShardedModel()
+            obj.save()
+            self.assert_save_table(mock_save_table, DummyNonShardedModel, 'default', None, options=False)
+
+        with self.subTest('Sharded model'):
+            mock_save_table.reset_mock()
+            obj = DummyShardedModel()
+            obj.save()
+            self.assert_save_table(mock_save_table, DummyShardedModel, 'default', None, options=False)
+            # Note: This will lead to a DB error if not mocked, since the table would not exist on the public schema
+
+        with self.subTest('Public model'):
+            mock_save_table.reset_mock()
+            obj = DummyPublicModel()
+            obj.save()
+            self.assert_save_table(mock_save_table, DummyPublicModel, 'default', None, options=False)
+
+        with self.subTest('Mirrored model'):
+            mock_save_table.reset_mock()
+            obj = DummyMirroredModel()
+            obj.save()
+            self.assert_save_table(mock_save_table, DummyMirroredModel, 'other', None, options=False)
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     def test_db_for_write_end_to_end(self):
