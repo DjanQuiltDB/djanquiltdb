@@ -252,3 +252,11 @@ class Statement(models.Model):
 
     def __str__(self):
         return '{}: {}'.format(self.user.name, self.content)
+
+
+class Unrelated(models.Model):
+    """Model that does not have a sharding mode assigned"""
+    name = models.CharField('name', max_length=64)
+
+    class Meta:
+        app_label = 'example'

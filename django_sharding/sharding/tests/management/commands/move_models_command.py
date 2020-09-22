@@ -228,8 +228,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
 
     @mock.patch('sharding.management.commands.move_sharded_models.move_model_to_schema')
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.flush_schema')
-    @mock.patch('sharding.models.BaseShard.save')
-    def test_move_models(self, mock_model_save, mock_flush_schema, mock_move_model_to_schema):
+    def test_move_models(self, mock_flush_schema, mock_move_model_to_schema):
         """
         Case: Call move_models.
         Expected: Several functions to be called with the correct arguments:
@@ -243,7 +242,6 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
 
         MoveCommand().move_models(target_shard=shard, sharded_models=get_all_sharded_models())
 
-        self.assertTrue(mock_model_save.called)
         mock_flush_schema.assert_called_once_with('test_target')
 
         for model in get_all_sharded_models():

@@ -7,12 +7,12 @@ from django.test import override_settings
 from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Suborganization, \
     Cake, CakeType
 from sharding.options import ShardOptions
-from sharding.tests import ShardingTestCase, ShardingTransactionTestCase
+from sharding.tests import ShardingTestCase, ShardingTransactionTestCase, OverrideMirroredRoutingMixin
 from sharding.utils import use_shard, create_template_schema, State, use_shard_for, get_shard_for, create_schema_on_node
 from sharding.management.commands.move_shard_to_node import Command as MoveCommand
 
 
-class MoveShardToNodeTransactionTestCase(ShardingTransactionTestCase):
+class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):
     maxDiff = None
 
     def setUp(self):
@@ -287,7 +287,7 @@ class MoveShardToNodeTransactionTestCase(ShardingTransactionTestCase):
         self.assertTrue(mock_copy_expert.called)
 
 
-class MoveShardToNodeTestCase(ShardingTestCase):
+class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
     def setUp(self):
         super().setUp()
 

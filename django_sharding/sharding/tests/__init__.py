@@ -5,7 +5,7 @@ from unittest import mock
 from django.db import connections, DEFAULT_DB_ALIAS
 from django.test import TestCase, TransactionTestCase
 
-from sharding.router import set_active_connection
+from sharding.router import set_active_connection, DynamicDbRouter
 
 
 class CleanShardingArtifactsMixin:
@@ -81,3 +81,19 @@ def disable_db_reconnect():
                 return func(*args, **kwargs)
         return inner
     return outer
+
+
+class OverrideMirroredRoutingMixin:
+    """
+    Since the sharding library doesn't actually have replication, we need to be able to write to MIRRORED models on all
+    nodes in our tests. To accomplish this we override the strict db_for_write function that does the write routing
+    with non MIRRORED enforcing db_for_read. This is restored at cleanup.
+    """
+    def reset_router_override(self):
+        DynamicDbRouter.db_for_write = self.old_db_for_write
+
+    def setUp(self):
+        super().setUp()
+        self.old_db_for_write = DynamicDbRouter.db_for_write
+        self.addCleanup(self.reset_router_override)
+        DynamicDbRouter.db_for_write = DynamicDbRouter.db_for_read
