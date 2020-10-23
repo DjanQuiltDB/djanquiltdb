@@ -477,7 +477,7 @@ def get_sharding_mode(app_label, model_name):
     if model._meta.auto_created:
         return get_sharding_mode(model._meta.auto_created._meta.app_label, model._meta.auto_created._meta.model_name)
 
-    return getattr(model, 'sharding_mode', False)
+    return getattr(model, '__sharding_mode', False)
 
 
 def get_all_sharded_models(include_auto_created=False, include_proxy=False):

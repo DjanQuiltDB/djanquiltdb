@@ -101,7 +101,7 @@ def mirrored_model():
             update_type('new_type')  # add a new Type object to all nodes.
     """
     def configure(cls):
-        cls.sharding_mode = ShardingMode.MIRRORED
+        cls.__sharding_mode = ShardingMode.MIRRORED
         return cls
 
     return configure
@@ -135,7 +135,7 @@ def public_model():
                 Author.objects.create(name='Bob')
     """
     def configure(cls):
-        cls.sharding_mode = ShardingMode.PUBLIC
+        cls.__sharding_mode = ShardingMode.PUBLIC
         return cls
 
     return configure
@@ -282,7 +282,7 @@ def sharded_model():
 
     """
     def configure(cls):
-        cls.sharding_mode = ShardingMode.SHARDED
+        cls.__sharding_mode = ShardingMode.SHARDED
         return cls
 
     return configure
