@@ -38,7 +38,7 @@ class ShardedModelDecoratorTestCase(ModelTestCase):
                 app_label = 'sharding'
                 abstract = True
 
-        self.assertEqual(TestShardedModel.sharding_mode, ShardingMode.SHARDED)
+        self.assertEqual(getattr(TestShardedModel, '__sharding_mode'), ShardingMode.SHARDED)
 
 
 class MirroredModelDecoratorTestCase(ModelTestCase):
@@ -56,7 +56,7 @@ class MirroredModelDecoratorTestCase(ModelTestCase):
                 app_label = 'sharding'
                 abstract = True
 
-        self.assertEqual(TestMirroredModel.sharding_mode, ShardingMode.MIRRORED)
+        self.assertEqual(getattr(TestMirroredModel, '__sharding_mode'), ShardingMode.MIRRORED)
 
 
 class MappingModelDecoratorTestCase(ModelTestCase):
@@ -80,7 +80,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
             class Meta:
                 app_label = 'sharding'
 
-        self.assertFalse(hasattr(MappingDummyModel1, 'sharding_mode'))
+        self.assertFalse(hasattr(MappingDummyModel1, '__sharding_mode'))
 
     def test_shard_mapping_model_no_shard_field(self):
         """

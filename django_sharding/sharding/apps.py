@@ -33,7 +33,7 @@ class ShardingConfig(AppConfig):
         if not issubclass(class_, BaseShard):
             raise ImproperlyConfigured(
                 'The type {} should inherit from {}.'.format(settings.SHARDING['SHARD_CLASS'], BaseShard.__name__))
-        if hasattr(class_, 'sharding_mode') and getattr(class_, 'sharding_mode') == ShardingMode.SHARDED:
+        if hasattr(class_, '__sharding_mode') and getattr(class_, '__sharding_mode') == ShardingMode.SHARDED:
             raise ImproperlyConfigured(
                 'The Shard model cannot itself be sharded. It can only be non-sharded or mirrored.'
             )
@@ -56,7 +56,7 @@ class ShardingConfig(AppConfig):
 
         if 'SESSION_ENGINE' in dir(settings) and \
             settings.SESSION_ENGINE == 'django.contrib.sessions.backends.cached_db' and \
-                getattr(get_user_model(), 'sharding_mode', False) in [ShardingMode.MIRRORED, ShardingMode.SHARDED]:
+                getattr(get_user_model(), '__sharding_mode', False) in [ShardingMode.MIRRORED, ShardingMode.SHARDED]:
 
             raise ImproperlyConfigured(
                 "When the user model is sharded, you cannot use django.contrib.sessions.backends.cached_db "
