@@ -8,7 +8,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connections, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.db.models.signals import pre_init, post_init, pre_save, post_save, pre_delete, post_delete, pre_migrate, \
     post_migrate
-from django.db.utils import ConnectionDoesNotExist
+from django.db.utils import ConnectionDoesNotExist, IntegrityError
 from django.test import SimpleTestCase, override_settings
 
 from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement, Suborganization, \
@@ -24,7 +24,7 @@ from sharding.utils import use_shard, create_schema_on_node, create_template_sch
     for_each_node, transaction_for_every_node, move_model_to_schema, get_all_databases, ShardingMode, \
     get_sharding_mode, get_model_sharding_mode, get_all_sharded_models, get_shard_class, get_mapping_class, \
     transaction_for_nodes, get_all_mirrored_models, delete_schema, schema_exists, disable_signals, \
-    get_all_public_models, get_all_public_schema_models
+    get_all_public_models, get_all_public_schema_models, get_connection_alias
 
 
 class GetShardClass(SimpleTestCase):
@@ -35,7 +35,7 @@ class GetShardClass(SimpleTestCase):
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_get_shard_class_set(self):
         """
-        Case: Call get_shard_class while it is set in the settings
+        Case: Call get_shard_class while it is set in the settings.
         Expected: The model class.
         """
         self.assertEqual(get_shard_class(), Shard)
@@ -46,15 +46,15 @@ class GetTemplateName(SimpleTestCase):
     def test_get_template_unset(self):
         """
         Case: Call get_template_name when it is not set in the settings.
-        Expected: The default template name: 'template'
+        Expected: The default template name: 'template'.
         """
         self.assertEqual(get_template_name(), 'template')
 
     @override_settings(SHARDING={'TEMPLATE_NAME': 'new-template', 'SHARD_CLASS': 'example.models.Shard'})
     def test_get_template_set(self):
         """
-        Case: Call get_template_name while it is set in the settings
-        Expected: Set name: 'new-template'
+        Case: Call get_template_name while it is set in the settings.
+        Expected: Set name: 'new-template'.
         """
         self.assertEqual(get_template_name(), 'new-template')
 
@@ -64,7 +64,7 @@ class GetMappingClass(SimpleTestCase):
     def test_get_mapping_class_unset(self):
         """
         Case: Call get_mapping_class when it is not set in the settings.
-        Expected: The default template name: 'template'
+        Expected: The default template name: 'template'.
         """
         self.assertIsNone(get_mapping_class())
 
@@ -72,7 +72,7 @@ class GetMappingClass(SimpleTestCase):
                                  'SHARD_CLASS': 'example.models.Shard'})
     def test_get_mapping_class_set(self):
         """
-        Case: Call get_mapping_class while it is set in the settings
+        Case: Call get_mapping_class while it is set in the settings.
         Expected: The mapping class.
         """
         self.assertEqual(get_mapping_class(), OrganizationShards)
@@ -81,8 +81,8 @@ class GetMappingClass(SimpleTestCase):
 class SetActiveConnectionTestCase(ResetConnectionTestCaseMixin, SimpleTestCase):
     def test(self):
         """
-        Case: Set the active connection to something else
-        Expected: Active connection should change
+        Case: Set the active connection to something else.
+        Expected: Active connection should change.
         """
         self.assertEqual(get_active_connection(), 'default')
         set_active_connection('other')
@@ -105,8 +105,8 @@ class UseShardTestCase(ShardingTestCase):
     @mock.patch('sharding.router.set_active_connection')
     def test_use_shard(self, mock_set_active_connection):
         """
-        Case: Call use_shard with a valid shard object
-        Expected: set_active_connection to be called with the correct options
+        Case: Call use_shard with a valid shard object.
+        Expected: set_active_connection to be called with the correct options.
         """
         with use_shard(self.shard):
             pass
@@ -126,8 +126,8 @@ class UseShardTestCase(ShardingTestCase):
     @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_with_invalid_argument(self, mock_set_active_connection):
         """
-        Case: Call use_shard with an invalid argument
-        Expected: A ValueError to be raised
+        Case: Call use_shard with an invalid argument.
+        Expected: A ValueError to be raised.
         """
         with self.assertRaises(ValueError):
             with use_shard('not a Shard object'):
@@ -138,8 +138,8 @@ class UseShardTestCase(ShardingTestCase):
     @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_with_inactive_shard(self, mock_set_active_connection):
         """
-        Case: Call use_shard with a shard that is not active
-        Expected: A StateException to be raised
+        Case: Call use_shard with a shard that is not active.
+        Expected: A StateException to be raised.
         """
         with self.assertRaises(StateException) as error:
             with use_shard(self.inactive_shard):
@@ -151,8 +151,8 @@ class UseShardTestCase(ShardingTestCase):
     @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_with_inactive_shard_with_state_test_disabled(self, mock_set_active_connection):
         """
-        Case: Call use_shard with a shard that is not active, but active_only_schemas is False
-        Expected: No StateException to be raised
+        Case: Call use_shard with a shard that is not active, but active_only_schemas is False.
+        Expected: No StateException to be raised.
         """
         with use_shard(self.inactive_shard, active_only_schemas=False):
             pass
@@ -163,7 +163,7 @@ class UseShardTestCase(ShardingTestCase):
     def test_use_shard_without_public(self, mock_set_active_connection):
         """
         Case: Call use_shard within with include_public set to False.
-        Expected: Connection to be switched and include_public False on the connection's options
+        Expected: Connection to be switched and include_public False on the connection's options.
         """
         with use_shard(self.shard, include_public=False) as env:
             self.assertFalse(env.connection.include_public_schema)
@@ -176,8 +176,8 @@ class UseShardTestCase(ShardingTestCase):
     @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_inception(self, mock_set_active_connection):
         """
-        Case: Call use_shard within a use_shard environment
-        Expected: Connection to switch twice and set_active_connection to be called accordingly
+        Case: Call use_shard within a use_shard environment.
+        Expected: Connection to switch twice and set_active_connection to be called accordingly.
         """
         with use_shard(self.shard) as env1:
             options1 = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
@@ -213,8 +213,8 @@ class UseShardTestCase(ShardingTestCase):
 
     def test_use_shard_inception_integration(self):
         """
-        Case: Call use_shard within a use_shard environment
-        Expected: Connection to switch twice, and django.db.connection returning the correct connection
+        Case: Call use_shard within a use_shard environment.
+        Expected: Connection to switch twice, and django.db.connection returning the correct connection.
         """
         self.assertEqual(get_active_connection(), 'default')
         self.assertEqual(connection.alias, 'default')
@@ -242,8 +242,8 @@ class UseShardTestCase(ShardingTestCase):
     @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_invalid_node_name(self, mock_set_active_connection):
         """
-        Case: Call use_shard with a valid shard object referring to a non-default node
-        Expected: Connection not changed
+        Case: Call use_shard with a valid shard object referring to a non-default node.
+        Expected: Connection not changed.
         """
         with self.assertRaisesMessage(ConnectionDoesNotExist, "The connection Batman doesn't exist"):
             with use_shard(node_name='Batman', schema_name='Bat_cave'):
@@ -255,8 +255,8 @@ class UseShardTestCase(ShardingTestCase):
     def test_use_shard_with_inactive_mapping_objects(self, mock_set_active_connection):
         """
         Case: Call use_shard with a valid shard object that contains inactive mapping objects, with setting
-              check_active_mapping_values to True
-        Expected: StateException to be raised
+              check_active_mapping_values to True.
+        Expected: StateException to be raised.
         """
         shard = Shard.objects.create(alias='halls_of_justice', schema_name='test_halls_of_justice', node_name='default',
                                      state=State.ACTIVE)
@@ -271,8 +271,8 @@ class UseShardTestCase(ShardingTestCase):
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_use_shard_check_active_mapping_values_no_mapping_model(self):
         """
-        Case: Set check_active_mapping_values to True on use_shard while not having a mapping model defined
-        Expected: ValueError raised
+        Case: Set check_active_mapping_values to True on use_shard while not having a mapping model defined.
+        Expected: ValueError raised.
         """
         shard = Shard.objects.create(alias='halls_of_justice', schema_name='test_halls_of_justice', node_name='default',
                                      state=State.ACTIVE)
@@ -300,8 +300,8 @@ class UseShardTestCase(ShardingTestCase):
 
     def test_use_shard_set_parameters_on_connection(self):
         """
-        Case: Use use_shard
-        Expected: Parameters from use_shard are correctly set on the connection for re-use later
+        Case: Use use_shard.
+        Expected: Parameters from use_shard are correctly set on the connection for re-use later.
         """
         with use_shard(self.shard) as env:
             self.assertEqual(env.connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
@@ -311,7 +311,7 @@ class UseShardTestCase(ShardingTestCase):
     @mock.patch('sharding.utils.use_shard.acquire_lock')
     def test_enable_acquire_advisory_lock(self, mock_acquire_lock):
         """
-        Case: Use use_shard.enable()
+        Case: Use use_shard.enable().
         Expected: acquire_lock to be called.
         """
         use_shard(self.shard).enable()
@@ -321,7 +321,7 @@ class UseShardTestCase(ShardingTestCase):
     @mock.patch('sharding.utils.use_shard.release_lock')
     def test_disable_release_advisory_lock(self, mock_release_lock):
         """
-        Case: Use use_shard.disable()
+        Case: Use use_shard.disable().
         Expected: release_lock to be called.
         """
         env = use_shard(self.shard)
@@ -356,8 +356,8 @@ class UseShardTestCase(ShardingTestCase):
 
     def test_multiple_disable(self):
         """
-        Case: Try to disable a use shard context manager twice
-        Expected: It will only be disabled if the use shard context manager is enabled
+        Case: Try to disable a use shard context manager twice.
+        Expected: It will only be disabled if the use shard context manager is enabled.
         """
         env = use_shard(self.shard)
         env.enable()
@@ -374,8 +374,8 @@ class UseShardTestCase(ShardingTestCase):
 
     def test_disable_but_no_enable(self):
         """
-        Case: Try to disable a use shard context manager without enabling it
-        Expected: Disabling is a noop
+        Case: Try to disable a use shard context manager without enabling it.
+        Expected: Disabling is a noop.
         """
         env = use_shard(self.shard)
 
@@ -403,7 +403,7 @@ class UseShardForTestCase(ShardingTestCase):
     def test_use_shard_for(self, mock_release_lock, mock_acquire_lock, mock_set_active_connection):
         """
         Case: Use use_shard_for with valid arguments. There are both an active and inactive schemas on the shard.
-        Expected: Successful usage of use_shard_for
+        Expected: Successful usage of use_shard_for.
         """
         with use_shard_for(1) as env:
             mock_set_active_connection.assert_called_once_with(env.options)
@@ -414,8 +414,8 @@ class UseShardForTestCase(ShardingTestCase):
     @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_for_inactive_object(self, mock_set_active_connection):
         """
-        Case: Use use_shard_for with an inactive mapping object
-        Expected: StateException raised
+        Case: Use use_shard_for with an inactive mapping object.
+        Expected: StateException raised.
         """
         with self.assertRaises(StateException):
             with use_shard_for(2):
@@ -425,8 +425,8 @@ class UseShardForTestCase(ShardingTestCase):
     @mock.patch('sharding.router.set_active_connection')
     def test_use_shard_for_inactive_shard(self, mock_set_active_connection):
         """
-        Case: Use use_shard_for with an active mapping object, but inactive shard
-        Expected: StateException raised
+        Case: Use use_shard_for with an active mapping object, but inactive shard.
+        Expected: StateException raised.
         """
         self.shard1.state = State.MAINTENANCE
         self.shard1.save(update_fields=['state'])
@@ -443,7 +443,7 @@ class UseShardForTestCase(ShardingTestCase):
                                                             mock_set_active_connection):
         """
         Case: Use use_shard_for with an inactive mapping object, but have active_only_schemas set to False.
-        Expected: Successful usage of use_shard_for
+        Expected: Successful usage of use_shard_for.
         """
         with use_shard_for(2, active_only_schemas=False) as env:
             mock_set_active_connection.assert_called_once_with(env.options)
@@ -453,8 +453,8 @@ class UseShardForTestCase(ShardingTestCase):
 
     def test_use_shard_set_parameters_on_connection(self):
         """
-        Case: Use use_shard_for
-        Expected: Parameters from use_shard_for are correctly set on the options
+        Case: Use use_shard_for.
+        Expected: Parameters from use_shard_for are correctly set on the options.
         """
         with use_shard_for(1, lock=False) as env:
             self.assertEqual(env.connection.shard_options, env.options)
@@ -468,8 +468,8 @@ class UseShardForTestCase(ShardingTestCase):
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
     def test_acquire_lock(self, mock_acquire_lock):
         """
-        Case: Call the acquire_lock method on a use_shard_for instance
-        Expected: DatabaseWrapper.acquire_advisory_lock called with the correct parameters
+        Case: Call the acquire_lock method on a use_shard_for instance.
+        Expected: DatabaseWrapper.acquire_advisory_lock called with the correct parameters.
         """
         env = use_shard_for(self.org_shard1.organization_id)
         env.connection = connections[env.options]
@@ -485,8 +485,8 @@ class UseShardForTestCase(ShardingTestCase):
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_release_lock(self, mock_release_advisory_lock):
         """
-        Case: Call the release_lock method on a use_shard_for instance
-        Expected: DatabaseWrapper.release_advisory_lock called with the correct parameters
+        Case: Call the release_lock method on a use_shard_for instance.
+        Expected: DatabaseWrapper.release_advisory_lock called with the correct parameters.
         """
         env = use_shard_for(self.org_shard1.organization_id)
         env.connection = connections[env.options]
@@ -512,24 +512,24 @@ class GetShardForTestCase(ShardingTestCase):
 
     def test(self):
         """
-        Case: Use get_shard_for
-        Expected: Correct shard returned
+        Case: Use get_shard_for.
+        Expected: Correct shard returned.
         """
         self.assertEqual(get_shard_for(1), self.shard1)
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_get_shard_for_without_setting(self):
         """
-        Case: Use get_shard_for while not having MAPPING_MODEL set
-        Expected: ImproperlyConfigured raised
+        Case: Use get_shard_for while not having MAPPING_MODEL set.
+        Expected: ImproperlyConfigured raised.
         """
         with self.assertRaises(ImproperlyConfigured):
             self.assertEqual(get_shard_for(1), self.shard1)
 
     def test_active_only_schemas(self):
         """
-        Case: Use get_shard_for while having the mapping model in maintenance
-        Expected: StateException raised
+        Case: Use get_shard_for while having the mapping model in maintenance.
+        Expected: StateException raised.
         """
         self.assertEqual(get_shard_for(1), self.shard1)
 
@@ -541,8 +541,8 @@ class GetShardForTestCase(ShardingTestCase):
 
     def test_active_only_schemas_false(self):
         """
-        Case: Use get_shard_for with active_only set to False, while having the mapping model in maintenance
-        Expected: No StateException raised, correct shard returned
+        Case: Use get_shard_for with active_only set to False, while having the mapping model in maintenance.
+        Expected: No StateException raised, correct shard returned.
         """
         self.org_shard1.state = State.MAINTENANCE
         self.org_shard1.save()
@@ -551,8 +551,8 @@ class GetShardForTestCase(ShardingTestCase):
 
     def test_field(self):
         """
-        Case: Use get_shard_for with a different field provided
-        Expected: Shard selected on field 'slug'
+        Case: Use get_shard_for with a different field provided.
+        Expected: Shard selected on field 'slug'.
         """
         self.assertEqual(get_shard_for('test_slug', field='slug'), self.shard1)
 
@@ -561,8 +561,8 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_no_migration(self, mock_clone_schema):
         """
-        Case: Call create_schema_on_node with a name and node (no migration)
-        Expected: A new PostgreSQL schema is made, no clone_schema called
+        Case: Call create_schema_on_node with a name and node (no migration).
+        Expected: A new PostgreSQL schema is made, no clone_schema called.
         """
         _connection = connections['other']
         # first: check if schema does not exist yet.
@@ -577,8 +577,8 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_on_nonexisting_node(self, mock_clone_schema):
         """
-        Case: Call create_schema_on_node with an nonexisting node (no migration)
-        Expected: A new PostgreSQL schema is made
+        Case: Call create_schema_on_node with an nonexisting node (no migration).
+        Expected: A new PostgreSQL schema is made.
         """
         with self.assertRaises(ValueError):
             create_schema_on_node('test_schema', 'phaaap', False)
@@ -587,8 +587,8 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_migration(self, mock_clone_schema):
         """
-        Case: Call create_schema_on_node with migration
-        Expected: A new PostgreSQL schema is made and the clone_schema is called
+        Case: Call create_schema_on_node with migration.
+        Expected: A new PostgreSQL schema is made and the clone_schema is called.
         """
         _connection = connections['other']
         self.assertFalse(_connection.get_ps_schema('test_schema'))
@@ -600,8 +600,8 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_migration_with_different_template_name(self, mock_clone_schema):
         """
-        Case: Call create_schema_on_node with migration, while a custom template name is set
-        Expected: A new PostgreSQL schema is made and the clone_schema is called
+        Case: Call create_schema_on_node with migration, while a custom template name is set.
+        Expected: A new PostgreSQL schema is made and the clone_schema is called.
         """
         _connection = connections['other']
         self.assertFalse(_connection.get_ps_schema('test_schema'))
@@ -614,7 +614,7 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
     def test_create_schema_without_node_name_with_setting(self, mock_clone_schema):
         """
         Case: Call use_shard without a node name, but with NEW_SHARD_NODE setting set.
-        Expected: A new PostgreSQL schema is made and the clone_schema is called
+        Expected: A new PostgreSQL schema is made and the clone_schema is called.
         """
         _connection = connections['other']
         # first: check if schema does not exist yet.
@@ -631,7 +631,7 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
     def test_create_schema_without_node_name_without_setting(self, mock_clone_schema):
         """
         Case: Call use_shard without a node name, and without NEW_SHARD_NODE setting set.
-        Expected: ValueError raised
+        Expected: ValueError raised.
         """
         _connection = connections['other']
         # first: check if schema does not exist yet.
@@ -648,24 +648,24 @@ class DeleteSchemaTestCase(ShardingTestCase):
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.delete_schema')
     def test(self, mock_delete_schema):
         """
-        Case: Call sharding.utils.delete_schema
-        Expected: DatabaseWrapper.delete_schema called with the same schema name
+        Case: Call sharding.utils.delete_schema.
+        Expected: DatabaseWrapper.delete_schema called with the same schema name.
         """
         delete_schema(schema_name='test_schema', node_name='default')
         mock_delete_schema.assert_called_once_with('test_schema', is_template=False)
 
     def test_node_not_exists(self):
         """
-        Case: Call sharding.utils.delete_schema with a node name that does not exist
-        Expected: ValueError raised
+        Case: Call sharding.utils.delete_schema with a node name that does not exist.
+        Expected: ValueError raised.
         """
         with self.assertRaises(ValueError):
             delete_schema(schema_name='test_schema', node_name='not_existing_node')
 
     def test_delete_template_is_template_false(self):
         """
-        Case: Delete the template schema without having is_template=True set
-        Expected: ValueError raised and schema not deleted
+        Case: Delete the template schema without having is_template=True set.
+        Expected: ValueError raised and schema not deleted.
         """
         create_template_schema('default')
 
@@ -678,8 +678,8 @@ class DeleteSchemaTestCase(ShardingTestCase):
 
     def test_delete_template_is_template_true(self):
         """
-        Case: Delete the template schema with having is_template=True set
-        Expected: Schema deleted
+        Case: Delete the template schema with having is_template=True set.
+        Expected: Schema deleted.
         """
         create_template_schema('default')
 
@@ -709,7 +709,7 @@ class NodeExistsTestCase(SimpleTestCase):
 class CreateTemplateSchemaTestCase(ShardingTestCase):
     def test_create_template_schema(self):
         """
-        Case: call utils.migrate_schema() to migrate the sharded models to the template schema
+        Case: call utils.migrate_schema() to migrate the sharded models to the template schema.
         Expected: The newly made schema to have to correct table headers.
         """
         create_template_schema('default')  # This also calls the migration
@@ -726,16 +726,16 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
 
     def test_create_template_schema_invalid_node(self):
         """
-        Case: call utils.migrate_schema() with an nonexisting connection
-        Expected: ValueError raised
+        Case: call utils.migrate_schema() with an nonexisting connection.
+        Expected: ValueError raised.
         """
         with self.assertRaises(ValueError):
             migrate_schema('no_connection', 'test_schema')  # This also calls the migration
 
     def test_create_template_schema_invalid_schema_name(self):
         """
-        Case: call utils.migrate_schema() with an nonexisting schema_name
-        Expected: ValueError raised
+        Case: call utils.migrate_schema() with an nonexisting schema_name.
+        Expected: ValueError raised.
         """
         with self.assertRaises(ValueError):
             migrate_schema('default', 'test_schema')  # This also calls the migration
@@ -743,8 +743,8 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
     @mock.patch('sharding.utils.migrate_schema')
     def test_migrate(self, mock_migrate_schema):
         """
-        Case: Call create_template_schema with both migrate set to True and False
-        Expected: migrate_schema is not called when migrate=False and it is called when migrate=True
+        Case: Call create_template_schema with both migrate set to True and False.
+        Expected: migrate_schema is not called when migrate=False and it is called when migrate=True.
         """
         template_name = get_template_name()
 
@@ -795,7 +795,7 @@ class GetShardingModeTestCase(SimpleTestCase):
 
     def test_get_sharding_mode_without_model_name(self):
         """
-        Case: Call get_sharding_mode with None as model_name
+        Case: Call get_sharding_mode with None as model_name.
         Expected: None returned.
         """
         self.assertIsNone(get_sharding_mode('example', None))
@@ -803,7 +803,7 @@ class GetShardingModeTestCase(SimpleTestCase):
     def test_get_sharding_mode_without_model_name_but_with_override(self):
         """
         Case: Call get_sharding_mode with None as model_name, while settings override set.
-        Expected: Mode returned as defined by the settings override
+        Expected: Mode returned as defined by the settings override.
         """
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('example',): ShardingMode.PUBLIC, }}):
@@ -871,8 +871,8 @@ class GetAllShardedModels(ShardingTestCase):
 
     def test_include_proxy_models(self):
         """
-        Case: Call get_all_sharded_models, including proxy models
-        Expected: All sharded proxy and non-proxy models returned
+        Case: Call get_all_sharded_models, including proxy models.
+        Expected: All sharded proxy and non-proxy models returned.
         """
         # We compare it string based, since we cannot import the auto created fields as classes.
         result = [str(model) for model in get_all_sharded_models(include_proxy=True)]
@@ -1008,6 +1008,57 @@ class GetAllDatabases(SimpleTestCase):
         self.assertCountEqual(get_all_databases(), ['default', 'space'])
 
 
+class GetConnectionAliasTestCase(ShardingTestCase):
+    def test_string(self):
+        """
+        Case: Call get_connection_alias with a node name as string.
+        Expected: The given string returned.
+        """
+        self.assertEqual(get_connection_alias('Magnetism'), 'Magnetism')
+
+    def test_django_default_connection_proxy(self):
+        """
+        Case: Call get_connection_alias with a django connection.
+        Expected: The connection's db_alias returned.
+        """
+        self.assertEqual(connection.db_alias, 'default')  # Make sure the value we give is what me expect
+        self.assertEqual(get_connection_alias(connection), 'default')
+
+    def test_sharding_default_connection_proxy(self):
+        """
+        Case: Call get_connection_alias with a sharding connection.
+        Expected: The connection's db_alias.node_name returned.
+        """
+        self.assertEqual(connection.db_alias, 'default')  # Make sure the value we give is what me expect
+        self.assertEqual(get_connection_alias(connection), 'default')
+
+    def test_shard_options_connection_proxy(self):
+        """
+        Case: Call get_connection_alias with a sharding connection.
+        Expected: The connection's db_alias.node_name returned.
+        """
+        with use_shard(node_name='other', schema_name='public'):
+            self.assertEqual(connection.db_alias.node_name, 'other')  # Make sure the value we give is what me expect
+            self.assertEqual(get_connection_alias(connection), 'other')
+
+    def test_sharding_database_wrapper(self):
+        """
+        Case: Call get_connection_alias with a sharding database wrapper.
+        Expected: The wrappers's alias returned.
+        """
+        with ShardOptions(node_name='other', schema_name='public').use() as env:
+            self.assertEqual(env.connection.alias, 'other')  # Make sure the value we give is what me expect
+            self.assertEqual(get_connection_alias(env.connection), 'other')
+
+    def test_un_obtainable_connection_name(self):
+        """
+        Case: Call get_connection_alias something it cannot retrieve the name of.
+        Expected: ValueError raised.
+        """
+        with self.assertRaises(ValueError):
+            get_connection_alias(None)
+
+
 class ForEachShardTestCase(ShardingTestCase):
     def setUp(self):
         super().setUp()
@@ -1025,8 +1076,8 @@ class ForEachShardTestCase(ShardingTestCase):
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_for_each_shard(self):
         """
-        Case: Call self.repeatable_function for every shard
-        Expected: Function is called for every shard
+        Case: Call self.repeatable_function for every shard.
+        Expected: Function is called for every shard.
         """
         self.shards = []
         for_each_shard(self.repeatable_function)
@@ -1035,10 +1086,8 @@ class ForEachShardTestCase(ShardingTestCase):
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_for_each_shard_with_kwargs(self):
         """
-        Case: Call self.repeatable_function for every shard and pass
-              keyword arguments to the function.
-        Expected: Function is called for every shard and is called with
-                  the keyword arguments provided.
+        Case: Call self.repeatable_function for every shard and pass keyword arguments to the function.
+        Expected: Function is called for every shard and is called with the keyword arguments provided.
         """
         self.shards = []
         for_each_shard(self.repeatable_function, kwargs={'organization_id': 1})
@@ -1047,10 +1096,8 @@ class ForEachShardTestCase(ShardingTestCase):
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_for_each_shard_as_id(self):
         """
-        Case: Call self.repeatable_function for every shard and get
-              shards as ids.
-        Expected: Function is called for every shard and the shard id
-                  is passed as a argument.
+        Case: Call self.repeatable_function for every shard and get shards as ids.
+        Expected: Function is called for every shard and the shard id is passed as a argument.
         """
         self.shards = []
         for_each_shard(self.repeatable_function, as_id=True)
@@ -1064,8 +1111,8 @@ class ForEachNodeTestCase(SimpleTestCase):
 
     def test_for_each_node(self, mock_get_all_databases):
         """
-        Case: Call self.repeatable_function for every node
-        Expected: Function is called for every node
+        Case: Call self.repeatable_function for every node.
+        Expected: Function is called for every node.
         """
         result = for_each_node(self.repeatable_function)
         self.assertEqual(result, {'default': ('default', {}), 'other': ('other', {})})
@@ -1201,8 +1248,8 @@ class TransactionForNodesTestCase(OverrideMirroredRoutingMixin, ShardingTransact
 
     def test_table_lock_execution(self):
         """
-        Case: use @transaction_for_nodes with lock_models given
-        Expected: SQL command to lock the models is executed
+        Case: use @transaction_for_nodes with lock_models given.
+        Expected: SQL command to lock the models is executed.
         """
 
         # mocking a cursor.execute is a bit of a faff
@@ -1221,8 +1268,8 @@ class TransactionForNodesTestCase(OverrideMirroredRoutingMixin, ShardingTransact
 
     def test_with_table_lock(self):
         """
-        Case: use @transaction_for_nodes with lock_models given
-        Expected: The models to be locked and other writes outside the transaction to be blocked
+        Case: use @transaction_for_nodes with lock_models given.
+        Expected: The models to be locked and other writes outside the transaction to be blocked.
         """
 
         def conflicting_transaction():
@@ -1306,7 +1353,7 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
     def test_write_to_every_node_return_value(self, mock_get_all_databases, mock_use_shard, mock_transaction):
         """
         Case: Use the @atomic_write_to_every_node, and call the decorated function with an argument.
-        Expected: The function gives back a dict with the node_name as keys and the return value as their values
+        Expected: The function gives back a dict with the node_name as keys and the return value as their values.
         """
         @atomic_write_to_every_node(schema_name='some_schema')
         def test_function(test_argument, node_name):
@@ -1327,8 +1374,8 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
 
     def test_decorated_with(self):
         """
-        Case: Check if the function is decorator with a specific decorator
-        Expected: The function is decorated and called with the expected argument
+        Case: Check if the function is decorator with a specific decorator.
+        Expected: The function is decorated and called with the expected argument.
         """
         @atomic_write_to_every_node(schema_name='some_schema', lock_models=())
         def test_function(test_argument, node_name):
@@ -1349,7 +1396,7 @@ class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
     def clean_up(self):
         """
         Move the table back; else the TestCase might go confused.
-        Then perform the normal ShardingTransactionTestCase clean_up
+        Then perform the normal ShardingTransactionTestCase clean_up.
         """
         if Shard.objects.filter(schema_name='test_other_schema').exists():
             with use_shard(node_name='default', schema_name='test_other_schema'):
@@ -1432,8 +1479,8 @@ class MoveModelToExistingSchemaTestCase(ShardingTransactionTestCase):
     @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'sharding'}))
     def test(self):
         """
-        Case: Move a schema to a shard where it already resides
-        Expected: move_model_to_schema to raise an error
+        Case: Move a schema to a shard where it already resides.
+        Expected: move_model_to_schema to raise an error.
         """
         create_template_schema('default')
         another_schema = Shard.objects.create(alias='another', node_name='default', schema_name='test_another_schema',
@@ -1447,16 +1494,16 @@ class MoveModelToExistingSchemaTestCase(ShardingTransactionTestCase):
 class SchemaExistsTestCase(ShardingTestCase):
     def test_schema_exists(self):
         """
-        Case: Call schema_exists while knowing that schema exists
-        Expected: Returns True
+        Case: Call schema_exists while knowing that schema exists.
+        Expected: Returns True.
         """
         create_template_schema('default')
         self.assertTrue(schema_exists('default', get_template_name()))
 
     def test_schema_does_not_exists(self):
         """
-        Case: Call schema_exists while knowing that schema does not exists
-        Expected: Returns False
+        Case: Call schema_exists while knowing that schema does not exists.
+        Expected: Returns False.
         """
         self.assertFalse(schema_exists('default', get_template_name()))
 
@@ -1464,8 +1511,8 @@ class SchemaExistsTestCase(ShardingTestCase):
 class DisableSignalsTestCase(ShardingTestCase):
     def test(self):
         """
-        Case: Wrap an instance.save() call in disable_signals
-        Expected: Disconnected signals not called
+        Case: Wrap an instance.save() call in disable_signals.
+        Expected: Disconnected signals not called.
         Note: Happy flow system test
         """
         fake_pre_save_signal = mock.Mock()
@@ -1510,9 +1557,9 @@ class DisableSignalsTestCase(ShardingTestCase):
 
     def test_init_without_arguments(self):
         """
-        Case: Call disable_signals.__init__ without any arguments
+        Case: Call disable_signals.__init__ without any arguments.
         Expected: Resulting object to have an empty dict as stashed_signals and all common django signals in
-                  disabled_signals
+                  disabled_signals.
         """
         manager = disable_signals()
 
@@ -1522,9 +1569,9 @@ class DisableSignalsTestCase(ShardingTestCase):
 
     def test_init_with_argument(self):
         """
-        Case: Call disable_signals.__init__ with a signal as argument
+        Case: Call disable_signals.__init__ with a signal as argument.
         Expected: Resulting object to have an empty dict as stashed_signals and only the given signal in
-                  disabled_signals
+                  disabled_signals.
         """
         manager = disable_signals([pre_save])
 
@@ -1533,8 +1580,8 @@ class DisableSignalsTestCase(ShardingTestCase):
 
     def test_enter(self):
         """
-        Case: Call disable_signals.__enter__
-        Expected: Disconnect called for each signal in disabled_signals
+        Case: Call disable_signals.__enter__.
+        Expected: Disconnect called for each signal in disabled_signals.
         """
         manager = disable_signals([pre_save])
 
@@ -1545,8 +1592,8 @@ class DisableSignalsTestCase(ShardingTestCase):
 
     def test_exit(self):
         """
-        Case: Call disable_signals.__exit__
-        Expected: Reconnect called for each signal in stashed_signals
+        Case: Call disable_signals.__exit__.
+        Expected: Reconnect called for each signal in stashed_signals.
         """
         manager = disable_signals([pre_save])
         manager.stashed_signals = {pre_save: 'some_receiver'}
@@ -1558,9 +1605,9 @@ class DisableSignalsTestCase(ShardingTestCase):
 
     def test_disconnect(self):
         """
-        Case: Call disable_signals.disconnect with a given signal
+        Case: Call disable_signals.disconnect with a given signal.
         Expected: Signal's original receivers to be stored in stashed_signals and then emptied, the signal's lock and
-                  clear functions called
+                  clear functions called.
         """
         manager = disable_signals()
 
@@ -1580,8 +1627,8 @@ class DisableSignalsTestCase(ShardingTestCase):
 
     def test_reconnect(self):
         """
-        Case: Call disable_signals.reconnect with a given signal
-        Expected: Only the given signal's original receivers to be restored and removed from stashed_signals
+        Case: Call disable_signals.reconnect with a given signal.
+        Expected: Only the given signal's original receivers to be restored and removed from stashed_signals.
         """
         manager = disable_signals()
 
@@ -1613,3 +1660,139 @@ class DisableSignalsTestCase(ShardingTestCase):
         self.assertFalse(fake_signal_2.lock.__enter__.called)
         self.assertFalse(fake_signal_2._clear_dead_receivers.called)
         self.assertFalse(fake_signal_2.sender_receivers_cache.clear.called)
+
+
+def fake_transaction_exit(self, exc_type, exc_value, traceback):
+    """
+    Mock the execute function. After some executions, disconnect the database.
+    We use a mutable argument to have keep a state between calls.
+    """
+    # Content of mocked __exit__ function
+    import django.db.transaction
+    for database in reversed(self.databases):
+        self.using = database
+
+        if database == 'default':
+            raise ProgrammingError()
+
+        django.db.transaction.Atomic.__exit__(self, exc_type, exc_value, traceback)
+
+
+class TransactionUtilTestCase(ShardingTransactionTestCase):
+    def test_sharding_transaction(self):
+        """
+        Case: Create an object on a non-primary node while in a sharding transaction transaction.
+              Raise an error so the transaction rolls back.
+        Expected: No object committed since the transaction is created for the correct node.
+        Note: Vanilla it would _always_ be created on the default node.
+        """
+        create_template_schema('other')
+        other_shard = Shard.objects.create(alias='other', node_name='other', schema_name='test_other_schema',
+                                           state=State.ACTIVE)
+
+        with use_shard(other_shard):
+            self.assertFalse(Organization.objects.exists())
+
+            with self.assertRaises(ValueError):
+                with transaction.atomic():
+                    Organization.objects.create(name='Seafarer')
+                    raise ValueError()
+
+            # Objects does indeed not exist
+            self.assertFalse(Organization.objects.filter(name='Seafarer').exists())
+
+    def test_sharding_transaction_mirrored_model(self):
+        """
+        Case: Create an object on both the primary and non-primary node while in a sharding transaction transaction.
+              Raise an error so the transaction rolls back.
+        Expected: No objects committed, since the transaction is created on both the nodes.
+        """
+        create_template_schema('default')
+        create_template_schema('other')
+        other_shard = Shard.objects.create(alias='other', node_name='other', schema_name='test_other_schema',
+                                           state=State.ACTIVE)
+
+        with use_shard(other_shard):
+            self.assertFalse(Organization.objects.exists())
+
+            with self.assertRaises(ValueError):
+                with transaction.atomic():  # Cascading transaction
+                    # Shard write queries are always routed to the primary node. So it would escape our transaction if
+                    # it wasn't cascading with primary as well
+                    Shard.objects.create(alias='Windswept Wastes', node_name='default', schema_name='wastes', state='A')
+                    Organization.objects.create(name='Seafarer')
+                    raise ValueError()
+
+            # Objects does indeed not exist
+            self.assertFalse(Organization.objects.filter(name='Seafarer').exists())
+            # Shard is never written to the other node, since we do not have replication set up.
+            self.assertFalse(Shard.objects.filter(alias='Windswept Wastes').exists())
+
+        with use_shard(node_name='default', schema_name='public'):
+            # Shard object also do not exist on the default shard
+            self.assertFalse(Shard.objects.filter(alias='Windswept Wastes').exists())
+
+    def test_sharding_transaction_failure_on_outer_return_trip(self):
+        """
+        Case: Create an object on both the primary and non-primary node while in a sharding transaction transaction.
+              No errors raised during transaction, but on upon the closing of the outer transaction.
+        Expected: Objects created in the inner transaction to be submitted to db,
+                  the ones in the outer transaction are not.
+                  Error passed through to main thread.
+        Note: This is not behavior we want, but an affirmation on what _is_
+        """
+        create_template_schema('default')
+        create_template_schema('other')
+        other_shard = Shard.objects.create(alias='other', node_name='other', schema_name='test_other_schema',
+                                           state=State.ACTIVE)
+
+        with use_shard(other_shard):
+            self.assertFalse(Organization.objects.exists())
+
+            with self.assertRaises(ProgrammingError):
+                with mock.patch('sharding.utils.transaction_for_nodes.__exit__',
+                                side_effect=fake_transaction_exit,
+                                autospec=True):
+                    with transaction.atomic():  # Cascading transaction
+                        # Shard write queries are always routed to the primary node.
+                        # So it will be wrapped in then outer transaction
+                        Shard.objects.create(alias='Windswept Wastes', node_name='default', schema_name='wastes',
+                                             state='A')
+                        Organization.objects.create(name='Seafarer')
+
+            # Cleanup. The connection failed to close properly, since an error occurred.
+            with use_shard(node_name='default', schema_name='public') as env:
+                env.connection.connection = None
+
+            self.assertTrue(Organization.objects.filter(name='Seafarer').exists())
+            # Shard is never written to the other node, since we do not have replication set up.
+            self.assertFalse(Shard.objects.filter(alias='Windswept Wastes').exists())
+
+        with use_shard(node_name='default', schema_name='public') as env:
+            # Shard object does not exist exist on the default shard, that transaction was not properly comitted.
+            self.assertFalse(Shard.objects.filter(alias='Windswept Wastes').exists())
+
+    def test_colliding_inside_transaction(self):
+        """
+        Case: Within a transaction create an object on the primary node before triggering a collision on the other node.
+        Expected: All objects created in that transaction to be reverted.
+        """
+        create_template_schema('default')
+        create_template_schema('other')
+        other_shard = Shard.objects.create(alias='other', node_name='other', schema_name='test_other_schema',
+                                           state=State.ACTIVE)
+
+        with use_shard(other_shard):
+            self.assertFalse(Organization.objects.exists())
+            org = Organization.objects.create(name='Seafarer')
+
+            with self.assertRaises(IntegrityError):
+                with transaction.atomic():
+                    # Create an object on the primary node
+                    Shard.objects.create(alias='Windswept Wastes', node_name='default', schema_name='wastes', state='A')
+
+                    # Create object that collides with one that has been created earlier
+                    Organization.objects.create(id=org.id, name='Seafarer')
+
+        # Object created on the primary node should be reverted
+        self.assertFalse(Shard.objects.filter(alias='Windswept Wastes').exists())
