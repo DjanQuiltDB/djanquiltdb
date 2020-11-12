@@ -69,6 +69,7 @@ class ShardingConfig(AppConfig):
 
         _validate_public_models()
         _patch_connections()
+        _patch_transactions()
         _initialize_sharded_models()
 
 
@@ -176,3 +177,14 @@ def _patch_connections():
     from django.db.utils import ConnectionHandler
     setattr(ConnectionHandler, '__getitem__', patch_getitem(ConnectionHandler.__getitem__))
     setattr(django.db, 'connection', connection)
+
+
+def _patch_transactions():
+    """
+    Monkeypatch django.db.transaction.get_connection to use the active node, not always the default:
+    """
+    import django.db.transaction
+    from sharding.transaction import get_connection, atomic
+
+    setattr(django.db.transaction, 'get_connection', get_connection)
+    setattr(django.db.transaction, 'atomic', atomic)

@@ -24,7 +24,7 @@ from sharding.utils import use_shard, create_schema_on_node, create_template_sch
     for_each_node, transaction_for_every_node, move_model_to_schema, get_all_databases, ShardingMode, \
     get_sharding_mode, get_model_sharding_mode, get_all_sharded_models, get_shard_class, get_mapping_class, \
     transaction_for_nodes, get_all_mirrored_models, delete_schema, schema_exists, disable_signals, \
-    get_all_public_models, get_all_public_schema_models
+    get_all_public_models, get_all_public_schema_models, get_connection_alias
 
 
 class GetShardClass(SimpleTestCase):
@@ -1002,10 +1002,61 @@ class GetAllDatabases(SimpleTestCase):
     @override_settings(DATABASES={'default': 'some connection', 'space': 'some otherworldly connection'})
     def test(self):
         """
-        Case: Call get_all_databases.
-        Expected: Names of the databases defined in the settings.
+        Case: Call get_all_databases
+        Expected: Names of the databases defined in the settings
         """
         self.assertCountEqual(get_all_databases(), ['default', 'space'])
+
+
+class GetConnectionAliasTestCase(ShardingTestCase):
+    def test_string(self):
+        """
+        Case: Call get_connection_alias with a node name as string
+        Expected: The given string returned
+        """
+        self.assertEqual(get_connection_alias('Magnetism'), 'Magnetism')
+
+    def test_django_default_connection_proxy(self):
+        """
+        Case: Call get_connection_alias with a django connection
+        Expected: The connection's db_alias returned
+        """
+        self.assertEqual(connection.db_alias, 'default')  # Make sure the value we give is what me expect
+        self.assertEqual(get_connection_alias(connection), 'default')
+
+    def test_sharding_default_connection_proxy(self):
+        """
+        Case: Call get_connection_alias with a sharding connection
+        Expected: The connection's db_alias.node_name returned
+        """
+        self.assertEqual(connection.db_alias, 'default')  # Make sure the value we give is what me expect
+        self.assertEqual(get_connection_alias(connection), 'default')
+
+    def test_shard_options_connection_proxy(self):
+        """
+        Case: Call get_connection_alias with a sharding connection
+        Expected: The connection's db_alias.node_name returned
+        """
+        with use_shard(node_name='other', schema_name='public'):
+            self.assertEqual(connection.db_alias.node_name, 'other')  # Make sure the value we give is what me expect
+            self.assertEqual(get_connection_alias(connection), 'other')
+
+    def test_sharding_database_wrapper(self):
+        """
+        Case: Call get_connection_alias with a sharding database wrapper
+        Expected: The wrappers's alias returned
+        """
+        with ShardOptions(node_name='other', schema_name='public').use() as env:
+            self.assertEqual(env.connection.alias, 'other')  # Make sure the value we give is what me expect
+            self.assertEqual(get_connection_alias(env.connection), 'other')
+
+    def test_un_obtainable_connection_name(self):
+        """
+        Case: Call get_connection_alias something it cannot retrieve the name of
+        Expected: ValueError raised
+        """
+        with self.assertRaises(ValueError):
+            get_connection_alias(None)
 
 
 class ForEachShardTestCase(ShardingTestCase):
@@ -1613,3 +1664,114 @@ class DisableSignalsTestCase(ShardingTestCase):
         self.assertFalse(fake_signal_2.lock.__enter__.called)
         self.assertFalse(fake_signal_2._clear_dead_receivers.called)
         self.assertFalse(fake_signal_2.sender_receivers_cache.clear.called)
+
+
+def fake_transaction_exit(self, exc_type, exc_value, traceback):
+    """
+    Mock the execute function. After some executions, disconnect the database.
+    We use a mutable argument to have keep a state between calls.
+    """
+    # Content of mocked __exit__ function
+    import django.db.transaction
+    for database in reversed(self.databases):
+        self.using = database
+
+        if database == 'default':
+            raise ProgrammingError()
+
+        django.db.transaction.Atomic.__exit__(self, exc_type, exc_value, traceback)
+
+
+class TransactionUtilTestCase(ShardingTransactionTestCase):
+    def test_sharding_transaction(self):
+        """
+        Case: Create an object on a non-primary node while in a sharding transaction transaction.
+              Raise an error so the transaction rolls back.
+        Expected: No object committed since the transaction is created for the correct node.
+        Note: Vanilla it would _always_ be created on the default node.
+        """
+        create_template_schema('other')
+        other_shard = Shard.objects.create(alias='other', node_name='other', schema_name='test_other_schema',
+                                           state=State.ACTIVE)
+
+        with use_shard(other_shard):
+            self.assertFalse(Organization.objects.exists())
+
+            with self.assertRaises(ValueError):
+                with transaction.atomic():
+                    Organization.objects.create(name='Seafarer')
+                    raise ValueError()
+
+            # Objects does indeed not exist
+            self.assertFalse(Organization.objects.filter(name='Seafarer').exists())
+
+    def test_sharding_transaction_mirrored_model(self):
+        """
+        Case: Create an object on both the primary and non-primary node while in a sharding transaction transaction.
+              Raise an error so the transaction rolls back.
+        Expected: No objects committed, since the transaction is created on both the nodes.
+        """
+        create_template_schema('default')
+        create_template_schema('other')
+        other_shard = Shard.objects.create(alias='other', node_name='other', schema_name='test_other_schema',
+                                           state=State.ACTIVE)
+
+        with use_shard(other_shard):
+            self.assertFalse(Organization.objects.exists())
+
+            with self.assertRaises(ValueError):
+                with transaction.atomic():  # Cascading transaction
+                    # Shard write queries are always routed to the primary node. So it would escape our transaction if
+                    # it wasn't cascading with primary as well
+                    Shard.objects.create(alias='Windswept Wastes', node_name='default', schema_name='wastes', state='A')
+                    Organization.objects.create(name='Seafarer')
+                    raise ValueError()
+
+            # Objects does indeed not exist
+            self.assertFalse(Organization.objects.filter(name='Seafarer').exists())
+            # Shard is never written to the other node, since we do not have replication set up.
+            self.assertFalse(Shard.objects.filter(alias='Windswept Wastes').exists())
+
+        with use_shard(node_name='default', schema_name='public'):
+            # Shard object also do not exist on the default shard
+            self.assertFalse(Shard.objects.filter(alias='Windswept Wastes').exists())
+
+    def test_sharding_transaction_failure_on_outer_return_trip(self):
+        """
+        Case: Create an object on both the primary and non-primary node while in a sharding transaction transaction.
+              No errors raised during transaction, but on upon the closing of the outer transaction.
+        Expected: Objects created in the inner transaction to be submitted to db,
+                  the ones in the outer transaction are not.
+                  Error passed through to main thread.
+        Note: This is not behavior we want, but an affirmation on what _is_
+        """
+        create_template_schema('default')
+        create_template_schema('other')
+        other_shard = Shard.objects.create(alias='other', node_name='other', schema_name='test_other_schema',
+                                           state=State.ACTIVE)
+
+        with use_shard(other_shard):
+            self.assertFalse(Organization.objects.exists())
+
+            with self.assertRaises(ProgrammingError):
+                with mock.patch('sharding.utils.transaction_for_nodes.__exit__',
+                                side_effect=fake_transaction_exit,
+                                autospec=True):
+                    with transaction.atomic():  # Cascading transaction
+                        # Shard write queries are always routed to the primary node.
+                        # So it will be wrapped in then outer transaction
+                        Shard.objects.create(alias='Windswept Wastes', node_name='default', schema_name='wastes',
+                                             state='A')
+                        Organization.objects.create(name='Seafarer')
+
+            # Cleanup. The connection failed to close properly, since an error occurred.
+            with use_shard(node_name='default', schema_name='public') as env:
+                env.connection.connection = None
+
+            self.assertTrue(Organization.objects.filter(name='Seafarer').exists())
+            # Shard is never written to the other node, since we do not have replication set up.
+            self.assertFalse(Shard.objects.filter(alias='Windswept Wastes').exists())
+
+        with use_shard(node_name='default', schema_name='public') as env:
+            # Shard object does not exist exist on the default shard, that transaction was not properly comitted.
+            self.assertFalse(Shard.objects.filter(alias='Windswept Wastes').exists())

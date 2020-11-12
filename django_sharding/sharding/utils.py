@@ -13,7 +13,8 @@ from django.db.transaction import Atomic
 from django.utils.module_loading import import_string
 
 from sharding import ShardingMode, State, public_modes
-from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
+from sharding.db import DefaultConnectionProxy
+from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME, DatabaseWrapper
 
 logger = logging.getLogger(__name__)
 
@@ -518,6 +519,28 @@ def get_all_public_schema_models():
 
 def get_all_databases():
     return [name for name, db in settings.DATABASES.items()]
+
+
+def get_connection_alias(conn):
+    """
+    Helper function to retrieve the node name from a given connection.
+    This is because a connection can be a simple string, a ConnectionProxy or a DatabaseWrapper.
+    """
+    from sharding.options import ShardOptions  # Prevent cyclic imports
+
+    if isinstance(conn, str):
+        return conn
+
+    if isinstance(conn, DefaultConnectionProxy):
+        if isinstance(conn.db_alias, str):
+            return conn.db_alias
+        if isinstance(conn.db_alias, ShardOptions):
+            return conn.db_alias.node_name
+
+    if isinstance(conn, DatabaseWrapper):
+        return conn.alias
+
+    raise ValueError('Could not determine node name for the given connection {}'.format(conn))
 
 
 def for_each_node(func, args=(), kwargs=None):
