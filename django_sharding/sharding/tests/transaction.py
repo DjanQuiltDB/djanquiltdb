@@ -1,9 +1,9 @@
 from unittest import mock
 
-from django.test import SimpleTestCase, override_settings
+from django.test import SimpleTestCase, override_settings, TestCase
 
-from sharding.db import connection
-from sharding.transaction import atomic
+from sharding.db import connections, connection
+from sharding.transaction import atomic, get_connection
 from sharding.utils import use_shard
 
 
@@ -102,3 +102,32 @@ class AtomicTestCase(SimpleTestCase):
 
             self.assertFalse(mock_transaction_for_nodes.called)
             mock_atomic.assert_called_once_with(None, True)
+
+
+class GetConnectionTestCase(TestCase):
+    def test_no_context(self):
+        """
+        Case: Call get_connection without using or context and the primary is just 'default'
+        Expected: 'default' connection returned.
+        """
+        self.assertEqual(get_connection(using=None), connections['default'])
+
+    def test_conext(self):
+        """
+        Case: Call get_connection with context for 'other'.
+        Expected: 'other' connection returned.
+        """
+        with use_shard(node_name='other', schema_name='public'):
+            # We get a DatabaseWrapper returned. Which is difficult to compare.
+            self.assertEqual(get_connection(using=None).db_alias.node_name, 'other')
+
+    def test_using_argument(self):
+        """
+        Case: Call get_connection with providing using as argument
+        Expected: Suggested connection returned.
+        """
+        with self.subTest('string as argument'):
+            self.assertEqual(get_connection(using='other').alias, 'other')
+
+        with self.subTest('DatabaseWrapper as argument'):
+            self.assertEqual(get_connection(using=connections['other']).alias, 'other')

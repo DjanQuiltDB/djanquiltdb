@@ -3,6 +3,7 @@ from django.db import DEFAULT_DB_ALIAS
 from django.db.transaction import Atomic
 
 from sharding.db import connections, connection, DefaultConnectionProxy
+from sharding.postgresql_backend.base import DatabaseWrapper
 from sharding.utils import transaction_for_nodes, get_connection_alias
 
 """
@@ -19,7 +20,7 @@ def get_connection(using=None):
     """
     if using is None:
         using = connection
-    if isinstance(using, DefaultConnectionProxy):
+    if isinstance(using, DefaultConnectionProxy) or isinstance(using, DatabaseWrapper):
         return using
     else:
         return connections[using]
@@ -37,7 +38,7 @@ def atomic(using=None, savepoint=True):
         return Atomic(using, savepoint)
 
     primary_connection_name = settings.SHARDING.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
-    current_connection = get_connection()
+    current_connection = get_connection(using)
     if get_connection_alias(current_connection) == primary_connection_name:
         # If we are on the default connection already, no need to do anything fancy
         return Atomic(using, savepoint)

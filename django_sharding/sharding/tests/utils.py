@@ -8,7 +8,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connections, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.db.models.signals import pre_init, post_init, pre_save, post_save, pre_delete, post_delete, pre_migrate, \
     post_migrate
-from django.db.utils import ConnectionDoesNotExist
+from django.db.utils import ConnectionDoesNotExist, IntegrityError
 from django.test import SimpleTestCase, override_settings
 
 from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement, Suborganization, \
@@ -1771,3 +1771,28 @@ class TransactionUtilTestCase(ShardingTransactionTestCase):
         with use_shard(node_name='default', schema_name='public') as env:
             # Shard object does not exist exist on the default shard, that transaction was not properly comitted.
             self.assertFalse(Shard.objects.filter(alias='Windswept Wastes').exists())
+
+    def test_colliding_inside_transaction(self):
+        """
+        Case: Within a transaction create an object on the primary node before triggering a collision on the other node.
+        Expected: All objects created in that transaction to be reverted.
+        """
+        create_template_schema('default')
+        create_template_schema('other')
+        other_shard = Shard.objects.create(alias='other', node_name='other', schema_name='test_other_schema',
+                                           state=State.ACTIVE)
+
+        with use_shard(other_shard):
+            self.assertFalse(Organization.objects.exists())
+            org = Organization.objects.create(name='Seafarer')
+
+            with self.assertRaises(IntegrityError):
+                with transaction.atomic():
+                    # Create an object on the primary node
+                    Shard.objects.create(alias='Windswept Wastes', node_name='default', schema_name='wastes', state='A')
+
+                    # Create object that collides with one that has been created earlier
+                    Organization.objects.create(id=org.id, name='Seafarer')
+
+        # Object created on the primary node should be reverted
+        self.assertFalse(Shard.objects.filter(alias='Windswept Wastes').exists())
