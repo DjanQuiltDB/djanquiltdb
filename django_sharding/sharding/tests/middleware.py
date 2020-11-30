@@ -9,7 +9,7 @@ from django.views.generic import View, TemplateView
 
 from example.models import Shard
 from sharding.db import connection
-from sharding.middleware import BaseUseShardMiddleware, StateOrConnectionExceptionMiddleware, BaseUseShardForMiddleware
+from sharding.middleware import BaseUseShardMiddleware, BaseUseShardForMiddleware, ExceptionMiddlewareMixin
 from sharding.tests import ShardingTestCase, ShardingTransactionTestCase
 from sharding.utils import State, StateException, create_template_schema
 
@@ -42,7 +42,7 @@ class UseShardForMiddleware(BaseUseShardForMiddleware):
         return 1
 
 
-class StateOrConnectionExceptionMiddlewareIntegrationTestCase(ShardingTransactionTestCase):
+class ExceptionMiddlewareMixinIntegrationTestCase(ShardingTransactionTestCase):
     # TestErrorView is not in django's global urls
     @override_settings(ROOT_URLCONF='sharding.tests.test_urlconfs.error_urlconf')
     @mock.patch('example.middleware.UseShardMiddleware.get_shard_id')
@@ -109,7 +109,7 @@ class StateOrConnectionExceptionMiddlewareIntegrationTestCase(ShardingTransactio
 
         with override_settings(SHARDING=sharding_settings):
             with mock.patch('psycopg2.connect', side_effect=OperationalError):
-                # Close the connection. With `connect` being mocked no ned connection can be started,
+                # Close the connection. With `connect` being mocked no new connection can be started,
                 # making the node effectively unavailable
                 connection.close()
                 # Call the view, that uses use_shard on an nonexistent shard.
@@ -120,89 +120,89 @@ class StateOrConnectionExceptionMiddlewareIntegrationTestCase(ShardingTransactio
         self.assertTrue(mock_get_shard_id.called)
 
 
-class StateOrConnectionExceptionMiddlewareTestCase(SimpleTestCase):
-    @mock.patch('sharding.middleware.StateOrConnectionExceptionMiddleware.process_connection_exception')
-    @mock.patch('sharding.middleware.StateOrConnectionExceptionMiddleware.process_state_exception')
-    def test_process_exception_with_state_exception(self, mock_process_state_exception,
-                                                    mock_process_connection_exception):
+class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
+    @mock.patch('sharding.middleware.ConnectionExceptionProcessor.process_exception')
+    @mock.patch('sharding.middleware.StateExceptionProcessor.process_exception')
+    def test_process_exception_with_state_exception(self, mock_state_process_exception,
+                                                    mock_connection_process_exception):
         """
-        Case: Call the process_exception of the StateOrConnectionExceptionMiddleware with a StateException.
-        Expected: process_state_exception to be called.
+        Case: Call the process_exception of the ExceptionMiddlewareMixin with a StateException.
+        Expected: process_exception to be called on StateExceptionProcessor.
         """
         sharding_settings = settings.SHARDING
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'sharding.tests.middleware.StateExceptionTestView'
 
         with override_settings(SHARDING=sharding_settings):
-            StateOrConnectionExceptionMiddleware().process_exception(
+            ExceptionMiddlewareMixin().process_exception(
                 RequestFactory().get('/'),
                 StateException('Shard is not in available state!', 'M')
             )
-        self.assertTrue(mock_process_state_exception.called)
-        mock_process_connection_exception.assert_not_called()
+        self.assertTrue(mock_state_process_exception.called)
+        mock_connection_process_exception.assert_not_called()
 
-    @mock.patch('sharding.middleware.StateOrConnectionExceptionMiddleware.process_connection_exception')
-    @mock.patch('sharding.middleware.StateOrConnectionExceptionMiddleware.process_state_exception')
-    def test_process_exception_with_connection_exception(self, mock_process_state_exception,
-                                                         mock_process_connection_exception):
+    @mock.patch('sharding.middleware.ConnectionExceptionProcessor.process_exception')
+    @mock.patch('sharding.middleware.StateExceptionProcessor.process_exception')
+    def test_process_exception_with_connection_exception(self, mock_state_process_exception,
+                                                         mock_connection_process_exception):
         """
-        Case: Call the process_exception of the StateOrConnectionExceptionMiddleware with a OperationalError.
-        Expected: process_connection_exception to be called.
+        Case: Call the process_exception of the ExceptionMiddlewareMixin with a OperationalError.
+        Expected: process_exception to be called on ConnectionExceptionProcessor.
         """
         sharding_settings = settings.SHARDING
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'sharding.tests.middleware.StateExceptionTestView'
 
         with override_settings(SHARDING=sharding_settings):
-            StateOrConnectionExceptionMiddleware().process_exception(
+            ExceptionMiddlewareMixin().process_exception(
                 RequestFactory().get('/'),
                 OperationalError('Node is not available')
             )
-        mock_process_state_exception.assert_not_called()
-        self.assertTrue(mock_process_connection_exception.called)
+        mock_state_process_exception.assert_not_called()
+        self.assertTrue(mock_connection_process_exception.called)
 
-    @mock.patch('sharding.middleware.StateOrConnectionExceptionMiddleware.process_connection_exception')
-    @mock.patch('sharding.middleware.StateOrConnectionExceptionMiddleware.process_state_exception')
-    def test_process_exception_with_other_exception(self, mock_process_state_exception,
-                                                    mock_process_connection_exception):
+    @mock.patch('sharding.middleware.ConnectionExceptionProcessor.process_exception')
+    @mock.patch('sharding.middleware.StateExceptionProcessor.process_exception')
+    def test_process_exception_with_other_exception(self, mock_state_process_exception,
+                                                         mock_connection_process_exception):
         """
         Case: Call the process_exception of the StateOrConnectionExceptionMiddleware with a different exception
-        Expected: process_state_exception not to be called.
+        Expected: No process_exception to be called.
         """
         sharding_settings = settings.SHARDING
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'sharding.tests.middleware.StateExceptionTestView'
 
         with override_settings(SHARDING=sharding_settings):
-            StateOrConnectionExceptionMiddleware().process_exception(
+            ExceptionMiddlewareMixin().process_exception(
                 RequestFactory().get('/'),
                 ValueError('Generic Error')
             )
-        self.assertFalse(mock_process_state_exception.called)
-        self.assertFalse(mock_process_connection_exception.called)
+        self.assertFalse(mock_state_process_exception.called)
+        self.assertFalse(mock_connection_process_exception.called)
 
-    def test_process_state_exception_with_view_setting(self):
+    def test_state_process_exception_with_view_setting(self):
         """
-        Case: Call the process_state_exception of the UseShardMiddleware with a view set.
+        Case: Call the process_exception of the UseShardMiddleware with a view set.
         Expected: The view as response, no render function called for it.
         """
         sharding_settings = settings.SHARDING
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'sharding.tests.middleware.StateExceptionTestView'
 
         with override_settings(SHARDING=sharding_settings):
-            with self.subTest("Test renderer call"):
+            with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
-                    UseShardMiddleware().process_state_exception(
+                    UseShardMiddleware().process_exception(
                         RequestFactory().get('/'),
                         StateException('Shard is not in available state!', 'M')
                     )
                 self.assertFalse(mock_render.called)
 
-            with self.subTest("Test response"):
-                response = UseShardMiddleware().process_state_exception(
+            with self.subTest('Test response'):
+                response = UseShardMiddleware().process_exception(
                     RequestFactory().get('/'),
                     StateException('Shard is not in available state!', 'M')
                 )
                 self.assertContains(response, 'Test state exception view', html=True)
 
-    def test_process_state_exception_with_templateview_setting(self):
+    def test_state_process_exception_with_templateview_setting(self):
         """
         Case: Call the process_exception of the UseShardMiddleware with a TemplateView set.
         Expected: The view is rendered and return as response.
@@ -211,22 +211,22 @@ class StateOrConnectionExceptionMiddlewareTestCase(SimpleTestCase):
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'sharding.tests.middleware.StateExceptionTestTemplateView'
 
         with override_settings(SHARDING=sharding_settings):
-            with self.subTest("Test renderer call"):
+            with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
-                    UseShardMiddleware().process_state_exception(
+                    UseShardMiddleware().process_exception(
                         RequestFactory().get('/'),
                         StateException('Shard is not in available state!', 'M')
                     )
                 self.assertTrue(mock_render.called)
 
-            with self.subTest("Test response"):
-                response = UseShardMiddleware().process_state_exception(
+            with self.subTest('Test response'):
+                response = UseShardMiddleware().process_exception(
                     RequestFactory().get('/'),
                     StateException('Shard is not in available state!', 'M')
                 )
                 self.assertContains(response, '<h2>Shard unavailable</h2>', html=True)
 
-    def test_process_state_exception_without_setting(self):
+    def test_state_process_exception_without_setting(self):
         """
         Case: Call the process_exception of the UseShardMiddleware, with no view set.
         Expected: 503 status received.
@@ -235,70 +235,70 @@ class StateOrConnectionExceptionMiddlewareTestCase(SimpleTestCase):
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
         with override_settings(SHARDING=sharding_settings):
-            response = UseShardMiddleware().process_state_exception(
+            response = UseShardMiddleware().process_exception(
                 RequestFactory().get('/'),
                 StateException('Shard is not in available state!', 'M')
             )
         self.assertEqual(response.status_code, 503)
 
-    def test_process_connection_exception_with_view_setting(self):
+    def test_connection_process_exception_with_view_setting(self):
         """
-        Case: Call the process_connection_exception of the UseShardMiddleware with a view set.
+        Case: Call the process_exception of the UseShardMiddleware with a view set.
         Expected: The view as response, no render function called for it.
         """
         sharding_settings = settings.SHARDING
         sharding_settings['CONNECTION_EXCEPTION_VIEW'] = 'sharding.tests.middleware.ConnectionExceptionTestView'
 
         with override_settings(SHARDING=sharding_settings):
-            with self.subTest("Test renderer call"):
+            with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
-                    UseShardMiddleware().process_connection_exception(
+                    UseShardMiddleware().process_exception(
                         RequestFactory().get('/'),
                         OperationalError('Node is not available')
                     )
                 self.assertFalse(mock_render.called)
 
-            with self.subTest("Test response"):
-                response = UseShardMiddleware().process_connection_exception(
+            with self.subTest('Test response'):
+                response = UseShardMiddleware().process_exception(
                     RequestFactory().get('/'),
                     OperationalError('Node is not available')
                 )
                 self.assertContains(response, 'Test connection exception view', html=True)
 
-    def test_process_connection_exception_with_templateview_setting(self):
+    def test_connection_process_exception_with_templateview_setting(self):
         """
-        Case: Call the process_connection_exception of the UseShardMiddleware with a TemplateView set.
+        Case: Call the process_exception of the UseShardMiddleware with a TemplateView set.
         Expected: The view is rendered and return as response.
         """
         sharding_settings = settings.SHARDING
         sharding_settings['CONNECTION_EXCEPTION_VIEW'] = 'sharding.tests.middleware.ConnectionExceptionTestTemplateView'
 
         with override_settings(SHARDING=sharding_settings):
-            with self.subTest("Test renderer call"):
+            with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
-                    UseShardMiddleware().process_connection_exception(
+                    UseShardMiddleware().process_exception(
                         RequestFactory().get('/'),
                         OperationalError('Node is not available')
                     )
                 self.assertTrue(mock_render.called)
 
-            with self.subTest("Test response"):
-                response = UseShardMiddleware().process_connection_exception(
+            with self.subTest('Test response'):
+                response = UseShardMiddleware().process_exception(
                     RequestFactory().get('/'),
                     OperationalError('Node is not available')
                 )
                 self.assertContains(response, '<h2>Database unavailable</h2>', html=True)
 
-    def test_process_connection_exception_without_setting(self):
+    def test_connection_process_exception_without_setting(self):
         """
-        Case: Call the process_connection_exception of the UseShardMiddleware, with no view set.
+        Case: Call the process_exception of the UseShardMiddleware, with no view set.
         Expected: 503 status received.
         """
         sharding_settings = settings.SHARDING
         sharding_settings.pop('CONNECTION_EXCEPTION_VIEW', False)
 
         with override_settings(SHARDING=sharding_settings):
-            response = UseShardMiddleware().process_state_exception(
+            response = UseShardMiddleware().process_exception(
                 RequestFactory().get('/'),
                 OperationalError('Node is not available')
             )
@@ -338,62 +338,64 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
         Expected: The context manager returned by `use_shard` is entered but not exited.
         """
         mock_use_shard_value = mock.Mock()
-        mock_use_shard_value.return_value.enable = mock.Mock()
-        mock_use_shard_value.return_value.disable = mock.Mock()
+        enable_mock = mock.Mock()
+        disable_mock = mock.Mock()
+        mock_use_shard_value.enable = enable_mock
+        mock_use_shard_value.disable = disable_mock
         mock_use_shard.return_value = mock_use_shard_value
 
         request = RequestFactory().get('/')
         UseShardMiddleware().process_request(request)
 
         self.assertTrue(mock_use_shard.called)
-        self.assertTrue(mock_use_shard.return_value.enable.called)
-        self.assertFalse(mock_use_shard.return_value.disable.called)  # process_response is not called
+        self.assertTrue(enable_mock.called)
+        self.assertFalse(disable_mock.called)  # process_response is not called
         self.assertEqual(request._shard_id, 1)
 
     @mock.patch('sharding.middleware.use_shard')
     def test_process_request_with_use_shard_exception(self, mock_use_shard):
         """
         Case: Call the middleware to process a shard in maintenance.
-        Expected: process_state_exception is called, shard_context_manager is not enabled.
+        Expected: process_exception is called, shard_context_manager is not enabled.
         """
         mock_use_shard_value = mock.Mock()
-        mock_use_shard_value.return_value.enable = mock.Mock()
-        mock_use_shard_value.return_value.disable = mock.Mock()
+        enable_mock = mock.Mock()
+        disable_mock = mock.Mock()
+        mock_use_shard_value.enable = enable_mock
+        mock_use_shard_value.disable = disable_mock
+        mock_use_shard.return_value = mock_use_shard_value
         mock_use_shard.side_effect = \
             StateException('Shard {} state is {}'.format(1, State.MAINTENANCE), State.MAINTENANCE)
-        mock_use_shard.return_value = mock_use_shard_value
 
-        mock_process_state_exception = \
-            mock.patch('sharding.tests.middleware.UseShardMiddleware.process_state_exception').start()
-
-        UseShardMiddleware().process_request(RequestFactory().get('/'))
+        with mock.patch('sharding.middleware.ExceptionProcessor.process_exception') as mock_process_exception:
+            UseShardMiddleware().process_request(RequestFactory().get('/'))
 
         self.assertTrue(mock_use_shard.called)
-        self.assertFalse(mock_use_shard.return_value.enable.called)
-        self.assertFalse(mock_use_shard.return_value.disable.called)
-        self.assertTrue(mock_process_state_exception.called)
+        self.assertFalse(enable_mock.called)
+        self.assertFalse(disable_mock.called)
+        self.assertTrue(mock_process_exception.called)
 
     @mock.patch('sharding.middleware.use_shard')
     def test_process_request_with_connection_exception(self, mock_use_shard):
         """
         Case: Call the middleware to process a node that is down.
-        Expected: process_connection_exception is called, shard_context_manager is not enabled.
+        Expected: process_exception is called, shard_context_manager is not enabled.
         """
         mock_use_shard_value = mock.Mock()
-        mock_use_shard_value.return_value.enable = mock.Mock()
-        mock_use_shard_value.return_value.disable = mock.Mock()
+        enable_mock = mock.Mock()
+        disable_mock = mock.Mock()
+        mock_use_shard_value.enable = enable_mock
+        mock_use_shard_value.disable = disable_mock
         mock_use_shard.side_effect = OperationalError('Could not set up connection')
         mock_use_shard.return_value = mock_use_shard_value
 
-        mock_process_connection_exception = \
-            mock.patch('sharding.tests.middleware.UseShardMiddleware.process_connection_exception').start()
-
-        UseShardMiddleware().process_request(RequestFactory().get('/'))
+        with mock.patch('sharding.middleware.ExceptionProcessor.process_exception') as mock_process_exception:
+            UseShardMiddleware().process_request(RequestFactory().get('/'))
 
         self.assertTrue(mock_use_shard.called)
-        self.assertFalse(mock_use_shard.return_value.enable.called)
-        self.assertFalse(mock_use_shard.return_value.disable.called)
-        self.assertTrue(mock_process_connection_exception.called)
+        self.assertFalse(enable_mock.called)
+        self.assertFalse(disable_mock.called)
+        self.assertTrue(mock_process_exception.called)
 
     def test_process_exception_with_invalid_exception(self):
         """
@@ -403,22 +405,20 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
         sharding_settings = settings.SHARDING
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
-        mock_use_shard_context_manager = \
-            mock.patch('sharding.tests.middleware.UseShardMiddleware.get_shard_context_manager').start()
-        mock_return_value = mock.Mock()
-        mock_return_value.return_value.disable = mock.Mock()
-        mock_use_shard_context_manager.return_value = mock_return_value
+        with mock.patch('sharding.tests.middleware.UseShardMiddleware.get_shard_context_manager') as \
+                mock_use_shard_context_manager:
+            mock_return_value = mock.Mock()
+            mock_return_value.return_value.disable = mock.Mock()
+            mock_use_shard_context_manager.return_value = mock_return_value
 
-        mock_process_state_exception = \
-            mock.patch('sharding.tests.middleware.UseShardMiddleware.process_state_exception').start()
+            with mock.patch('sharding.middleware.ExceptionMiddlewareMixin.process_exception') as mock_process_exception:
+                with override_settings(SHARDING=sharding_settings):
+                    UseShardMiddleware().process_exception(
+                        RequestFactory().get('/'),
+                        ValueError("Generic error.")
+                )
 
-        with override_settings(SHARDING=sharding_settings):
-            UseShardMiddleware().process_exception(
-                RequestFactory().get('/'),
-                ValueError("Generic error.")
-            )
-
-        self.assertFalse(mock_process_state_exception.called)
+        self.assertFalse(mock_process_exception.called)
         self.assertTrue(mock_use_shard_context_manager.return_value.disable.called)
 
     @mock.patch('sharding.middleware.use_shard')
@@ -500,7 +500,7 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
     def test_process_request_with_use_shard_exception(self, mock_use_shard_for):
         """
         Case: Call the middleware to process a shard in maintenance.
-        Expected: process_state_exception is called, shard_context_manager is not enabled.
+        Expected: process_exception is called, shard_context_manager is not enabled.
         """
         mock_use_shard_for_value = mock.Mock()
         mock_use_shard_for_value.return_value.enable = mock.Mock()
@@ -509,21 +509,19 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
             StateException('Shard {} state is {}'.format(1, State.MAINTENANCE), State.MAINTENANCE)
         mock_use_shard_for.return_value = mock_use_shard_for_value
 
-        mock_process_state_exception = \
-            mock.patch('sharding.tests.middleware.UseShardForMiddleware.process_state_exception').start()
-
-        UseShardForMiddleware().process_request(RequestFactory().get('/'))
+        with mock.patch('sharding.middleware.BaseUseShardForMiddleware.process_exception') as mock_process_exception:
+            UseShardForMiddleware().process_request(RequestFactory().get('/'))
 
         self.assertTrue(mock_use_shard_for.called)
         self.assertFalse(mock_use_shard_for.return_value.enable.called)
         self.assertFalse(mock_use_shard_for.return_value.disable.called)
-        self.assertTrue(mock_process_state_exception.called)
+        self.assertTrue(mock_process_exception.called)
 
     @mock.patch('sharding.middleware.use_shard_for')
     def test_process_request_with_connection_exception(self, mock_use_shard_for):
         """
         Case: Call the middleware to process a node that is down.
-        Expected: process_connection_exception is called, shard_context_manager is not enabled.
+        Expected: process_exception is called, shard_context_manager is not enabled.
         """
         mock_use_shard_for_value = mock.Mock()
         mock_use_shard_for_value.return_value.enable = mock.Mock()
@@ -531,38 +529,35 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
         mock_use_shard_for.side_effect = OperationalError('Could not set up connection')
         mock_use_shard_for.return_value = mock_use_shard_for_value
 
-        mock_process_connection_exception = \
-            mock.patch('sharding.tests.middleware.UseShardForMiddleware.process_connection_exception').start()
-
-        UseShardForMiddleware().process_request(RequestFactory().get('/'))
+        with mock.patch('sharding.middleware.BaseUseShardForMiddleware.process_exception') as mock_process_exception:
+            UseShardForMiddleware().process_request(RequestFactory().get('/'))
 
         self.assertTrue(mock_use_shard_for.called)
         self.assertFalse(mock_use_shard_for.return_value.enable.called)
         self.assertFalse(mock_use_shard_for.return_value.disable.called)
-        self.assertTrue(mock_process_connection_exception.called)
+        self.assertTrue(mock_process_exception.called)
 
     def test_process_exception_with_invalid_exception(self):
         """
         Case: Call the process_exception of the UseShardForMiddleware, with the wrong exception.
-        Expected: Context manager is disabled and process_state_exception not called.
+        Expected: Context manager is disabled and process_exception not called.
         """
         sharding_settings = settings.SHARDING
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
-        mock_use_shard_for_context_manager = \
-            mock.patch('sharding.tests.middleware.UseShardForMiddleware.get_shard_context_manager').start()
-        mock_return_value = mock.Mock()
-        mock_return_value.return_value.disable = mock.Mock()
-        mock_use_shard_for_context_manager.return_value = mock_return_value
+        with mock.patch('sharding.tests.middleware.UseShardForMiddleware.get_shard_context_manager') as \
+                mock_use_shard_for_context_manager:
 
-        mock_process_state_exception = \
-            mock.patch('sharding.tests.middleware.UseShardForMiddleware.process_state_exception').start()
+            mock_return_value = mock.Mock()
+            mock_return_value.return_value.disable = mock.Mock()
+            mock_use_shard_for_context_manager.return_value = mock_return_value
 
-        with override_settings(SHARDING=sharding_settings):
-            UseShardForMiddleware().process_exception(
-                RequestFactory().get('/'),
-                ValueError("Generic error.")
-            )
+            with mock.patch('sharding.middleware.ExceptionMiddlewareMixin.process_exception') as mock_process_exception:
+                with override_settings(SHARDING=sharding_settings):
+                    UseShardForMiddleware().process_exception(
+                        RequestFactory().get('/'),
+                        ValueError("Generic error.")
+                    )
 
-        self.assertFalse(mock_process_state_exception.called)
+        self.assertFalse(mock_process_exception.called)
         self.assertTrue(mock_use_shard_for_context_manager.return_value.disable.called)
