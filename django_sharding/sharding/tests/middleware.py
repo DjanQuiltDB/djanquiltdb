@@ -162,7 +162,7 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
     @mock.patch('sharding.middleware.ConnectionExceptionProcessor.process_exception')
     @mock.patch('sharding.middleware.StateExceptionProcessor.process_exception')
     def test_process_exception_with_other_exception(self, mock_state_process_exception,
-                                                         mock_connection_process_exception):
+                                                    mock_connection_process_exception):
         """
         Case: Call the process_exception of the StateOrConnectionExceptionMiddleware with a different exception
         Expected: No process_exception to be called.
@@ -416,7 +416,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
                     UseShardMiddleware().process_exception(
                         RequestFactory().get('/'),
                         ValueError("Generic error.")
-                )
+                    )
 
         self.assertFalse(mock_process_exception.called)
         self.assertTrue(mock_use_shard_context_manager.return_value.disable.called)
