@@ -415,7 +415,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
                 with override_settings(SHARDING=sharding_settings):
                     UseShardMiddleware().process_exception(
                         RequestFactory().get('/'),
-                        ValueError("Generic error.")
+                        ValueError('Generic error.')
                     )
 
         self.assertFalse(mock_process_exception.called)
@@ -457,16 +457,17 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
         mock.patch('sharding.middleware.get_shard_class').start()
 
     @mock.patch('sharding.middleware.use_shard_for')
-    def test_process_response(self, mock_utils_use_shard_for):
+    def test_process_response(self, mock_use_shard_for):
         """
         Case: Call the middleware to process a response.
         Expected: The context manager returned by `use_shard` is exited.
         """
-        mock_use_shard_for = mock.Mock()
-        mock_use_shard_for.return_value.enable = mock.Mock()
-        mock_use_shard_for.return_value.disable = mock.Mock()
-
-        mock_utils_use_shard_for.return_value = mock_use_shard_for
+        mock_use_shard_for_value = mock.Mock()
+        enable_mock = mock.Mock()
+        disable_mock = mock.Mock()
+        mock_use_shard_for_value.enable = enable_mock
+        mock_use_shard_for_value.disable = disable_mock
+        mock_use_shard_for.return_value = mock_use_shard_for_value
 
         request, response = RequestFactory().get('/'), HttpResponse()
         middleware = UseShardForMiddleware()
@@ -474,8 +475,8 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
         middleware.process_request(request)  # Required, sets the context manager
         middleware.process_response(request, response)
 
-        mock_use_shard_for.enable.assert_called_with()  # Called by `process_view`
-        mock_use_shard_for.disable.assert_called_with()  # Called by `process_response`
+        enable_mock.assert_called_with()  # Called by `process_view`
+        disable_mock.assert_called_with()  # Called by `process_response`
 
     @mock.patch('sharding.middleware.use_shard_for')
     def test_process_request(self, mock_use_shard_for):
@@ -484,16 +485,18 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
         Expected: The context manager returned by `use_shard_for` is entered but not exited.
         """
         mock_use_shard_for_value = mock.Mock()
-        mock_use_shard_for_value.return_value.enable = mock.Mock()
-        mock_use_shard_for_value.return_value.disable = mock.Mock()
+        enable_mock = mock.Mock()
+        disable_mock = mock.Mock()
+        mock_use_shard_for_value.enable = enable_mock
+        mock_use_shard_for_value.disable = disable_mock
         mock_use_shard_for.return_value = mock_use_shard_for_value
 
         request = RequestFactory().get('/')
         UseShardForMiddleware().process_request(request)
 
         self.assertTrue(mock_use_shard_for.called)
-        self.assertTrue(mock_use_shard_for.return_value.enable.called)
-        self.assertFalse(mock_use_shard_for.return_value.disable.called)  # process_response is not called
+        self.assertTrue(enable_mock.called)
+        self.assertFalse(disable_mock.called)  # process_response is not called
         self.assertEqual(request._mapping_value, 1)
 
     @mock.patch('sharding.middleware.use_shard_for')
@@ -503,8 +506,10 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
         Expected: process_exception is called, shard_context_manager is not enabled.
         """
         mock_use_shard_for_value = mock.Mock()
-        mock_use_shard_for_value.return_value.enable = mock.Mock()
-        mock_use_shard_for_value.return_value.disable = mock.Mock()
+        enable_mock = mock.Mock()
+        disable_mock = mock.Mock()
+        mock_use_shard_for_value.enable = enable_mock
+        mock_use_shard_for_value.disable = disable_mock
         mock_use_shard_for.side_effect = \
             StateException('Shard {} state is {}'.format(1, State.MAINTENANCE), State.MAINTENANCE)
         mock_use_shard_for.return_value = mock_use_shard_for_value
@@ -513,8 +518,8 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
             UseShardForMiddleware().process_request(RequestFactory().get('/'))
 
         self.assertTrue(mock_use_shard_for.called)
-        self.assertFalse(mock_use_shard_for.return_value.enable.called)
-        self.assertFalse(mock_use_shard_for.return_value.disable.called)
+        self.assertFalse(enable_mock.called)
+        self.assertFalse(disable_mock.called)
         self.assertTrue(mock_process_exception.called)
 
     @mock.patch('sharding.middleware.use_shard_for')
@@ -524,8 +529,10 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
         Expected: process_exception is called, shard_context_manager is not enabled.
         """
         mock_use_shard_for_value = mock.Mock()
-        mock_use_shard_for_value.return_value.enable = mock.Mock()
-        mock_use_shard_for_value.return_value.disable = mock.Mock()
+        enable_mock = mock.Mock()
+        disable_mock = mock.Mock()
+        mock_use_shard_for_value.enable = enable_mock
+        mock_use_shard_for_value.disable = disable_mock
         mock_use_shard_for.side_effect = OperationalError('Could not set up connection')
         mock_use_shard_for.return_value = mock_use_shard_for_value
 
@@ -533,8 +540,8 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
             UseShardForMiddleware().process_request(RequestFactory().get('/'))
 
         self.assertTrue(mock_use_shard_for.called)
-        self.assertFalse(mock_use_shard_for.return_value.enable.called)
-        self.assertFalse(mock_use_shard_for.return_value.disable.called)
+        self.assertFalse(enable_mock.called)
+        self.assertFalse(disable_mock.called)
         self.assertTrue(mock_process_exception.called)
 
     def test_process_exception_with_invalid_exception(self):
@@ -556,7 +563,7 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
                 with override_settings(SHARDING=sharding_settings):
                     UseShardForMiddleware().process_exception(
                         RequestFactory().get('/'),
-                        ValueError("Generic error.")
+                        ValueError('Generic error.')
                     )
 
         self.assertFalse(mock_process_exception.called)
