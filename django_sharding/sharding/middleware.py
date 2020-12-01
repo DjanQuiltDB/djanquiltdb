@@ -1,6 +1,7 @@
 import logging
 
 from django.conf import settings
+from django.db import OperationalError
 from django.http import HttpResponse
 from django.utils.module_loading import import_string
 
@@ -10,26 +11,51 @@ from sharding.utils import StateException, use_shard, get_shard_class, use_shard
 logger = logging.getLogger(__name__)
 
 
-class StateExceptionMiddleware(object):
-    def process_exception(self, request, exception):
-        if not isinstance(exception, StateException):
-            return None
-        return self.process_state_exception(request, exception)
+class ExceptionProcessor(object):
+    exception = NotImplementedError('ExceptionMiddlewareMixin must have `exception` defined on the implementing class')
+    view_setting = NotImplementedError('ExceptionMiddlewareMixin must have `view_setting` defined on the implementing '
+                                       'class')
+    status_code = NotImplementedError('ExceptionMiddlewareMixin must have `status_code` defined on the implementing'
+                                      'class')
 
-    def process_state_exception(self, request, exception):
-        if settings.SHARDING.get('STATE_EXCEPTION_VIEW', None):  # call custom view
-            response = import_string(settings.SHARDING['STATE_EXCEPTION_VIEW']).as_view()(request)
+    @classmethod
+    def process_exception(cls, request, exception):
+        if settings.SHARDING.get(cls.view_setting, None):  # call custom view
+            response = import_string(settings.SHARDING[cls.view_setting]).as_view()(request)
             # If we get a TemplateView that is not yet rendered, call for that here. Otherwise, just pass it.
             if getattr(response, 'is_rendered', True):
                 return response
             return response.render()
-        else:  # no view set, return error
+        else:  # No view set, return error
             response = HttpResponse()
-            response.status_code = 503
+            response.status_code = cls.status_code
             return response
 
 
-class _BaseShardMiddleware(StateExceptionMiddleware):
+class StateExceptionProcessor(ExceptionProcessor):
+    view_setting = 'STATE_EXCEPTION_VIEW'
+    exception = StateException
+    status_code = 503
+
+
+class ConnectionExceptionProcessor(ExceptionProcessor):
+    view_setting = 'CONNECTION_EXCEPTION_VIEW'
+    exception = OperationalError
+    status_code = 503
+
+
+class ExceptionMiddlewareMixin(object):
+    processors = (StateExceptionProcessor, ConnectionExceptionProcessor)
+
+    def process_exception(self, request, exception):
+        for processor in self.processors:
+            if isinstance(exception, processor.exception):
+                return processor.process_exception(request, exception)
+
+        return None
+
+
+class _BaseShardMiddleware(ExceptionMiddlewareMixin, object):
     def process_exception(self, request, exception):
         self._disable_shard(request)
         return super().process_exception(request, exception)
@@ -77,7 +103,7 @@ class BaseUseShardMiddleware(_BaseShardMiddleware):
             request._shard_id = self.get_shard_id(request)
             if request._shard_id:
                 self._enable_shard(request, request._shard_id)
-        except StateException as exception:
+        except (StateException, OperationalError) as exception:
             return self.process_exception(request, exception)
 
     def _enable_shard(self, request, shard_id):
@@ -99,7 +125,7 @@ class BaseUseShardForMiddleware(_BaseShardMiddleware):
             request._mapping_value = self.get_mapping_value(request)
             if request._mapping_value:
                 self._enable_shard_for(request, request._mapping_value)
-        except StateException as exception:
+        except (StateException, OperationalError) as exception:
             return self.process_exception(request, exception)
 
     def _enable_shard_for(self, request, target_value):
@@ -115,7 +141,7 @@ except ImportError:
     pass
 else:
     # noinspection PyAbstractClass
-    class StateExceptionMiddleware(MiddlewareMixin, StateExceptionMiddleware):  # nosec
+    class ExceptionMiddlewareMixin(MiddlewareMixin, ExceptionMiddlewareMixin):  # nosec
         pass
 
     # noinspection PyAbstractClass
