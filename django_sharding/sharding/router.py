@@ -7,7 +7,7 @@ from django.db import DEFAULT_DB_ALIAS, ProgrammingError
 from sharding import ShardingMode, public_modes
 from sharding.options import ShardOptions
 from sharding.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from sharding.utils import get_model_sharding_mode, get_sharding_mode
+from sharding.utils import get_model_sharding_mode, get_sharding_mode, get_model_definition
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +34,8 @@ class DynamicDbRouter:
         We normally route to the active connection (usually set by `use_shard`). This is overridden by the state of
         already retrieved objects or when explicitly provide directions (i.e. `.using()`).
         """
+        if getattr(get_model_definition(model), 'route_to_primary_db', None):
+            return settings.SHARDING.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
         shard_options = hints.get('_shard_options')
         instance_options = hints.get('instance') is not None and hints['instance']._state.db
         return instance_options or shard_options or get_active_connection()

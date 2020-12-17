@@ -446,13 +446,16 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
             func(*args, shard=shard, **(kwargs or {}))
 
 
-def get_model_sharding_mode(model):
+def get_model_definition(model):
+    # Some models (ManyToOne for example) do not have a _meta them selves, but refer to another model for that.
     if not hasattr(model, '_meta'):
-        # Some models (ManyToOne for example) do not have a _meta them selves, but refer to another model for that.
-        app_label, model_name = model.model._meta.app_label, model.model._meta.model_name
-    else:
-        app_label, model_name = model._meta.app_label, model._meta.model_name
-    return get_sharding_mode(app_label, model_name)
+        return model.model
+    return model
+
+
+def get_model_sharding_mode(model):
+    model_class = get_model_definition(model)
+    return get_sharding_mode(model_class._meta.app_label, model_class._meta.model_name)
 
 
 def get_sharding_mode(app_label, model_name):

@@ -24,7 +24,7 @@ from sharding.utils import use_shard, create_schema_on_node, create_template_sch
     for_each_node, transaction_for_every_node, move_model_to_schema, get_all_databases, ShardingMode, \
     get_sharding_mode, get_model_sharding_mode, get_all_sharded_models, get_shard_class, get_mapping_class, \
     transaction_for_nodes, get_all_mirrored_models, delete_schema, schema_exists, disable_signals, \
-    get_all_public_models, get_all_public_schema_models, get_connection_alias
+    get_all_public_models, get_all_public_schema_models, get_connection_alias, get_model_definition
 
 
 class GetShardClass(SimpleTestCase):
@@ -757,14 +757,34 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         self.assertTrue(mock_migrate_schema.called)
 
 
+class GetModelDefinitionTestCase(SimpleTestCase):
+    def test_model(self):
+        """
+        Case: Call get_model_sharding_mode for a normal model class.
+        Expected: Model class returned.
+        """
+        self.assertEqual(get_model_definition(User), User)
+
+    def test_related_model(self):
+        """
+        Case: Call get_model_sharding_mode for a related model class.
+        Expected: Given class' model fiend returned
+        """
+        # User.cake.rel = <ManyToManyRel: example.user>
+        # User.cake.rel.model = <class 'example.models.Cake'>
+        self.assertEqual(get_model_definition(User.cake.rel), Cake)
+
+
 class GetModelShardingModeTestCase(SimpleTestCase):
     @mock.patch('sharding.utils.get_sharding_mode')
-    def test(self, mock_get_sharding_mode):
+    @mock.patch('sharding.utils.get_model_definition', return_value=User)
+    def test(self, mock_get_model_definition, mock_get_sharding_mode):
         """
         Case: Call get_model_sharding_mode.
-        Expected: get_sharding_mode to be called with the correct arguments.
+        Expected: get_model_definition and get_sharding_mode to be called with the correct arguments.
         """
         get_model_sharding_mode(User)
+        mock_get_model_definition.called_once_with(User)
         mock_get_sharding_mode.called_once_with(app_label='example', model_name='User')
 
 
