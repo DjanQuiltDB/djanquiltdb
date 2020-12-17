@@ -141,7 +141,7 @@ def public_model():
     return configure
 
 
-def shard_mapping_model(mapping_field):  # noqa: C901
+def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
     """
     A decorator for marking a model that maps shards and their content.
     This model will hold the foreignkey to the appropriate Shard model.
@@ -152,6 +152,9 @@ def shard_mapping_model(mapping_field):  # noqa: C901
 
     :param mapping_field: Name of the primary field used to query the table to find a shard.
         This is used by the MappingQuerySet object manager.
+    :param route_to_primary_db: Always route read and write queries for this model to the primary database,
+        should there be more than one. Default is `True`. If set to `False` the queries are routed according
+        to the current prevailing sharding context as normal.
 
     :note: Some fields are required to use this model:
 
@@ -159,7 +162,8 @@ def shard_mapping_model(mapping_field):  # noqa: C901
         * state: Single length char field with utils.States as options.
         * a field that is listed as the 'mapping_field' as argument to the decorator
 
-    :note: This model will NOT be sharded. It would defeat its purpose if it did.
+    :note: This decorator does not determine the sharding mode for this model. You can apply a sharding decorator in
+        addition. Do note that marking the mapping model as @sharded_model defeats its purpose.
 
     :Example:
         .. code-block:: python
@@ -173,6 +177,7 @@ def shard_mapping_model(mapping_field):  # noqa: C901
                 class Meta:
                     app_label = 'example'
 
+            @public_model()
             @shard_mapping_model(mapping_field='organization_id')
             class ShardMapping(models.Model):
                 # List every organization in this model, so you can easily request in which shard they live.
@@ -251,6 +256,7 @@ def shard_mapping_model(mapping_field):  # noqa: C901
             shard_mapping_models = True
 
         cls.mapping_field = mapping_field
+        cls.route_to_primary_db = route_to_primary_db
         return cls
 
     return configure

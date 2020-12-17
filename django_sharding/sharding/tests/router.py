@@ -6,7 +6,7 @@ from django.apps import apps
 from django.db import connections, ProgrammingError, models, DEFAULT_DB_ALIAS
 from django.test import override_settings
 
-from example.models import Organization, Shard, Type, SuperType, Unrelated
+from example.models import Organization, Shard, Type, SuperType, Unrelated, OrganizationShards
 from sharding import State
 from sharding.decorators import sharded_model, mirrored_model, public_model
 from sharding.options import ShardOptions
@@ -176,6 +176,29 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         self.assertEqual(self.router.db_for_read(model=DummyNonShardedModel), 'test_node')
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
+    @mock.patch('sharding.router.get_model_definition')
+    def test_db_for_read_for_routing_to_primary_db(self, mock_get_model_definition):
+        """
+        Case: Call db_for_read while the given model has routing_to_primary_db of True and False
+        Expected: Directly routed to the primary db when set to True, normal flow when set to False.
+        """
+        with self.subTest('route_to_primary_db=True'):
+            class DummyModelClass:
+                route_to_primary_db = True
+
+            mock_get_model_definition.return_value = DummyModelClass
+
+            self.assertEqual(self.router.db_for_read(model=OrganizationShards), 'other')
+
+        with self.subTest('route_to_primary_db=False'):
+            class DummyModelClass:
+                route_to_primary_db = False
+
+            mock_get_model_definition.return_value = DummyModelClass
+
+            self.assertEqual(self.router.db_for_read(model=OrganizationShards), 'default')
+
+    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     @mock.patch('sharding.router.get_model_sharding_mode')
     @mock.patch('sharding.router.DynamicDbRouter.db_for_read', return_value='read_answer')
     def test_db_for_write(self, mock_db_for_read, mock_get_model_sharding_mode):
@@ -253,7 +276,8 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         """
         Case: Call a write for various types of models from inside a use_shard context.
         Expected: All writes to happen on the connection of the context, except mirrored models: those are routed to
-                  the primary connection
+                  the primary connection, and route_to_primary_db mapping tables are written to the primary db when
+                  set to True.
         Note: System test
         """
         create_template_schema('default')
@@ -284,13 +308,31 @@ class DynamicDbRouterTestCase(ShardingTestCase):
                 obj.save()
                 self.assert_save_table(mock_save_table, DummyMirroredModel, 'other', None, options=False)
 
+            with self.subTest('route_to_primary_db=True'):
+                mock_save_table.reset_mock()
+                obj = OrganizationShards()
+                obj.save()
+                self.assert_save_table(mock_save_table, OrganizationShards, 'other', None, options=False)
+
+            with self.subTest('route_to_primary_db=False'):
+                mock_save_table.reset_mock()
+                OrganizationShards.route_to_primary_db = False
+
+                obj = OrganizationShards()
+                obj.save()
+                self.assert_save_table(mock_save_table, OrganizationShards, 'default', 'test_other_schema')
+
+                # cleanup
+                OrganizationShards.route_to_primary_db = True
+
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     @mock.patch('django.db.models.base.Model._save_table')
     def test_db_for_write_system_without_sharding_context(self, mock_save_table):
         """
         Case: Call a write for various types of models, outside of a use_shard context.
-        Expected: All writes to happen on the connection on the default connection -which is what is normally active in
+        Expected: All writes to happen on the default connection -which is what is normally active in
                   test cases,- except mirrored models: those are routed to the primary connection.
+                  Oh and route_to_primary_db mapping tables are written to the primary db when set to True :)
         Note: System test
         """
         with self.subTest('Non-sharded model'):
@@ -317,6 +359,23 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             obj = DummyMirroredModel()
             obj.save()
             self.assert_save_table(mock_save_table, DummyMirroredModel, 'other', None, options=False)
+
+        with self.subTest('route_to_primary_db=True'):
+            mock_save_table.reset_mock()
+            obj = OrganizationShards()
+            obj.save()
+            self.assert_save_table(mock_save_table, OrganizationShards, 'other', None, options=False)
+
+        with self.subTest('route_to_primary_db=False'):
+            mock_save_table.reset_mock()
+            OrganizationShards.route_to_primary_db = False
+
+            obj = OrganizationShards()
+            obj.save()
+            self.assert_save_table(mock_save_table, OrganizationShards, 'default', None, options=False)
+
+            # cleanup
+            OrganizationShards.route_to_primary_db = True
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     def test_db_for_write_end_to_end(self):
@@ -368,6 +427,43 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
             with use_shard(node_name='other', schema_name='public'):
                 self.assertTrue(Type.objects.filter(name='test_cake').exists())
+
+        with self.subTest('route_to_primary_db=True'):
+            # the 'other' database does not even have OrganizationShard as a table.
+            with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                             'PRIMARY_DB_ALIAS': 'default'}):
+                with use_shard(self.test_shard):
+                    organization = Organization.objects.create(name='stay')
+
+                with use_shard(node_name='other', schema_name='public'):
+                    OrganizationShards.objects.create(shard=self.test_shard,
+                                                      organization_id=organization.id)
+
+                with use_shard(node_name='default', schema_name='public'):
+                    self.assertTrue(OrganizationShards.objects.filter(organization_id=organization.id).exists())
+
+                # cleanup
+                OrganizationShards.objects.all().delete()
+
+        with self.subTest('route_to_primary_db=False'):
+            # the 'other' database does not even have OrganizationShard as a table.
+            with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
+                                             'PRIMARY_DB_ALIAS': 'default'}):
+                with use_shard(self.test_shard):
+                    organization = Organization.objects.create(name='stay')
+
+                with use_shard(node_name='other', schema_name='public'):
+                    OrganizationShards.route_to_primary_db = False
+                    with self.assertRaisesMessage(ProgrammingError,
+                                                  'relation "example_organizationshards" does not exist'):
+                        OrganizationShards.objects.create(shard=self.test_shard,
+                                                          organization_id=organization.id)
+
+                with use_shard(node_name='default', schema_name='public'):
+                    self.assertFalse(OrganizationShards.objects.filter(organization_id=organization.id).exists())
+
+                # cleanup
+                OrganizationShards.route_to_primary_db = True
 
     def test_allow_relation(self):
         """
