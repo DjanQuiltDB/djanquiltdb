@@ -74,7 +74,8 @@ MAPPING_MODEL
 ~~~~~~~~~~~~~
 When you use a mapping model with the ``@shard_mapping_model`` decorator,
 it is beneficial to add that models name to the settings.
-If you also add the ``MappingQuerySet`` as object manager to that model you can use ``utils.use_shard_for()`` to fetch the wanted shard from mapping table automatically.
+If you also add the ``MappingQuerySet`` as object manager to that model you can use ``utils.use_shard_for()`` to fetch
+the wanted shard from mapping table automatically.
 
 .. code-block:: python
 
@@ -149,7 +150,8 @@ BASE_USE_SHARD_MIDDLEWARE
 The ``sharding.middleware.BaseUseShardMiddleware`` class extends ``StateExceptionMiddleware`` and adds the option to
 wrap views in a ``use_shard`` context manager. This prevents the need to take note of sharding in each of your views.
 
-How the middleware determines which shard to use is up to you however. To use the ``UseShardMiddleware`` you have to extend it and fill in the ``get_shard_id()`` function yourself.
+How the middleware determines which shard to use is up to you however. To use the ``UseShardMiddleware`` you have to
+extend it and fill in the ``get_shard_id()`` function yourself.
 
 Don't forget you can assign your own view as error page like in `STATE_EXCEPTION_MIDDLEWARE`_.
 
@@ -189,7 +191,9 @@ Don't forget you can assign your own view as error page like in `STATE_EXCEPTION
 
         return response
 
-If you are using a mapping model in your project, you can also use the ``BaseUseShardForMiddleware`` in the same fashion as the ``BaseUseShardMiddleware``. The only difference is that you now have to define the ``get_mapping_value()`` method instead of the ``get_shard_id()``.
+If you are using a mapping model in your project, you can also use the ``BaseUseShardForMiddleware`` in the same
+fashion as the ``BaseUseShardMiddleware``. The only difference is that you now have to define the
+``get_mapping_value()`` method instead of the ``get_shard_id()``.
 
 .. code-block:: python
 
@@ -215,7 +219,10 @@ If you are using a mapping model in your project, you can also use the ``BaseUse
 
 OVERRIDE_SHARDING_MODE
 ~~~~~~~~~~~~~~~~~~~~~~
-If you want to override the sharding_mode for a specific model or application you can use ``SHARDING['OVERRIDE_SHARDING_MODE']`` configuration setting. The setting is a dictionary with tuple or list as a key and ShardingMode enum as value. The key is composed from one or two lowercase strings and it is used as a lookup for an app or a model in an app.
+If you want to override the sharding_mode for a specific model or application you can use
+``SHARDING['OVERRIDE_SHARDING_MODE']`` configuration setting. The setting is a dictionary with tuple or list as a key
+and ShardingMode enum as value. The key is composed from one or two lowercase strings and it is used as a lookup for
+an app or a model in an app.
 
 .. code-block:: python
 
@@ -233,7 +240,10 @@ If you want to override the sharding_mode for a specific model or application yo
     }
 
 
-This section can also be used to set sharding modes to models that no longer exist. Normally the router will look at the model definition to see if a migration for it has to be performed on the publci schema or a shard. But if the model is no longer in your code base, it cannot do this anymore. It will mention the definition is missing and skip the migration.
+This section can also be used to set sharding modes to models that no longer exist. Normally the router will look at
+the model definition to see if a migration for it has to be performed on the publci schema or a shard. But if the
+model is no longer in your code base, it cannot do this anymore. It will mention the definition is missing and skip
+the migration.
 If the migration is required, and the model is missing, simply mention it here so the router knows what to do:
 
 .. code-block:: python
@@ -259,11 +269,13 @@ In a sharded environment, the idea of a 'default' connection gains new meaning d
 * PUBLIC:
 	Table will exist on all nodes' public schema. Their data can differ, and all nodes are writable.
 * MIRRORED
-	Table will exist on all nodes' public schema. Their data is marked as replicated, so the same across all nodes. Only the 'default' node is condsiderd writable, the others read-only.
+	Table will exist on all nodes' public schema. Their data is marked as replicated, so the same across all nodes.
+Only the 'default' node is condsiderd writable, the others read-only.
 * SHARDED
 	Table will exist on all nodes' sharded schemas. All nodes are writable since their data is unique.
 
-MIRRORED is the interesting situation. In a replicated environment only one node is writable, the others will read from it and block any mutations of their own.
+MIRRORED is the interesting situation. In a replicated environment only one node is writable, the others will read
+from it and block any mutations of their own.
 It is wrong to assume the node that is call 'default' by Django is also always the writable replication node.
 These roles can failover and change over time. We cannot change the connection names in the setting to match however.
 A node called 'Rose' must always be called 'Rose', for that name is used to tell which data is on what node.
@@ -281,7 +293,8 @@ It's value is a connection name of the node which is writable for MIRRORED data.
   }
 
 And for replication purposes, 'default' is the primary, and 'other' is the follower.
-Once this failsover, 'other' become primary, and 'default' becomes follower. Their actual names are not to change. So we alter 'PRIMARY_DB_ALIAS' to tell that 'other' is now writable.
+Once this failsover, 'other' become primary, and 'default' becomes follower. Their actual names are not to change.
+So we alter 'PRIMARY_DB_ALIAS' to tell that 'other' is now writable.
 
 .. code-block:: python
 
@@ -293,4 +306,5 @@ Once this failsover, 'other' become primary, and 'default' becomes follower. The
       'NEW_SHARD_NODE': 'other',
   }
 
-It would be less confusing if we have non-suggestive names for all connections. But Django enforces the existence of a 'default' node. Even if the router will always route to the primary assigned connection by default.
+It would be less confusing if we have non-suggestive names for all connections. But Django enforces the existence of
+a 'default' node. Even if the router will always route to the primary assigned connection by default.

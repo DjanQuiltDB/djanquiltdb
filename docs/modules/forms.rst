@@ -2,9 +2,13 @@
 Forms
 ==========
 
-It can happen that when you import a model form in a sharded context, and that form contains fields that have foreign keys to sharded models, it will save the shard on the queryset. This can cause unseen problems when using the form multiple times and the queryset being evaluated in a shard you don't expect. Therefore, we need to skip saving the shard options on the queryset during constructing the form class.
+It can happen that when you import a model form in a sharded context, and that form contains fields that have foreign
+keys to sharded models, it will save the shard on the queryset. This can cause unseen problems when using the form
+multiple times and the queryset being evaluated in a shard you don't expect. Therefore, we need to skip saving the
+shard options on the queryset during constructing the form class.
 
-When using a model form, you can inherit from ``sharding.forms.ModelForm`` instead of the default Django ``django.forms.ModelForm``:
+When using a model form, you can inherit from ``sharding.forms.ModelForm`` instead of the default Django
+``django.forms.ModelForm``:
 
 .. code-block:: python
 
@@ -18,7 +22,8 @@ When using a model form, you can inherit from ``sharding.forms.ModelForm`` inste
             fields = ['organization', 'type']
 
 
-You can also use the ``sharding.forms.ModelFormMetaClass`` metaclass if you don't use the default Django model form. For example, when using floppyforms:
+You can also use the ``sharding.forms.ModelFormMetaClass`` metaclass if you don't use the default Django model form.
+For example, when using floppyforms:
 
 .. code-block:: python
 
