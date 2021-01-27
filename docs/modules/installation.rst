@@ -267,12 +267,12 @@ In a sharded environment, the idea of a 'default' connection gains new meaning d
 * Non-decorated:
   Will only live on the default node's public schema
 * PUBLIC:
-	Table will exist on all nodes' public schema. Their data can differ, and all nodes are writable.
+  Table will exist on all nodes' public schema. Their data can differ, and all nodes are writable.
 * MIRRORED
-	Table will exist on all nodes' public schema. Their data is marked as replicated, so the same across all nodes.
-Only the 'default' node is condsiderd writable, the others read-only.
+  Table will exist on all nodes' public schema. Their data is marked as replicated, so the same across all nodes.
+  Only the 'default' node is considered writable, the others read-only.
 * SHARDED
-	Table will exist on all nodes' sharded schemas. All nodes are writable since their data is unique.
+  Table will exist on all nodes' sharded schemas. All nodes are writable since their data is unique.
 
 MIRRORED is the interesting situation. In a replicated environment only one node is writable, the others will read
 from it and block any mutations of their own.
