@@ -11,30 +11,47 @@ desired. Since the user data is contained, users on database A do not have to no
 This library provides tools to easily create shards, select a shard to query, migrate all shards, and move data from
 one shard to another.
 
-.. image:: data-sharding.svg
+.. image:: data_sharding.svg
    :scale: 100 %
    :alt: Vanilla vs Sharded situation
    :align: center
 
 
+Hierarchy
+~~~~~~~~~
+This Library assumes the client data is structured in such a way all data can be traced (bia relations) back to a
+single datapoint. It does not matter what data point that is. Usually it's a User, Organization, Client-like object.
+
+Example data structure with 'organization' as top-level object.
+
+.. image:: data_structure.svg
+   :scale: 100 %
+   :height: 300
+   :alt: Data structure
+   :align: center
+
+The documentation will refer to this root datapoint as top-level object. This is especially important when
+relating to the management commands to move data around from shard to shard.
+We'll call it 'client' for now.
+
 The Problem
 ~~~~~~~~~~~
 
-Normally, one keeps all the data from all the users in one set of table. By default, that is on the 'public' schema in
+Normally, one keeps all the data from all the clients in one set of table. By default, that is on the 'public' schema in
 postgres. This is great, since it's easy to access any data. The more popular your product becomes, the bigger the
 tables get, and gradually the performance of your product suffers. Since big tables are slow to filter through. And
-you continually have to do that, since most of the time you want all data points belonging to a particular user.
+you continually have to do that, since most of the time you want all data points belonging to a particular client.
 
 The solution
 ~~~~~~~~~~~~
-In the situation where you want to select data points for one user often, and data points for multiple users rarely:
-separating user data becomes a very obvious solution. This sharding library does just that. Each user gets their own
+In the situation where you want to select data points for one client often, and data points for multiple clients rarely:
+separating client data becomes a very obvious solution. This sharding library does just that. Each client gets their own
 shard. On that shard is all their data, and only one shard is needed to get all their data.
 
 Shards
 ~~~~~~
-What we call a shard is both the concept of "a container where user data is stored", and the implementation of this:
-a location of a postgres schema with the user data in it.
+What we call a shard is both the concept of "a container where client data is stored", and the implementation of this:
+a location of a postgres schema with the client data in it.
 
 .. image:: shard_table.svg
    :scale: 100 %
@@ -50,13 +67,13 @@ When creating a shard object
 (`Shard.objects.create(name='my shard', node_name='default', schema_name='my_first_schema')`) it will create the
 Postgres schema for you with the given name, on the given database connection.
 
-.. note:: Shard per user?
+.. note:: Shard per client?
 
-It's entirely possible to put multi user's data on on shard. That is effectively how it is without this library.
-Splitting your data up into several shards, with multi users on each; or giving each user their own shard; are both
-supported use cases.
-In practice, we use it in the latter scenario. Each of our users have their own shard, with the exception of an
-'archive' shard, where a bunch of stale users' data end up moved to.
+It's entirely possible to put multiple client's data on one shard. That is effectively how it is without this library.
+Splitting your data up into several shards, with multiple clients on each; or giving each client their own shard;
+are both supported use cases.
+In practice, we use it in the latter scenario. Each of our clients have their own shard, with the exception of an
+'archive' shard, where a bunch of stale clients data end up moved to.
 
 Mapping table
 ~~~~~~~~~~~~~
@@ -70,12 +87,12 @@ mapping table.
 
 This table is essentially a lookup table to know which tenant lives on which shard. This table is created by the
 library user, but has certain formatting rules. It must have a relation to the Shard model, and a field on which we
-map our tenants. `user_id` is an example. With this model we can ask for our shard for user '1', etc. A detail here,
-this mapping field is not a relation/foreign-key. Just an integer field containing unique values.
+map our top-level object. `user_id` is an example. With this model we can ask for our shard for user '1', etc.
+A detail here, this mapping field is not a relation/foreign-key. Just an integer field containing unique values.
 
 Shared data and schema selection
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Not all data in your database are bound to users. There are tables containing 'general' data as well. These remain on
+Not all data in your database are bound to clients. There are tables containing 'general' data as well. These remain on
 the public schema, like before.
 
 .. image:: selection.svg
@@ -97,21 +114,24 @@ can have relations to the 'general' table living in the public schema, but not t
    :alt: Relations 1
    :align: center
 
+-------------
 
-The `User` table can reference the `Type` table for a row with id '1' no problem. There is only one `Type` table.
-If the `Type` table has a reference to a `User` table for a row with id '1', which row would that be? Relations do not
-contain a schema selection.
+For a more detailed example:
 
 .. image:: relations_2.svg
    :scale: 100 %
    :alt: Relations 2
    :align: center
 
+The `User` table can reference the `Type` table for a row with id '1' no problem. There is only one `Type` table.
+If the `Type` table has a reference to a `User` table for a row with id '1', which row would that be? Relations do not
+contain a schema selection.
+
 This is why the mapping table does not have relations to the defining objects of the shard.
 
 Another scaling problem?
 ~~~~~~~~~~~~~~~~~~~~~~~~
-So instead of: the data of, let's say, a thousand users all in the same set of tables, we're going to deal with a
+So instead of: the data of, let's say, a thousand clients all in the same set of tables, we're going to deal with a
 thousand shards, all having their own table set?
 Does that not have their own scaling problem? Does Postgres like this?
 Mostly: yes, yes, yes and no. Postgres has no problems having thousands of schemas. But in some aspects this does
