@@ -80,7 +80,7 @@ Sharding Options
 In the examples given so far, we pass a Shard model instance to functions available to use to set up a sharding context.
 `with use_shard(Shard.objects.get(id=1)):` or `User.objects.using(Shard.objects.get(id=1)).all()` for example.
 This is far from the only way to tell the router which shard we want.
-All these functions interpret the given value and create a ShardObjections object from it. This object is what is
+All these functions interpret the given value and create a ShardObjects object from it. This object is what is
 used by the router to direct the query to the correct place.
 The following values are supported by the ShardingOptions parser:
 * string representation: `'<node_name>|<schema_name>'`
@@ -112,7 +112,7 @@ The following values are supported by the ShardingOptions parser:
 
 .. code-block:: python
 
-  user = User.objects.using('default|org_1_schemxa').get(id=1)
+  user = User.objects.using('default|org_1_schema').get(id=1)
   with use_shard(user._state.db):
     (...)
 
