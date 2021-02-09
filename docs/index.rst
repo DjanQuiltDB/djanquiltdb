@@ -12,9 +12,11 @@ The User Guide
 .. toctree::
     :maxdepth: 2
 
+    modules/overview
     modules/installation
-    modules/structure
-    modules/models
+    modules/sharding_modes
+    modules/queries
+    modules/views
     modules/forms
     modules/decorators
     modules/utils
