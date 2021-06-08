@@ -8,7 +8,7 @@ from django.test import override_settings
 
 from example.models import Organization, Shard, Type, SuperType, Unrelated, OrganizationShards
 from sharding import State
-from sharding.decorators import sharded_model, mirrored_model, public_model
+from sharding.decorators import sharded_model, mirrored_model, public_model, override_sharding_setting
 from sharding.options import ShardOptions
 from sharding.router import DynamicDbRouter, set_active_connection, get_active_connection, _active_connection
 from sharding.tests import ShardingTestCase, ShardingTransactionTestCase
@@ -209,9 +209,9 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         with self.subTest('Mirrored model'):
             mock_get_model_sharding_mode.return_value = ShardingMode.MIRRORED
 
-            self.assertEqual(self.router.db_for_write(model='some_model'), 'other')
+            self.assertEqual(self.router.db_for_write(model='some_model', hints='shard_options'), 'read_answer')
             mock_get_model_sharding_mode.assert_called_once_with('some_model')
-            self.assertEqual(mock_db_for_read.call_count, 0)
+            self.assertEqual(mock_db_for_read.call_count, 2)
 
             mock_get_model_sharding_mode.reset_mock()
             mock_db_for_read.reset_mock()
@@ -226,23 +226,36 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             mock_get_model_sharding_mode.reset_mock()
             mock_db_for_read.reset_mock()
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
-    def test_db_for_write_mirrored_model(self):
+    @override_sharding_setting('PRIMARY_DB_ALIAS', 'default')
+    @mock.patch('sharding.router.DynamicDbRouter.db_for_read')
+    def test_db_for_write_mirrored_model(self, mock_db_for_read):
         """
-        Case: Call db_for_read for a mirrored model
-        Expected: The primary connection returned, regardless of the active connection
+        Case: Call db_for_write for a mirrored model
+        Expected: db_for_read called and returned if the current connection is already the primary.
+                  Otherwise return the primary connection name.
         """
-        with self.subTest('With active connection'):
-            set_active_connection('test_node')
-            self.assertEqual(self.router.db_for_write(model=DummyMirroredModel), 'other')
-        with self.subTest('Without active connection'):
-            set_active_connection(None)
-            self.assertEqual(self.router.db_for_write(model=DummyMirroredModel), 'other')
+        with self.subTest('With primary node in context'):
+            mock_db_for_read.reset_mock()
+
+            with use_shard(node_name='default', schema_name='public') as env:
+                mock_db_for_read.return_value = env.options
+                self.assertEqual(self.router.db_for_write(model=DummyMirroredModel), env.options)
+
+            self.assertEqual(mock_db_for_read.call_count, 2)
+
+        with self.subTest('With non-primary node in context'):
+            mock_db_for_read.reset_mock()
+
+            with use_shard(node_name='other', schema_name='public') as env:
+                mock_db_for_read.return_value = env.options
+                self.assertEqual(self.router.db_for_write(model=DummyMirroredModel), 'default')
+
+            mock_db_for_read.assert_called_once_with(DummyMirroredModel)
 
     def test_db_for_write_while_not_set(self):
         """
-        Case: Call db_for_write with the active_connection being None
-        Expected: None returned
+        Case: Call db_for_write with the active_connection being None.
+        Expected: None returned.
         """
         set_active_connection(None)
         self.assertIsNone(self.router.db_for_write(model=DummyNonShardedModel))
@@ -332,8 +345,8 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Case: Call a write for various types of models, outside of a use_shard context.
         Expected: All writes to happen on the default connection -which is what is normally active in
                   test cases,- except mirrored models: those are routed to the primary connection.
-                  Oh and route_to_primary_db mapping tables are written to the primary db when set to True :)
-        Note: System test
+                  Oh and route_to_primary_db mapping tables are written to the primary db when set to True :).
+        Note: System test.
         """
         with self.subTest('Non-sharded model'):
             mock_save_table.reset_mock()
@@ -358,7 +371,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             mock_save_table.reset_mock()
             obj = DummyMirroredModel()
             obj.save()
-            self.assert_save_table(mock_save_table, DummyMirroredModel, 'other', None, options=False)
+            self.assert_save_table(mock_save_table, DummyMirroredModel, 'default', None, options=False)
 
         with self.subTest('route_to_primary_db=True'):
             mock_save_table.reset_mock()
@@ -380,10 +393,10 @@ class DynamicDbRouterTestCase(ShardingTestCase):
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     def test_db_for_write_end_to_end(self):
         """
-        Case: Call a write for various types of models
+        Case: Call a write for various types of models.
         Expected: All writes to happen on the connection of the context, except mirrored models: those are routed to
-                  the primary connection
-        Note: System test
+                  the primary connection.
+        Note: System test.
         """
         create_template_schema('default')
         self.test_shard = Shard.objects.create(alias='a_shard', node_name='default', schema_name='test_other_schema',
@@ -467,8 +480,8 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
     def test_allow_relation(self):
         """
-        Case: Call allow_relation for two models with various modes
-        Expected: Correct return value for the given mode combinations
+        Case: Call allow_relation for two models with various modes.
+        Expected: Correct return value for the given mode combinations.
         """
         combinations = [
             ('PUBLIC -> PUBLIC', DummyPublicModel, DummyPublicModel, True),
@@ -516,26 +529,26 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
     def test_allow_syncdb(self):
         """
-        Case: Call allow_syncdb on a normal model
-        Expected: None
+        Case: Call allow_syncdb on a normal model.
+        Expected: None.
         """
         self.assertIsNone(self.router.allow_syncdb())
 
     def test_allow_syncdb_on_test_model(self):
         """
-        Case: Call allow_syncdb on a test model
-        Expected: None
+        Case: Call allow_syncdb on a test model.
+        Expected: None.
         """
         self.assertFalse(self.router.allow_syncdb(model=DummyShardedModel))
 
     def test_allow_migrate(self):
         """
         Case: Migrate a combination of unsharded, mirrored and
-              sharded models: namely example.models
+              sharded models: namely example.models.
         Expected: unsharded to go to default-public.
                   mirrored to go to default-public and other-public
                   sharded to go to default-template, other-template,
-                  default-schema1 and other-schema2
+                  default-schema1 and other-schema2.
         """
         create_template_schema('default')  # Also calls for a migration
 
@@ -609,8 +622,8 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
     def test_allow_migrate_on_none(self):
         """
-        Case: Call allow_migrate without a model_name
-        Expected: Programming error to be raised
+        Case: Call allow_migrate without a model_name.
+        Expected: Programming error to be raised.
         """
         with self.assertRaises(ProgrammingError):
             self.router.allow_migrate('default', 'example', model_name=None)
@@ -626,3 +639,20 @@ class DynamicDbRouterTestCase(ShardingTestCase):
                                                    sharding_mode=ShardingMode.SHARDED))
         self.assertTrue(self.router.allow_migrate('default', 'example', model_name='organization',
                                                   sharding_mode=ShardingMode.MIRRORED))
+
+
+class DynamicDbRouterSystemTestCase(ShardingTestCase):
+    def setUp(self):
+        super().setUp()
+
+        create_template_schema('default')
+        self.instance = Type.objects.create(name='woo')
+
+    def test_del_mirrored_model_with_relation(self):
+        """
+        Case: Delete a mirrored model that has a relation.
+        Expected: Model gets correctly deleted.
+        """
+        with use_shard(node_name='default', schema_name='template'):
+            Type.objects.filter(id=self.instance.id).delete()  # succeeds
+            self.assertFalse(Type.objects.exists())
