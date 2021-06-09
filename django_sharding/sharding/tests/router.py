@@ -234,7 +234,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Expected: db_for_read called and returned if the current connection is already the primary.
                   Otherwise return the primary connection name.
         """
-        with self.subTest('With primary node in context'):
+        with self.subTest('With primary node |as ShardingObject in context'):
             mock_db_for_read.reset_mock()
 
             with use_shard(node_name='default', schema_name='public') as env:
@@ -243,11 +243,29 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
             self.assertEqual(mock_db_for_read.call_count, 2)
 
-        with self.subTest('With non-primary node in context'):
+        with self.subTest('with non-primary node |as ShardingObject in context'):
             mock_db_for_read.reset_mock()
 
             with use_shard(node_name='other', schema_name='public') as env:
                 mock_db_for_read.return_value = env.options
+                self.assertEqual(self.router.db_for_write(model=DummyMirroredModel), 'default')
+
+            mock_db_for_read.assert_called_once_with(DummyMirroredModel)
+
+        with self.subTest('With primary node |as a string in context'):
+            mock_db_for_read.reset_mock()
+
+            with use_shard(node_name='default', schema_name='public'):
+                mock_db_for_read.return_value = 'default'
+                self.assertEqual(self.router.db_for_write(model=DummyMirroredModel), 'default')
+
+            mock_db_for_read.assert_called_once_with(DummyMirroredModel)
+
+        with self.subTest('with non-primary node |as string in context'):
+            mock_db_for_read.reset_mock()
+
+            with use_shard(node_name='default', schema_name='public'):
+                mock_db_for_read.return_value = 'other'
                 self.assertEqual(self.router.db_for_write(model=DummyMirroredModel), 'default')
 
             mock_db_for_read.assert_called_once_with(DummyMirroredModel)
@@ -371,7 +389,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             mock_save_table.reset_mock()
             obj = DummyMirroredModel()
             obj.save()
-            self.assert_save_table(mock_save_table, DummyMirroredModel, 'default', None, options=False)
+            self.assert_save_table(mock_save_table, DummyMirroredModel, 'other', None, options=False)
 
         with self.subTest('route_to_primary_db=True'):
             mock_save_table.reset_mock()
@@ -646,7 +664,7 @@ class DynamicDbRouterSystemTestCase(ShardingTestCase):
         super().setUp()
 
         create_template_schema('default')
-        self.instance = Type.objects.create(name='woo')
+        self.instance = Type.objects.create(name='Wrecker')
 
     def test_del_mirrored_model_with_relation(self):
         """
@@ -654,5 +672,5 @@ class DynamicDbRouterSystemTestCase(ShardingTestCase):
         Expected: Model gets correctly deleted.
         """
         with use_shard(node_name='default', schema_name='template'):
-            Type.objects.filter(id=self.instance.id).delete()  # succeeds
+            Type.objects.filter(id=self.instance.id).delete()
             self.assertFalse(Type.objects.exists())
