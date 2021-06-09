@@ -209,9 +209,9 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         with self.subTest('Mirrored model'):
             mock_get_model_sharding_mode.return_value = ShardingMode.MIRRORED
 
-            self.assertEqual(self.router.db_for_write(model='some_model', hints='shard_options'), 'read_answer')
+            self.assertEqual(self.router.db_for_write(model='some_model', hints='shard_options'), 'other')
             mock_get_model_sharding_mode.assert_called_once_with('some_model')
-            self.assertEqual(mock_db_for_read.call_count, 2)
+            self.assertEqual(mock_db_for_read.call_count, 1)
 
             mock_get_model_sharding_mode.reset_mock()
             mock_db_for_read.reset_mock()
@@ -230,11 +230,11 @@ class DynamicDbRouterTestCase(ShardingTestCase):
     @mock.patch('sharding.router.DynamicDbRouter.db_for_read')
     def test_db_for_write_mirrored_model(self, mock_db_for_read):
         """
-        Case: Call db_for_write for a mirrored model
-        Expected: db_for_read called and returned if the current connection is already the primary.
+        Case: Call db_for_write for a mirrored model.
+        Expected: db_for_read called and returns ShardOptions or a string object if its the primary node.
                   Otherwise return the primary connection name.
         """
-        with self.subTest('With primary node |as ShardingObject in context'):
+        with self.subTest('With primary node as ShardingObject in context'):
             mock_db_for_read.reset_mock()
 
             with use_shard(node_name='default', schema_name='public') as env:
@@ -243,16 +243,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
             self.assertEqual(mock_db_for_read.call_count, 2)
 
-        with self.subTest('with non-primary node |as ShardingObject in context'):
-            mock_db_for_read.reset_mock()
-
-            with use_shard(node_name='other', schema_name='public') as env:
-                mock_db_for_read.return_value = env.options
-                self.assertEqual(self.router.db_for_write(model=DummyMirroredModel), 'default')
-
-            mock_db_for_read.assert_called_once_with(DummyMirroredModel)
-
-        with self.subTest('With primary node |as a string in context'):
+        with self.subTest('With primary node as a string in context'):
             mock_db_for_read.reset_mock()
 
             with use_shard(node_name='default', schema_name='public'):
@@ -261,10 +252,19 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
             mock_db_for_read.assert_called_once_with(DummyMirroredModel)
 
-        with self.subTest('with non-primary node |as string in context'):
+        with self.subTest('With non-primary node as ShardingObject in context'):
             mock_db_for_read.reset_mock()
 
-            with use_shard(node_name='default', schema_name='public'):
+            with use_shard(node_name='other', schema_name='public') as env:
+                mock_db_for_read.return_value = env.options
+                self.assertEqual(self.router.db_for_write(model=DummyMirroredModel), 'default')
+
+            mock_db_for_read.assert_called_once_with(DummyMirroredModel)
+
+        with self.subTest('With non-primary node as string in context'):
+            mock_db_for_read.reset_mock()
+
+            with use_shard(node_name='other', schema_name='public'):
                 mock_db_for_read.return_value = 'other'
                 self.assertEqual(self.router.db_for_write(model=DummyMirroredModel), 'default')
 
