@@ -48,7 +48,7 @@ class DynamicDbRouter:
         if get_model_sharding_mode(model) is ShardingMode.MIRRORED:
             default_node_name = settings.SHARDING.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
             db = self.db_for_read(model, **hints)
-            if isinstance(db, ShardOptions) and db.node_name != default_node_name:
+            if not isinstance(db, ShardOptions) or db.node_name != default_node_name:
                 return default_node_name
 
         return self.db_for_read(model, **hints)
