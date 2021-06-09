@@ -231,7 +231,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
     def test_db_for_write_mirrored_model(self, mock_db_for_read):
         """
         Case: Call db_for_write for a mirrored model.
-        Expected: db_for_read called and returns ShardOptions or a string object if its the primary node.
+        Expected: db_for_read called and returned if its result is a ShardOptions for the primary connection.
                   Otherwise return the primary connection name.
         """
         with self.subTest('With primary node as ShardingObject in context'):
