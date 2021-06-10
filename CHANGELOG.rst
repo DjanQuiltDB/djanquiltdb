@@ -1,3 +1,8 @@
+v 0.6.1
+-------
+Altered:
+ * Routing for write queries to mirrored tables (if any) will be directed to the primary node if the current context does not do so already. This prevents your context to be destroyed if was correct already. (Example: a shard on the primary node is selected and you write to a mirrored table. In 0.6.0 this would scrap you shard context and only leave the public_schema in the search_path.)
+
 v 0.6.0
 -------
 Added:
