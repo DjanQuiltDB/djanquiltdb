@@ -1,7 +1,7 @@
 from unittest import mock
 
 from django.core.management import call_command
-from django.db import DatabaseError
+from django.db import DatabaseError, models
 from django.test import override_settings
 
 from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Suborganization, \
@@ -378,6 +378,76 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.command.copy_data()
 
         self.assertEqual(mock_copy_expert.call_count, 14)
+
+    def test_get_mapped_value(self):
+        """
+        Case: Have some public models that have relations in their natural keys, call get_mapped_value for them.
+        Expected: Have their natural keys looked up recursively.
+        """
+        class TopManager(models.Manager):
+            def get_by_natural_key(self, name):
+                return self.get(name=name)
+
+        class Top(models.Model):
+            name = models.CharField('name', max_length=100)
+
+            objects = TopManager()
+
+            class Meta:
+                app_label = 'example'
+                unique_together = ('name', )
+
+            def natural_key(self):
+                return self.name
+
+        class MiddleManager(models.Manager):
+            def get_by_natural_key(self, name, top):
+                return self.get(name=name, top=top)
+
+        class Middle(models.Model):
+            name = models.CharField('name', max_length=100)
+            top = models.ForeignKey('Top', on_delete=models.DO_NOTHING, verbose_name='middle', null=True)
+
+            objects = MiddleManager()
+
+            class Meta:
+                app_label = 'example'
+                unique_together = ('name', 'top')
+
+            def natural_key(self):
+                return self.name, self.top
+
+        class BottomManager(models.Manager):
+            def get_by_natural_key(self, name, middle):
+                return self.get(name=name, middle=middle)
+
+        class Bottom(models.Model):
+            name = models.CharField('name', max_length=100)
+            middle = models.ForeignKey('Middle', on_delete=models.DO_NOTHING, verbose_name='middle', null=True)
+
+            objects = BottomManager()
+
+            class Meta:
+                app_label = 'example'
+                unique_together = ('name', 'middle')
+
+            def natural_key(self):
+                return self.name, self.middle
+
+        top = Top(name='sugar')
+        mid = Middle(name='berries', top=top)
+        bot = Bottom(name='dough', middle=mid)
+
+        source_data = {Bottom: {1: ('dough', 2)},
+                       Middle: {2: ('berries', 3)},
+                       Top: {3: ('sugar', )}}
+        target_data = {Bottom: {('dough', 12): 11},
+                       Middle: {('berries', 13): 12},
+                       Top: {('sugar', ): 13}}
+
+        self.assertEqual(self.command.get_mapped_value(Bottom, source_data, target_data, ('dough', 2)), 11)
+        self.assertEqual(self.command.get_mapped_value(Middle, source_data, target_data, ('berries', 3)), 12)
+        self.assertEqual(self.command.get_mapped_value(Top, source_data, target_data, ('sugar',)), 13)
 
     def test_retarget_relations(self):
         """

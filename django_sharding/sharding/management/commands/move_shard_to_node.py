@@ -196,6 +196,22 @@ class Command(BaseCommand):
             # We want the target model in this case
             return related_model.model
 
+    def get_mapped_value(self, model, source_data, target_data, nat_keys_value):
+        """
+        Get mapped value (so id on node A -> natural keys, natural keys -> id on node B)
+        If the natural keys contains the foreign key to another model, that might also need to be translated the
+        same way recursively.
+        """
+        for index, field_name in enumerate(model._meta.unique_together[0]):
+            field = model._meta._forward_fields_map[field_name]
+            if field.is_relation:
+                related_nat_keys_value = source_data[field.related_model].get(nat_keys_value[index])
+                new_nat_keys_value = list(nat_keys_value)
+                new_nat_keys_value[index] = self.get_mapped_value(field.related_model, source_data, target_data,
+                                                                  related_nat_keys_value)
+                nat_keys_value = tuple(new_nat_keys_value)
+        return target_data[model].get(nat_keys_value)
+
     def retarget_relations(self):
         """
         Retargetting of foreign keys from sharded data to public data goes as follows:
@@ -208,11 +224,12 @@ class Command(BaseCommand):
                 6)  Gather all objects belonging to the related (public) model from the target node
                     This is saved in `target_data` with reverse mapping. So they key is the natural-key values,
                     and the values are the ids
-            7)  Walk through all objects on the target node:
-                8) Read the related id
-                9) Lookup the natural keys via the `source_data` dict
-                10) Lookup the new id on the target node by looking up the natural keys in the `target_node` dict
-                11) Write the new id to the object and save the model.
+        7) Walk through all models again
+            8)  For each of their objects on the target node:
+                9) Read the related id
+                10) Lookup the natural keys via the `source_data` dict
+                11) Lookup the new id on the target node by looking up the natural keys in the `target_node` dict
+                12) Write the new id to the object and save the model.
 
         You might reason: Why not just loop over the moved objects and use .get_natural_keys() and
         .by.natural.keys() to translate them one by one?
@@ -234,6 +251,7 @@ class Command(BaseCommand):
                      ' Retargeting relations;',
                      progressbar.Timer()])
 
+        # Build the source_data and target_data dicts
         for model in models:
             field_definitions = {}
             fields = list(f for f in model._meta.fields if f.is_relation
@@ -260,6 +278,10 @@ class Command(BaseCommand):
                         .values_list('id', *rel_model._meta.unique_together[0])
                     target_data[rel_model] = {d[1:]: d[0] for d in data}
 
+            self.bar_update(bar)
+
+        # Use the source_data and target_data dicts to translate ids
+        for model in models:
             with self.target_shard_options.use():
                 for object in model.objects.all().iterator():
                     for field_name, field_data in field_definitions.items():
@@ -270,7 +292,7 @@ class Command(BaseCommand):
                             raise ValueError('No related data found for {}.{}: {} on source shard'
                                              .format(object, field_name, getattr(object, field_name)))
 
-                        mapped_value = target_data[related_model].get(nat_keys_value)
+                        mapped_value = self.get_mapped_value(related_model, source_data, target_data, nat_keys_value)
 
                         if not mapped_value:
                             raise ValueError('No related data found for {}.{}: {} on target shard'
