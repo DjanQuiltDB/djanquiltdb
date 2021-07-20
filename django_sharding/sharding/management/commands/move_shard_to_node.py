@@ -210,7 +210,19 @@ class Command(BaseCommand):
                 new_nat_keys_value[index] = self.get_mapped_value(field.related_model, source_data, target_data,
                                                                   related_nat_keys_value)
                 nat_keys_value = tuple(new_nat_keys_value)
-        return target_data[model].get(nat_keys_value)
+
+        mapped_value = target_data[model].get(nat_keys_value)
+
+        # If the target data does not contain the natural keys, then the object does not exist on the target node.
+        # If we are allowed to copy it, we do so here and add it to the target_data dict.
+        if not mapped_value and getattr(model, '__allow_copy', False):
+            with self.source_shard.use():
+                source_object = model.objects.get_by_natural_key(*nat_keys_value)
+                source_object.id = None
+                source_object.save(using=self.target_shard_options)
+                mapped_value = source_object.id
+                target_data[model][nat_keys_value] = mapped_value
+        return mapped_value
 
     def retarget_relations(self):
         """
