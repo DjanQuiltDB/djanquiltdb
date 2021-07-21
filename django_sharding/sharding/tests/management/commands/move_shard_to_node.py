@@ -1,4 +1,5 @@
 from unittest import mock
+from unittest.mock import PropertyMock
 
 from django.core.management import call_command
 from django.db import DatabaseError, models
@@ -646,7 +647,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             cake_2.refresh_from_db()
 
             self.assertEqual(cake_1.type_id, 10)
-            self.assertEqual(cake_2.type_id, 1)
+            self.assertEqual(cake_2.type_id, Cake.objects.get(name=cake_2.name).id)
 
             # Missing object is created, other still exists
             self.assertTrue(CakeType.objects.filter(name='Lies').exists())
@@ -732,15 +733,15 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         with use_shard(node_name='other', schema_name='test_source'):
             Cake.objects.create(name='Butter cake', type_id=1)
 
-        # Rework cake_type so it's effectively gone, without postgres noticing
+        # Rework cake_type on the target so it's effectively gone, without postgres noticing
         with use_shard(node_name='other', schema_name='public'):
             CakeType.objects.filter(name='Gone').update(name='Really Gone', id=3)
 
         self.command.source_shard = self.source_shard
         self.command.target_shard_options = self.target_shard_options
-        with self.assertRaisesMessage(ValueError,
-                                      'No related data found for Butter cake.type_id: None on target shard'):
-            self.command.retarget_relations()
+        with self.assertRaises(ValueError):
+            with mock.patch('example.models.CakeType.__allow_copy', new_callable=PropertyMock, return_value=False):
+                self.command.retarget_relations()
 
         # Remove cake so cleanup goes without issues
         with use_shard(node_name='other', schema_name='test_source'):

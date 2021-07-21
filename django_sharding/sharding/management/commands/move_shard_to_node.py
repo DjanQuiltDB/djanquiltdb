@@ -224,7 +224,8 @@ class Command(BaseCommand):
                 target_data[model][nat_keys_value] = mapped_value
 
         if not mapped_value:
-            source_object = model.objects.get_by_natural_key(*nat_keys_value)
+            with self.source_shard.use():
+                source_object = model.objects.get_by_natural_key(*nat_keys_value)
             raise ValueError('Data "{}.{}: {} - {}" not found for on target shard \'{}\''
                              .format(model._meta.app_label, model.__name__, nat_keys_value, source_object,
                                      self.target_shard_options.node_name))
