@@ -53,6 +53,9 @@ class SuperType(models.Model):
 
     objects = SuperTypeManager()
 
+    def __str__(self):
+        return self.name
+
     class Meta:
         app_label = 'example'
         unique_together = [['name']]

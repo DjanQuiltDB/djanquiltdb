@@ -482,7 +482,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
     def test_get_mapped_value_missing_disallow_copy(self):
         """
-        Case: Call get_mapped_value for the target data that is missing, and a model that forbids copying,
+        Case: Call get_mapped_value for the target data that is missing, and a model that forbids copying.
         Expected: ValueError raised. target_data remains unaltered.
         """
         create_schema_on_node(schema_name='test_source', node_name='other', migrate=True)
@@ -500,8 +500,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.assertEqual(SuperType.objects.count(), 0)
 
         # The new SuperType will have an id of 1, since it's the first object on that node.
-        with self.assertRaisesMessage(ValueError, 'Data "example.SuperType: (\'lime\',) - SuperType object" not found '
-                                                  'for on target shard \'other\''):
+        with self.assertRaisesMessage(ValueError, 'Data "example.SuperType: (\'lime\',) - lime" not found for on '
+                                                  'target shard "other", and the model does not allow the data to be '
+                                                  'copied.'):
             self.assertIsNone(self.command.get_mapped_value(SuperType, source_data, target_data, ('lime', )))
 
         with self.target_shard_options.use():
@@ -513,7 +514,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
     def test_retarget_relations(self):
         """
         Case: Call retarget_relations for a set of data
-        Expected: Only relations targeting public models to be retargetted.
+        Expected: Only relations targeting public models to be retargeted.
         """
         create_schema_on_node(schema_name='test_source', node_name='other', migrate=True)
 
@@ -579,7 +580,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.assertCountEqual(user_1.cake.all().values_list('id', flat=True), [cake_1.id, cake_2.id])
             self.assertCountEqual(user_2.cake.all().values_list('id', flat=True), [cake_3.id, cake_4.id])
 
-            # CakeType is retargetted
+            # CakeType is retargeted
             cake_1.refresh_from_db()
             cake_2.refresh_from_db()
             cake_3.refresh_from_db()
@@ -594,7 +595,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         """
         Case: Call retarget_relations for a set of data, which has relations to data that is missing on the target node,
               but is allowed to be copied.
-        Expected: Only relations targeting public models to be retargetted, missing data to be copied.
+        Expected: Only relations targeting public models to be retargeted, missing data to be copied.
         """
         create_schema_on_node(schema_name='test_source', node_name='other', migrate=True)
 
@@ -642,7 +643,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
             self.assertCountEqual(user_1.cake.all().values_list('id', flat=True), [cake_1.id, cake_2.id])
 
-            # CakeType is retargetted
+            # CakeType is retargeted
             cake_1.refresh_from_db()
             cake_2.refresh_from_db()
 

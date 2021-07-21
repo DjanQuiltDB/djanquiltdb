@@ -215,26 +215,27 @@ class Command(BaseCommand):
 
         # If the target data does not contain the natural keys, then the object does not exist on the target node.
         # If we are allowed to copy it, we do so here and add it to the target_data dict.
-        if not mapped_value and getattr(model, '__allow_copy', False):
-            with self.source_shard.use():
-                source_object = model.objects.get_by_natural_key(*nat_keys_value)
-                source_object.id = None
-                source_object.save(using=self.target_shard_options)
-                mapped_value = source_object.id
-                target_data[model][nat_keys_value] = mapped_value
-
         if not mapped_value:
-            with self.source_shard.use():
-                source_object = model.objects.get_by_natural_key(*nat_keys_value)
-            raise ValueError('Data "{}.{}: {} - {}" not found for on target shard \'{}\''
-                             .format(model._meta.app_label, model.__name__, nat_keys_value, source_object,
-                                     self.target_shard_options.node_name))
+            if getattr(model, '__allow_copy', True):
+                with self.source_shard.use():
+                    source_object = model.objects.get_by_natural_key(*nat_keys_value)
+                    source_object.id = None
+                    source_object.save(using=self.target_shard_options)
+                    mapped_value = source_object.id
+                    target_data[model][nat_keys_value] = mapped_value
+            else:
+                with self.source_shard.use():
+                    source_object = model.objects.get_by_natural_key(*nat_keys_value)
+                raise ValueError('Data "{}.{}: {} - {}" not found for on target shard "{}", and the model does not '
+                                 'allow the data to be copied.'
+                                 .format(model._meta.app_label, model.__name__, nat_keys_value, source_object,
+                                         self.target_shard_options.node_name))
 
         return mapped_value
 
     def retarget_relations(self):
         """
-        Retargetting of foreign keys from sharded data to public data goes as follows:
+        Retargeting of foreign keys from sharded data to public data goes as follows:
         1)  Gather a list of models that have relation fields to public models.
         2)  Walk through each of these models:
             3)  Keep a list of relation fields and note down the natural key names for the related models
@@ -253,7 +254,7 @@ class Command(BaseCommand):
 
         You might reason: Why not just loop over the moved objects and use .get_natural_keys() and
         .by.natural.keys() to translate them one by one?
-        Because I think this will be used to migrate millions of rows. And iterating over them and doing thee
+        Because I think this will be used to migrate millions of rows. And iterating over them and doing three
         queries for each, does not scale well.
         """
         # Select models that have a related field to a PUBLIC model
