@@ -436,7 +436,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         top = Top(name='sugar')
         mid = Middle(name='berries', top=top)
-        bot = Bottom(name='dough', middle=mid)
+        Bottom(name='dough', middle=mid)
 
         source_data = {Bottom: {1: ('dough', 2)},
                        Middle: {2: ('berries', 3)},
@@ -482,7 +482,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
     def test_get_mapped_value_missing_disallow_copy(self):
         """
         Case: Call get_mapped_value for the target data that is missing, and a model that forbids copying,
-        Expected: None returned. target_data remains unaltered.
+        Expected: ValueError raised. target_data remains unaltered.
         """
         create_schema_on_node(schema_name='test_source', node_name='other', migrate=True)
 
@@ -499,7 +499,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.assertEqual(SuperType.objects.count(), 0)
 
         # The new SuperType will have an id of 1, since it's the first object on that node.
-        self.assertIsNone(self.command.get_mapped_value(SuperType, source_data, target_data, ('lime', )))
+        with self.assertRaisesMessage(ValueError, 'Data "example.SuperType: (\'lime\',) - SuperType object" not found '
+                                                  'for on target shard \'other\''):
+            self.assertIsNone(self.command.get_mapped_value(SuperType, source_data, target_data, ('lime', )))
 
         with self.target_shard_options.use():
             self.assertEqual(SuperType.objects.count(), 0)

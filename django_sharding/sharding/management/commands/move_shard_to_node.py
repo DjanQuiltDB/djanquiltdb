@@ -222,6 +222,13 @@ class Command(BaseCommand):
                 source_object.save(using=self.target_shard_options)
                 mapped_value = source_object.id
                 target_data[model][nat_keys_value] = mapped_value
+
+        if not mapped_value:
+            source_object = model.objects.get_by_natural_key(*nat_keys_value)
+            raise ValueError('Data "{}.{}: {} - {}" not found for on target shard \'{}\''
+                             .format(model._meta.app_label, model.__name__, nat_keys_value, source_object,
+                                     self.target_shard_options.node_name))
+
         return mapped_value
 
     def retarget_relations(self):
@@ -305,10 +312,6 @@ class Command(BaseCommand):
                                              .format(object, field_name, getattr(object, field_name)))
 
                         mapped_value = self.get_mapped_value(related_model, source_data, target_data, nat_keys_value)
-
-                        if not mapped_value:
-                            raise ValueError('No related data found for {}.{}: {} on target shard'
-                                             .format(object, field_name, mapped_value))
 
                         setattr(object, field_name, mapped_value)
                     object.save(update_fields=field_definitions.keys())
