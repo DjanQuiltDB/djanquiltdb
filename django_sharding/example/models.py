@@ -47,11 +47,14 @@ class SuperTypeManager(models.Manager):
         return self.get(name=name)
 
 
-@public_model()
+@public_model(allow_copy=False)
 class SuperType(models.Model):
     name = models.CharField('name', max_length=100)
 
     objects = SuperTypeManager()
+
+    def __str__(self):
+        return self.name
 
     class Meta:
         app_label = 'example'
@@ -108,7 +111,7 @@ class CakeTypeManager(models.Manager):
         return self.get(name=name)
 
 
-@public_model()
+@public_model(allow_copy=True)
 class CakeType(models.Model):
     name = models.CharField('name', max_length=128)
 
@@ -120,6 +123,9 @@ class CakeType(models.Model):
 
     def natural_key(self):
         return self.name,
+
+    def __str__(self):
+        return self.name
 
 
 class CakeQuerySet(models.QuerySet):

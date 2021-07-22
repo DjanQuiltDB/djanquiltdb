@@ -107,12 +107,16 @@ def mirrored_model():
     return configure
 
 
-def public_model():
+def public_model(allow_copy=True):
     """
-    A decorator for marking a model for being mirror across the various nodes.
+    A decorator for marking a model for living in the public schema, but is not mirrored across the various nodes.
 
     This will tell the migration system that this model is to be available on the public schema.
     Unlike a mirrored_model, it does not have to be available on all nodes, and data between nodes can differ.
+
+    When moving sharded data around from one node to the other, it can have relations to public data is differs between
+    the nodes. When this happens it will be retargeted using natural keys. When the data does not exist on the target
+    node, the data will be created, but only if you allow it by setting `allow_copy` to True on this decorator.
 
     :Example:
         .. code-block:: python
@@ -120,7 +124,7 @@ def public_model():
             from django.db import models
             from sharding.decorators import public_model
 
-            @public_model()
+            @public_model(allow_copy=True)
             class Author(models.Model):
                 name = models.CharField('name', max_length=100)
 
@@ -136,6 +140,7 @@ def public_model():
     """
     def configure(cls):
         cls.__sharding_mode = ShardingMode.PUBLIC
+        cls.__allow_copy = allow_copy
         return cls
 
     return configure
