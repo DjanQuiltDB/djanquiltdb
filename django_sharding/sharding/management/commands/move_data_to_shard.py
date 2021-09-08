@@ -8,6 +8,7 @@ import progressbar
 
 from django.apps import apps
 from django.contrib.admin.utils import NestedObjects
+from django.core.exceptions import ValidationError
 from django.core.management import BaseCommand, CommandError
 from django.db import IntegrityError, connections
 
@@ -92,8 +93,15 @@ class Command(BaseCommand):
                 return
 
         self.source_shard = self.get_shard(alias=source_shard_alias)
-        objects = self.get_objects(self.source_shard)
         self.target_shard = self.get_target_shard(options=options)
+
+        if self.source_shard.node_name != self.target_shard.node_name:
+            raise ValidationError(f'The source shard {self.source_shard} and target shard {self.target_shard} are on '
+                                  'different database nodes. This command does not work across nodes.'
+                                  'Move data to a shard on the same node as the source, then use the '
+                                  'move_shard_to_node command to migrate the data to a different node.')
+
+        objects = self.get_objects(self.source_shard)
 
         self.pre_execution(root_objects=objects)
 

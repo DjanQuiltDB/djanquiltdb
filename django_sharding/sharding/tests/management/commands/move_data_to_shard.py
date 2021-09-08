@@ -4,6 +4,7 @@ import subprocess  # nosec
 from tempfile import TemporaryDirectory, NamedTemporaryFile
 from unittest import mock
 
+from django.core.exceptions import ValidationError
 from django.core.management import call_command, CommandError
 from django.db import DatabaseError, IntegrityError
 from django.test import override_settings
@@ -573,6 +574,45 @@ class MoveDataToShardTestCase(ShardingTestCase):
                                              options=self.options)
         mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
         self.assertEqual(mock_post_execution.call_count, 1)
+
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_target_shard')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.pre_execution')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_objects')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.get_data_collector')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.reset_sequencers')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.copy_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.confirm_data_integrity')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.delete_data')
+    @mock.patch('sharding.management.commands.move_data_to_shard.Command.post_execution')
+    def test_handle_trans_node(self, mock_post_execution, mock_delete_data, mock_confirm, mock_copy_data,
+                               mock_reset_sequencers, mock_get_data_collector, mock_get_objects, mock_pre_execution,
+                               mock_get_target_shard):
+        """
+        Case: Call the handle for data living on one node, and a target that lives on another.
+        Expected: ValidationError raised, and no data selected or moved.
+        """
+        create_template_schema('other')
+        target_shard = Shard.objects.create(alias='Grass', node_name='other',
+                                            schema_name='test_target', state=State.ACTIVE)
+
+        mock_get_target_shard.return_value = target_shard
+
+        with self.assertRaisesMessage(ValidationError,
+                                      'The source shard Curious Village(default|test_source) and target shard '
+                                      'Grass(other|test_target) are on different database nodes. This command does not '
+                                      'work across nodes.Move data to a shard on the same node as the source, then use '
+                                      'the move_shard_to_node command to migrate the data to a different node.'):
+            self.command.handle(**self.options)
+
+        mock_get_target_shard.assert_called_once_with(options=self.options)
+        mock_pre_execution.assert_not_called()
+        mock_get_objects.assert_not_called()
+        mock_get_data_collector.assert_not_called()
+        mock_reset_sequencers.assert_not_called()
+        mock_copy_data.assert_not_called()
+        mock_confirm.assert_not_called()
+        mock_delete_data.assert_not_called()
+        mock_post_execution.assert_not_called()
 
     @mock.patch('sharding.management.commands.move_data_to_shard.transaction_for_nodes')
     def test_handle_transaction(self, mock_transaction_for_nodes):
