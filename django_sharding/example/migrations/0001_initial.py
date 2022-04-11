@@ -37,11 +37,26 @@ class Migration(migrations.Migration):
             unique_together=set([('name',)]),
         ),
         migrations.CreateModel(
+            name='SugarType',
+            fields=[
+                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('hash', models.CharField(verbose_name='hash', max_length=40)),
+                ('type',
+                 models.ForeignKey(null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='example.CakeType',
+                                   verbose_name='type')),
+            ],
+        ),
+        migrations.AlterUniqueTogether(
+            name='sugartype',
+            unique_together=set([('type', 'hash')]),
+        ),
+        migrations.CreateModel(
             name='Cake',
             fields=[
                 ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('name', models.CharField(verbose_name='name', max_length=128)),
                 ('type', models.ForeignKey(null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='example.CakeType', verbose_name='type')),
+                ('sugar_type', models.ForeignKey(null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='example.SugarType', verbose_name='sugar type')),
             ],
         ),
         migrations.CreateModel(

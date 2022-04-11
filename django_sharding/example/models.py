@@ -143,6 +143,7 @@ class CakeQuerySet(models.QuerySet):
 class Cake(models.Model):
     name = models.CharField('name', max_length=128)
     type = models.ForeignKey('CakeType', on_delete=models.DO_NOTHING, verbose_name='type', null=True)
+    sugar_type = models.ForeignKey('SugarType', on_delete=models.DO_NOTHING, verbose_name='sugar type', null=True)
 
     objects = CakeQuerySet.as_manager()
 
@@ -158,6 +159,29 @@ class ProxyCake(Cake):
     class Meta:
         proxy = True
         app_label = 'example'
+
+
+class SugarTypeManager(models.Manager):
+    def get_by_natural_key(self, type, hash):
+        return self.get(type = type, hash = hash)
+
+
+@public_model(allow_copy=True)
+class SugarType(models.Model):
+    hash = models.CharField('hash', max_length=40)
+    type = models.ForeignKey('CakeType', on_delete=models.DO_NOTHING, verbose_name='type')
+
+    objects = SugarTypeManager()
+
+    class Meta:
+        app_label = 'example'
+        unique_together = ('type', 'hash')
+
+    def natural_key(self):
+        return self.type, self.hash
+
+    def __str__(self):
+        return self.hash
 
 
 class UserManager(BaseUserManager):

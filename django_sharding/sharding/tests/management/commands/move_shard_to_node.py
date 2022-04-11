@@ -6,7 +6,7 @@ from django.db import DatabaseError, models
 from django.test import override_settings
 
 from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Suborganization, \
-    Cake, CakeType
+    Cake, CakeType, SugarType
 from sharding.options import ShardOptions
 from sharding.tests import ShardingTestCase, ShardingTransactionTestCase, OverrideMirroredRoutingMixin
 from sharding.utils import use_shard, create_template_schema, State, use_shard_for, get_shard_for, create_schema_on_node
@@ -295,7 +295,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         create_template_schema('default')
         create_template_schema('other')
 
-        self.target_shard_options = ShardOptions(schema_name='test_source', node_name='other')
+        self.target_shard_options = ShardOptions(schema_name='test_target', node_name='other')
 
         with use_shard(node_name='default', schema_name='public', override_class_method_use_shard=True):
             self.source_shard = Shard.objects.create(alias='Curious Village', node_name='default',
@@ -456,7 +456,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         Expected: The missing data to be copied from the source node to the target node.
                   target_data to be appended with the copied datapoint.
         """
-        create_schema_on_node(schema_name='test_source', node_name='other', migrate=True)
+        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
+                              node_name=self.target_shard_options.node_name,
+                              migrate=True)
 
         with use_shard(node_name='default', schema_name='public'):
             CakeType.objects.create(name='lime', id=11)
@@ -485,7 +487,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         Case: Call get_mapped_value for the target data that is missing, and a model that forbids copying.
         Expected: ValueError raised. target_data remains unaltered.
         """
-        create_schema_on_node(schema_name='test_source', node_name='other', migrate=True)
+        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
+                              node_name=self.target_shard_options.node_name,
+                              migrate=True)
 
         with use_shard(node_name='default', schema_name='public'):
             SuperType.objects.create(name='lime', id=11)
@@ -516,7 +520,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         Case: Call retarget_relations for a set of data
         Expected: Only relations targeting public models to be retargeted.
         """
-        create_schema_on_node(schema_name='test_source', node_name='other', migrate=True)
+        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
+                              node_name=self.target_shard_options.node_name,
+                              migrate=True)
 
         with use_shard(node_name='default', schema_name='public'):
             super = SuperType.objects.create(name='Character', id=1)
@@ -538,7 +544,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             CakeType.objects.create(name='Lies', id=10)
             CakeType.objects.create(name='Moist', id=20)
 
-        with use_shard(node_name='other', schema_name='test_source'):
+        with self.target_shard_options.use():
             organization_1 = Organization.objects.create(name='Layton inc.')
             user_1 = User.objects.create(name='Layton', email='professor@layton.l5',
                                          organization=organization_1, type=type_1)
@@ -566,7 +572,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.command.target_shard_options = self.target_shard_options
         self.command.retarget_relations()
 
-        with use_shard(node_name='other', schema_name='test_source'):
+        with self.target_shard_options.use():
             # Cake, Type, and SuperType left unaltered
             user_1.refresh_from_db()
             user_2.refresh_from_db()
@@ -597,7 +603,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
               but is allowed to be copied.
         Expected: Only relations targeting public models to be retargeted, missing data to be copied.
         """
-        create_schema_on_node(schema_name='test_source', node_name='other', migrate=True)
+        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
+                              node_name=self.target_shard_options.node_name,
+                              migrate=True)
 
         with use_shard(node_name='default', schema_name='public'):
             super = SuperType.objects.create(name='Character', id=1)
@@ -613,7 +621,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             CakeType.objects.create(name='Lies', id=10)
             # Missing Moist caketype
 
-        with use_shard(node_name='other', schema_name='test_source'):
+        with self.target_shard_options.use():
             organization_1 = Organization.objects.create(name='Layton inc.')
             user_1 = User.objects.create(name='Layton', email='professor@layton.l5',
                                          organization=organization_1, type=type_1)
@@ -633,7 +641,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.command.target_shard_options = self.target_shard_options
         self.command.retarget_relations()
 
-        with use_shard(node_name='other', schema_name='test_source'):
+        with self.target_shard_options.use():
             # Cake, Type, and SuperType left unaltered
             user_1.refresh_from_db()
 
@@ -648,11 +656,61 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             cake_2.refresh_from_db()
 
             self.assertEqual(cake_1.type_id, 10)
-            self.assertEqual(cake_2.type_id, Cake.objects.get(name=cake_2.name).id)
+            self.assertEqual(cake_2.type_id, CakeType.objects.get(name=cake_type_2.name).id)
 
             # Missing object is created, other still exists
             self.assertTrue(CakeType.objects.filter(name='Lies').exists())
             self.assertTrue(CakeType.objects.filter(name='Moist').exists())
+
+    def test_retarget_relations_with_missing_data_allow_copy2(self):
+        """
+        Case: Call retarget_relations for a set of data, which has relations to data that is missing on the target node,
+              but is allowed to be copied. That datapoint has a relation that does exist, but has a different id.
+        Expected: Only relations targeting public models to be retargeted, missing data to be copied.
+
+        Source node:
+            model A:    model B:
+            1: aaa      1: bbb
+               -> bbb
+
+        Target node:
+            model A:    model B:
+            -empty-     2: bbb
+        """
+        with use_shard(self.source_shard):
+            cake_type_s = CakeType.objects.create(name='delicious', id=1)
+            sugar_type = SugarType.objects.create(hash='a'*32, type=cake_type_s, id=1)
+            cake = Cake.objects.create(name='syrup cake', sugar_type=sugar_type, id=1)
+
+        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
+                              node_name=self.target_shard_options.node_name,
+                              migrate=True)
+        with use_shard(node_name=self.target_shard_options.node_name, schema_name='public'):
+            cake_type_t = CakeType.objects.create(name='delicious', id=2)
+            # Missing SugarType aaaaaaaaaaaaa
+
+        self.command.quiet = False
+        self.command.source_shard = self.source_shard
+        self.command.target_shard_options = self.target_shard_options
+        self.command.target_node = self.target_shard_options.node_name
+        self.command.copy_data()
+        self.command.retarget_relations()
+
+        with self.target_shard_options.use():
+            # CakeType left unaltered
+            cake_type_t.refresh_from_db()
+            self.assertEqual(cake_type_t.id, 2)
+
+            # SugarType created and linked to CakeType id=2
+            sugar_type_t = SugarType.objects.get(hash='a'*32)
+            self.assertEqual(sugar_type_t.type_id, 2)
+
+            # Cake object migrated and targeting the SugerType made
+            cake = Cake.objects.get(id=cake.id)
+            self.assertEqual(cake.id, 1)
+            self.assertEqual(cake.sugar_type, sugar_type)
+            self.assertEqual(cake.sugar_type_id, 1)
+            self.assertEqual(cake.sugar_type.type_id, 2)
 
     def test_retarget_relations_missing_natural_keys(self):
         """
@@ -665,7 +723,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         self.addCleanup(restore_cake_type, CakeType._meta.unique_together, CakeType.natural_key)
 
-        create_schema_on_node(schema_name='test_source', node_name='other', migrate=True)
+        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
+                              node_name=self.target_shard_options.node_name,
+                              migrate=True)
 
         with use_shard(node_name='default', schema_name='public'):
             CakeType.objects.create(name='Gone', id=1)
@@ -673,7 +733,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         with use_shard(node_name='other', schema_name='public'):
             CakeType.objects.create(name='Gone', id=10)
 
-        with use_shard(node_name='other', schema_name='test_source'):
+        with self.target_shard_options.use():
             Cake.objects.create(name='Butter cake', type_id=1)
 
         CakeType._meta.unique_together = None
@@ -686,7 +746,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.command.retarget_relations()
 
         # Remove cake so cleanup goes without issues
-        with use_shard(node_name='other', schema_name='test_source'):
+        with self.target_shard_options.use():
             Cake.objects.all().delete(force=True)
 
     def test_retarget_relations_missing_source(self):
@@ -694,7 +754,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         Case: Call retarget_relations for a data set where some source data is missing
         Expected: Value error raised
         """
-        create_schema_on_node(schema_name='test_source', node_name='other', migrate=True)
+        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
+                              node_name=self.target_shard_options.node_name,
+                              migrate=True)
 
         with use_shard(node_name='default', schema_name='public'):
             CakeType.objects.create(name='Gone', id=1)
@@ -702,7 +764,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         with use_shard(node_name='other', schema_name='public'):
             CakeType.objects.create(name='Gone', id=10)
 
-        with use_shard(node_name='other', schema_name='test_source'):
+        with self.target_shard_options.use():
             Cake.objects.create(name='Butter cake', type_id=1)
 
         # Rework cake_type so it's effectively gone, without postgres noticing
@@ -715,7 +777,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.command.retarget_relations()
 
         # Remove cake so cleanup goes without issues
-        with use_shard(node_name='other', schema_name='test_source'):
+        with self.target_shard_options.use():
             Cake.objects.all().delete(force=True)
 
     def test_retarget_relations_missing_target(self):
@@ -723,7 +785,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         Case: Call retarget_relations for a data set where some target data is missing, and not allowed to be copied.
         Expected: Value error raised
         """
-        create_schema_on_node(schema_name='test_source', node_name='other', migrate=True)
+        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
+                              node_name=self.target_shard_options.node_name,
+                              migrate=True)
 
         with use_shard(node_name='default', schema_name='public'):
             CakeType.objects.create(name='Gone', id=1)
@@ -731,7 +795,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         with use_shard(node_name='other', schema_name='public'):
             CakeType.objects.create(name='Gone', id=10)
 
-        with use_shard(node_name='other', schema_name='test_source'):
+        with self.target_shard_options.use():
             Cake.objects.create(name='Butter cake', type_id=1)
 
         # Rework cake_type on the target so it's effectively gone, without postgres noticing
@@ -745,7 +809,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
                 self.command.retarget_relations()
 
         # Remove cake so cleanup goes without issues
-        with use_shard(node_name='other', schema_name='test_source'):
+        with self.target_shard_options.use():
             Cake.objects.all().delete(force=True)
 
     @mock.patch('sharding.postgresql_backend.base.DatabaseWrapper.reset_sequence')
