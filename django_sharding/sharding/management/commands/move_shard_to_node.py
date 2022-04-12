@@ -189,7 +189,6 @@ class Command(BaseCommand):
 
         self.bar_finish(bar)
 
-
     @staticmethod
     def get_related_model(field):
         # Django < 2.0
@@ -244,7 +243,7 @@ class Command(BaseCommand):
 
         return mapped_value
 
-    def retarget_relations(self):
+    def retarget_relations(self):  # noqa: C901
         """
         Retargeting of foreign keys from sharded data to public data goes as follows:
         1)  Gather a list of models that have relation fields to public models.
@@ -324,7 +323,7 @@ class Command(BaseCommand):
                             # This field is empty; no need to map it to anything.
                             continue
 
-                        nat_keys_value = source_data[related_model].get(getattr(object, field_name))
+                        nat_keys_value = source_data[related_model].get(object_field_value)
                         if not nat_keys_value:
                             raise ValueError('No related data found for {}.{}: {} on source shard'
                                              .format(object, field_name, getattr(object, field_name)))
