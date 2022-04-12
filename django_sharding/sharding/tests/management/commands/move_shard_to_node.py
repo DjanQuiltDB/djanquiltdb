@@ -1,6 +1,8 @@
+import copy
 from unittest import mock
 from unittest.mock import PropertyMock
 
+from django.apps import apps
 from django.core.management import call_command
 from django.db import DatabaseError, models
 from django.test import override_settings
@@ -289,7 +291,18 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
 
 
 class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
+    def cleanup_get_mapped_value(self):
+        """
+        Some tests in this testcase make new models. We do not want them registered after that test, so not to appear
+        in tests that do not expect them.
+        """
+        for model_name in apps.all_models['sharding'].keys() - self.old_model_state.keys():
+            apps.all_models['sharding'].pop(model_name)
+
     def setUp(self):
+        self.old_model_state = copy.copy(apps.all_models['sharding'])
+        self.addCleanup(self.cleanup_get_mapped_value)
+
         super().setUp()
 
         create_template_schema('default')
@@ -395,7 +408,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             objects = TopManager()
 
             class Meta:
-                app_label = 'example'
+                app_label = 'sharding'
                 unique_together = ('name', )
 
             def natural_key(self):
@@ -412,7 +425,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             objects = MiddleManager()
 
             class Meta:
-                app_label = 'example'
+                app_label = 'sharding'
                 unique_together = ('name', 'top')
 
             def natural_key(self):
@@ -429,7 +442,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             objects = BottomManager()
 
             class Meta:
-                app_label = 'example'
+                app_label = 'sharding'
                 unique_together = ('name', 'middle')
 
             def natural_key(self):

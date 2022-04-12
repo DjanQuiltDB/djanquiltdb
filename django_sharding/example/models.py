@@ -163,7 +163,7 @@ class ProxyCake(Cake):
 
 class SugarTypeManager(models.Manager):
     def get_by_natural_key(self, type, hash):
-        return self.get(type = type, hash = hash)
+        return self.get(type=type, hash=hash)
 
 
 @public_model(allow_copy=True)
