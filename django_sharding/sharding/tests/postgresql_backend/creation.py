@@ -131,7 +131,7 @@ class DatabaseCreationTestCase(ShardingTestCase):
                 'fields': {
                     'name': cake.name,
                     'type': None,
-                    'sugar_type': None,
+                    'coating_type': None,
                 },
                 'model': 'example.cake'
             }

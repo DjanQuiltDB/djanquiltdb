@@ -8,7 +8,7 @@ from django.db import DatabaseError, models
 from django.test import override_settings
 
 from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Suborganization, \
-    Cake, CakeType, SugarType
+    Cake, CakeType, CoatingType
 from sharding.options import ShardOptions
 from sharding.tests import ShardingTestCase, ShardingTransactionTestCase, OverrideMirroredRoutingMixin
 from sharding.utils import use_shard, create_template_schema, State, use_shard_for, get_shard_for, create_schema_on_node
@@ -692,15 +692,15 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         """
         with use_shard(self.source_shard):
             cake_type_s = CakeType.objects.create(name='delicious', id=1)
-            sugar_type = SugarType.objects.create(hash='a'*32, type=cake_type_s, id=1)
-            cake = Cake.objects.create(name='syrup cake', sugar_type=sugar_type, id=1)
+            coating_type = CoatingType.objects.create(hash='a' * 32, type=cake_type_s, id=1)
+            cake = Cake.objects.create(name='syrup cake', coating_type=coating_type, id=1)
 
         create_schema_on_node(schema_name=self.target_shard_options.schema_name,
                               node_name=self.target_shard_options.node_name,
                               migrate=True)
         with use_shard(node_name=self.target_shard_options.node_name, schema_name='public'):
             cake_type_t = CakeType.objects.create(name='delicious', id=2)
-            # Missing SugarType aaaaaaaaaaaaa
+            # Missing CoatingType aaaaaaaaaaaaa
 
         self.command.quiet = False
         self.command.source_shard = self.source_shard
@@ -714,16 +714,16 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             cake_type_t.refresh_from_db()
             self.assertEqual(cake_type_t.id, 2)
 
-            # SugarType created and linked to CakeType id=2
-            sugar_type_t = SugarType.objects.get(hash='a'*32)
-            self.assertEqual(sugar_type_t.type_id, 2)
+            # CoatingType created and linked to CakeType id=2
+            coating_type_t = CoatingType.objects.get(hash='a' * 32)
+            self.assertEqual(coating_type_t.type_id, 2)
 
             # Cake object migrated and targeting the SugerType made
             cake = Cake.objects.get(id=cake.id)
             self.assertEqual(cake.id, 1)
-            self.assertEqual(cake.sugar_type, sugar_type)
-            self.assertEqual(cake.sugar_type_id, 1)
-            self.assertEqual(cake.sugar_type.type_id, 2)
+            self.assertEqual(cake.coating_type, coating_type)
+            self.assertEqual(cake.coating_type_id, 1)
+            self.assertEqual(cake.coating_type.type_id, 2)
 
     def test_retarget_relations_missing_natural_keys(self):
         """

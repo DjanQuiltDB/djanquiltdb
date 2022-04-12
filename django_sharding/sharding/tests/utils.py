@@ -12,7 +12,7 @@ from django.db.utils import ConnectionDoesNotExist, IntegrityError
 from django.test import SimpleTestCase, override_settings
 
 from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement, Suborganization, \
-    Cake, MirroredUser, CakeType, SugarType
+    Cake, MirroredUser, CakeType, CoatingType
 from sharding.db import connection
 from sharding.decorators import atomic_write_to_every_node
 from sharding.options import ShardOptions
@@ -954,7 +954,7 @@ class GetAllPublicModels(ShardingTestCase):
         """
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
-            self.assertCountEqual(get_all_public_models(), [SuperType, MirroredUser, CakeType, SugarType])
+            self.assertCountEqual(get_all_public_models(), [SuperType, MirroredUser, CakeType, CoatingType])
 
     def test_with_override_archived_models(self):
         """
@@ -966,7 +966,7 @@ class GetAllPublicModels(ShardingTestCase):
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('non-existing-app', 'long_gone_model'): ShardingMode.PUBLIC,
                                                      ('example', 'type'): ShardingMode.SHARDED}}):
-            self.assertCountEqual(get_all_public_models(), [SuperType, CakeType, SugarType])
+            self.assertCountEqual(get_all_public_models(), [SuperType, CakeType, CoatingType])
 
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):
@@ -993,7 +993,7 @@ class GetAllPublicSchemaModels(ShardingTestCase):
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
             self.assertCountEqual(get_all_public_schema_models(), [Shard, SuperType, Type, MirroredUser, CakeType,
-                                                                   SugarType])
+                                                                   CoatingType])
 
     def test_with_override_archived_models(self):
         """
@@ -1005,7 +1005,8 @@ class GetAllPublicSchemaModels(ShardingTestCase):
         with override_settings(
                 SHARDING={'OVERRIDE_SHARDING_MODE': {('non-existing-app', 'long_gone_model'): ShardingMode.PUBLIC,
                                                      ('example', 'type'): ShardingMode.SHARDED}}):
-            self.assertCountEqual(get_all_public_schema_models(), [Shard, SuperType, MirroredUser, CakeType, SugarType])
+            self.assertCountEqual(get_all_public_schema_models(),
+                                  [Shard, SuperType, MirroredUser, CakeType, CoatingType])
 
     @mock.patch('sharding.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):

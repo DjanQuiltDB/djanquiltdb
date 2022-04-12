@@ -37,7 +37,7 @@ class Migration(migrations.Migration):
             unique_together=set([('name',)]),
         ),
         migrations.CreateModel(
-            name='SugarType',
+            name='CoatingType',
             fields=[
                 ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('hash', models.CharField(verbose_name='hash', max_length=40)),
@@ -47,7 +47,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.AlterUniqueTogether(
-            name='sugartype',
+            name='coatingtype',
             unique_together=set([('type', 'hash')]),
         ),
         migrations.CreateModel(
@@ -56,7 +56,7 @@ class Migration(migrations.Migration):
                 ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('name', models.CharField(verbose_name='name', max_length=128)),
                 ('type', models.ForeignKey(null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='example.CakeType', verbose_name='type')),
-                ('sugar_type', models.ForeignKey(null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='example.SugarType', verbose_name='sugar type')),
+                ('coating_type', models.ForeignKey(null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='example.CoatingType', verbose_name='Coating Type')),
             ],
         ),
         migrations.CreateModel(
