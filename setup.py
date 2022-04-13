@@ -7,7 +7,7 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 
 test_requirements = [
-    'tox==3.4.0',
+    'tox==3.25.0',
     'dj-database-url==0.5.0',
     'django-braces==1.13.0',
     'tblib==1.3.2',
@@ -17,6 +17,7 @@ test_requirements = [
     'importlib-resources>=1.0,<5.4.0',
     'platformdirs<2.4.1,>=2',
     'dataclasses',
+    'tox-pip-version',
 ]
 
 
