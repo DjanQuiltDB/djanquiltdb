@@ -17,7 +17,6 @@ test_requirements = [
     'importlib-resources>=1.0,<5.4.0',
     'platformdirs<2.4.1,>=2',
     'dataclasses',
-    'tox-pip-version',
 ]
 
 
