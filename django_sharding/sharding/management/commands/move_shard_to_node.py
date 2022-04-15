@@ -6,6 +6,7 @@ from io import StringIO
 import progressbar
 from django.core.management import BaseCommand, CommandError
 from django.db import connections
+
 from sharding import State, ShardingMode
 from sharding.options import ShardOptions
 from sharding.utils import get_shard_class, get_all_databases, get_mapping_class, get_all_sharded_models, \
@@ -171,7 +172,7 @@ class Command(BaseCommand):
             with self.source_shard.use(include_public=False, active_only_schemas=False, lock=False) as env:
                 query = env.connection.cursor().mogrify(
                     'COPY (SELECT * FROM "{t}") '  # nosec
-                    'TO STDOUT CSV DELIMITER \';\' HEADER FORCE QUOTE *'.format(  # nosec
+                    'TO STDOUT WITH (FORMAT CSV, DELIMITER \';\', HEADER, FORCE_QUOTE *)'.format(  # nosec
                         t=table))
                 self.copy_expert(env.connection.cursor(), query, io)
 
@@ -182,7 +183,7 @@ class Command(BaseCommand):
             io.seek(0)
             with self.target_shard_options.use() as env:
                 self.copy_expert(env.connection.cursor(),
-                                 'COPY "{t}" ({headers}) FROM STDIN WITH CSV DELIMITER \';\' HEADER'  # nosec
+                                 'COPY "{t}" ({headers}) FROM STDIN WITH (FORMAT CSV, DELIMITER \';\', HEADER)'  # nosec
                                  .format(t=table, headers=headers), io)
 
             self.bar_update(bar)
