@@ -128,6 +128,29 @@ class CakeType(models.Model):
         return self.name
 
 
+class CoatingTypeManager(models.Manager):
+    def get_by_natural_key(self, type, hash):
+        return self.get(type=type, hash=hash)
+
+
+@public_model(allow_copy=True)
+class CoatingType(models.Model):
+    hash = models.CharField('hash', max_length=40)
+    type = models.ForeignKey('CakeType', on_delete=models.DO_NOTHING, verbose_name='type')
+
+    objects = CoatingTypeManager()
+
+    class Meta:
+        app_label = 'example'
+        unique_together = ('type', 'hash')
+
+    def natural_key(self):
+        return self.type, self.hash
+
+    def __str__(self):
+        return self.hash
+
+
 class CakeQuerySet(models.QuerySet):
     def chocolate(self):
         return self.filter(name__icontains='chocolate')
@@ -143,6 +166,7 @@ class CakeQuerySet(models.QuerySet):
 class Cake(models.Model):
     name = models.CharField('name', max_length=128)
     type = models.ForeignKey('CakeType', on_delete=models.DO_NOTHING, verbose_name='type', null=True)
+    coating_type = models.ForeignKey('CoatingType', on_delete=models.DO_NOTHING, verbose_name='Coating Type', null=True)
 
     objects = CakeQuerySet.as_manager()
 

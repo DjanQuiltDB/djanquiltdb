@@ -1,3 +1,4 @@
+import copy
 import functools
 from collections import defaultdict
 from io import StringIO
@@ -171,16 +172,19 @@ class Command(BaseCommand):
             with self.source_shard.use(include_public=False, active_only_schemas=False, lock=False) as env:
                 query = env.connection.cursor().mogrify(
                     'COPY (SELECT * FROM "{t}") '  # nosec
-                    'TO STDOUT WITH CSV DELIMITER \';\' HEADER'.format(  # nosec
+                    'TO STDOUT WITH (FORMAT CSV, DELIMITER \';\', HEADER, FORCE_QUOTE *)'.format(  # nosec
                         t=table))
                 self.copy_expert(env.connection.cursor(), query, io)
 
             # Import
             io.seek(0)
+            headers = io.readline().strip().split(';')
+            headers = ', '.join([f'"{h}"' for h in headers])
+            io.seek(0)
             with self.target_shard_options.use() as env:
                 self.copy_expert(env.connection.cursor(),
-                                 'COPY "{t}" FROM STDIN WITH CSV DELIMITER \';\' HEADER'  # nosec
-                                 .format(t=table), io)
+                                 'COPY "{t}" ({headers}) FROM STDIN WITH (FORMAT CSV, DELIMITER \';\', HEADER)'  # nosec
+                                 .format(t=table, headers=headers), io)
 
             self.bar_update(bar)
 
@@ -202,6 +206,7 @@ class Command(BaseCommand):
         If the natural keys contains the foreign key to another model, that might also need to be translated the
         same way recursively.
         """
+        org_nat_keys_value = copy.deepcopy(nat_keys_value)
         for index, field_name in enumerate(model._meta.unique_together[0]):
             field = model._meta._forward_fields_map[field_name]
             if field.is_relation:
@@ -217,14 +222,20 @@ class Command(BaseCommand):
         # If we are allowed to copy it, we do so here and add it to the target_data dict.
         if not mapped_value:
             if getattr(model, '__allow_copy', True):
-                with self.source_shard.use():
-                    source_object = model.objects.get_by_natural_key(*nat_keys_value)
+                with self.source_shard.use(active_only_schemas=False, lock=False):
+                    source_object = model.objects.get_by_natural_key(*org_nat_keys_value)
                     source_object.id = None
+                    for index, field_name in enumerate(model._meta.unique_together[0]):
+                        field = model._meta._forward_fields_map[field_name]
+                        if field.is_relation:
+                            field_name = field.column
+                        setattr(source_object, field_name, nat_keys_value[index])
+
                     source_object.save(using=self.target_shard_options)
                     mapped_value = source_object.id
                     target_data[model][nat_keys_value] = mapped_value
             else:
-                with self.source_shard.use():
+                with self.source_shard.use(active_only_schemas=False, lock=False):
                     source_object = model.objects.get_by_natural_key(*nat_keys_value)
                 raise ValueError('Data "{}.{}: {} - {}" not found for on target shard "{}", and the model does not '
                                  'allow the data to be copied.'
@@ -233,7 +244,7 @@ class Command(BaseCommand):
 
         return mapped_value
 
-    def retarget_relations(self):
+    def retarget_relations(self):  # noqa: C901
         """
         Retargeting of foreign keys from sharded data to public data goes as follows:
         1)  Gather a list of models that have relation fields to public models.
@@ -308,7 +319,12 @@ class Command(BaseCommand):
                     for field_name, field_data in field_definitions.items():
                         related_model = field_data['related_model']
 
-                        nat_keys_value = source_data[related_model].get(getattr(object, field_name))
+                        object_field_value = getattr(object, field_name)
+                        if not object_field_value:
+                            # This field is empty; no need to map it to anything.
+                            continue
+
+                        nat_keys_value = source_data[related_model].get(object_field_value)
                         if not nat_keys_value:
                             raise ValueError('No related data found for {}.{}: {} on source shard'
                                              .format(object, field_name, getattr(object, field_name)))

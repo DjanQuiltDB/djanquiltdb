@@ -7,16 +7,24 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 
 test_requirements = [
-    'tox==3.4.0',
+    'tox==3.25.0',
     'dj-database-url==0.5.0',
     'django-braces==1.13.0',
     'tblib==1.3.2',
+    'importlib-metadata>=0.12,<4.9.0',
+    'zipp>=0.5,<3.6.0',
+    'filelock<3.4.2,>=3.2',
+    'importlib-resources>=1.0,<5.4.0',
+    'platformdirs<2.4.1,>=2',
+    'dataclasses',
 ]
 
 
 dev_requirements = teamcity_requirements = test_requirements + [
     'sphinx==1.8.1',
+    'Jinja2>=2.3,<2.11',
     'sphinx_rtd_theme==0.4.2',
+    'MarkupSafe>=0.23,<2.1.0',
 ]
 
 
@@ -35,7 +43,7 @@ setup(
     install_requires=[
         'django>=1.8,<3.0',
         'psycopg2>2.7.3,<2.7.4',
-        'progressbar2',
+        'progressbar2<4.0',
     ],
     extras_require={
         'test': test_requirements,

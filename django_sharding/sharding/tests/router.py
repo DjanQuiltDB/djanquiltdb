@@ -107,6 +107,7 @@ class ActiveConnectionTestCase(ShardingTransactionTestCase):
         Expected: The active connection should be the one set by that current thread, and should not be shared among
                   threads
         """
+
         def run(shard, sync_event, wait_for):
             with shard.use() as env:
                 sync_event.set()  # Notify that this thread is in a shard context now
@@ -575,14 +576,15 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         # django.
         default_public_tables = ['django_migrations', 'django_content_type', 'auth_group', 'auth_permission',
                                  'auth_group_permissions', 'example_shard', 'django_session', 'example_type',
-                                 'example_supertype', 'example_caketype', 'example_organizationshards',
-                                 'example_mirroreduser', 'example_defaultuser', 'migration_tests_supermirroredmodel',
-                                 'migration_tests_mirroredmodel', 'example_unrelated']
+                                 'example_supertype', 'example_caketype', 'example_coatingtype',
+                                 'example_organizationshards', 'example_mirroreduser', 'example_defaultuser',
+                                 'migration_tests_supermirroredmodel', 'migration_tests_mirroredmodel',
+                                 'example_unrelated']
         # The tables present on all non-default public schema's are all the mirrored tables.
-        other_public_tables = ['django_migrations',  'example_shard', 'example_type', 'example_supertype',
-                               'example_caketype', 'django_content_type', 'auth_group', 'auth_permission',
-                               'auth_group_permissions', 'example_mirroreduser', 'migration_tests_supermirroredmodel',
-                               'migration_tests_mirroredmodel']
+        other_public_tables = ['django_migrations', 'example_shard', 'example_type', 'example_supertype',
+                               'example_coatingtype', 'example_caketype', 'django_content_type', 'auth_group',
+                               'auth_permission', 'auth_group_permissions', 'example_mirroreduser',
+                               'migration_tests_supermirroredmodel', 'migration_tests_mirroredmodel']
         # The tables present on the template schema's are all the sharded tables.
         template_tables = ['django_migrations', 'example_organization', 'example_suborganization', 'example_user',
                            'example_statement', 'example_cake', 'example_user_cake', 'example_statement_type']
