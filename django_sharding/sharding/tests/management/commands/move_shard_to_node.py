@@ -792,7 +792,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             cake_type_t = CakeType.objects.create(name='delicious', id=2)
             # Missing CoatingType aaaaaaaaaaaaa
 
-        self.command.quiet = False
+        self.command.quiet = True
         self.command.source_shard = self.source_shard
         self.command.target_shard_options = self.target_shard_options
         self.command.target_node = self.target_shard_options.node_name
@@ -844,12 +844,12 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             # We create nothing relevant on the target node, for it is missing all the public data needed.
             # But we do make a random CakeType so that the copied over objects will get a different id.
             cake_type_t = CakeType.objects.create(name='mildly moist', id=1)
-            # We can ccreate an object with id 1 (for the table should be empty) but the sequence can be at anyhing
+            # We can create an object with id 1 (for the table should be empty) but the sequence can be at anyhing
             # due to running other tests before this. So reset it to be at 1 as well.
             env.connection.reset_sequence([CakeType, CoatingType])
             # Missing CoatingType aaaaaaaaaaaaa
 
-        self.command.quiet = False
+        self.command.quiet = True
         self.command.source_shard = self.source_shard
         self.command.target_shard_options = self.target_shard_options
         self.command.target_node = self.target_shard_options.node_name

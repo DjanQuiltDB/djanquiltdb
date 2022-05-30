@@ -10,7 +10,7 @@ from django.db import connections
 from sharding import State, ShardingMode
 from sharding.options import ShardOptions
 from sharding.utils import get_shard_class, get_all_databases, get_mapping_class, get_all_sharded_models, \
-    create_schema_on_node, transaction_for_nodes, get_model_sharding_mode
+    get_all_public_models, create_schema_on_node, transaction_for_nodes, get_model_sharding_mode
 
 
 def indent(text, indentation=1):
@@ -283,13 +283,13 @@ class Command(BaseCommand):
 
             mapped_value = self.get_mapped_value(related_model, nat_keys_value)
 
-            self.print(indent(gray(f'Retargeting {object._meta.object_name} {object}, field {field_name} to '
+            self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object}, field {field_name} to '
                                    f'{mapped_value}'), 1))
             setattr(object, field_name, mapped_value)
 
         object.save(update_fields=self.field_definitions[model].keys())
 
-    def retarget_relations(self):  # noqa: C901
+    def retarget_relations(self):
         """
         Retargeting of foreign keys from sharded data to public data goes as follows:
         1)  Gather a list of models that have relation fields to public models.
@@ -301,11 +301,12 @@ class Command(BaseCommand):
                 6)  Gather all objects belonging to the related (public) model from the target node
                     This is saved in `target_data` with reverse mapping. So they key is the natural-key values,
                     and the values are the ids
-        7) Walk through all models again
+        7) Walk through sharded models again
             8)  For each of their objects on the target node:
                 9) Read the related id
                 10) Lookup the natural keys via the `source_data` dict
-                11) Lookup the new id on the target node by looking up the natural keys in the `target_node` dict
+                11A) Lookup the new id on the target node by looking up the natural keys in the `target_node` dict
+                11B) If it does not exist on the target node, copy it and go back to step 9 for that object.
                 12) Write the new id to the object and save the model.
 
         You might reason: Why not just loop over the moved objects and use .get_natural_keys() and
@@ -314,10 +315,14 @@ class Command(BaseCommand):
         queries for each, does not scale well.
         """
         # Select models that have a related field to a PUBLIC model
-        models = [m for m in get_all_sharded_models()
-                  if any(f for f in m._meta.fields
-                         if f.is_relation
-                         and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)]
+        sharded_models = [m for m in get_all_sharded_models()
+                          if any(f for f in m._meta.fields
+                                 if f.is_relation
+                                 and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)]
+        public_models = [m for m in get_all_public_models()
+                         if any(f for f in m._meta.fields
+                                if f.is_relation
+                                and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)]
 
         self.field_definitions = defaultdict(lambda: defaultdict(dict))
         # <model>: {<field_name>: ('natural_keys': (nat key name 1, name 2), 'related_model': <related model name>)}
@@ -330,8 +335,9 @@ class Command(BaseCommand):
                      ' Retargeting relations;',
                      progressbar.Timer()])
 
-        # Build the source_data and target_data dicts
-        for model in models:
+        # Build the source_data and target_data dicts. We also do this for public models, as might create new entries
+        # that need to relate to other public models as well
+        for model in sharded_models + public_models:
             self.field_definitions[model] = {}
             fields = list(f for f in model._meta.fields if f.is_relation
                           and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)
@@ -360,7 +366,7 @@ class Command(BaseCommand):
             self.bar_update(bar)
 
         # Use the source_data and target_data dicts to translate ids
-        for model in models:
+        for model in sharded_models:
             with self.target_shard_options.use():
                 for object in model.objects.all().iterator():
                     self._check_relations(model, object)
@@ -396,7 +402,7 @@ class Command(BaseCommand):
                 # Release the exclusive advisory lock
                 source_connection.release_advisory_lock(key='mapping_{}'.format(root_object_id), shared=False)
 
-        # Restore shard state and set it's node to the target
+        # Restore shard state and set its node to the target
         source_connection.release_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
 
         self.source_shard.state = self.old_shard_state

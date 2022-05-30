@@ -129,8 +129,8 @@ class CakeType(models.Model):
 
 
 class CoatingTypeManager(models.Manager):
-    def get_by_natural_key(self, type, hash):
-        return self.get(type=type, hash=hash)
+    def get_by_natural_key(self, hash):
+        return self.get(hash=hash)
 
 
 @public_model(allow_copy=True)
@@ -142,10 +142,10 @@ class CoatingType(models.Model):
 
     class Meta:
         app_label = 'example'
-        unique_together = ('type', 'hash')
+        unique_together = [['hash']]
 
     def natural_key(self):
-        return self.type, self.hash
+        return self.hash,
 
     def __str__(self):
         return self.hash
