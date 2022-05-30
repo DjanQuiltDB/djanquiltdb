@@ -42,7 +42,7 @@ setup(
     packages=find_packages('django_sharding', exclude=('example*', 'config*', '*test*')),
     include_package_data=True,
     install_requires=[
-        'django>=1.8,<3.0',
+        'django>=1.11,<3.0',
         'psycopg2>2.7.3,<2.7.4',
         'progressbar2<4.0',
     ],
@@ -59,7 +59,7 @@ setup(
         'Operating System :: OS Independent',
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.4',
+        'Programming Language :: Python :: 3.6',
         'Framework :: Django',
     ]
 )
