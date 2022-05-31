@@ -18,7 +18,8 @@ def indent(text, indentation=1):
 
 
 def color(text, code):
-    return '\033[{}m{}\033[0m'.format(code, text)
+    return '{}'.format(text)
+    # return '\033[{}m{}\033[0m'.format(code, text)
 
 
 green = functools.partial(color, code='32')
@@ -235,15 +236,7 @@ class Command(BaseCommand):
                     source_object = model.objects.get_by_natural_key(*org_nat_keys_value)
                     source_object.id = None
                     self.print(indent(gray(f'Creating <{source_object._meta.object_name}>{source_object}'), 2))
-
-                    for index, field_name in enumerate(model._meta.unique_together[0]):
-                        field = model._meta._forward_fields_map[field_name]
-                        if field.is_relation:
-                            field_name = field.column
-                        setattr(source_object, field_name, nat_keys_value[index])
-                        self.print(indent(gray(f"Setting '{field_name}' to ({nat_keys_value[index]})"), 3))
-
-                    source_object.save(using=self.target_shard_options)
+                    source_object.save(using=self.target_shard_options, force_insert=True)
                     self.print(indent(gray(f'Saved <{source_object._meta.object_name}>{source_object} to id '
                                            f'{source_object.id}'), 3))
 
@@ -265,29 +258,29 @@ class Command(BaseCommand):
         For the given object, loop over each relation field and fetch the related objects that matches on the target
         node. Save the object with the new relations.
         """
-        self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object}, '), 0))
+        self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object.id}, '), 0))
         for field_name, field_data in self.field_definitions[model].items():
             related_model = field_data['related_model']
 
             object_field_value = getattr(object, field_name)
             if not object_field_value:
                 # This field is empty; no need to map it to anything.
-                self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object}, '
+                self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object.id}, '
                                        f"field '{field_name}' is empty"), 1))
                 continue
 
             nat_keys_value = self.source_data[related_model].get(object_field_value)
             if not nat_keys_value:
-                raise ValueError('No related data found for {}.{}: {} on source shard'
-                                 .format(object, field_name, getattr(object, field_name)))
+                raise ValueError(f'No related data found for <{object._meta.object_name}>{object.id}.{field_name}:'
+                                 f' {getattr(object, field_name)} on source shard')
 
             mapped_value = self.get_mapped_value(related_model, nat_keys_value)
 
-            self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object}, field {field_name} to '
+            self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object.id}, field {field_name} to '
                                    f'{mapped_value}'), 1))
             setattr(object, field_name, mapped_value)
 
-        object.save(update_fields=self.field_definitions[model].keys())
+        object.save(update_fields=self.field_definitions[model].keys(), force_update=True)
 
     def retarget_relations(self):
         """

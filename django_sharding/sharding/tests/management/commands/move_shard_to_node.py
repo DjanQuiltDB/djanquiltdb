@@ -926,7 +926,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             CakeType.objects.create(name='Gone', id=10)
 
         with self.target_shard_options.use():
-            Cake.objects.create(name='Butter cake', type_id=1)
+            cake = Cake.objects.create(name='Butter cake', type_id=1)
 
         # Rework cake_type so it's effectively gone, without postgres noticing
         with use_shard(node_name='default', schema_name='public'):
@@ -934,7 +934,8 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         self.command.source_shard = self.source_shard
         self.command.target_shard_options = self.target_shard_options
-        with self.assertRaisesMessage(ValueError, 'No related data found for Butter cake.type_id: 1 on source shard'):
+        with self.assertRaisesMessage(ValueError,
+                                      f'No related data found for <Cake>{cake.id}.type_id: 1 on source shard'):
             self.command.retarget_relations()
 
         # Remove cake so cleanup goes without issues
