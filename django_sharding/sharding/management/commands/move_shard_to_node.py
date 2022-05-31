@@ -18,8 +18,7 @@ def indent(text, indentation=1):
 
 
 def color(text, code):
-    return '{}'.format(text)
-    # return '\033[{}m{}\033[0m'.format(code, text)
+    return '\033[{}m{}\033[0m'.format(code, text)
 
 
 green = functools.partial(color, code='32')
