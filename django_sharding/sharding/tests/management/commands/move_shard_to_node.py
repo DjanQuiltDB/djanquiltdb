@@ -42,7 +42,8 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
             self.type_2 = Type.objects.create(name='Child', super=self.super)
             self.type_3 = Type.objects.create(name='Attorney', super=self.super)
 
-            self.cake_type = CakeType.objects.create(name='Lies')
+            self.cake_type_1 = CakeType.objects.create(name='Truth')
+            self.cake_type_2 = CakeType.objects.create(name='Lies')
 
             with use_shard(node_name='other', schema_name='public'):
                 self.super_other = SuperType.objects.create(name='Character', id=self.super.id + 1)
@@ -51,7 +52,7 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
                 Type.objects.create(id=self.type_2.id, name=self.type_2.name, super=self.super_other)
                 Type.objects.create(id=self.type_3.id, name=self.type_3.name, super=self.super_other)
 
-                self.cake_type_other = CakeType.objects.create(name='Lies', id=self.cake_type.id + 1)
+                self.cake_type_other = CakeType.objects.create(name='Lies', id=self.cake_type_1.id + 10)
 
             self.organization_1 = Organization.objects.create(name='Layton inc.')
             self.organization_2 = Organization.objects.create(name='Curious Village')
@@ -88,10 +89,14 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
                                                                          state=State.ACTIVE)
 
             # Some many-to-many models
-            self.cake_1 = Cake.objects.create(name='Butter cake', type=self.cake_type)
-            self.cake_2 = Cake.objects.create(name='Chocolate cake', type=self.cake_type)
-            self.cake_3 = Cake.objects.create(name='Sponge cake', type=self.cake_type)
-            self.cake_4 = Cake.objects.create(name='Coffee cake', type=self.cake_type)
+            self.coating_1 = CoatingType.objects.create(hash='a'*32, type=self.cake_type_1)
+            self.coating_2 = CoatingType.objects.create(hash='b'*32, type=self.cake_type_1)
+            self.coating_3 = CoatingType.objects.create(hash='c'*32, type=self.cake_type_2)
+
+            self.cake_1 = Cake.objects.create(name='Butter cake', type=self.cake_type_1, coating_type=self.coating_1)
+            self.cake_2 = Cake.objects.create(name='Chocolate cake', type=self.cake_type_1, coating_type=self.coating_2)
+            self.cake_3 = Cake.objects.create(name='Sponge cake', type=self.cake_type_2, coating_type=self.coating_3)
+            self.cake_4 = Cake.objects.create(name='Coffee cake', type=self.cake_type_2, coating_type=self.coating_3)
 
             self.user_1.cake.add(self.cake_1)
             self.user_1.cake.add(self.cake_2)
@@ -260,9 +265,9 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
         self.assertTrue(mock_copy_expert.called)
 
     @mock.patch('sharding.management.commands.move_shard_to_node.Command.retarget_relations', side_effect=ValueError)
-    def test_failure_on_retargetting(self, mock_copy_expert):
+    def test_failure_on_retargeting(self, mock_copy_expert):
         """
-        Case: Call move_shard_to_node command, and let it fail during relation retargetting.
+        Case: Call move_shard_to_node command, and let it fail during relation retargeting.
         Expected: Transaction to be rolled back, no shard is altered, no data moved or lost.
         Note: System test
         """
@@ -291,7 +296,7 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
 
 
 class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
-    def cleanup_get_mapped_value(self):
+    def cleanup_retargeting(self):
         """
         Some tests in this testcase make new models. We do not want them registered after that test, so not to appear
         in tests that do not expect them.
@@ -301,7 +306,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
     def setUp(self):
         self.old_model_state = copy.copy(apps.all_models['sharding'])
-        self.addCleanup(self.cleanup_get_mapped_value)
+        self.addCleanup(self.cleanup_retargeting)
 
         super().setUp()
 
@@ -452,21 +457,23 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         mid = Middle(name='berries', top=top)
         Bottom(name='dough', middle=mid)
 
-        source_data = {Bottom: {1: ('dough', 2)},
-                       Middle: {2: ('berries', 3)},
-                       Top: {3: ('sugar', )}}
-        target_data = {Bottom: {('dough', 12): 11},
-                       Middle: {('berries', 13): 12},
-                       Top: {('sugar', ): 13}}
+        self.command.source_data = {Bottom: {1: ('dough', 2)},
+                                    Middle: {2: ('berries', 3)},
+                                    Top: {3: ('sugar',)}}
+        self.command.target_data = {Bottom: {('dough', 12): 11},
+                                    Middle: {('berries', 13): 12},
+                                    Top: {('sugar', ): 13}}
 
-        self.assertEqual(self.command.get_mapped_value(Bottom, source_data, target_data, ('dough', 2)), 11)
-        self.assertEqual(self.command.get_mapped_value(Middle, source_data, target_data, ('berries', 3)), 12)
-        self.assertEqual(self.command.get_mapped_value(Top, source_data, target_data, ('sugar',)), 13)
+        self.assertEqual(self.command.get_mapped_value(Bottom, ('dough', 2)), 11)
+        self.assertEqual(self.command.get_mapped_value(Middle, ('berries', 3)), 12)
+        self.assertEqual(self.command.get_mapped_value(Top, ('sugar',)), 13)
 
-    def test_get_mapped_value_missing_allow_copy(self):
+    @mock.patch('sharding.management.commands.move_shard_to_node.Command._check_relations')
+    def test_get_mapped_value_missing_allow_copy(self, mock_check_relations):
         """
-        Case: Call get_mapped_value for the target data that is missing, and a model that allows copying,
+        Case: Call get_mapped_value for the target data that is missing, and a model that allows copying.
         Expected: The missing data to be copied from the source node to the target node.
+                  _check_relations called on the newly copied object.
                   target_data to be appended with the copied datapoint.
         """
         create_schema_on_node(schema_name=self.target_shard_options.schema_name,
@@ -476,8 +483,8 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         with use_shard(node_name='default', schema_name='public'):
             CakeType.objects.create(name='lime', id=11)
 
-        source_data = {CakeType: {11: ('lime', )}}
-        target_data = {CakeType: {}}
+        self.command.source_data = {CakeType: {11: ('lime', )}}
+        self.command.target_data = {CakeType: {}}
 
         self.command.source_shard = self.source_shard
         self.command.target_shard_options = self.target_shard_options
@@ -486,19 +493,27 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.assertEqual(CakeType.objects.count(), 0)
 
         # The new CakeType will have an id of 1, since it's the first object on that node.
-        self.assertEqual(self.command.get_mapped_value(CakeType, source_data, target_data, ('lime', )), 1)
+        self.assertEqual(self.command.get_mapped_value(CakeType, ('lime', )), 1)
 
         with self.target_shard_options.use():
             self.assertEqual(CakeType.objects.count(), 1)
             self.assertEqual(CakeType.objects.get(name='lime').id, 1)
 
-        # Our given target_data is a pointer. The dict is to be altered by get_mapped_value.
-        self.assertCountEqual(target_data, {CakeType: {('lime', ): 1}})
+        # We have to be a bit indirect at asserting call arguments if model instances are involved.
+        mock_check_relations.assert_called_once()
+        call_args = mock_check_relations.call_args[0]
+        self.assertEqual(call_args[0], CakeType)
+        self.assertEqual(call_args[1]._meta.model, CakeType)
+        self.assertEqual(call_args[1].id, 1)
 
-    def test_get_mapped_value_missing_disallow_copy(self):
+        # Our given target_data is a pointer. The dict is to be altered by get_mapped_value.
+        self.assertCountEqual(self.command.target_data, {CakeType: {('lime', ): 1}})
+
+    @mock.patch('sharding.management.commands.move_shard_to_node.Command._check_relations')
+    def test_get_mapped_value_missing_disallow_copy(self, mock_check_relations):
         """
         Case: Call get_mapped_value for the target data that is missing, and a model that forbids copying.
-        Expected: ValueError raised. target_data remains unaltered.
+        Expected: ValueError raised. target_data remains unaltered, _check_relations not called.
         """
         create_schema_on_node(schema_name=self.target_shard_options.schema_name,
                               node_name=self.target_shard_options.node_name,
@@ -507,8 +522,8 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         with use_shard(node_name='default', schema_name='public'):
             SuperType.objects.create(name='lime', id=11)
 
-        source_data = {SuperType: {11: ('lime', )}}
-        target_data = {SuperType: {}}
+        self.command.source_data = {SuperType: {11: ('lime', )}}
+        self.command.target_data = {SuperType: {}}
 
         self.command.source_shard = self.source_shard
         self.command.target_shard_options = self.target_shard_options
@@ -520,17 +535,92 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         with self.assertRaisesMessage(ValueError, 'Data "example.SuperType: (\'lime\',) - lime" not found for on '
                                                   'target shard "other", and the model does not allow the data to be '
                                                   'copied.'):
-            self.assertIsNone(self.command.get_mapped_value(SuperType, source_data, target_data, ('lime', )))
+            self.assertIsNone(self.command.get_mapped_value(SuperType, ('lime', )))
 
         with self.target_shard_options.use():
             self.assertEqual(SuperType.objects.count(), 0)
 
-        # Our given target_data is a pointer. The dict is to be altered by get_mapped_value.
-        self.assertCountEqual(target_data, {SuperType: {}})
+        self.assertFalse(mock_check_relations.called)
 
-    def test_retarget_relations(self):
+        # Our given target_data is a pointer. The dict is to be altered by get_mapped_value.
+        self.assertCountEqual(self.command.target_data, {SuperType: {}})
+
+    @mock.patch('sharding.management.commands.move_shard_to_node.Command.get_mapped_value')
+    def test_check_relations(self, mock_get_mapped_value):
         """
-        Case: Call retarget_relations for a set of data
+        Case: Call _check_relations for a given object.
+        Expected: All relation fields of the object to be remapped to the return value of get_mapped_value.
+        """
+        with use_shard(node_name='default', schema_name='public'):
+            cake_type = CakeType.objects.create(name='Pantheon', id=1)
+            cake_type2 = CakeType.objects.create(name='Monotheism', id=2)
+        with use_shard(node_name='other', schema_name='public'):
+            cake_type = CakeType.objects.create(name='Pantheon', id=1)
+            cake_type2 = CakeType.objects.create(name='Monotheism', id=2)
+        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
+                              node_name=self.target_shard_options.node_name,
+                              migrate=True)
+        with self.source_shard.use():
+            cake = Cake.objects.create(name='A very normal deity', type=cake_type, id=1)
+
+        mock_get_mapped_value.return_value = cake_type2
+
+        self.command.source_shard = self.source_shard
+        self.command.target_shard_options = self.target_shard_options
+        self.command.field_definitions = {Cake: {}}
+        self.command.field_definitions[Cake]['type_id'] = {'natural_keys': ('name',), 'related_model': CakeType}
+        self.command.field_definitions[Cake]['coating_type_id'] = {'natural_keys': ('type', 'hash'),
+                                                                   'related_model': CoatingType}
+        self.command.source_data = {CakeType: {1: ('A very normal deity')}, CoatingType: {}}
+        self.command._check_relations(Cake, cake)
+
+        cake.refresh_from_db()
+        self.assertEqual(cake.name, 'A very normal deity')
+        self.assertEqual(cake.type_id, 2)
+        self.assertEqual(cake.type, cake_type2)
+
+    @mock.patch('sharding.management.commands.move_shard_to_node.Command._check_relations')
+    def test_retarget_relations(self, mock_check_relations):
+        """
+        Case: Call retarget_relations for a set of data.
+        Expected: source_data, target_data and field_definitions to be populated,
+                  _check_relations called for all objects in public models.
+        """
+        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
+                              node_name=self.target_shard_options.node_name,
+                              migrate=True)
+
+        with use_shard(node_name='default', schema_name='public'):
+            super = SuperType.objects.create(name='Concepts', id=1)
+            type = Type.objects.create(name='Humanity', super=super)
+            cake_type = CakeType.objects.create(name='PCGMR', id=1)
+        with use_shard(node_name='other', schema_name='public'):
+            super = SuperType.objects.create(name='Concepts', id=1)
+            type = Type.objects.create(name='Humanity', super=super)
+            cake_type = CakeType.objects.create(name='PCGMR', id=1)
+
+        with self.target_shard_options.use():
+            organization = Organization.objects.create(name='Valve.')
+            user = User.objects.create(name='G. Newell', email='gaben@valve.com', organization=organization, type=type)
+            cake_1 = Cake.objects.create(name='Smooth Valve-t cake', type=cake_type)
+            Cake.objects.create(name='Never a third slice', type=cake_type)
+            user.cake.add(cake_1)
+            user_cake_model = User.cake.through  # Auto-created model
+            user_cake_model.objects.get(cake=cake_1, user=user)
+
+        self.command.source_shard = self.source_shard
+        self.command.target_shard_options = self.target_shard_options
+        self.command.retarget_relations()
+
+        # We have to be a bit indirect at asserting call arguments if model instances are involved.
+        # We'll just check if it's called twice for only Cake model objects.
+        self.assertEqual(mock_check_relations.call_count, 2)
+        self.assertEqual(mock_check_relations.call_args_list[0][0][0], Cake)
+        self.assertEqual(mock_check_relations.call_args_list[1][0][0], Cake)
+
+    def test_retarget_relations_system(self):
+        """
+        Case: Call retarget_relations for a set of data.
         Expected: Only relations targeting public models to be retargeted.
         """
         create_schema_on_node(schema_name=self.target_shard_options.schema_name,
@@ -610,7 +700,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.assertEqual(cake_3.type_id, 20)
             self.assertEqual(cake_4.type_id, 20)
 
-    def test_retarget_relations_with_missing_data_allow_copy(self):
+    def test_retarget_relations_system_with_missing_data_allow_copy(self):
         """
         Case: Call retarget_relations for a set of data, which has relations to data that is missing on the target node,
               but is allowed to be copied.
@@ -675,7 +765,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.assertTrue(CakeType.objects.filter(name='Lies').exists())
             self.assertTrue(CakeType.objects.filter(name='Moist').exists())
 
-    def test_retarget_relations_with_missing_data_allow_copy2(self):
+    def test_retarget_relations_system_with_missing_data_allow_copy2(self):
         """
         Case: Call retarget_relations for a set of data, which has relations to data that is missing on the target node,
               but is allowed to be copied. That datapoint has a relation that does exist, but has a different id.
@@ -702,7 +792,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             cake_type_t = CakeType.objects.create(name='delicious', id=2)
             # Missing CoatingType aaaaaaaaaaaaa
 
-        self.command.quiet = False
+        self.command.quiet = True
         self.command.source_shard = self.source_shard
         self.command.target_shard_options = self.target_shard_options
         self.command.target_node = self.target_shard_options.node_name
@@ -725,10 +815,68 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.assertEqual(cake.coating_type_id, 1)
             self.assertEqual(cake.coating_type.type_id, 2)
 
+    def test_retarget_relations_system_with_missing_data_allow_copy3(self):
+        """
+        Case: Call retarget_relations for a set of data, which has relations to data that is missing on the target node,
+              but is allowed to be copied. That datapoint has also a relation that does not exist, and thus will also be
+              copied.
+        Expected: Only relations targeting public models to be retargeted, missing data to be copied.
+
+        Source node:
+            model A:    model B:
+            1: aaa      1: delicious
+               -> bbb
+
+        Target node:
+            model A:    model B:
+            -empty-     1: mildly moist
+                        -missing delicious-
+        """
+        with use_shard(self.source_shard):
+            cake_type_s = CakeType.objects.create(name='delicious', id=1)
+            coating_type = CoatingType.objects.create(hash='a' * 32, type=cake_type_s, id=1)
+            cake = Cake.objects.create(name='syrup cake', coating_type=coating_type, id=1)
+
+        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
+                              node_name=self.target_shard_options.node_name,
+                              migrate=True)
+        with use_shard(node_name=self.target_shard_options.node_name, schema_name='public') as env:
+            # We create nothing relevant on the target node, for it is missing all the public data needed.
+            # But we do make a random CakeType so that the copied over objects will get a different id.
+            cake_type_t = CakeType.objects.create(name='mildly moist', id=1)
+            # We can create an object with id 1 (for the table should be empty) but the sequence can be at anyhing
+            # due to running other tests before this. So reset it to be at 1 as well.
+            env.connection.reset_sequence([CakeType, CoatingType])
+            # Missing CoatingType aaaaaaaaaaaaa
+
+        self.command.quiet = True
+        self.command.source_shard = self.source_shard
+        self.command.target_shard_options = self.target_shard_options
+        self.command.target_node = self.target_shard_options.node_name
+        self.command.copy_data()
+        self.command.retarget_relations()
+
+        with self.target_shard_options.use():
+            # CakeType created
+            cake_type_t = CakeType.objects.get(name='delicious')
+            self.assertEqual(cake_type_t.id, 2)
+
+            # CoatingType created and linked to CakeType id=1
+            coating_type_t = CoatingType.objects.get(hash='a' * 32)
+            self.assertEqual(coating_type_t.id, 1)
+            self.assertEqual(coating_type_t.type_id, 2)
+
+            # Cake object migrated and targeting the SugerType made
+            cake = Cake.objects.get(id=cake.id)
+            self.assertEqual(cake.id, 1)
+            self.assertEqual(cake.coating_type, coating_type)
+            self.assertEqual(cake.coating_type_id, 1)
+            self.assertEqual(cake.coating_type.type_id, 2)
+
     def test_retarget_relations_missing_natural_keys(self):
         """
-        Case: Call retarget_relations for a data set while a model lacks natural keys
-        Expected: Value error raised
+        Case: Call retarget_relations for a data set while a model lacks natural keys.
+        Expected: Value error raised.
         """
         def restore_cake_type(cake_type_unique_together, cake_type_natural_key):
             CakeType._meta.unique_together = cake_type_unique_together
@@ -764,8 +912,8 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
     def test_retarget_relations_missing_source(self):
         """
-        Case: Call retarget_relations for a data set where some source data is missing
-        Expected: Value error raised
+        Case: Call retarget_relations for a data set where some source data is missing.
+        Expected: Value error raised.
         """
         create_schema_on_node(schema_name=self.target_shard_options.schema_name,
                               node_name=self.target_shard_options.node_name,
@@ -778,7 +926,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             CakeType.objects.create(name='Gone', id=10)
 
         with self.target_shard_options.use():
-            Cake.objects.create(name='Butter cake', type_id=1)
+            cake = Cake.objects.create(name='Butter cake', type_id=1)
 
         # Rework cake_type so it's effectively gone, without postgres noticing
         with use_shard(node_name='default', schema_name='public'):
@@ -786,7 +934,8 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         self.command.source_shard = self.source_shard
         self.command.target_shard_options = self.target_shard_options
-        with self.assertRaisesMessage(ValueError, 'No related data found for Butter cake.type_id: 1 on source shard'):
+        with self.assertRaisesMessage(ValueError,
+                                      f'No related data found for <Cake>{cake.id}.type_id: 1 on source shard'):
             self.command.retarget_relations()
 
         # Remove cake so cleanup goes without issues
@@ -796,7 +945,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
     def test_retarget_relations_missing_target(self):
         """
         Case: Call retarget_relations for a data set where some target data is missing, and not allowed to be copied.
-        Expected: Value error raised
+        Expected: Value error raised.
         """
         create_schema_on_node(schema_name=self.target_shard_options.schema_name,
                               node_name=self.target_shard_options.node_name,
@@ -830,8 +979,8 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
                 return_value=['app', 'noot', 'mies'])
     def test_reset_sequences(self, mock_get_all_models, mock_reset_sequence):
         """
-        Case: Call reset_sequences
-        Expected: reset_sequence called for all sharded models
+        Case: Call reset_sequences.
+        Expected: reset_sequence called for all sharded models.
         """
         self.command.target_shard_options = self.target_shard_options
         self.command.reset_sequences()

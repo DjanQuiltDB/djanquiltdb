@@ -10,7 +10,11 @@ from django.db import connections
 from sharding import State, ShardingMode
 from sharding.options import ShardOptions
 from sharding.utils import get_shard_class, get_all_databases, get_mapping_class, get_all_sharded_models, \
-    create_schema_on_node, transaction_for_nodes, get_model_sharding_mode
+    get_all_public_models, create_schema_on_node, transaction_for_nodes, get_model_sharding_mode
+
+
+def indent(text, indentation=1):
+    return '{}{}'.format(' ' * indentation * 4, text)
 
 
 def color(text, code):
@@ -18,6 +22,7 @@ def color(text, code):
 
 
 green = functools.partial(color, code='32')
+gray = functools.partial(color, code='8')
 
 
 class Command(BaseCommand):
@@ -200,40 +205,43 @@ class Command(BaseCommand):
             # We want the target model in this case
             return related_model.model
 
-    def get_mapped_value(self, model, source_data, target_data, nat_keys_value):
+    def get_mapped_value(self, model, nat_keys_value):
         """
-        Get mapped value (so id on node A -> natural keys, natural keys -> id on node B)
-        If the natural keys contains the foreign key to another model, that might also need to be translated the
-        same way recursively.
+        Give a set of natural keys.
+        Get mapped value (so id on node A -> natural keys, natural keys -> id on node B).
+        If the target object does not exist on the target node, copy it.
+        Regardless if the target object is fetches or copied, put it through the same retargeting process as the
+        source object.
         """
+
+        # If the natural key fields consist of a relation field. Fetch and translate that object first (recursive).
         org_nat_keys_value = copy.deepcopy(nat_keys_value)
         for index, field_name in enumerate(model._meta.unique_together[0]):
             field = model._meta._forward_fields_map[field_name]
             if field.is_relation:
-                related_nat_keys_value = source_data[field.related_model].get(nat_keys_value[index])
+                related_nat_keys_value = self.source_data[field.related_model].get(nat_keys_value[index])
                 new_nat_keys_value = list(nat_keys_value)
-                new_nat_keys_value[index] = self.get_mapped_value(field.related_model, source_data, target_data,
-                                                                  related_nat_keys_value)
+                new_nat_keys_value[index] = self.get_mapped_value(field.related_model, related_nat_keys_value)
                 nat_keys_value = tuple(new_nat_keys_value)
 
-        mapped_value = target_data[model].get(nat_keys_value)
+        mapped_value = self.target_data[model].get(nat_keys_value)
 
         # If the target data does not contain the natural keys, then the object does not exist on the target node.
-        # If we are allowed to copy it, we do so here and add it to the target_data dict.
+        # If we are allowed to copy it, we do so here (and call for it's retargeting) and add it to the target_data
+        # dict.
         if not mapped_value:
             if getattr(model, '__allow_copy', True):
                 with self.source_shard.use(active_only_schemas=False, lock=False):
                     source_object = model.objects.get_by_natural_key(*org_nat_keys_value)
                     source_object.id = None
-                    for index, field_name in enumerate(model._meta.unique_together[0]):
-                        field = model._meta._forward_fields_map[field_name]
-                        if field.is_relation:
-                            field_name = field.column
-                        setattr(source_object, field_name, nat_keys_value[index])
+                    self.print(indent(gray(f'Creating <{source_object._meta.object_name}>{source_object}'), 2))
+                    source_object.save(using=self.target_shard_options, force_insert=True)
+                    self.print(indent(gray(f'Saved <{source_object._meta.object_name}>{source_object} to id '
+                                           f'{source_object.id}'), 3))
 
-                    source_object.save(using=self.target_shard_options)
+                    self._check_relations(model, source_object)  # Recurse on the newly copied object.
                     mapped_value = source_object.id
-                    target_data[model][nat_keys_value] = mapped_value
+                    self.target_data[model][nat_keys_value] = mapped_value
             else:
                 with self.source_shard.use(active_only_schemas=False, lock=False):
                     source_object = model.objects.get_by_natural_key(*nat_keys_value)
@@ -244,7 +252,36 @@ class Command(BaseCommand):
 
         return mapped_value
 
-    def retarget_relations(self):  # noqa: C901
+    def _check_relations(self, model, object):
+        """
+        For the given object, loop over each relation field and fetch the related objects that matches on the target
+        node. Save the object with the new relations.
+        """
+        self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object.id}, '), 0))
+        for field_name, field_data in self.field_definitions[model].items():
+            related_model = field_data['related_model']
+
+            object_field_value = getattr(object, field_name)
+            if not object_field_value:
+                # This field is empty; no need to map it to anything.
+                self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object.id}, '
+                                       f"field '{field_name}' is empty"), 1))
+                continue
+
+            nat_keys_value = self.source_data[related_model].get(object_field_value)
+            if not nat_keys_value:
+                raise ValueError(f'No related data found for <{object._meta.object_name}>{object.id}.{field_name}:'
+                                 f' {getattr(object, field_name)} on source shard')
+
+            mapped_value = self.get_mapped_value(related_model, nat_keys_value)
+
+            self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object.id}, field {field_name} to '
+                                   f'{mapped_value}'), 1))
+            setattr(object, field_name, mapped_value)
+
+        object.save(update_fields=self.field_definitions[model].keys(), force_update=True)
+
+    def retarget_relations(self):
         """
         Retargeting of foreign keys from sharded data to public data goes as follows:
         1)  Gather a list of models that have relation fields to public models.
@@ -256,11 +293,12 @@ class Command(BaseCommand):
                 6)  Gather all objects belonging to the related (public) model from the target node
                     This is saved in `target_data` with reverse mapping. So they key is the natural-key values,
                     and the values are the ids
-        7) Walk through all models again
+        7) Walk through sharded models again
             8)  For each of their objects on the target node:
                 9) Read the related id
                 10) Lookup the natural keys via the `source_data` dict
-                11) Lookup the new id on the target node by looking up the natural keys in the `target_node` dict
+                11A) Lookup the new id on the target node by looking up the natural keys in the `target_node` dict
+                11B) If it does not exist on the target node, copy it and go back to step 9 for that object.
                 12) Write the new id to the object and save the model.
 
         You might reason: Why not just loop over the moved objects and use .get_natural_keys() and
@@ -269,13 +307,19 @@ class Command(BaseCommand):
         queries for each, does not scale well.
         """
         # Select models that have a related field to a PUBLIC model
-        models = [m for m in get_all_sharded_models()
-                  if any(f for f in m._meta.fields
-                         if f.is_relation
-                         and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)]
+        sharded_models = [m for m in get_all_sharded_models()
+                          if any(f for f in m._meta.fields
+                                 if f.is_relation
+                                 and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)]
+        public_models = [m for m in get_all_public_models()
+                         if any(f for f in m._meta.fields
+                                if f.is_relation
+                                and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)]
 
-        source_data = defaultdict(dict)  # <model>: {<id>: (<natural key value>, natural key value 2>, etc)}
-        target_data = defaultdict(dict)  # <model>: {(<natural key value>, natural key value 2>, etc): <id>}
+        self.field_definitions = defaultdict(lambda: defaultdict(dict))
+        # <model>: {<field_name>: ('natural_keys': (nat key name 1, name 2), 'related_model': <related model name>)}
+        self.source_data = defaultdict(dict)  # <model>: {<id>: (<natural key value>, natural key value 2>, etc)}
+        self.target_data = defaultdict(dict)  # <model>: {(<natural key value>, natural key value 2>, etc): <id>}
 
         bar = progressbar.ProgressBar(
             max_value=progressbar.UnknownLength,
@@ -283,9 +327,10 @@ class Command(BaseCommand):
                      ' Retargeting relations;',
                      progressbar.Timer()])
 
-        # Build the source_data and target_data dicts
-        for model in models:
-            field_definitions = {}
+        # Build the source_data and target_data dicts. We also do this for public models, as might create new entries
+        # that need to relate to other public models as well
+        for model in sharded_models + public_models:
+            self.field_definitions[model] = {}
             fields = list(f for f in model._meta.fields if f.is_relation
                           and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)
             for field in fields:
@@ -293,46 +338,30 @@ class Command(BaseCommand):
                 natural_keys = related_model._meta.unique_together
                 if not natural_keys:
                     raise ValueError('Model {} does not appear to have natural keys!'.format(related_model))
-                field_definitions[field.attname] = {'natural_keys': natural_keys[0],
-                                                    'related_model': related_model}
-                source_data[related_model] = {}
-                target_data[related_model] = {}
+                self.field_definitions[model][field.attname] = {'natural_keys': natural_keys[0],
+                                                                'related_model': related_model}
+                self.source_data[related_model] = {}
+                self.target_data[related_model] = {}
 
             with self.source_shard.use(active_only_schemas=False, lock=False):
-                for rel_model in source_data.keys():
+                for rel_model in self.source_data.keys():
                     data = rel_model.objects.all() \
                         .values_list('id', *rel_model._meta.unique_together[0])
-                    source_data[rel_model] = {d[0]: d[1:] for d in data}
+                    self.source_data[rel_model] = {d[0]: d[1:] for d in data}
 
             with self.target_shard_options.use():
-                for rel_model in target_data.keys():
+                for rel_model in self.target_data.keys():
                     data = rel_model.objects.all() \
                         .values_list('id', *rel_model._meta.unique_together[0])
-                    target_data[rel_model] = {d[1:]: d[0] for d in data}
+                    self.target_data[rel_model] = {d[1:]: d[0] for d in data}
 
             self.bar_update(bar)
 
         # Use the source_data and target_data dicts to translate ids
-        for model in models:
+        for model in sharded_models:
             with self.target_shard_options.use():
                 for object in model.objects.all().iterator():
-                    for field_name, field_data in field_definitions.items():
-                        related_model = field_data['related_model']
-
-                        object_field_value = getattr(object, field_name)
-                        if not object_field_value:
-                            # This field is empty; no need to map it to anything.
-                            continue
-
-                        nat_keys_value = source_data[related_model].get(object_field_value)
-                        if not nat_keys_value:
-                            raise ValueError('No related data found for {}.{}: {} on source shard'
-                                             .format(object, field_name, getattr(object, field_name)))
-
-                        mapped_value = self.get_mapped_value(related_model, source_data, target_data, nat_keys_value)
-
-                        setattr(object, field_name, mapped_value)
-                    object.save(update_fields=field_definitions.keys())
+                    self._check_relations(model, object)
 
                     self.bar_update(bar)
 
@@ -365,7 +394,7 @@ class Command(BaseCommand):
                 # Release the exclusive advisory lock
                 source_connection.release_advisory_lock(key='mapping_{}'.format(root_object_id), shared=False)
 
-        # Restore shard state and set it's node to the target
+        # Restore shard state and set its node to the target
         source_connection.release_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
 
         self.source_shard.state = self.old_shard_state
