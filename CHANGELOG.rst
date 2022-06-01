@@ -1,3 +1,11 @@
+v 0.6.2
+-------
+Altered:
+ * `move_shard_to_node` management command to copy PUBLIC data if missing and retarget the copied data recursively.
+
+Dropped:
+ * Dropped support for Python 3.4 and 3.5. Lowest supported version of python now is 3.6.
+
 v 0.6.1
 -------
 Altered:
