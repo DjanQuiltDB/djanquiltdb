@@ -493,31 +493,31 @@ def get_all_sharded_models(include_auto_created=False, include_proxy=False):
             if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) == ShardingMode.SHARDED]
 
 
-def get_all_mirrored_models():
+def get_all_mirrored_models(include_auto_created=False, include_proxy=False):
     """
     Return all models that are decorated with @mirrored_model.
     """
-    models = apps.get_models()
+    models = apps.get_models(include_auto_created=include_auto_created)
     return [model for model in models
-            if not model._meta.proxy and get_model_sharding_mode(model) == ShardingMode.MIRRORED]
+            if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) == ShardingMode.MIRRORED]
 
 
-def get_all_public_models():
+def get_all_public_models(include_auto_created=False, include_proxy=False):
     """
     Return all models that are decorated with @public_model.
     """
-    models = apps.get_models()
+    models = apps.get_models(include_auto_created=include_auto_created)
     return [model for model in models
-            if not model._meta.proxy and get_model_sharding_mode(model) == ShardingMode.PUBLIC]
+            if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) == ShardingMode.PUBLIC]
 
 
-def get_all_public_schema_models():
+def get_all_public_schema_models(include_auto_created=False, include_proxy=False):
     """
     Return all models that live on the public schema. So models that are decorated with @sharded_model or @public_model.
     """
-    models = apps.get_models()
+    models = apps.get_models(include_auto_created=include_auto_created)
     return [model for model in models
-            if not model._meta.proxy and get_model_sharding_mode(model) in public_modes]
+            if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) in public_modes]
 
 
 def get_all_databases():

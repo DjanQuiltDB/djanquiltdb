@@ -876,7 +876,7 @@ class GetAllShardedModels(ShardingTestCase):
     def test_include_auto_created_result(self):
         """
         Case: Call get_all_sharded_models, with include_auto_created.
-        Expected: All sharded models and auto created fields to be returned.
+        Expected: All sharded models and auto created models to be returned (but not proxy models).
         """
         # We compare it string based, since we cannot import the auto created fields as classes.
         result = [str(model) for model in get_all_sharded_models(include_auto_created=True)]
@@ -886,13 +886,13 @@ class GetAllShardedModels(ShardingTestCase):
                                "<class 'example.models.Cake'>",
                                "<class 'example.models.User_cake'>",
                                "<class 'example.models.User'>",
-                               "<class 'example.models.Statement_type'>",
+                               "<class 'example.models.Statement_type'>",  # This is a auto-created model
                                "<class 'example.models.Statement'>"])
 
     def test_include_proxy_models(self):
         """
         Case: Call get_all_sharded_models, including proxy models.
-        Expected: All sharded proxy and non-proxy models returned.
+        Expected: All sharded proxy and non-proxy models returned (but not auto-created models).
         """
         # We compare it string based, since we cannot import the auto created fields as classes.
         result = [str(model) for model in get_all_sharded_models(include_proxy=True)]
@@ -900,7 +900,7 @@ class GetAllShardedModels(ShardingTestCase):
                               ["<class 'example.models.Organization'>",
                                "<class 'example.models.Suborganization'>",
                                "<class 'example.models.Cake'>",
-                               "<class 'example.models.ProxyCake'>",
+                               "<class 'example.models.ProxyCake'>",  # This is a proxy model
                                "<class 'example.models.User'>",
                                "<class 'example.models.Statement'>"])
 
@@ -934,12 +934,38 @@ class GetAllMirroredModels(ShardingTestCase):
     def test(self, mock_get_model_sharding_mode):
         """
         Case: Call get_all_mirrored_models.
-        Expected: get_model_sharding_mode called for each model that's not a proxy model.
+        Expected: get_model_sharding_mode called for each model that's not a proxy model, nor an auto-created model.
         """
         get_all_mirrored_models()
         mock_get_model_sharding_mode.assert_has_calls([
             mock.call(model) for model in apps.get_models() if not model._meta.proxy
         ], any_order=True)
+
+    def test_include_auto_created_result(self):
+        """
+        Case: Call get_all_mirrored_models, with include_auto_created.
+        Expected: All mirrored models and auto created models to be returned (but not proxy models).
+        """
+        # We compare it string based, since we cannot import the auto created fields as classes.
+        result = [str(model) for model in get_all_mirrored_models(include_auto_created=True)]
+        self.assertCountEqual(result,
+                              ["<class 'example.models.Shard'>",
+                               "<class 'example.models.Type'>",
+                               "<class 'example.models.MirroredUser'>",
+                               "<class 'example.models.MirroredUser_type'>"])  # This is an auto-created model
+
+    def test_include_proxy_models(self):
+        """
+        Case: Call get_all_mirrored_models, including proxy models.
+        Expected: All mirrored proxy and non-proxy models returned (but not auto-created models).
+        """
+        # We compare it string based, since we cannot import the auto created fields as classes.
+        result = [str(model) for model in get_all_mirrored_models(include_proxy=True)]
+        self.assertCountEqual(result,
+                              ["<class 'example.models.Shard'>",
+                               "<class 'example.models.Type'>",
+                               "<class 'example.models.MirroredUser'>",
+                               "<class 'example.models.ProxyMirroredUser'>"])  # This is a proxy model
 
 
 class GetAllPublicModels(ShardingTestCase):
@@ -972,12 +998,39 @@ class GetAllPublicModels(ShardingTestCase):
     def test(self, mock_get_model_sharding_mode):
         """
         Case: Call get_all_public_models.
-        Expected: get_model_sharding_mode called for each model that's not a proxy model.
+        Expected: get_model_sharding_mode called for each model that's not a proxy model, nor an auto-created model.
         """
         get_all_public_models()
         mock_get_model_sharding_mode.assert_has_calls([
             mock.call(model) for model in apps.get_models() if not model._meta.proxy
         ], any_order=True)
+
+    def test_include_auto_created_result(self):
+        """
+        Case: Call get_all_public_models, with include_auto_created.
+        Expected: All mirrored models and auto created models to be returned (but not proxy models).
+        """
+        # We compare it string based, since we cannot import the auto created fields as classes.
+        result = [str(model) for model in get_all_public_models(include_auto_created=True)]
+        self.assertCountEqual(result,
+                              ["<class 'example.models.SuperType'>",
+                               "<class 'example.models.CakeType'>",
+                               "<class 'example.models.CoatingType'>",
+                               "<class 'example.models.CoatingType_super_type'>"])  # This is an auto-created model
+
+    def test_include_proxy_models(self):
+        """
+        Case: Call get_all_public_models, including proxy models.
+        Expected: All mirrored proxy and non-proxy models returned (but not auto-created models).
+        """
+        # We compare it string based, since we cannot import the auto created fields as classes.
+        self.maxDiff = None
+        result = [str(model) for model in get_all_public_models(include_proxy=True)]
+        self.assertCountEqual(result,
+                              ["<class 'example.models.SuperType'>",
+                               "<class 'example.models.CakeType'>",
+                               "<class 'example.models.ProxyCakeType'>",  # This is a proxy model
+                               "<class 'example.models.CoatingType'>"])
 
 
 class GetAllPublicSchemaModels(ShardingTestCase):
@@ -1012,12 +1065,47 @@ class GetAllPublicSchemaModels(ShardingTestCase):
     def test(self, mock_get_model_sharding_mode):
         """
         Case: Call get_all_public_schema_models.
-        Expected: get_model_sharding_mode called for each model that's not a proxy model.
+        Expected: get_model_sharding_mode called for each model that's not a proxy model, nor an auto-created model.
         """
         get_all_public_schema_models()
         mock_get_model_sharding_mode.assert_has_calls([
             mock.call(model) for model in apps.get_models() if not model._meta.proxy
         ], any_order=True)
+
+    def test_include_auto_created_result(self):
+        """
+        Case: Call get_all_public_schema_models, with include_auto_created.
+        Expected: All public and mirrored models and auto created models to be returned (but not proxy models).
+        """
+        # We compare it string based, since we cannot import the auto created fields as classes.
+        result = [str(model) for model in get_all_public_schema_models(include_auto_created=True)]
+        self.assertCountEqual(result,
+                              ["<class 'example.models.Shard'>",
+                               "<class 'example.models.Type'>",
+                               "<class 'example.models.MirroredUser'>",
+                               "<class 'example.models.MirroredUser_type'>",
+                               "<class 'example.models.SuperType'>",
+                               "<class 'example.models.CakeType'>",
+                               "<class 'example.models.CoatingType'>",
+                               "<class 'example.models.CoatingType_super_type'>"])  # This is an auto-created model
+
+    def test_include_proxy_models(self):
+        """
+        Case: Call get_all_public_schema_models, including proxy models.
+        Expected: All public and mirrored proxy and non-proxy models returned (but not auto-created models).
+        """
+        # We compare it string based, since we cannot import the auto created fields as classes.
+        self.maxDiff = None
+        result = [str(model) for model in get_all_public_schema_models(include_proxy=True)]
+        self.assertCountEqual(result,
+                              ["<class 'example.models.Shard'>",
+                               "<class 'example.models.Type'>",
+                               "<class 'example.models.MirroredUser'>",
+                               "<class 'example.models.ProxyMirroredUser'>",
+                               "<class 'example.models.SuperType'>",
+                               "<class 'example.models.CakeType'>",
+                               "<class 'example.models.ProxyCakeType'>",  # This is a proxy model
+                               "<class 'example.models.CoatingType'>"])
 
 
 class GetAllDatabases(SimpleTestCase):

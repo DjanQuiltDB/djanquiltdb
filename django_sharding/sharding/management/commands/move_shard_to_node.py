@@ -307,11 +307,11 @@ class Command(BaseCommand):
         queries for each, does not scale well.
         """
         # Select models that have a related field to a PUBLIC model
-        sharded_models = [m for m in get_all_sharded_models()
+        sharded_models = [m for m in get_all_sharded_models(include_auto_created=True)
                           if any(f for f in m._meta.fields
                                  if f.is_relation
                                  and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)]
-        public_models = [m for m in get_all_public_models()
+        public_models = [m for m in get_all_public_models(include_auto_created=True)
                          if any(f for f in m._meta.fields
                                 if f.is_relation
                                 and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)]
