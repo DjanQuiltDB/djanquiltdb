@@ -26,6 +26,8 @@ dev_requirements = teamcity_requirements = test_requirements + [
     'Jinja2>=2.3,<2.11',
     'sphinx_rtd_theme==0.4.2',
     'MarkupSafe>=0.23,<2.1.0',
+    'packaging<22',
+    'docutils<0.19',
 ]
 
 

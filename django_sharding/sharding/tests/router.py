@@ -577,13 +577,15 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         default_public_tables = ['django_migrations', 'django_content_type', 'auth_group', 'auth_permission',
                                  'auth_group_permissions', 'example_shard', 'django_session', 'example_type',
                                  'example_supertype', 'example_caketype', 'example_coatingtype',
-                                 'example_organizationshards', 'example_mirroreduser', 'example_defaultuser',
+                                 'example_coatingtype_super_type', 'example_organizationshards', 'example_mirroreduser',
+                                 'example_mirroreduser_type', 'example_defaultuser',
                                  'migration_tests_supermirroredmodel', 'migration_tests_mirroredmodel',
                                  'example_unrelated']
         # The tables present on all non-default public schema's are all the mirrored tables.
         other_public_tables = ['django_migrations', 'example_shard', 'example_type', 'example_supertype',
-                               'example_coatingtype', 'example_caketype', 'django_content_type', 'auth_group',
-                               'auth_permission', 'auth_group_permissions', 'example_mirroreduser',
+                               'example_coatingtype', 'example_coatingtype_super_type', 'example_caketype',
+                               'django_content_type', 'auth_group', 'auth_permission', 'auth_group_permissions',
+                               'example_mirroreduser', 'example_mirroreduser_type',
                                'migration_tests_supermirroredmodel', 'migration_tests_mirroredmodel']
         # The tables present on the template schema's are all the sharded tables.
         template_tables = ['django_migrations', 'example_organization', 'example_suborganization', 'example_user',

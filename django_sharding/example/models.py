@@ -15,10 +15,12 @@ __all__ = [
     'Organization',
     'Suborganization',
     'CakeType',
+    'ProxyCakeType',
     'Cake',
     'ProxyCake',
     'User',
     'MirroredUser',
+    'ProxyMirroredUser',
     'DefaultUser',
     'Statement',
 ]
@@ -128,6 +130,13 @@ class CakeType(models.Model):
         return self.name
 
 
+@public_model(allow_copy=True)
+class ProxyCakeType(CakeType):
+    class Meta:
+        proxy = True
+        app_label = 'example'
+
+
 class CoatingTypeManager(models.Manager):
     def get_by_natural_key(self, hash):
         return self.get(hash=hash)
@@ -137,6 +146,7 @@ class CoatingTypeManager(models.Manager):
 class CoatingType(models.Model):
     hash = models.CharField('hash', max_length=40)
     type = models.ForeignKey('CakeType', on_delete=models.DO_NOTHING, verbose_name='type')
+    super_type = models.ManyToManyField('SuperType', verbose_name='super type')
 
     objects = CoatingTypeManager()
 
@@ -259,7 +269,16 @@ class User(AbstractUser):
 
 @mirrored_model()
 class MirroredUser(AbstractUser):
+    type = models.ManyToManyField('Type', verbose_name='type')
+
     class Meta:
+        app_label = 'example'
+
+
+@mirrored_model()
+class ProxyMirroredUser(MirroredUser):
+    class Meta:
+        proxy = True
         app_label = 'example'
 
 

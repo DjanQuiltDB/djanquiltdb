@@ -37,6 +37,15 @@ class Migration(migrations.Migration):
             unique_together=set([('name',)]),
         ),
         migrations.CreateModel(
+            name='ProxyCakeType',
+            fields=[
+            ],
+            options={
+                'proxy': True,
+            },
+            bases=('example.caketype',),
+        ),
+        migrations.CreateModel(
             name='CoatingType',
             fields=[
                 ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
@@ -48,7 +57,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AlterUniqueTogether(
             name='coatingtype',
-            unique_together=set([('type', 'hash')]),
+            unique_together=set([('hash', )]),
         ),
         migrations.CreateModel(
             name='Cake',
@@ -84,6 +93,16 @@ class Migration(migrations.Migration):
                 ('is_staff', models.BooleanField(verbose_name='staff status', default=False, help_text='Designates whether the user can log into this admin site.')),
                 ('is_active', models.BooleanField(verbose_name='active', default=True, help_text='Designates whether this user should be treated as active. Unselect this instead of deleting accounts.')),
             ],
+        ),
+        migrations.CreateModel(
+            name='ProxyMirroredUser',
+            fields=[
+            ],
+            options={
+                'proxy': True,
+                'indexes': [],
+            },
+            bases=('example.mirroreduser',),
         ),
         migrations.CreateModel(
             name='Organization',
@@ -177,6 +196,16 @@ class Migration(migrations.Migration):
             name='type',
             field=models.ForeignKey(to='example.Type', on_delete=django.db.models.deletion.DO_NOTHING, verbose_name='type', null=True),
         ),
+        migrations.AddField(
+            model_name='mirroreduser',
+            name='type',
+            field=models.ManyToManyField(to='example.Type', verbose_name='type'),
+        ),
+        migrations.AddField(
+            model_name='coatingtype',
+            name='super_type',
+            field=models.ManyToManyField(to='example.SuperType', verbose_name='super type'),
+        ),
         migrations.CreateModel(
             name='ProxyCake',
             fields=[
@@ -189,6 +218,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Unrelated',
             fields=[
+                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('name', models.CharField(verbose_name='name', max_length=64)),
             ],
         ),
