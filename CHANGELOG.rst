@@ -1,3 +1,8 @@
+v 0.6.3
+-------
+Altered:
+ * `get_all_mirrored_models`, `get_all_public_models`, and `get_all_public_schema_models` util functions now also accept `include_auto_created` and `include_proxy` arguments. Like `get_all_sharded_models` already had. They are `False` by default, and can be used to fetch a more complete set of models.
+
 v 0.6.2
 -------
 Altered:
