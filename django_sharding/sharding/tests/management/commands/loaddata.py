@@ -19,8 +19,6 @@ class LoadDataTestCase(ShardingTestCase):
                 database='{}|{}'.format(shard_options.node_name, shard_options.schema_name),
                 verbosity=1,
                 traceback=False,
-                force_color=False,
-                format=None,
                 no_color=False,
                 app_label=None,
                 pythonpath=None,
@@ -30,7 +28,13 @@ class LoadDataTestCase(ShardingTestCase):
                 exclude=[],
             )
 
-            mock_handle.assert_called_once_with(*call_args, **call_kwargs)
+            # Different versions of Django call loaddata with different arguments.
+            try:
+                mock_handle.assert_called_once_with(*call_args, **call_kwargs)
+            except AssertionError:
+                call_kwargs['force_color'] = False
+                call_kwargs['format'] = None
+                mock_handle.assert_called_once_with(*call_args, **call_kwargs)
 
     def test_database_tuple(self):
         """
