@@ -3,8 +3,9 @@ from unittest import mock
 from unittest.mock import PropertyMock
 
 from django.apps import apps
-from django.core.management import call_command
-from django.db import DatabaseError, models
+from django.conf import settings
+from django.core.management import call_command, CommandError
+from django.db import DatabaseError, models, connections
 from django.test import override_settings
 
 from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Suborganization, \
@@ -149,6 +150,7 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
         self.options = {
             'source_shard_alias': self.source_shard.alias,
             'target_node_alias': 'other',
+            'batch_size': 1,
             'no_input': True,
             'quiet': True
         }
@@ -176,8 +178,8 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
 
     def test(self):
         """
-        Case: Move an organization to another shard using the move_data_to_shard command.
-        Expected: Only that organization and all associated data (so no suborganizations) to be moved over.
+        Case: Move an entire shard to another node using the move_shard_to_node command.
+        Expected: That shard to now live on a different node.
         Note: System test
         """
         call_command('move_shard_to_node', *self.format_options_to_args())
@@ -188,7 +190,7 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
             for model, instances in self.data.items():
                 self.assertCountEqual(model.objects.all(), instances)
 
-            # Check if the content is still in tact, due to escaping and what not.
+            # Check if the content is still intact, due to escaping and what not.
             self.assertEqual(Statement.objects.get(id=self.statement_1.id).content, "'Luke'!")
             self.assertEqual(Statement.objects.get(id=self.statement_2.id).content, 'Try to; solve this "puzzle."')
 
@@ -203,13 +205,13 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
             for model, instances in self.data.items():
                 self.assertCountEqual(model.objects.all(), instances)
 
-            # Check if the content is still in tact, due to escaping and what not.
+            # Check if the content is still intact, due to escaping and what not.
             self.assertEqual(Statement.objects.get(id=self.statement_1.id).content, "'Luke'!")
             self.assertEqual(Statement.objects.get(id=self.statement_2.id).content, 'Try to; solve this "puzzle."')
 
     def test_sequences_after_moving(self):
         """
-        Case: Move a shard to another node and and create some more object on it afterward.
+        Case: Move a shard to another node and create some more objects on it afterward.
         Expected: New ids are sequences properly.
         """
         call_command('move_shard_to_node', *self.format_options_to_args())
@@ -304,6 +306,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         for model_name in apps.all_models['sharding'].keys() - self.old_model_state.keys():
             apps.all_models['sharding'].pop(model_name)
 
+    def reset_debug(self):
+        settings.DEBUG = False
+
     def setUp(self):
         self.old_model_state = copy.copy(apps.all_models['sharding'])
         self.addCleanup(self.cleanup_retargeting)
@@ -321,13 +326,44 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         self.command = MoveCommand()
         self.command.quiet = True
+        self.command.batch_size = 1
 
         self.options = {
             'source_shard_alias': self.source_shard.alias,
             'target_node_alias': 'other',
+            'batch_size': 1,
             'no_input': True,
             'quiet': True
         }
+
+    @mock.patch('sharding.management.commands.move_shard_to_node.Command.get_source_shard', mock.Mock())
+    @mock.patch('sharding.management.commands.move_shard_to_node.Command.get_target_node', mock.Mock())
+    @mock.patch('sharding.management.commands.move_shard_to_node.Command.pre_execution', mock.Mock())
+    @mock.patch('sharding.management.commands.move_shard_to_node.Command.move_shard', mock.Mock())
+    @mock.patch('sharding.management.commands.move_shard_to_node.Command.post_execution', mock.Mock())
+    def test_batch_size(self):
+        with self.subTest('Batch size 1'):
+            self.options['batch_size'] = 1
+            self.command.handle(**self.options)
+
+        with self.subTest('Batch size 123456789'):
+            self.options['batch_size'] = 123456789
+            self.command.handle(**self.options)
+
+        with self.subTest('Batch size 0'):
+            self.options['batch_size'] = 0
+            with self.assertRaisesMessage(CommandError, "Batch size must be an int of 1 or higher, not '0'"):
+                self.command.handle(**self.options)
+
+        with self.subTest('Batch size -1'):
+            self.options['batch_size'] = -1
+            with self.assertRaisesMessage(CommandError, "Batch size must be an int of 1 or higher, not '-1'"):
+                self.command.handle(**self.options)
+
+        with self.subTest('Batch size cake'):
+            self.options['batch_size'] = 'cake'
+            with self.assertRaisesMessage(CommandError, "Batch size must be an int of 1 or higher, not 'cake'"):
+                self.command.handle(**self.options)
 
     @mock.patch('sharding.management.commands.move_shard_to_node.Command.get_source_shard')
     @mock.patch('sharding.management.commands.move_shard_to_node.Command.get_target_node')
@@ -579,6 +615,53 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.assertEqual(cake.type_id, 2)
         self.assertEqual(cake.type, cake_type2)
 
+    def test_check_relations_save(self):
+        """
+        Case: Call check_relations for objects that need and do not need remapping.
+        Expected: Only objects that have remapped fields are saved, otherwise it is a no-op.
+        """
+        self.addCleanup(self.reset_debug)
+
+        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
+                              node_name=self.target_shard_options.node_name,
+                              migrate=True)
+
+        with use_shard(node_name='default', schema_name='public'):
+            cake_type_1 = CakeType.objects.create(name='Vanilla', id=1)
+            cake_type_2 = CakeType.objects.create(name='Chocolate', id=2)
+
+        with use_shard(node_name='other', schema_name='public'):
+            CakeType.objects.create(name='Vanilla', id=10)  # Different id
+            CakeType.objects.create(name='Chocolate', id=2)  # Same id
+
+        with self.target_shard_options.use():
+            cake_1 = Cake.objects.create(name='Different Moist', type=cake_type_1)
+            cake_2 = Cake.objects.create(name='Same Moist', type=cake_type_2)
+
+        settings.DEBUG = True
+
+        self.command.batch_size = 3
+        self.command.source_shard = self.source_shard
+        self.command.target_shard_options = self.target_shard_options
+        self.command.field_definitions = {Cake: {}}
+        self.command.field_definitions[Cake]['type_id'] = {'natural_keys': ('name',), 'related_model': CakeType}
+        self.command.field_definitions[Cake]['coating_type_id'] = {'natural_keys': ('type', 'hash'),
+                                                                   'related_model': CoatingType}
+        self.command.source_data = {CakeType: {1: ('Vanilla',), 2: ('Chocolate',)}, CoatingType: {}}
+        self.command.target_data = {CakeType: {('Vanilla',): 10, ('Chocolate',): 2}, CoatingType: {}}
+        self.command._check_relations(Cake, cake_1)
+        self.command._check_relations(Cake, cake_2)
+
+        # Only the cake where the relation to type_id needs to be retargeted from 1 to 10 is saved.
+        queries = [i['sql'] for i in connections['other'].queries]
+        self.assertEqual(len(queries), 1)
+        self.assertIn('UPDATE "example_cake" SET "type_id" = 10, "coating_type_id" = NULL WHERE '
+                      '"example_cake"."id" = 1',
+                      queries)
+        self.assertNotIn('UPDATE "example_cake" SET "type_id" = 2, "coating_type_id" = NULL WHERE '
+                         '"example_cake"."id" = 2',
+                         queries)
+
     @mock.patch('sharding.management.commands.move_shard_to_node.Command._check_relations')
     def test_retarget_relations(self, mock_check_relations):
         """
@@ -699,6 +782,53 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.assertEqual(cake_2.type_id, 10)
             self.assertEqual(cake_3.type_id, 20)
             self.assertEqual(cake_4.type_id, 20)
+
+    def test_retarget_relations_batches(self):
+        """
+        Case: Call retarget_relations for a set of data with a batch size of 3.
+        Expected: Objects to be retargeted are selected by groups of 3 (and not individual), also only their `id` and
+                  relation fields are fetches.
+        """
+        self.addCleanup(self.reset_debug)
+
+        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
+                              node_name=self.target_shard_options.node_name,
+                              migrate=True)
+
+        with use_shard(node_name='default', schema_name='public'):
+            cake_type_1 = CakeType.objects.create(name='Lies', id=1)
+
+        with use_shard(node_name='other', schema_name='public'):
+            CakeType.objects.create(name='Lies', id=10)
+
+        with self.target_shard_options.use():
+            for i in range(0, 12):
+                Cake.objects.create(name=f'cake {i}', type=cake_type_1)
+
+        settings.DEBUG = True
+        self.command.batch_size = 3
+        self.command.source_shard = self.source_shard
+        self.command.target_shard_options = self.target_shard_options
+        self.command.retarget_relations()
+
+        # The objects that are getting retargets are selected by batches. In this case batches of three so:
+        #   1<4
+        #   3<7
+        #   5<10
+        #   10<13
+        queries = [i['sql'] for i in connections['other'].queries]
+        self.assertIn('SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
+                      '"example_cake" WHERE ("example_cake"."id" >= 1 AND "example_cake"."id" < 4)',
+                      queries)
+        self.assertIn('SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
+                      '"example_cake" WHERE ("example_cake"."id" >= 4 AND "example_cake"."id" < 7)',
+                      queries)
+        self.assertIn('SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
+                      '"example_cake" WHERE ("example_cake"."id" >= 7 AND "example_cake"."id" < 10)',
+                      queries)
+        self.assertIn('SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
+                      '"example_cake" WHERE ("example_cake"."id" >= 10 AND "example_cake"."id" < 13)',
+                      queries)
 
     def test_retarget_relations_system_with_missing_data_allow_copy(self):
         """
