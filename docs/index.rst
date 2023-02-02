@@ -1,5 +1,5 @@
-Django Sharding
-===============
+Patchman Django Sharding
+========================
 Easy horizontal database sharding that allows for scaling and faster queries.
 
 

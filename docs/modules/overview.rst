@@ -59,7 +59,7 @@ a location of a PostgreSQL schema with the client data in it.
    :align: center
 
 
-This library introduces a table for shards: `django_sharding.models.Shard`.
+This library introduces a table for shards: `patchman_django_sharding.models.Shard`.
 These sharding objects have four attributes: `id, name, node_name, schema_name`. The `id` and `name` are simply for
 convenience. The important fields is the combination of `node_name` and `schema_name`. Together they are unique.
 And you can easily see how these two are used to tell the database where we want to find our data.

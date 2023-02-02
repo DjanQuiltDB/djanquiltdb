@@ -4,22 +4,22 @@ Installation
 
 .. _`install`:
 
-Installing django-sharding
---------------------------
+Installing patchman-django-sharding
+-----------------------------------
 
 If you want to install stable version, you can do so doing::
 
-    pip install git+ssh://git@bitbucket.org/patchmanbv/django-sharding.git@stable#egg=django-sharding
+    pip install git+ssh://git@github.com/sectigo/patchman-django-sharding.git@stable#egg=patchamn-django-sharding
 
 If you want to install development version (unstable), you can do so doing::
 
-    pip install git+ssh://git@bitbucket.org/patchmanbv/django-sharding.git@master#egg=django-sharding
+    pip install git+ssh://git@github.com/sectigo/patchman-django-sharding.git@master#egg=patchamn-django-sharding
 
 Or, if you'd like to install the development version as a git repository (so
 you can ``git pull`` updates, use the ``-e`` flag with ``pip install``, like
 so::
 
-    pip install -e git+ssh://git@bitbucket.org/patchmanbv/django-sharding.git@master#egg=django-sharding
+    pip install -e git+ssh://git@github.com/sectigo/patchman-django-sharding.git@master#egg=patchamn-django-sharding
 
 Add ``sharding`` to your ``INSTALLED_APPS`` in settings.py::
 
@@ -95,7 +95,7 @@ the wanted shard from mapping table automatically.
         objects = MappingQuerySet.as_manager()
 
     # myapp.views
-    from django_sharding.utils import use_shard_for
+    from sharding.utils import use_shard_for
 
     with use_shard_for(user.organization_id):
         # do things on my shard
@@ -105,7 +105,7 @@ Additionally, you can mirror the mapping model by adding ``@mirrored_model`` to 
 
 NEW_SHARD_NODE
 ~~~~~~~~~~~~~~
-Optionally you can tell Django-sharding on which node new shards (schemas) will be created. e.g.::
+Optionally you can tell Patchman-django-sharding on which node new shards (schemas) will be created. e.g.::
 
     DATABASES = {'default': name='primary', engine='sharding.postgresql_backend'),
                  'node_2': name='db_2, engine='sharding.postgresql_backend')}
@@ -117,7 +117,7 @@ Optionally you can tell Django-sharding on which node new shards (schemas) will 
 
 ROUTER
 ~~~~~~
-Django-sharding uses a router to send each database transaction to the correct node.
+Patchman-django-sharding uses a router to send each database transaction to the correct node.
 It also uses the router to migrate the models to the correct shard when using ``./manage.py migrate_shards``
 So set ``sharding.router.DynamicDbRouter`` as the database_router in the settings. e.g.::
 

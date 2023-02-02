@@ -1,6 +1,6 @@
 import os
 from setuptools import setup, find_packages
-from django_sharding.sharding import __version__
+from patchman_django_sharding.sharding import __version__
 
 # allow setup.py to be run from any path
 os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
@@ -33,15 +33,15 @@ dev_requirements = teamcity_requirements = test_requirements + [
 
 # Since we distribute a subpackage, find_packages doesn't work for us.
 setup(
-    name='django_sharding',
+    name='patchman_django_sharding',
     version=__version__,
     license='BSD',
     description='Library to shard a database on the hierarchy\'s top level table.',
     author='Patchman B.V.',
     author_email='hello@patchman.co',
-    url='https://https://bitbucket.org/patchmanbv/django-sharding',
-    package_dir={'': 'django_sharding'},
-    packages=find_packages('django_sharding', exclude=('example*', 'config*', '*test*')),
+    url='https://github.com/sectigo/patchman-django-sharding',
+    package_dir={'': 'patchman_django_sharding'},
+    packages=find_packages('patchman_django_sharding', exclude=('example*', 'config*', '*test*')),
     include_package_data=True,
     install_requires=[
         'django>=1.11,<3.0',

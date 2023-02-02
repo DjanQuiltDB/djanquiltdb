@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 #
-# Django-sharding documentation build configuration file, created by
+# Patchman-django-sharding documentation build configuration file, created by
 # sphinx-quickstart on Thu May 25 18:46:41 2017.
 #
 # This file is execfile()d with the current directory set to its
@@ -21,7 +21,7 @@ import datetime
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath('../django_sharding/'))
+sys.path.insert(0, os.path.abspath('../patchman_django_sharding/'))
 from django.conf import settings
 settings.configure()
 # sys.path.insert(0, os.path.abspath('.'))
@@ -54,7 +54,7 @@ source_suffix = '.rst'
 master_doc = 'index'
 
 # General information about the project.
-project = 'django-sharding'
+project = 'patchman-django-sharding'
 copyright = '{}, Patchman B.V.'.format(datetime.date.today().year)
 author = 'Patchman B.V.'
 
@@ -143,7 +143,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'django_sharding', '{} Documentation'.format(project),
+    (master_doc, 'patchman_django_sharding', '{} Documentation'.format(project),
      [author], 1)
 ]
 

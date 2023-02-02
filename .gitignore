@@ -70,7 +70,7 @@ coverage.xml
 docs/_build/
 
 # Secrets file
-/django_sharding/secrets.json
+/patchman_django_sharding/secrets.json
 
 # All extra minified files
 *.min.min.js
