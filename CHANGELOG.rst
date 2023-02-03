@@ -1,3 +1,9 @@
+v 1.0.0
+-------
+Altered:
+ * Name change from 'django-sharding' to 'patchman-django-sharding' to make this library have a unique name.
+ * `move_shard_to_node` management command is a lot faster in retargeting data.
+
 v 0.6.3
 -------
 Altered:
