@@ -31,6 +31,9 @@ class Command(BaseCommand):
                             help='Name of the shard which will move.', required=True)
         parser.add_argument('--target-node-alias', '-t', action='store', dest='target_node_alias',
                             help='Name of the node which will receive the shard.', required=True)
+        parser.add_argument('--batch-size', '-b', action='store', dest='batch_size', type=int,
+                            help='Size of the fetch batches during retargeting. 10k is the default', required=False,
+                            default=10000)
         parser.add_argument('-q', '--quiet', '--silent', action='store_true', dest='quiet', help='Suppress output.',
                             default=False)
         parser.add_argument('--noinput', '--no-input', action='store_true', dest='no_input', help='Skip confirmation.',
@@ -39,12 +42,16 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         self.quiet = options['quiet']
         self.no_input = options['no_input']
+        self.batch_size = options['batch_size']
 
         source_shard_alias = options['source_shard_alias']
         self.source_shard = self.get_source_shard(alias=source_shard_alias)
         self.target_node = self.get_target_node(options=options)
 
         self.old_source_states = {}  # Used to keep track of the old source states
+
+        if (not isinstance(self.batch_size, int)) or self.batch_size < 1:
+            raise CommandError(f"Batch size must be an int of 1 or higher, not '{self.batch_size}'")
 
         if not self.no_input:
             confirm = input("This command will move a shard from one node to another. This will start with putting the "
@@ -64,7 +71,7 @@ class Command(BaseCommand):
             raise error
         else:
             self.post_execution(succeeded=True)
-        self.print(green('Done. Shard {} moved to node {}'.format(self.source_shard, self.target_node)))
+        self.print(green(f'Done. Shard {self.source_shard} moved to node {self.target_node}'))
 
     def print(self, *args):
         if not self.quiet:
@@ -258,6 +265,8 @@ class Command(BaseCommand):
         node. Save the object with the new relations.
         """
         self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object.id}, '), 0))
+        alter = False
+
         for field_name, field_data in self.field_definitions[model].items():
             related_model = field_data['related_model']
 
@@ -274,12 +283,17 @@ class Command(BaseCommand):
                                  f' {getattr(object, field_name)} on source shard')
 
             mapped_value = self.get_mapped_value(related_model, nat_keys_value)
+            # If the mapping is the same, this fields does not need to be translated
+            if mapped_value == object_field_value:
+                continue
 
             self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object.id}, field {field_name} to '
                                    f'{mapped_value}'), 1))
             setattr(object, field_name, mapped_value)
+            alter = True
 
-        object.save(update_fields=self.field_definitions[model].keys(), force_update=True)
+        if alter:
+            object.save(update_fields=self.field_definitions[model].keys(), force_update=True)
 
     def retarget_relations(self):
         """
@@ -360,10 +374,19 @@ class Command(BaseCommand):
         # Use the source_data and target_data dicts to translate ids
         for model in sharded_models:
             with self.target_shard_options.use():
-                for object in model.objects.all().iterator():
-                    self._check_relations(model, object)
+                # Check for all entries that need retargeting
+                current_id = model.objects.order_by("pk")[0].pk  # Lowest id
+                end_id = model.objects.order_by("-pk")[0].pk  # Highest id
 
-                    self.bar_update(bar)
+                while current_id <= end_id:
+                    object_batch = list(model.objects.filter(pk__gte=current_id, pk__lt=current_id+self.batch_size)
+                                        .only(*list(self.field_definitions[model].keys()) + ['pk']))
+
+                    for obj in object_batch:
+                        self._check_relations(model, obj)
+                        self.bar_update(bar)
+
+                    current_id += self.batch_size
 
         self.bar_finish(bar)
 
