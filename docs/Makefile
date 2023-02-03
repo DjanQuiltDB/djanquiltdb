@@ -4,7 +4,7 @@
 # You can set these variables from the command line.
 SPHINXOPTS    =
 SPHINXBUILD   = python -msphinx
-SPHINXPROJ    = Django-sharding
+SPHINXPROJ    = Patchman-django-sharding
 SOURCEDIR     = .
 BUILDDIR      = _build
 

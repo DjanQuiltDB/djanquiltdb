@@ -66,7 +66,9 @@ class Command(MigrateCommand):
 
         if options.get('list', False):
             self.stderr.write(
-                "The 'migrate --list' command is not supported in django_sharding. Use 'showmigrations' instead.")
+                "The 'migrate --list' command is not supported in patchman_django_sharding. Use 'showmigrations' "
+                "instead."
+            )
 
         for connection_ in connections:
             connections[connection_].prepare_database()

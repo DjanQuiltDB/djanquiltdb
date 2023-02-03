@@ -55,7 +55,7 @@ You can try to roll back the failed migration on the damaged node if you want, o
 
 .. image:: migration_flow.svg
    :scale: 100%
-   :alt: Django Sharding migration flow
+   :alt: Patchman Django Sharding migration flow
    :align: center
 
 The error handling is the main reason the ``migrate_shards`` command goes migration by migration. And not run all the
