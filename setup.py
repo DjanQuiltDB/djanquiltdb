@@ -44,9 +44,9 @@ setup(
     packages=find_packages('patchman_django_sharding', exclude=('example*', 'config*', '*test*')),
     include_package_data=True,
     install_requires=[
-        'django>=1.11,<3.0',
-        'psycopg2>2.7.3,<2.9.0',
-        'progressbar2<4.0',
+        'django>=1.11,<5.0',
+        'psycopg2>2.7.3',
+        'progressbar2',
     ],
     extras_require={
         'test': test_requirements,
@@ -61,7 +61,12 @@ setup(
         'Operating System :: OS Independent',
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
+        'Programming Language :: Python :: 3.9',
         'Programming Language :: Python :: 3.10',
+        'Programming Language :: Python :: 3.11',
         'Framework :: Django',
     ]
 )

@@ -3,7 +3,7 @@ import json
 from collections import defaultdict
 
 from django.conf import settings
-from django.db.backends.postgresql_psycopg2.creation import DatabaseCreation as BaseDatabaseCreation
+from django.db.backends.postgresql.creation import DatabaseCreation as BaseDatabaseCreation
 
 from sharding.management.base import shard_table_exists
 from sharding.utils import use_shard, get_template_name, get_shard_class, create_template_schema

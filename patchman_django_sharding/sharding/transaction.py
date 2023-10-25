@@ -35,13 +35,13 @@ def atomic(using=None, savepoint=True):
     # Decorator: @atomic(...) or context manager: with atomic(...): ...
     if using:
         # If we specify which node to use, do not cascade with the primary node
-        return Atomic(using, savepoint)
+        return Atomic(using, savepoint, durable=True)
 
     primary_connection_name = settings.SHARDING.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
     current_connection = get_connection(using)
     if get_connection_alias(current_connection) == primary_connection_name:
         # If we are on the default connection already, no need to do anything fancy
-        return Atomic(using, savepoint)
+        return Atomic(using, savepoint, durable=True)
 
     # So we are not on the primary connection.
     # Start a transaction on both the primary and our current connection

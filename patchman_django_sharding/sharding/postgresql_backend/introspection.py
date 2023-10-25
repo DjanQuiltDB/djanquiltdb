@@ -13,7 +13,7 @@ IN THE SOFTWARE.
 """
 
 from django.db.backends.postgresql.introspection import DatabaseIntrospection as BaseDatabaseIntrospection, TableInfo
-from django.db.backends.postgresql_psycopg2.introspection import FieldInfo
+from django.db.backends.postgresql.introspection import FieldInfo
 from django.utils.encoding import force_text
 
 
