@@ -80,6 +80,8 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine='sharding.postgresql_backend'),
              'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='sharding.postgresql_backend')}
 
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
 SHARDING = {
     'SHARD_CLASS': 'example.models.Shard',
     'MAPPING_MODEL': 'example.models.OrganizationShards',

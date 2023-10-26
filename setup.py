@@ -9,7 +9,7 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 test_requirements = [
     'tox==3.25.0',
     'dj-database-url==0.5.0',
-    'django-braces==1.13.0',
+    'django-braces==1.15.0',
     'tblib==1.3.2',
     'importlib-metadata>=0.12,<4.9.0',
     'zipp>=0.5,<3.6.0',
@@ -44,8 +44,8 @@ setup(
     packages=find_packages('patchman_django_sharding', exclude=('example*', 'config*', '*test*')),
     include_package_data=True,
     install_requires=[
-        'django>=1.11,<5.0',
-        'psycopg2>2.7.3',
+        'django>=3.2,<5.0',
+        'psycopg2-binary>2.7.3',
         'progressbar2',
     ],
     extras_require={

@@ -14,7 +14,7 @@ IN THE SOFTWARE.
 
 from django.db.backends.postgresql.introspection import DatabaseIntrospection as BaseDatabaseIntrospection, TableInfo
 from django.db.backends.postgresql.introspection import FieldInfo
-from django.utils.encoding import force_text
+from django.utils.encoding import force_str
 
 
 class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
@@ -212,9 +212,9 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
 
         return [
             FieldInfo(*(
-                (force_text(line[0]),) +
+                (force_str(line[0]),) +
                 line[1:6] +
-                (field_map[force_text(line[0])][0] == 'YES', field_map[force_text(line[0])][1])
+                (field_map[force_str(line[0])][0] == 'YES', field_map[force_str(line[0])][1])
             )) for line in cursor.description
         ]
 
