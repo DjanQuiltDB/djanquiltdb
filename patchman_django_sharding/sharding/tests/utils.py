@@ -245,7 +245,7 @@ class UseShardTestCase(ShardingTestCase):
         Case: Call use_shard with a valid shard object referring to a non-default node.
         Expected: Connection not changed.
         """
-        with self.assertRaisesMessage(ConnectionDoesNotExist, "The connection Batman doesn't exist"):
+        with self.assertRaisesMessage(ConnectionDoesNotExist, "The connection 'Batman' doesn't exist"):
             with use_shard(node_name='Batman', schema_name='Bat_cave'):
                 pass
 

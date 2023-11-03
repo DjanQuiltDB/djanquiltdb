@@ -578,11 +578,12 @@ class transaction_for_nodes(Atomic):
     """
     Context manager to start a transaction for each given node and close them afterwards.
     """
-    def __init__(self, nodes, savepoint=True, lock_models=()):
+    def __init__(self, nodes, savepoint=True, lock_models=(), durable=True):
         # we don't support the 'using' argument of transaction.Atomic
         self.databases = nodes
         self.savepoint = savepoint
         self.lock_models = lock_models
+        self.durable = durable
 
     def __enter__(self):
         for database in self.databases:

@@ -19,7 +19,7 @@ class AtomicTestCase(SimpleTestCase):
             atomic(using=None, savepoint=True)
 
         self.assertFalse(mock_transaction_for_nodes.called)
-        mock_atomic.assert_called_once_with(None, True)
+        mock_atomic.assert_called_once_with(None, True, durable=False)
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     def test_primary_node_sharded(self, mock_transaction_for_nodes, mock_atomic):
@@ -64,7 +64,7 @@ class AtomicTestCase(SimpleTestCase):
             atomic(using='other', savepoint=True)
 
         self.assertFalse(mock_transaction_for_nodes.called)
-        mock_atomic.assert_called_once_with('other', True)
+        mock_atomic.assert_called_once_with('other', True, durable=False)
 
     def test_using(self, mock_transaction_for_nodes, mock_atomic):
         """
@@ -74,7 +74,7 @@ class AtomicTestCase(SimpleTestCase):
         atomic(using='other', savepoint=True)
 
         self.assertFalse(mock_transaction_for_nodes.called)
-        mock_atomic.assert_called_once_with('other', True)
+        mock_atomic.assert_called_once_with('other', True, durable=False)
 
     def test_callable(self, mock_transaction_for_nodes, mock_atomic):
         """
@@ -101,7 +101,7 @@ class AtomicTestCase(SimpleTestCase):
             atomic(some_function)
 
             self.assertFalse(mock_transaction_for_nodes.called)
-            mock_atomic.assert_called_once_with(None, True)
+            mock_atomic.assert_called_once_with(None, True, durable=False)
 
 
 class GetConnectionTestCase(TestCase):

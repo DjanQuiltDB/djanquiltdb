@@ -262,7 +262,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
             for model, instances in self.leftover_data.items():
                 self.assertFalse(model.objects.filter(id__in=[x.id for x in instances]).exists())
 
-            # Check if the content is still in tact, due to escaping and what not.
+            # Check if the content is still intact, due to escaping and what not.
             self.assertEqual(Statement.objects.get(id=self.statement_1.id).content, "'Luke'!")
             self.assertEqual(Statement.objects.get(id=self.statement_2.id).content, 'Try to; solve this "puzzle."')
 

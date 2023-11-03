@@ -196,28 +196,6 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
             if row[0] not in self.ignored_tables
         ]
 
-    def get_table_description(self, cursor, table_name):
-        """
-        Returns a description of the table, with the DB-API cursor.description interface.
-        """
-
-        # As cursor.description does not return reliably the nullable property,
-        # we have to query the information_schema
-        cursor.execute(self._get_table_description_query, {
-            'schema': self.connection.schema_name,
-            'table': table_name
-        })
-        field_map = {line[0]: line[1:] for line in cursor.fetchall()}
-        cursor.execute('SELECT * FROM {} LIMIT 1'.format(self.connection.ops.quote_name(table_name)))  # nosec
-
-        return [
-            FieldInfo(*(
-                (force_str(line[0]),) +
-                line[1:6] +
-                (field_map[force_str(line[0])][0] == 'YES', field_map[force_str(line[0])][1])
-            )) for line in cursor.description
-        ]
-
     def get_relations(self, cursor, table_name):
         """
         Returns a dictionary of {field_name: (field_name_other_table, other_table)}

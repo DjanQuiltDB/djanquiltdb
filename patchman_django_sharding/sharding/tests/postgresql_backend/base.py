@@ -100,7 +100,7 @@ class GetValidatedSchemaNameTestCase(ShardingTestCase):
 
 
 class PostgresBackendTestCase(ShardingTransactionTestCase):
-    @mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.close')
+    @mock.patch('django.db.backends.postgresql.base.DatabaseWrapper.close')
     def test_close(self, mock_close):
         """
         Case: Call connection.close().
@@ -110,7 +110,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         self.assertTrue(mock_close.called)
         self.assertEqual(connection.current_search_paths, [PUBLIC_SCHEMA_NAME])
 
-    @mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.rollback')
+    @mock.patch('django.db.backends.postgresql.base.DatabaseWrapper.rollback')
     def test_rollback(self, mock_rollback):
         """
         Case: Call connection.rollback().
@@ -420,7 +420,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         connection.delete_schema('test_schema')
         self.assertIsNone(connection.get_ps_schema('test_schema'))  # Schema does not exist anymore
 
-    @mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable', return_value=False)
+    @mock.patch('django.db.backends.postgresql.base.DatabaseWrapper.is_usable', return_value=False)
     def test_reconnect_on_error(self, mock_is_usable):
         """
         Case: Call for a cursor while the connection has errors or not
@@ -445,7 +445,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             self.assertFalse(mock_is_usable.called)
             self.assertFalse(mock_close.called)
 
-    @mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable')
+    @mock.patch('django.db.backends.postgresql.base.DatabaseWrapper.is_usable')
     def test_reconnect_on_stale_connection(self, mock_is_usable):
         """
         Case: Call for a cursor while the connection had errors and the connection is stale or not
@@ -518,7 +518,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
 
                 # Tell the connectionwrapper the connection is always usuable, so it won't see it is disconnected,
                 # and thus will no reconnecting when needed.
-                with mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable',
+                with mock.patch('django.db.backends.postgresql.base.DatabaseWrapper.is_usable',
                                 return_value=True):
                     disconnect()
 
@@ -621,7 +621,7 @@ class CursorTestCase(ShardingTestCase):
         Expected: Search path not changed while getting a new cursor
         """
         with self.assertSearchPathNotChanged(self.connection, ['public']):
-            with self.connection._nodb_connection.cursor():
+            with self.connection._nodb_cursor():
                 pass
 
     @disable_db_reconnect()  # Disable the reconnect logic, to prevent it making queries

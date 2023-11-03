@@ -5,7 +5,6 @@ from unittest import mock
 from django.core.management import get_commands
 from django.db import connections
 from django.db.migrations.recorder import MigrationRecorder
-from django.utils._os import upath
 
 from sharding.db import connection
 from sharding.tests import ShardingTestCase
@@ -18,7 +17,7 @@ class MigrationTestCase(ShardingTestCase):
     """
 
     available_apps = ['migration_tests', 'sharding']
-    test_dir = os.path.abspath(os.path.dirname(upath(__file__)))
+    test_dir = os.path.abspath(os.path.dirname(__file__))
 
     def setUp(self):
         super().setUp()

@@ -102,18 +102,18 @@ class BaseShardTestCase(ShardingTestCase):
 
     def test_clean(self):
         """
-        Case: Call the clean method from the BaseShard model with a existing node_name
+        Case: Call the clean method from the Shard model with an existing node_name
         Expected: No problems
         """
-        shard = BaseShard(alias='test_shard', schema_name='test_schema', node_name='default')
+        shard = Shard(alias='test_shard', schema_name='test_schema', node_name='default')
         shard.clean()
 
     def test_clean_failure(self):
         """
-        Case: Call the clean method from the BaseShard model with a nonexisting node_name
+        Case: Call the clean method from the Shard model with a non-existing node_name
         Expected: A valueError to be raised
         """
-        shard = BaseShard(alias='test_shard', schema_name='test_schema', node_name='nonexisting')
+        shard = Shard(alias='test_shard', schema_name='test_schema', node_name='nonexisting')
         with self.assertRaises(ValueError):
             shard.clean()
 

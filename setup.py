@@ -8,9 +8,9 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 test_requirements = [
     'tox==3.25.0',
-    'dj-database-url==0.5.0',
+    'dj-database-url==2.1.0',
     'django-braces==1.15.0',
-    'tblib==1.3.2',
+    'tblib==3.0.0',
     'importlib-metadata>=0.12,<4.9.0',
     'zipp>=0.5,<3.6.0',
     'filelock<3.4.2,>=3.2',
@@ -45,7 +45,7 @@ setup(
     include_package_data=True,
     install_requires=[
         'django>=3.2,<5.0',
-        'psycopg2-binary>2.7.3',
+        'psycopg2-binary==2.9.5',
         'progressbar2',
     ],
     extras_require={

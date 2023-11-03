@@ -53,7 +53,7 @@ class ResetConnectionTestCaseMixin:
 
 class ShardingTestCase(ResetConnectionTestCaseMixin, TestCase):
     available_apps = ['sharding', 'example']
-    multi_db = True  # To make sure cleanup will be done on all databases
+    databases = '__all__'  # To make sure cleanup will be done on all databases
 
     # @classmethod
     # def _enter_atomics(cls):
@@ -69,14 +69,14 @@ class ShardingTestCase(ResetConnectionTestCaseMixin, TestCase):
 
 class ShardingTransactionTestCase(ResetConnectionTestCaseMixin, CleanShardingArtifactsMixin, TransactionTestCase):
     available_apps = ['sharding', 'example']
-    multi_db = True  # To make sure cleanup will be done on all databases
+    databases = '__all__'  # To make sure cleanup will be done on all databases
 
 
 def disable_db_reconnect():
     def outer(func):
         @functools.wraps(func)
         def inner(*args, **kwargs):
-            with mock.patch('django.db.backends.postgresql_psycopg2.base.DatabaseWrapper.is_usable',
+            with mock.patch('django.db.backends.postgresql.base.DatabaseWrapper.is_usable',
                             return_value=True):
                 return func(*args, **kwargs)
         return inner
