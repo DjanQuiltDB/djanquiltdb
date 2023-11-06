@@ -461,7 +461,7 @@ class ShardedMigrationHandleTestCase(MigrationTestCase):
                       'does not exist', stderr.getvalue().lower())
         self.assertIn('migration stopped due to errors after completing migration_tests.0002_second.',
                       stdout.getvalue().lower())
-        self.assertEquals(mock_apply_migration.call_count, 14)  # 2 migrates for 3 shards, 2 publics and 2 templates.
+        self.assertEqual(mock_apply_migration.call_count, 14)  # 2 migrates for 3 shards, 2 publics and 2 templates.
         patcher.stop()
 
         # all shards, templates and publics are migrated to 0002 (except sina):

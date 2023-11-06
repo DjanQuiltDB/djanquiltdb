@@ -784,8 +784,8 @@ class GetModelShardingModeTestCase(SimpleTestCase):
         Expected: get_model_definition and get_sharding_mode to be called with the correct arguments.
         """
         get_model_sharding_mode(User)
-        mock_get_model_definition.called_once_with(User)
-        mock_get_sharding_mode.called_once_with(app_label='example', model_name='User')
+        mock_get_model_definition.assert_called_once_with(User)
+        mock_get_sharding_mode.assert_called_once_with('example', 'user')
 
 
 class GetShardingModeTestCase(SimpleTestCase):

@@ -1,3 +1,10 @@
+v 2.0.0
+-------
+Added:
+ * support for Django 3.2 and Python 3.11 and 3.12
+Dropped:
+ * support for Django 2.2
+
 v 1.0.0
 -------
 Altered:

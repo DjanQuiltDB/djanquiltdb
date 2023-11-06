@@ -10,7 +10,7 @@ test_requirements = [
     'tox==3.25.0',
     'dj-database-url==2.1.0',
     'django-braces==1.15.0',
-    'tblib==3.0.0',
+    'tblib',
     'importlib-metadata>=0.12,<4.9.0',
     'zipp>=0.5,<3.6.0',
     'filelock<3.4.2,>=3.2',
@@ -18,6 +18,7 @@ test_requirements = [
     'platformdirs<2.4.1,>=2',
     'dataclasses',
     'typing-extensions<4.1.0',
+    'coverage',
 ]
 
 
@@ -62,11 +63,8 @@ setup(
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: 3.9',
-        'Programming Language :: Python :: 3.10',
         'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.12',
         'Framework :: Django',
     ]
 )

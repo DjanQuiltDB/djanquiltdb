@@ -362,14 +362,14 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         Case: Call get_schema_for_model for a model.
         Expected: The correct schema name to be returned.
         """
-        self.assertEquals(connection.get_schema_for_model(Type), [('public',)])
+        self.assertEqual(connection.get_schema_for_model(Type), [('public',)])
 
     def test_get_schema_for_sequence(self):
         """
         Case: Call get_schema_for_sequence for a sequence name.
         Expected: The correct schema name to be returned.
         """
-        self.assertEquals(connection.get_schema_for_sequence('example_type_id_seq'), [('public',)])
+        self.assertEqual(connection.get_schema_for_sequence('example_type_id_seq'), [('public',)])
 
     def test_reset_sequence_for_local_field(self):
         """
