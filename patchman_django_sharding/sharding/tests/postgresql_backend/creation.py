@@ -59,7 +59,7 @@ class DatabaseCreationTestCase(ShardingTestCase):
         super().setUp()
 
         self.creation = DatabaseCreation(connection)
-        self.test_serialized_contents = json.loads(connection._test_serialized_contents)
+        self.test_serialized_contents = json.loads(self.creation.serialize_db_to_string())
 
     def test_serialize_public(self):
         """

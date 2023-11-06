@@ -1,4 +1,4 @@
-from django.conf.urls import url
+from django.urls import re_path
 
 from django.http import HttpResponse
 from django.views import View
@@ -16,5 +16,5 @@ class TestErrorView(View):
 
 # New URLs for StateExceptionMiddlewareIntegrationTestCase
 urlpatterns = [
-    url(r'^$', TestErrorView.as_view(), name='error')
+    re_path(r'^$', TestErrorView.as_view(), name='error')
 ]

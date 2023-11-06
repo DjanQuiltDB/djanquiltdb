@@ -133,7 +133,7 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'sharding.tests.middleware.StateExceptionTestView'
 
         with override_settings(SHARDING=sharding_settings):
-            ExceptionMiddlewareMixin().process_exception(
+            ExceptionMiddlewareMixin(lambda x: None).process_exception(
                 RequestFactory().get('/'),
                 StateException('Shard is not in available state!', 'M')
             )
@@ -152,7 +152,7 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'sharding.tests.middleware.StateExceptionTestView'
 
         with override_settings(SHARDING=sharding_settings):
-            ExceptionMiddlewareMixin().process_exception(
+            ExceptionMiddlewareMixin(lambda x: None).process_exception(
                 RequestFactory().get('/'),
                 OperationalError('Node is not available')
             )
@@ -171,7 +171,7 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'sharding.tests.middleware.StateExceptionTestView'
 
         with override_settings(SHARDING=sharding_settings):
-            ExceptionMiddlewareMixin().process_exception(
+            ExceptionMiddlewareMixin(lambda x: None).process_exception(
                 RequestFactory().get('/'),
                 ValueError('Generic Error')
             )
@@ -189,14 +189,14 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         with override_settings(SHARDING=sharding_settings):
             with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
-                    UseShardMiddleware().process_exception(
+                    UseShardMiddleware(lambda x: None).process_exception(
                         RequestFactory().get('/'),
                         StateException('Shard is not in available state!', 'M')
                     )
                 self.assertFalse(mock_render.called)
 
             with self.subTest('Test response'):
-                response = UseShardMiddleware().process_exception(
+                response = UseShardMiddleware(lambda x: None).process_exception(
                     RequestFactory().get('/'),
                     StateException('Shard is not in available state!', 'M')
                 )
@@ -213,14 +213,14 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         with override_settings(SHARDING=sharding_settings):
             with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
-                    UseShardMiddleware().process_exception(
+                    UseShardMiddleware(lambda x: None).process_exception(
                         RequestFactory().get('/'),
                         StateException('Shard is not in available state!', 'M')
                     )
                 self.assertTrue(mock_render.called)
 
             with self.subTest('Test response'):
-                response = UseShardMiddleware().process_exception(
+                response = UseShardMiddleware(lambda x: None).process_exception(
                     RequestFactory().get('/'),
                     StateException('Shard is not in available state!', 'M')
                 )
@@ -235,7 +235,7 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
         with override_settings(SHARDING=sharding_settings):
-            response = UseShardMiddleware().process_exception(
+            response = UseShardMiddleware(lambda x: None).process_exception(
                 RequestFactory().get('/'),
                 StateException('Shard is not in available state!', 'M')
             )
@@ -252,14 +252,14 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         with override_settings(SHARDING=sharding_settings):
             with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
-                    UseShardMiddleware().process_exception(
+                    UseShardMiddleware(lambda x: None).process_exception(
                         RequestFactory().get('/'),
                         OperationalError('Node is not available')
                     )
                 self.assertFalse(mock_render.called)
 
             with self.subTest('Test response'):
-                response = UseShardMiddleware().process_exception(
+                response = UseShardMiddleware(lambda x: None).process_exception(
                     RequestFactory().get('/'),
                     OperationalError('Node is not available')
                 )
@@ -276,14 +276,14 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         with override_settings(SHARDING=sharding_settings):
             with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
-                    UseShardMiddleware().process_exception(
+                    UseShardMiddleware(lambda x: None).process_exception(
                         RequestFactory().get('/'),
                         OperationalError('Node is not available')
                     )
                 self.assertTrue(mock_render.called)
 
             with self.subTest('Test response'):
-                response = UseShardMiddleware().process_exception(
+                response = UseShardMiddleware(lambda x: None).process_exception(
                     RequestFactory().get('/'),
                     OperationalError('Node is not available')
                 )
@@ -298,7 +298,7 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         sharding_settings.pop('CONNECTION_EXCEPTION_VIEW', False)
 
         with override_settings(SHARDING=sharding_settings):
-            response = UseShardMiddleware().process_exception(
+            response = UseShardMiddleware(lambda x: None).process_exception(
                 RequestFactory().get('/'),
                 OperationalError('Node is not available')
             )
@@ -323,7 +323,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
         mock_utils_use_shard.return_value = mock_use_shard
 
         request, response = RequestFactory().get('/'), HttpResponse()
-        middleware = UseShardMiddleware()
+        middleware = UseShardMiddleware(lambda x: None)
 
         middleware.process_request(request)  # required, sets the context manager
         middleware.process_response(request, response)
@@ -345,7 +345,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
         mock_use_shard.return_value = mock_use_shard_value
 
         request = RequestFactory().get('/')
-        UseShardMiddleware().process_request(request)
+        UseShardMiddleware(lambda x: None).process_request(request)
 
         self.assertTrue(mock_use_shard.called)
         self.assertTrue(enable_mock.called)
@@ -368,7 +368,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
             StateException('Shard {} state is {}'.format(1, State.MAINTENANCE), State.MAINTENANCE)
 
         with mock.patch('sharding.middleware.ExceptionProcessor.process_exception') as mock_process_exception:
-            UseShardMiddleware().process_request(RequestFactory().get('/'))
+            UseShardMiddleware(lambda x: None).process_request(RequestFactory().get('/'))
 
         self.assertTrue(mock_use_shard.called)
         self.assertFalse(enable_mock.called)
@@ -390,7 +390,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
         mock_use_shard.return_value = mock_use_shard_value
 
         with mock.patch('sharding.middleware.ExceptionProcessor.process_exception') as mock_process_exception:
-            UseShardMiddleware().process_request(RequestFactory().get('/'))
+            UseShardMiddleware(lambda x: None).process_request(RequestFactory().get('/'))
 
         self.assertTrue(mock_use_shard.called)
         self.assertFalse(enable_mock.called)
@@ -413,7 +413,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
 
             with mock.patch('sharding.middleware.ExceptionMiddlewareMixin.process_exception') as mock_process_exception:
                 with override_settings(SHARDING=sharding_settings):
-                    UseShardMiddleware().process_exception(
+                    UseShardMiddleware(lambda x: None).process_exception(
                         RequestFactory().get('/'),
                         ValueError('Generic error.')
                     )
@@ -434,7 +434,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
 
         request = RequestFactory().get('/')
 
-        middleware = UseShardMiddleware()
+        middleware = UseShardMiddleware(lambda x: None)
         middleware.process_request(request)
 
         self.assertEqual(request._middleware_shard_context_manager[UseShardMiddleware], mock_use_shard_value)
@@ -442,7 +442,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
         class SecondUseShardMiddleware(UseShardMiddleware):
             pass
 
-        middleware = SecondUseShardMiddleware()
+        middleware = SecondUseShardMiddleware(lambda x: None)
         middleware.process_request(request)
 
         self.assertEqual(request._middleware_shard_context_manager, {
@@ -470,7 +470,7 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
         mock_use_shard_for.return_value = mock_use_shard_for_value
 
         request, response = RequestFactory().get('/'), HttpResponse()
-        middleware = UseShardForMiddleware()
+        middleware = UseShardForMiddleware(lambda x: None)
 
         middleware.process_request(request)  # Required, sets the context manager
         middleware.process_response(request, response)
@@ -492,7 +492,7 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
         mock_use_shard_for.return_value = mock_use_shard_for_value
 
         request = RequestFactory().get('/')
-        UseShardForMiddleware().process_request(request)
+        UseShardForMiddleware(lambda x: None).process_request(request)
 
         self.assertTrue(mock_use_shard_for.called)
         self.assertTrue(enable_mock.called)
@@ -515,7 +515,7 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
         mock_use_shard_for.return_value = mock_use_shard_for_value
 
         with mock.patch('sharding.middleware.BaseUseShardForMiddleware.process_exception') as mock_process_exception:
-            UseShardForMiddleware().process_request(RequestFactory().get('/'))
+            UseShardForMiddleware(lambda x: None).process_request(RequestFactory().get('/'))
 
         self.assertTrue(mock_use_shard_for.called)
         self.assertFalse(enable_mock.called)
@@ -537,7 +537,7 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
         mock_use_shard_for.return_value = mock_use_shard_for_value
 
         with mock.patch('sharding.middleware.BaseUseShardForMiddleware.process_exception') as mock_process_exception:
-            UseShardForMiddleware().process_request(RequestFactory().get('/'))
+            UseShardForMiddleware(lambda x: None).process_request(RequestFactory().get('/'))
 
         self.assertTrue(mock_use_shard_for.called)
         self.assertFalse(enable_mock.called)
@@ -561,7 +561,7 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
 
             with mock.patch('sharding.middleware.ExceptionMiddlewareMixin.process_exception') as mock_process_exception:
                 with override_settings(SHARDING=sharding_settings):
-                    UseShardForMiddleware().process_exception(
+                    UseShardForMiddleware(lambda x: None).process_exception(
                         RequestFactory().get('/'),
                         ValueError('Generic error.')
                     )

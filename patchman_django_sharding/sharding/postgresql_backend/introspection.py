@@ -11,10 +11,8 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 """
-
+import django
 from django.db.backends.postgresql.introspection import DatabaseIntrospection as BaseDatabaseIntrospection, TableInfo
-from django.db.backends.postgresql.introspection import FieldInfo
-from django.utils.encoding import force_str
 
 
 class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
@@ -43,18 +41,19 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
     ignored_tables = []
 
     _get_table_list_query = """
-        SELECT c.relname, c.relkind
+        SELECT
+            c.relname,
+            CASE
+                WHEN c.relispartition THEN 'p'
+                WHEN c.relkind IN ('m', 'v') THEN 'v'
+                ELSE 't'
+            END,
+            obj_description(c.oid, 'pg_class')
         FROM pg_catalog.pg_class c
         LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-        WHERE c.relkind IN ('r', 'v')
-           AND n.nspname = %(schema)s;
-    """
-
-    _get_table_description_query = """
-        SELECT column_name, is_nullable, column_default
-        FROM information_schema.columns
-        WHERE table_name = %(table)s
-          AND table_schema = %(schema)s
+        WHERE c.relkind IN ('f', 'm', 'p', 'r', 'v')
+           AND n.nspname = %(schema)s
+           AND pg_catalog.pg_table_is_visible(c.oid)
     """
 
     _get_relations_query = """
@@ -190,8 +189,9 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
             'schema': self.connection.schema_name
         })
 
+        col_count = len(TableInfo._fields)
         return [
-            TableInfo(row[0], {'r': 't', 'v': 'v'}.get(row[1]))
+            TableInfo(*row[:col_count])
             for row in cursor.fetchall()
             if row[0] not in self.ignored_tables
         ]
