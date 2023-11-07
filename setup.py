@@ -8,7 +8,7 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 test_requirements = [
     'tox==3.25.0',
-    'tox-teamcity',
+    'pluggy',
     'dj-database-url==2.1.0',
     'django-braces==1.15.0',
     'tblib',
