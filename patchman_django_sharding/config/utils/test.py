@@ -1,5 +1,7 @@
-import pluggy
+import sys
+
 from django.test.runner import DiscoverRunner
+from django import get_version
 
 
 class WildcardDiscoverRunner(DiscoverRunner):
@@ -10,32 +12,22 @@ class WildcardDiscoverRunner(DiscoverRunner):
 
 try:
     # noinspection PyUnresolvedReferences
-    from teamcity.unittestpy import TeamcityTestRunner
-    from teamcity import is_running_under_teamcity
-    from teamcity.messages import TeamcityServiceMessages
+    from teamcity.unittestpy import TeamcityTestRunner, TeamcityTestResult
 except ImportError:
     TeamcityRunner = WildcardDiscoverRunner
 else:
+    class TestResult(TeamcityTestResult):
+        @staticmethod
+        def get_test_id_with_description(test):
+            test_suffix = (f'.python-{"-".join(str(x) for x in sys.version_info[:2])}'
+                           f'-django-{get_version().replace(".", "-")}')
+            result = TeamcityTestResult.get_test_id_with_description(test)
+            return result + test_suffix
+
+
+    class TestRunner(TeamcityTestRunner):
+        resultclass = TestResult
+
+
     class TeamcityRunner(WildcardDiscoverRunner):
-        test_runner = TeamcityTestRunner
-
-
-    hookimpl = pluggy.HookimplMarker("tox")
-
-    _messages = TeamcityServiceMessages()
-
-
-    def _testsuite_name(venv):
-        return venv.name
-
-
-    @hookimpl
-    def tox_runtest_pre(venv):
-        if is_running_under_teamcity():
-            _messages.testSuiteStarted(_testsuite_name(venv))
-
-
-    @hookimpl
-    def tox_runtest_post(venv):
-        if is_running_under_teamcity():
-            _messages.testSuiteFinished(_testsuite_name(venv))
+        test_runner = TestRunner
