@@ -6,7 +6,6 @@ from django.utils import timezone
 
 from example.models import Shard, Organization, User, Type, ProxyCake
 from sharding import State
-from sharding.models import BaseShard
 from sharding.options import ShardOptions
 from sharding.tests import ShardingTestCase
 from sharding.tests.app_config import DummyShard

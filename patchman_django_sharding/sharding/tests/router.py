@@ -6,8 +6,8 @@ from django.apps import apps
 from django.db import connections, ProgrammingError, models, DEFAULT_DB_ALIAS
 from django.test import override_settings
 
-from example.models import Organization, Shard, Type, SuperType, Unrelated, OrganizationShards, CakeType, MirroredUser, \
-    Statement, DefaultUser
+from example.models import (Organization, Shard, Type, SuperType, Unrelated, OrganizationShards, CakeType,
+                            MirroredUser, Statement, DefaultUser)
 from sharding import State
 from sharding.decorators import sharded_model, mirrored_model, public_model, override_sharding_setting
 from sharding.options import ShardOptions
@@ -536,9 +536,11 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Case: Call allow_relation with two sharded models, the latter is set through the configuration.
         Expected: True, we don't check if they are on the same shard yet.
         """
+
         class SimpleModel(models.Model):
             class Meta:
                 app_label = 'sharding'
+
         self.assertTrue(self.router.allow_relation(Organization(), SimpleModel()))
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
@@ -550,9 +552,11 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Case: Call allow_relation with two sharded models, the latter is set through the configuration.
         Expected: True, we don't check if they are on the same shard yet.
         """
+
         class ShardedByDefaultModel(models.Model):
             class Meta:
                 app_label = 'sharding'
+
         self.assertTrue(self.router.allow_relation(Organization(), ShardedByDefaultModel()))
 
     def test_allow_syncdb(self):

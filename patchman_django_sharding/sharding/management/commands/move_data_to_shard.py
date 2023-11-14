@@ -4,8 +4,8 @@ import functools
 import subprocess  # nosec
 from io import StringIO
 from tempfile import NamedTemporaryFile, TemporaryDirectory, gettempdir
-import progressbar
 
+import progressbar
 from django.apps import apps
 from django.contrib.admin.utils import NestedObjects
 from django.core.exceptions import ValidationError
@@ -280,14 +280,12 @@ class Command(BaseCommand):
         source_file_sorted_name = '{}-sorted'.format(source_file_name)
 
         try:
-            # subprocess.run has been added in Python 3.5 to keep compatibility with python 3.4 we use Popen as a
-            # fallback
-            if hasattr(subprocess, 'run'):
-                subprocess.run(['sort', source_file_name, '-o', source_file_sorted_name], shell=False, check=True,
-                               timeout=60)
-            else:
-                p = subprocess.Popen(['sort', source_file_name, '-o', source_file_sorted_name])  # nosec
-                p.wait()
+            subprocess.run(  # nosec
+                ['sort', source_file_name, '-o', source_file_sorted_name],
+                shell=False,
+                check=True,
+                timeout=60
+            )
         except (RuntimeError, FileNotFoundError):
             raise CommandError("'sort' command is not available on your system")
 

@@ -24,10 +24,8 @@ else:
             result = TeamcityTestResult.get_test_id_with_description(test)
             return result + test_suffix
 
-
     class TestRunner(TeamcityTestRunner):
         resultclass = TestResult
-
 
     class TeamcityRunner(WildcardDiscoverRunner):
         test_runner = TestRunner
