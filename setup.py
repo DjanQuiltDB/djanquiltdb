@@ -7,18 +7,13 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 
 test_requirements = [
-    'tox==3.25.0',
+    'tox',
     'pluggy',
     'dj-database-url==2.1.0',
     'django-braces==1.15.0',
     'tblib',
-    'importlib-metadata>=0.12,<4.9.0',
-    'zipp>=0.5,<3.6.0',
-    'filelock<3.4.2,>=3.2',
-    'importlib-resources>=1.0,<5.4.0',
-    'platformdirs<2.4.1,>=2',
+    'filelock',
     'dataclasses',
-    'typing-extensions<4.1.0',
     'coverage',
 ]
 
@@ -28,8 +23,6 @@ dev_requirements = teamcity_requirements = test_requirements + [
     'Jinja2>=2.3,<2.11',
     'sphinx_rtd_theme==0.4.2',
     'MarkupSafe>=0.23,<2.1.0',
-    'packaging<22',
-    'docutils<0.19',
 ]
 
 
