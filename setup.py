@@ -7,7 +7,7 @@ os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 
 test_requirements = [
-    'tox',
+    'tox==3.25.0',
     'pluggy',
     'dj-database-url==2.1.0',
     'django-braces==1.15.0',
@@ -58,7 +58,6 @@ setup(
         'Programming Language :: Python :: 3',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.11',
-        'Programming Language :: Python :: 3.12',
         'Framework :: Django',
     ]
 )
