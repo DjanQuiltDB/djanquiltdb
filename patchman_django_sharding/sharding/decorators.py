@@ -220,15 +220,10 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
                     "The @shard_mapping_model decorator requires this."
                     .format(cls.__name__))
 
-            if hasattr(shard_field, 'rel'):
-                # Django < 2.0
-                related_to = shard_field.rel.to if type(shard_field.rel.to) is str else \
-                    shard_field.rel.to.__module__.replace('.models', '') + '.' + shard_field.rel.to.__name__
-            else:
-                related_to = shard_field.remote_field.model if type(shard_field.remote_field.model) is str else \
-                    shard_field.remote_field.model.__module__.replace('.models', '')\
-                    + '.'\
-                    + shard_field.remote_field.model.__name__
+            related_to = shard_field.remote_field.model
+            related_to = related_to if isinstance(related_to, str) else \
+                f'{related_to.__module__.replace(".models", "")}.{related_to.__name__}'
+
             if related_to != settings.SHARDING['SHARD_CLASS'].replace('.models', ''):
                 raise ImproperlyConfigured("The shard field of model {} is points to '{}' instead of '{}'. "
                                            "The @shard_mapping_model decorator requires this."

@@ -1,3 +1,4 @@
+from io import StringIO
 from unittest import mock
 
 from django.conf import settings
@@ -7,7 +8,6 @@ from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.migration import Migration
 from django.db.migrations.recorder import MigrationRecorder
 from django.test import override_settings
-from django.utils import six
 
 from example.models import Shard
 from migration_tests.models import SuperMirroredModel, MirroredModel, SuperShardedModel, ShardedModel
@@ -254,7 +254,7 @@ class OriginalMigrationTestCase(MigrationTestCase):
             self.assertTableExists('migration_tests_tribble')
 
         with self.subTest('Run initial migration'):
-            out = six.StringIO()
+            out = StringIO()
             with mock.patch('sys.exit') as mock_exit:
                 call_command('migrate_shards', 'migration_tests', '0001', verbosity=0, stderr=out)
 
@@ -284,7 +284,7 @@ class OriginalMigrationTestCase(MigrationTestCase):
             self.assertTableExists('migration_tests_book')
 
         with self.subTest('Run initial migration'):
-            out = six.StringIO()
+            out = StringIO()
             with mock.patch('sys.exit') as mock_exit:
                 call_command('migrate_shards', 'migration_tests', stderr=out, verbosity=0)
 
@@ -294,7 +294,7 @@ class OriginalMigrationTestCase(MigrationTestCase):
         with self.subTest('Run initial migration with an explicit --fake-initial'):
             # Fails because 'migration_tests_tribble' does not exist but needs to,
             # in order to make --fake-initial work.
-            out = six.StringIO()
+            out = StringIO()
             with mock.patch('sys.exit') as mock_exit:
                 call_command('migrate_shards', 'migration_tests', fake_initial=True, stderr=out, verbosity=0)
 
@@ -327,7 +327,7 @@ class OriginalMigrationTestCase(MigrationTestCase):
         Expected: All original migrations should be marked as run
         """
         recorder = MigrationRecorder(connection)
-        out = six.StringIO()
+        out = StringIO()
         call_command('migrate_shards', 'migration_tests', verbosity=0)
         call_command('showmigrations', 'migration_tests', stdout=out, no_color=True)
         self.assertEqual(
@@ -351,7 +351,7 @@ class OriginalMigrationTestCase(MigrationTestCase):
         recorder = MigrationRecorder(connection)
         recorder.record_applied('migration_tests', '0001_initial')
         recorder.record_applied('migration_tests', '0002_second')
-        out = six.StringIO()
+        out = StringIO()
         call_command('migrate_shards', 'migration_tests', schema_name='public', verbosity=0)
         call_command('showmigrations', 'migration_tests', stdout=out, no_color=True)
         self.assertEqual(
@@ -451,8 +451,8 @@ class ShardedMigrationHandleTestCase(MigrationTestCase):
                              side_effect=fake_apply_migration, autospec=True)
         mock_apply_migration = patcher.start()
 
-        stderr = six.StringIO()
-        stdout = six.StringIO()
+        stderr = StringIO()
+        stdout = StringIO()
         migrate_shards = MigrateShards()
         migrate_shards.stderr = stderr
         migrate_shards.stdout = stdout
@@ -461,7 +461,7 @@ class ShardedMigrationHandleTestCase(MigrationTestCase):
                       'does not exist', stderr.getvalue().lower())
         self.assertIn('migration stopped due to errors after completing migration_tests.0002_second.',
                       stdout.getvalue().lower())
-        self.assertEquals(mock_apply_migration.call_count, 14)  # 2 migrates for 3 shards, 2 publics and 2 templates.
+        self.assertEqual(mock_apply_migration.call_count, 14)  # 2 migrates for 3 shards, 2 publics and 2 templates.
         patcher.stop()
 
         # all shards, templates and publics are migrated to 0002 (except sina):

@@ -245,7 +245,7 @@ class UseShardTestCase(ShardingTestCase):
         Case: Call use_shard with a valid shard object referring to a non-default node.
         Expected: Connection not changed.
         """
-        with self.assertRaisesMessage(ConnectionDoesNotExist, "The connection Batman doesn't exist"):
+        with self.assertRaisesMessage(ConnectionDoesNotExist, "The connection 'Batman' doesn't exist"):
             with use_shard(node_name='Batman', schema_name='Bat_cave'):
                 pass
 
@@ -784,8 +784,8 @@ class GetModelShardingModeTestCase(SimpleTestCase):
         Expected: get_model_definition and get_sharding_mode to be called with the correct arguments.
         """
         get_model_sharding_mode(User)
-        mock_get_model_definition.called_once_with(User)
-        mock_get_sharding_mode.called_once_with(app_label='example', model_name='User')
+        mock_get_model_definition.assert_called_once_with(User)
+        mock_get_sharding_mode.assert_called_once_with('example', 'user')
 
 
 class GetShardingModeTestCase(SimpleTestCase):

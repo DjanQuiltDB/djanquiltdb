@@ -168,7 +168,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         self.command.options['model_name'] = 'example.type'
         self.command.options['object_value'] = str(self.type_1.id)
 
-        msg = "'example.type' is not a sharded model.".format(self.command.options['model_name'])
+        msg = "'example.type' is not a sharded model."
 
         with self.assertRaisesRegex(CommandError, '^{}$'.format(re.escape(msg))):
             self.command.get_objects()

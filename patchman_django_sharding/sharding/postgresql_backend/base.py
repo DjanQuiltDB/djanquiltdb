@@ -16,7 +16,7 @@ import re
 
 from django.conf import settings
 from django.db.backends.base.base import NO_DB_ALIAS
-from django.db.backends.postgresql_psycopg2.base import DatabaseWrapper as BaseDatabaseWrapper
+from django.db.backends.postgresql.base import DatabaseWrapper as BaseDatabaseWrapper
 from django.db.utils import DatabaseError, IntegrityError
 from django.utils.module_loading import import_string
 from psycopg2 import InternalError, sql

@@ -11,10 +11,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 """
-
 from django.db.backends.postgresql.introspection import DatabaseIntrospection as BaseDatabaseIntrospection, TableInfo
-from django.db.backends.postgresql_psycopg2.introspection import FieldInfo
-from django.utils.encoding import force_text
 
 
 class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
@@ -43,18 +40,19 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
     ignored_tables = []
 
     _get_table_list_query = """
-        SELECT c.relname, c.relkind
+        SELECT
+            c.relname,
+            CASE
+                WHEN c.relispartition THEN 'p'
+                WHEN c.relkind IN ('m', 'v') THEN 'v'
+                ELSE 't'
+            END,
+            obj_description(c.oid, 'pg_class')
         FROM pg_catalog.pg_class c
         LEFT JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-        WHERE c.relkind IN ('r', 'v')
-           AND n.nspname = %(schema)s;
-    """
-
-    _get_table_description_query = """
-        SELECT column_name, is_nullable, column_default
-        FROM information_schema.columns
-        WHERE table_name = %(table)s
-          AND table_schema = %(schema)s
+        WHERE c.relkind IN ('f', 'm', 'p', 'r', 'v')
+           AND n.nspname = %(schema)s
+           AND pg_catalog.pg_table_is_visible(c.oid)
     """
 
     _get_relations_query = """
@@ -190,32 +188,11 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
             'schema': self.connection.schema_name
         })
 
+        col_count = len(TableInfo._fields)
         return [
-            TableInfo(row[0], {'r': 't', 'v': 'v'}.get(row[1]))
+            TableInfo(*row[:col_count])
             for row in cursor.fetchall()
             if row[0] not in self.ignored_tables
-        ]
-
-    def get_table_description(self, cursor, table_name):
-        """
-        Returns a description of the table, with the DB-API cursor.description interface.
-        """
-
-        # As cursor.description does not return reliably the nullable property,
-        # we have to query the information_schema
-        cursor.execute(self._get_table_description_query, {
-            'schema': self.connection.schema_name,
-            'table': table_name
-        })
-        field_map = {line[0]: line[1:] for line in cursor.fetchall()}
-        cursor.execute('SELECT * FROM {} LIMIT 1'.format(self.connection.ops.quote_name(table_name)))  # nosec
-
-        return [
-            FieldInfo(*(
-                (force_text(line[0]),) +
-                line[1:6] +
-                (field_map[force_text(line[0])][0] == 'YES', field_map[force_text(line[0])][1])
-            )) for line in cursor.description
         ]
 
     def get_relations(self, cursor, table_name):

@@ -15,7 +15,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='User',
             fields=[
-                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('password', models.CharField(verbose_name='password', max_length=128)),
                 ('last_login', models.DateTimeField(blank=True, verbose_name='last login', null=True)),
                 ('name', models.CharField(verbose_name='name', max_length=100)),
@@ -28,7 +28,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='CakeType',
             fields=[
-                ('id', models.AutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
+                ('id', models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name='ID')),
                 ('name', models.CharField(max_length=128, verbose_name='name')),
             ],
         ),
@@ -48,7 +48,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='CoatingType',
             fields=[
-                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('hash', models.CharField(verbose_name='hash', max_length=40)),
                 ('type',
                  models.ForeignKey(null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='example.CakeType',
@@ -62,7 +62,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Cake',
             fields=[
-                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('name', models.CharField(verbose_name='name', max_length=128)),
                 ('type', models.ForeignKey(null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='example.CakeType', verbose_name='type')),
                 ('coating_type', models.ForeignKey(null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='example.CoatingType', verbose_name='Coating Type')),
@@ -71,7 +71,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='DefaultUser',
             fields=[
-                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('password', models.CharField(verbose_name='password', max_length=128)),
                 ('last_login', models.DateTimeField(blank=True, verbose_name='last login', null=True)),
                 ('name', models.CharField(verbose_name='name', max_length=100)),
@@ -84,7 +84,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='MirroredUser',
             fields=[
-                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('password', models.CharField(verbose_name='password', max_length=128)),
                 ('last_login', models.DateTimeField(blank=True, verbose_name='last login', null=True)),
                 ('name', models.CharField(verbose_name='name', max_length=100)),
@@ -107,7 +107,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Organization',
             fields=[
-                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('name', models.CharField(verbose_name='name', max_length=100)),
                 ('created_at', models.DateTimeField(verbose_name='created at', default=django.utils.timezone.now)),
             ],
@@ -115,7 +115,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='OrganizationShards',
             fields=[
-                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('organization_id', models.PositiveSmallIntegerField()),
                 ('state', models.CharField(choices=[('A', 'Active'), ('M', 'Maintenance')], default='A', max_length=1)),
                 ('slug', models.SlugField()),
@@ -124,7 +124,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Shard',
             fields=[
-                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('alias', models.CharField(unique=True, db_index=True, max_length=128)),
                 ('schema_name', models.CharField(max_length=64)),
                 ('node_name', models.CharField(max_length=64)),
@@ -134,7 +134,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Statement',
             fields=[
-                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('content', models.CharField(verbose_name='content', max_length=300)),
                 ('offset', models.PositiveIntegerField(blank=True, verbose_name='offset', null=True)),
             ],
@@ -142,7 +142,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Suborganization',
             fields=[
-                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('child', models.OneToOneField(to='example.Organization', verbose_name='organization', related_name='children', on_delete=models.CASCADE)),
                 ('parent', models.ForeignKey(to='example.Organization', related_name='parent', verbose_name='organization', on_delete=models.CASCADE)),
             ],
@@ -150,7 +150,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='SuperType',
             fields=[
-                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('name', models.CharField(verbose_name='name', max_length=100)),
             ],
         ),
@@ -161,7 +161,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Type',
             fields=[
-                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('name', models.CharField(verbose_name='name', max_length=100)),
                 ('super', models.ForeignKey(to='example.SuperType', on_delete=django.db.models.deletion.DO_NOTHING, verbose_name='super', null=True)),
             ],
@@ -218,7 +218,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Unrelated',
             fields=[
-                ('id', models.AutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('name', models.CharField(verbose_name='name', max_length=64)),
             ],
         ),

@@ -33,7 +33,7 @@ class DatabaseCreationClassTestCase(ShardingTransactionTestCase):
         """
         Case: Call get_database_creation_class without having DATABASE_CREATION_CLASS set and then check the connection
               creation class
-        Expected: Returns the default, which is django.db.backends.postgresql_psycopg2.creation.DatabaseCreation
+        Expected: Returns the default, which is django.db.backends.postgresql.creation.DatabaseCreation
         """
         self.assertEqual(get_database_creation_class(), DatabaseCreation)
         with self.new_connection('default') as conn:
@@ -59,7 +59,7 @@ class DatabaseCreationTestCase(ShardingTestCase):
         super().setUp()
 
         self.creation = DatabaseCreation(connection)
-        self.test_serialized_contents = json.loads(connection._test_serialized_contents)
+        self.test_serialized_contents = json.loads(self.creation.serialize_db_to_string())
 
     def test_serialize_public(self):
         """

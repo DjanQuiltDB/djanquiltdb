@@ -6,7 +6,8 @@ from django.apps import apps
 from django.db import connections, ProgrammingError, models, DEFAULT_DB_ALIAS
 from django.test import override_settings
 
-from example.models import Organization, Shard, Type, SuperType, Unrelated, OrganizationShards
+from example.models import (Organization, Shard, Type, SuperType, Unrelated, OrganizationShards, CakeType,
+                            MirroredUser, Statement, DefaultUser)
 from sharding import State
 from sharding.decorators import sharded_model, mirrored_model, public_model, override_sharding_setting
 from sharding.options import ShardOptions
@@ -318,27 +319,28 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         with use_shard(self.test_shard):
             with self.subTest('Non-sharded model'):
                 mock_save_table.reset_mock()
-                obj = DummyNonShardedModel()
+                obj = DefaultUser()
                 obj.save()
-                self.assert_save_table(mock_save_table, DummyNonShardedModel, 'default', 'test_other_schema')
+                self.assert_save_table(mock_save_table, DefaultUser, 'default', 'test_other_schema')
 
             with self.subTest('Sharded model'):
                 mock_save_table.reset_mock()
-                obj = DummyShardedModel()
-                obj.save()
-                self.assert_save_table(mock_save_table, DummyShardedModel, 'default', 'test_other_schema')
+                with mock.patch('sharding.tests.router.Organization._save_table') as mockery:
+                    obj = Organization(name='example')
+                    obj.save()
+                    self.assert_save_table(mockery, Organization, 'default', 'test_other_schema')
 
             with self.subTest('Public model'):
                 mock_save_table.reset_mock()
-                obj = DummyPublicModel()
+                obj = CakeType()
                 obj.save()
-                self.assert_save_table(mock_save_table, DummyPublicModel, 'default', 'test_other_schema')
+                self.assert_save_table(mock_save_table, CakeType, 'default', 'test_other_schema')
 
             with self.subTest('Mirrored model'):
                 mock_save_table.reset_mock()
-                obj = DummyMirroredModel()
+                obj = MirroredUser()
                 obj.save()
-                self.assert_save_table(mock_save_table, DummyMirroredModel, 'other', None, options=False)
+                self.assert_save_table(mock_save_table, MirroredUser, 'other', None, options=False)
 
             with self.subTest('route_to_primary_db=True'):
                 mock_save_table.reset_mock()
@@ -369,28 +371,29 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         """
         with self.subTest('Non-sharded model'):
             mock_save_table.reset_mock()
-            obj = DummyNonShardedModel()
+            obj = DefaultUser()
             obj.save()
-            self.assert_save_table(mock_save_table, DummyNonShardedModel, 'default', None, options=False)
+            self.assert_save_table(mock_save_table, DefaultUser, 'default', None, options=False)
 
         with self.subTest('Sharded model'):
             mock_save_table.reset_mock()
-            obj = DummyShardedModel()
-            obj.save()
-            self.assert_save_table(mock_save_table, DummyShardedModel, 'default', None, options=False)
+            with mock.patch('sharding.tests.router.Organization._save_table') as mockery:
+                obj = Organization(name='example')
+                obj.save()
+                self.assert_save_table(mockery, Organization, 'default', None, options=False)
             # Note: This will lead to a DB error if not mocked, since the table would not exist on the public schema
 
         with self.subTest('Public model'):
             mock_save_table.reset_mock()
-            obj = DummyPublicModel()
+            obj = CakeType()
             obj.save()
-            self.assert_save_table(mock_save_table, DummyPublicModel, 'default', None, options=False)
+            self.assert_save_table(mock_save_table, CakeType, 'default', None, options=False)
 
         with self.subTest('Mirrored model'):
             mock_save_table.reset_mock()
-            obj = DummyMirroredModel()
+            obj = MirroredUser()
             obj.save()
-            self.assert_save_table(mock_save_table, DummyMirroredModel, 'other', None, options=False)
+            self.assert_save_table(mock_save_table, MirroredUser, 'other', None, options=False)
 
         with self.subTest('route_to_primary_db=True'):
             mock_save_table.reset_mock()
@@ -503,22 +506,22 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Expected: Correct return value for the given mode combinations.
         """
         combinations = [
-            ('PUBLIC -> PUBLIC', DummyPublicModel, DummyPublicModel, True),
-            ('PUBLIC -> MIRRORED', DummyPublicModel, DummyMirroredModel, True),
-            ('PUBLIC -> SHARDED', DummyPublicModel, DummyShardedModel, False),
-            ('PUBLIC -> None', DummyPublicModel, DummyNonShardedModel, True),
-            ('MIRRORED -> PUBLIC', DummyMirroredModel, DummyPublicModel, True),
-            ('MIRRORED -> MIRRORED', DummyMirroredModel, DummyMirroredModel, True),
-            ('MIRRORED -> SHARDED', DummyMirroredModel, DummyShardedModel, False),
-            ('MIRRORED -> None', DummyMirroredModel, DummyNonShardedModel, True),
-            ('SHARDED -> PUBLIC', DummyShardedModel, DummyPublicModel, True),
-            ('SHARDED -> MIRRORED', DummyShardedModel, DummyMirroredModel, True),
-            ('SHARDED -> SHARDED', DummyShardedModel, DummyShardedModel, True),
-            ('SHARDED -> None', DummyShardedModel, DummyNonShardedModel, False),
-            ('None -> PUBLIC', DummyNonShardedModel, DummyPublicModel, True),
-            ('None -> MIRRORED', DummyNonShardedModel, DummyMirroredModel, True),
-            ('None -> SHARDED', DummyNonShardedModel, DummyShardedModel, False),
-            ('None -> None', DummyNonShardedModel, DummyNonShardedModel, None),
+            ('PUBLIC -> PUBLIC', CakeType, CakeType, True),
+            ('PUBLIC -> MIRRORED', CakeType, MirroredUser, True),
+            ('PUBLIC -> SHARDED', CakeType, Statement, False),
+            ('PUBLIC -> None', CakeType, DefaultUser, True),
+            ('MIRRORED -> PUBLIC', MirroredUser, CakeType, True),
+            ('MIRRORED -> MIRRORED', MirroredUser, MirroredUser, True),
+            ('MIRRORED -> SHARDED', MirroredUser, Statement, False),
+            ('MIRRORED -> None', MirroredUser, DefaultUser, True),
+            ('SHARDED -> PUBLIC', Statement, CakeType, True),
+            ('SHARDED -> MIRRORED', Statement, MirroredUser, True),
+            ('SHARDED -> SHARDED', Statement, Statement, True),
+            ('SHARDED -> None', Statement, DefaultUser, False),
+            ('None -> PUBLIC', DefaultUser, CakeType, True),
+            ('None -> MIRRORED', DefaultUser, MirroredUser, True),
+            ('None -> SHARDED', DefaultUser, Statement, False),
+            ('None -> None', DefaultUser, DefaultUser, None),
         ]
         for name, model_from, model_to, result in combinations:
             with self.subTest(name):
@@ -526,14 +529,19 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
                                  'OVERRIDE_SHARDING_MODE': {
-                                     ('sharding', 'dummynonshardedmodel'): ShardingMode.SHARDED,
+                                     ('sharding', 'simplemodel'): ShardingMode.SHARDED,
                                  }})
     def test_allow_relation_between_sharded_models_settings_override_model(self):
         """
         Case: Call allow_relation with two sharded models, the latter is set through the configuration.
         Expected: True, we don't check if they are on the same shard yet.
         """
-        self.assertTrue(self.router.allow_relation(DummyShardedModel(), DummyNonShardedModel()))
+
+        class SimpleModel(models.Model):
+            class Meta:
+                app_label = 'sharding'
+
+        self.assertTrue(self.router.allow_relation(Organization(), SimpleModel()))
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
                                  'OVERRIDE_SHARDING_MODE': {
@@ -544,7 +552,12 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Case: Call allow_relation with two sharded models, the latter is set through the configuration.
         Expected: True, we don't check if they are on the same shard yet.
         """
-        self.assertTrue(self.router.allow_relation(Organization(), DummyNonShardedModel()))
+
+        class ShardedByDefaultModel(models.Model):
+            class Meta:
+                app_label = 'sharding'
+
+        self.assertTrue(self.router.allow_relation(Organization(), ShardedByDefaultModel()))
 
     def test_allow_syncdb(self):
         """

@@ -53,7 +53,7 @@ class SimpleCollector(Collector):
             self.bar.finish()
 
     def collect(self, objs, source=None, nullable=False, collect_related=True, source_attr=None,
-                reverse_dependency=False):
+                reverse_dependency=False, keep_parents=False, fail_on_restricted=True):
         """
         Kind of the same as the original collector, but now also follows the on delete SET NULL relations.
         """
@@ -68,17 +68,15 @@ class SimpleCollector(Collector):
         # Recursively collect concrete model's parent models, but not their
         # related objects. These will be found by meta.get_fields()
         concrete_model = model._meta.concrete_model
-        for ptr in concrete_model._meta.parents:
+        for ptr in concrete_model._meta.parents.values():
             if ptr:
                 # FIXME: This seems to be buggy and execute a query for each
                 # parent object fetch. We have the parent data in the obj,
                 # but we don't have a nice way to turn that data into parent
                 # object instance.
                 parent_objs = [getattr(obj, ptr.name) for obj in new_objs]
-                # Django < 2.0
-                remote_field = 'rel' if hasattr(ptr, 'rel') else 'remote_field'
                 self.collect(parent_objs, source=model,
-                             source_attr=getattr(ptr, remote_field).related_name,
+                             source_attr=ptr.remote_field.related_name,
                              collect_related=False)
 
         if collect_related:
@@ -86,20 +84,14 @@ class SimpleCollector(Collector):
                 field = related.field
                 batches = self.get_batches(new_objs, field)
                 for batch in batches:
-                    sub_objs = self.related_objects(related, batch)
+                    sub_objs = self.related_objects(related.related_model, [field], batch)
                     if not sub_objs:
                         continue
                     self.collect(sub_objs,
                                  source=model,
                                  source_attr=field.name)
-            # Django < 2.0
-            private_fields = 'virtual_fields' if hasattr(model._meta, 'virtual_fields') else 'private_fields'
-            for field in getattr(model._meta, private_fields):
+            for field in model._meta.private_fields:
                 if hasattr(field, 'bulk_related_objects'):
-                    # Its something like generic foreign key.
+                    # It's something like generic foreign key.
                     sub_objs = field.bulk_related_objects(new_objs, self.using)
-                    # Django < 2.0
-                    remote_field = 'rel' if hasattr(field, 'rel') else 'remote_field'
-                    self.collect(sub_objs,
-                                 source=model,
-                                 source_attr=getattr(field, remote_field).related_name)
+                    self.collect(sub_objs, source=model, nullable=True, fail_on_restricted=False)
