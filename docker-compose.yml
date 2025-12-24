@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: djanquiltdb-test
+    volumes:
+      # Mount the entire project directory for live updates
+      - .:/app
+      # Persist tox cache between runs
+      - tox-cache:/root/.cache/pip
+      - tox-env-cache:/root/.tox
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/test_db}
+      - DATABASE_URL2=${DATABASE_URL2:-postgresql://postgres:postgres@postgres2:5432/test_db2}
+    command: tox
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres2:
+        condition: service_healthy
+    networks:
+      - test-network
+
+  postgres:
+    image: postgres:17
+    container_name: djanquiltdb-postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=test_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres2:
+    image: postgres:17
+    container_name: djanquiltdb-postgres2
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=test_db2
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres-data2:/var/lib/postgresql/data
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  tox-cache:
+  tox-env-cache:
+  postgres-data:
+  postgres-data2:
+
+networks:
+  test-network:
+    driver: bridge
+
