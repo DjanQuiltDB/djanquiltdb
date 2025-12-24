@@ -2,3 +2,6 @@ include LICENSE
 include README.rst
 include MANIFEST.in
 exclude .DS_Store
+
+# Django template files (including contrib apps like quilt_admin)
+recursive-include djanquiltdb *.html

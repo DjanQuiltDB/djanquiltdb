@@ -2,7 +2,7 @@ from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 from django.db import IntegrityError, models
 from django.utils import timezone
 from djanquiltdb.decorators import mirrored_model, public_model, shard_mapping_model, sharded_model
-from djanquiltdb.models import BaseShard, MappingQuerySet
+from djanquiltdb.models import BaseQuiltSession, BaseShard, MappingQuerySet
 
 from djanquiltdb import STATES, State
 
@@ -22,6 +22,7 @@ __all__ = [
     'ProxyMirroredUser',
     'DefaultUser',
     'Statement',
+    'QuiltSession',
 ]
 
 
@@ -305,6 +306,14 @@ class Unrelated(models.Model):
     """Model that does not have a sharding mode assigned"""
 
     name = models.CharField('name', max_length=64)
+
+    class Meta:
+        app_label = 'example'
+
+
+@sharded_model()
+class QuiltSession(BaseQuiltSession):
+    """Sharded session model for testing session backend"""
 
     class Meta:
         app_label = 'example'

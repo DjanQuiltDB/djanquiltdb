@@ -285,9 +285,25 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             WHERE nsp.nspname = 'test_schema'
         """)
         new_sequences = cursor.fetchall()
-        self.assertCountEqual(
-            new_sequences, [('{}_id_seq'.format(table_name), '1') for table_name in new_schema_tables]
-        )
+
+        # Only expect sequences for tables that have an 'id' column
+        # (some tables like QuiltSession use different primary keys)
+        tables_with_id = []
+        for table_name in new_schema_tables:
+            cursor.execute(
+                """
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = 'test_schema' 
+                AND table_name = %s 
+                AND column_name = 'id'
+            """,
+                [table_name],
+            )
+            if cursor.fetchone():
+                tables_with_id.append(table_name)
+
+        self.assertCountEqual(new_sequences, [('{}_id_seq'.format(table_name), '1') for table_name in tables_with_id])
 
         # Check if the new tables have the new sequences assigned to their id columns
         # The clone_schema function (lines 64-71 in base.py) attempts to update column defaults to reference
@@ -1249,19 +1265,34 @@ class IdentityColumnTestCase(ShardingTransactionTestCase):
         tables = [row[0] for row in cursor.fetchall()]
 
         # For each table, try to find its sequence using pg_get_serial_sequence
+        # Only check tables that have an 'id' column (some tables like QuiltSession use different PKs)
         found_sequences_via_pg_get_serial = []
         for table in tables:
+            # Check if table has an 'id' column before trying to get its sequence
             cursor.execute(
                 """
-                SELECT pg_get_serial_sequence(%s, 'id')
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_schema = 'test_schema' 
+                AND table_name = %s 
+                AND column_name = 'id'
             """,
-                ['test_schema.{}'.format(table)],
+                [table],
             )
-            result = cursor.fetchone()
-            if result and result[0]:
-                # Extract sequence name from the full sequence name (schema.sequence)
-                seq_name = result[0].split('.')[-1] if '.' in result[0] else result[0]
-                found_sequences_via_pg_get_serial.append(seq_name)
+            has_id_column = cursor.fetchone() is not None
+
+            if has_id_column:
+                cursor.execute(
+                    """
+                    SELECT pg_get_serial_sequence(%s, 'id')
+                """,
+                    ['test_schema.{}'.format(table)],
+                )
+                result = cursor.fetchone()
+                if result and result[0]:
+                    # Extract sequence name from the full sequence name (schema.sequence)
+                    seq_name = result[0].split('.')[-1] if '.' in result[0] else result[0]
+                    found_sequences_via_pg_get_serial.append(seq_name)
 
         # The get_all_table_sequences should find sequences, but may miss identity column sequences
         # This test documents the current behavior and potential limitation

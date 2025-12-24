@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.contrib.sessions.base_session import AbstractBaseSession
 from django.db import connections, models, transaction
 from django.db.models import Q
 
@@ -30,6 +31,7 @@ class BaseShard(models.Model):
     You will need to extend this model to have it live in your own application.
     You often don't need additional fields, so it could just be::
 
+        @mirrored_model()
         class Shard(BaseShard):
             class Meta:
                 app_label = 'example'
@@ -40,7 +42,6 @@ class BaseShard(models.Model):
     Like all mirrored models, you will have to keep them in sync yourself.
     Though this library does provide helper functions to accomplish that.
     Since this model will create a schema when saved, it has logic to only do so on the node is targets.
-
     """
 
     alias = models.CharField(max_length=128, db_index=True, unique=True)
@@ -89,3 +90,28 @@ class BaseShard(models.Model):
 
     def use(self, *args, **kwargs):
         return use_shard(self, *args, **kwargs)
+
+
+class BaseQuiltSession(AbstractBaseSession):
+    """
+    Base class for QuiltSession models.
+
+    You will need to extend this model to have it live in your own application.
+    You often don't need additional fields, so it could just be::
+
+        @sharded_model()
+        class QuiltSession(BaseQuiltSession):
+            class Meta:
+                app_label = 'example'
+    """
+
+    session_key = models.CharField(max_length=255, primary_key=True)
+
+    @classmethod
+    def get_session_store_class(cls):
+        from djanquiltdb.sessions import SessionStore
+
+        return SessionStore
+
+    class Meta:
+        abstract = True

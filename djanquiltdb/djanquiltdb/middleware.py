@@ -152,3 +152,21 @@ else:
     # noinspection PyAbstractClass
     class BaseUseShardForMiddleware(MiddlewareMixin, BaseUseShardForMiddleware):  # nosec
         pass
+
+
+class UseShardMiddleware(BaseUseShardMiddleware, ExceptionMiddlewareMixin):
+    """
+    Default UseShardMiddleware compatible with djanquiltdb.sessions backend.
+    """
+
+    def get_shard_id(self, request):
+        return getattr(request.session, settings.SHARDING.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector'))
+
+
+class UseShardForMiddleware(BaseUseShardForMiddleware, ExceptionMiddlewareMixin):
+    """
+    Default UseShardForMiddleware compatible with djanquiltdb.sessions backend.
+    """
+
+    def get_mapping_value(self, request):
+        return getattr(request.session, settings.SHARDING.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector'))

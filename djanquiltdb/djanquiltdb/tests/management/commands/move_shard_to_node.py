@@ -462,7 +462,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         self.command.copy_data()
 
-        self.assertEqual(mock_copy_data_stream.call_count, 14)
+        self.assertEqual(mock_copy_data_stream.call_count, 16)  # 8 sharded models * 2 = 16
 
     def test_get_mapped_value(self):
         """

@@ -309,4 +309,15 @@ class Migration(migrations.Migration):
                 ('name', models.CharField(verbose_name='name', max_length=64)),
             ],
         ),
+        migrations.CreateModel(
+            name='QuiltSession',
+            fields=[
+                ('session_key', models.CharField(max_length=255, primary_key=True, serialize=False)),
+                ('session_data', models.TextField()),
+                ('expire_date', models.DateTimeField(db_index=True)),
+            ],
+            options={
+                'abstract': False,
+            },
+        ),
     ]

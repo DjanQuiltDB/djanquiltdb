@@ -50,9 +50,12 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # Make sure all tables and sequences now live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            self.assertCountEqual(
-                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
-            )
+            # Only check sequences for models that have an 'id' column
+            # (some models like QuiltSession use different primary keys)
+            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+                self.assertCountEqual(
+                    connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
+                )
 
         MoveCommand().handle(database='default', target_schema_name='test_target_schema', no_input=True)
 
@@ -66,17 +69,23 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # Sharded models are now moved to the newly created default_shard and the template.
         for model in sharded_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('test_target_schema',), ('template',)])
-            self.assertCountEqual(
-                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)),
-                [('test_target_schema',), ('template',)],
-            )
+            # Only check sequences for models that have an 'id' column
+            # (some models like QuiltSession use different primary keys)
+            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+                self.assertCountEqual(
+                    connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)),
+                    [('test_target_schema',), ('template',)],
+                )
 
         # Mirrored models are unaffected.
         for model in non_sharded_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            self.assertCountEqual(
-                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
-            )
+            # Only check sequences for models that have an 'id' column
+            # (some models like QuiltSession use different primary keys)
+            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+                self.assertCountEqual(
+                    connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
+                )
 
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.validate')
     def test_rollback_on_validation(self, mock_validate):
@@ -102,9 +111,12 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # Make sure all tables and sequences now live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            self.assertCountEqual(
-                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
-            )
+            # Only check sequences for models that have an 'id' column
+            # (some models like QuiltSession use different primary keys)
+            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+                self.assertCountEqual(
+                    connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
+                )
 
         with self.assertRaises(ValidationError):
             MoveCommand().handle(database='default', target_schema_name='test_target_schema', no_input=True)
@@ -118,9 +130,12 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # All tables and sequences should still live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            self.assertCountEqual(
-                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
-            )
+            # Only check sequences for models that have an 'id' column
+            # (some models like QuiltSession use different primary keys)
+            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+                self.assertCountEqual(
+                    connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
+                )
 
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.move_model_to_schema')
     def test_rollback_on_error_during_move(self, mock_move_model_to_schema):
@@ -146,9 +161,12 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # Make sure all tables and sequences now live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            self.assertCountEqual(
-                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
-            )
+            # Only check sequences for models that have an 'id' column
+            # (some models like QuiltSession use different primary keys)
+            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+                self.assertCountEqual(
+                    connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
+                )
 
         with self.assertRaises(ProgrammingError):
             MoveCommand().handle(database='default', target_schema_name='test_target_schema', no_input=True)
@@ -162,9 +180,12 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # All tables and sequences should still live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            self.assertCountEqual(
-                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
-            )
+            # Only check sequences for models that have an 'id' column
+            # (some models like QuiltSession use different primary keys)
+            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+                self.assertCountEqual(
+                    connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
+                )
 
     @mock.patch(
         'djanquiltdb.management.commands.move_sharded_models.create_schema_on_node',
