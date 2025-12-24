@@ -1,5 +1,5 @@
 Decorators
 ==========
 
-.. automodule:: sharding.decorators
+.. automodule:: djanquiltdb.decorators
     :members:

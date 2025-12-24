@@ -15,7 +15,7 @@ It is not supplied as standard by this library for we don't want to add celery a
 
     from celery import shared_task
     from celery.exceptions import MaxRetriesExceededError
-    from sharding.utils import use_shard, StateException
+    from djanquiltdb.utils import use_shard, StateException
 
     from example.models import User
     from example.models import OrganizationShards  # organization->shard mapping model

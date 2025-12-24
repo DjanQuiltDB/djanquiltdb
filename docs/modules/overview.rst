@@ -59,7 +59,7 @@ a location of a PostgreSQL schema with the client data in it.
    :align: center
 
 
-This library introduces a table for shards: `patchman_django_sharding.models.Shard`.
+This library introduces a table for shards: `djanquiltdb.models.Shard`.
 These sharding objects have four attributes: `id, name, node_name, schema_name`. The `id` and `name` are simply for
 convenience. The important fields is the combination of `node_name` and `schema_name`. Together they are unique.
 And you can easily see how these two are used to tell the database where we want to find our data.
@@ -160,7 +160,15 @@ This is mostly transparent, since we are telling Django on what shard we are wor
    :alt: Multi Node
    :align: center
 
-There is only one complication: the public models. Since they probably have to exist on each node. Migrating them to
-all nodes is done by this library. Keeping their contents in sync is not.
-We solve this by PostgreSQL Logical Replication.
-But go for whatever replicating solution you like. Just writing the data to all nodes from python can also work.
+There is only one complication: the mirrored models, since they probably have to exist on each node. Migrating their
+tables to all nodes is done by this library; keeping their contents in sync is not. It is up to you to configure a
+solution that replicates data across multiple nodes.
+
+Our suggested solution is PostgreSQL Logical Replication, but go for whatever replicating solution you like. Just
+writing the data to all nodes from Python (while keeping a lock on all nodes) might also work, but be aware that there
+might be unexpected side effects, for example when relying on auto-incrementing sequences (for ID columns) which won't
+be kept in sync by this method, so you can only do this if you are not relying on any assumptions regarding such
+mechanisms.
+
+In case you want to handle this data writing yourself, refer to `@transaction_for_every_node` and
+`@atomic_write_to_every_node` decorators as a starting point.

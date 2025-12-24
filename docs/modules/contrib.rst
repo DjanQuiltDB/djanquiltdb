@@ -1,8 +1,8 @@
 Contrib packages
 ================
 
-The sharding library comes with some optional packages that can be installed as apps in `INSTALLED_APPS`. The packages
-are to be found in `sharding/contrib`.
+The djanquiltdb library comes with some optional packages that can be installed as apps in `INSTALLED_APPS`. The packages
+are to be found in `djanquiltdb/contrib`.
 
 Authentication
 --------------
@@ -14,10 +14,10 @@ overwrites the `createsuperuser` command. It's important that this package comes
 
     INSTALLED_APPS = (
         ...
-        'sharding.contrib.authentication',
+        'djanquiltdb.contrib.quilt_auth',
         'django.contrib.auth',
         ...
-        'sharding',
+        'djanquiltdb',
         ...
     )
 

@@ -55,7 +55,7 @@ You can try to roll back the failed migration on the damaged node if you want, o
 
 .. image:: migration_flow.svg
    :scale: 100%
-   :alt: Patchman Django Sharding migration flow
+   :alt: DjanQuiltDB migration flow
    :align: center
 
 The error handling is the main reason the ``migrate_shards`` command goes migration by migration. And not run all the
@@ -98,7 +98,7 @@ with a hint to remove the tables from the database.
 
    from django.db import migrations
 
-   from sharding import ShardingMode
+   from djanquiltdb import ShardingMode
 
 
    class Migration(migrations.Migration):

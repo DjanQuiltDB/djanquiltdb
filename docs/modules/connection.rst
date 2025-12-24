@@ -62,7 +62,7 @@ instance, that will be used to determine the node name and schema name which we 
 
 .. code-block:: python
 
-    from sharding.utils import get_shard_class
+    from djanquiltdb.utils import get_shard_class
 
 
     shard = get_shard_class().objects.get(node_name='default', schema_name='foo_schema')
@@ -77,8 +77,8 @@ The most advanced way to get a connection is with ``ShardOptions``, which is als
 
 .. code-block:: python
 
-    from sharding.options import ShardOptions
-    from sharding.utils import get_shard_class
+    from djanquiltdb.options import ShardOptions
+    from djanquiltdb.utils import get_shard_class
 
 
     # Returns a connection to default's public and foo_schema. Equivalent to connections['default|foo_schema']
@@ -110,8 +110,8 @@ schema. All the examples below will run the query in the `foo_schema` (and the `
 
 .. code-block:: python
 
-    from sharding.options import ShardOptions
-    from sharding.utils import get_shard_class
+    from djanquiltdb.options import ShardOptions
+    from djanquiltdb.utils import get_shard_class
 
     Foo.objects.using('default').all()
     Foo.objects.using('default|foo_schema').all()

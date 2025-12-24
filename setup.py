@@ -1,24 +1,23 @@
 import os
 from setuptools import setup, find_packages
-from patchman_django_sharding.sharding import __version__
+from djanquiltdb.djanquiltdb import __version__
 
 # allow setup.py to be run from any path
 os.chdir(os.path.normpath(os.path.join(os.path.abspath(__file__), os.pardir)))
 
 
 test_requirements = [
-    'tox==3.25.0',
+    'tox==4.12.1',
     'pluggy',
     'dj-database-url==2.1.0',
     'django-braces==1.15.0',
     'tblib',
     'filelock',
-    'dataclasses',
     'coverage',
 ]
 
 
-dev_requirements = teamcity_requirements = test_requirements + [
+dev_requirements = test_requirements + [
     'sphinx==1.8.1',
     'Jinja2>=2.3,<2.11',
     'sphinx_rtd_theme==0.4.2',
@@ -28,36 +27,34 @@ dev_requirements = teamcity_requirements = test_requirements + [
 
 # Since we distribute a subpackage, find_packages doesn't work for us.
 setup(
-    name='patchman_django_sharding',
+    name='djanquiltdb',
     version=__version__,
-    license='BSD',
+    license='BSD-3-Clause',
     description='Library to shard a database on the hierarchy\'s top level table.',
-    author='Cloud Linux Software, Inc.; Patchman B.V.',
-    author_email='info@cloudlinux.com; hello@patchman.co',
-    url='https://www.cloudlinux.com',
-    package_dir={'': 'patchman_django_sharding'},
-    packages=find_packages('patchman_django_sharding', exclude=('example*', 'config*', '*test*')),
+    author='DjanQuiltDB Project; Cloud Linux Software, Inc.; Patchman B.V.',
+    author_email='djanquiltdb@portal42.net; info@cloudlinux.com; hello@patchman.co',
+    url='https://www.github.com/DjanQuiltDB/djanquiltdb',
+    package_dir={'': 'djanquiltdb'},
+    packages=find_packages('djanquiltdb', exclude=('example*', 'config*', '*test*')),
     include_package_data=True,
     install_requires=[
-        'django>=3.2,<5.0',
-        'psycopg2-binary==2.9.5',
+        'django>=6.0,<7.0',
+        'psycopg[binary]>=3.0.0',
         'progressbar2',
     ],
     extras_require={
         'test': test_requirements,
         'dev': dev_requirements,
-        'teamcity': teamcity_requirements,
     },
     classifiers=[
         'Development Status :: 5 - Production/Stable ',
         'Environment :: Web Environment',
         'Intended Audience :: Developers',
-        'License :: OSI Approved :: BSD License',
         'Operating System :: OS Independent',
         'Programming Language :: Python',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.11',
+        'Programming Language :: Python :: 3.14',
         'Framework :: Django',
-    ]
+        'Framework :: Django :: 6.0',
+    ],
 )

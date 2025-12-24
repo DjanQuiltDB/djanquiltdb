@@ -55,7 +55,7 @@ If ``model_name`` is set to ``example.Organization``, ``object_value`` is a UUID
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 The default behaviour is to use Django's ``django.contrib.admin.utils.NestedObjects`` collector to collect data, but
 this collector doesn't follow ``on_delete=SET_NULL`` relations. If this option is passed, the
-``sharding.collector.SimpleCollector`` is used which does follow these relations.
+``djanquiltdb.collector.SimpleCollector`` is used which does follow these relations.
 
 ``--verbosity``
 ~~~~~~~~~~~~~~~~~~~~~~~

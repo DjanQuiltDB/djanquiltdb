@@ -1,11 +1,19 @@
-Note: This is an archived snapshot of the project as it was when originally released to the public. It is not actively
-maintained. The currently maintained fork of this can be found at https://github.com/DjanQuiltDB/djanquiltdb.
+DjanQuiltDB - Django Database Sharding
+======================================
 
-patchman-django-sharding
-========================
+**DjanQuiltDB** is an extension to the Django web framework that provides helper functions to split a database based on
+top level hierarchy. It is specifically designed to support horizontal sharding not just within a single database
+cluster, but also across multiple database clusters, thus allowing you to scale database capacity both vertically and
+horizontally as your dataset grows.
 
-**patchman-django-sharding** is an extension to the Django web framework that provides
-helper functions to split a database based on top level hierarchy.
+This library attempts to combine the best of as many worlds as possible. Tenant-specific data is kept in tenant-specific
+PostgreSQL schemas, while data that is tenant-agnostic or shared can be kept in public schemas, so as to deduplicate.
+There are helpers to split data off from one shard to another, to migrate a shard across nodes, to synchronize changes
+across nodes, etc.
+
+As the name suggests, this approach provides an interface to data, that may in reality be scattered across various
+schemas in various database clusters, and presents it as a coherent and easily accessible patchwork of tables, resulting
+in a database resembling a quilt.
 
 Development
 ===========
@@ -14,7 +22,7 @@ To setup your development environment it is important to install the development
 
     pip install -e .[dev]
 
-Next, copy the example secrets file in the ``patchman_django_sharding`` directory and adjust the parameters::
+Next, copy the example secrets file in the ``djanquiltdb`` directory and adjust the parameters::
 
     cp secrets.json.example secrets.json
 
@@ -44,3 +52,9 @@ Documentation
 Documentation can be found in the `/docs` directory. Build the documentation with::
 
     python setup.py build_sphinx
+
+Attribution
+===========
+
+This is an independently maintained fork of the patchman-django-sharding library originally created and maintained by
+Patchman B.V. (2017-2023) and Cloud Linux Software, Inc. (2023-2025).

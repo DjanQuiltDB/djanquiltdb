@@ -4,28 +4,28 @@ Installation
 
 .. _`install`:
 
-Installing patchman-django-sharding
+Installing djanquiltdb
 -----------------------------------
 
 If you want to install stable version, you can do so doing::
 
-    pip install git+ssh://git@github.com/sectigo/patchman-django-sharding.git@stable#egg=patchamn-django-sharding
+    pip install git+ssh://git@github.com/sectigo/djanquiltdb.git@stable#egg=djanquiltdb
 
 If you want to install development version (unstable), you can do so doing::
 
-    pip install git+ssh://git@github.com/sectigo/patchman-django-sharding.git@master#egg=patchamn-django-sharding
+    pip install git+ssh://git@github.com/sectigo/djanquiltdb.git@master#egg=djanquiltdb
 
 Or, if you'd like to install the development version as a git repository (so
 you can ``git pull`` updates, use the ``-e`` flag with ``pip install``, like
 so::
 
-    pip install -e git+ssh://git@github.com/sectigo/patchman-django-sharding.git@master#egg=patchamn-django-sharding
+    pip install -e git+ssh://git@github.com/sectigo/djanquiltdb.git@master#egg=djanquiltdb
 
-Add ``sharding`` to your ``INSTALLED_APPS`` in settings.py::
+Add ``djanquiltdb`` to your ``INSTALLED_APPS`` in settings.py::
 
     INSTALLED_APPS = (
         ...
-        'sharding',
+        'djanquiltdb',
         ...
     )
 
@@ -39,7 +39,7 @@ The sharding application requires you to create custom ``Shard`` model, which in
 
     from django.db import models
 
-    from sharding.models import BaseShard
+    from djanquiltdb.models import BaseShard
 
 
     class Shard(BaseShard):
@@ -95,7 +95,7 @@ the wanted shard from mapping table automatically.
         objects = MappingQuerySet.as_manager()
 
     # myapp.views
-    from sharding.utils import use_shard_for
+    from djanquiltdb.utils import use_shard_for
 
     with use_shard_for(user.organization_id):
         # do things on my shard
@@ -105,10 +105,10 @@ Additionally, you can mirror the mapping model by adding ``@mirrored_model`` to 
 
 NEW_SHARD_NODE
 ~~~~~~~~~~~~~~
-Optionally you can tell Patchman-django-sharding on which node new shards (schemas) will be created. e.g.::
+Optionally you can tell DjanQuiltDB on which node new shards (schemas) will be created. e.g.::
 
-    DATABASES = {'default': name='primary', engine='sharding.postgresql_backend'),
-                 'node_2': name='db_2, engine='sharding.postgresql_backend')}
+    DATABASES = {'default': name='primary', engine='djanquiltdb.postgresql_backend'),
+                 'node_2': name='db_2, engine='djanquiltdb.postgresql_backend')}
 
     SHARDING = {
         'SHARD_CLASS': 'myapp.models.Shard',
@@ -117,15 +117,15 @@ Optionally you can tell Patchman-django-sharding on which node new shards (schem
 
 ROUTER
 ~~~~~~
-Patchman-django-sharding uses a router to send each database transaction to the correct node.
+DjanQuiltDB uses a router to send each database transaction to the correct node.
 It also uses the router to migrate the models to the correct shard when using ``./manage.py migrate_shards``
-So set ``sharding.router.DynamicDbRouter`` as the database_router in the settings. e.g.::
+So set ``djanquiltdb.router.DynamicDbRouter`` as the database_router in the settings. e.g.::
 
-    DATABASE_ROUTERS = ['sharding.router.DynamicDbRouter']
+    DATABASE_ROUTERS = ['djanquiltdb.router.DynamicDbRouter']
 
 STATE_EXCEPTION_MIDDLEWARE
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
-The ``sharding.middleware.StateExceptionMiddleware`` class allows you to deal with exceptions raised by accessing
+The ``djanquiltdb.middleware.StateExceptionMiddleware`` class allows you to deal with exceptions raised by accessing
 unavailable shards. It is not required, but recommended to add it to the middleware settings.
 
 The middleware raises a 503 error when a shard availability error pops up during view processing.
@@ -134,7 +134,7 @@ To do that set ``STATE_EXCEPTION_VIEW`` in the ``SHARDING`` setting to a view of
 
     MIDDLEWARE_CLASSES = (
         (...)
-        'sharding.middleware.StateExceptionMiddleware'
+        'djanquiltdb.middleware.StateExceptionMiddleware'
         (...)
     )
 
@@ -147,7 +147,7 @@ To do that set ``STATE_EXCEPTION_VIEW`` in the ``SHARDING`` setting to a view of
 
 BASE_USE_SHARD_MIDDLEWARE
 ~~~~~~~~~~~~~~~~~~~~~~~~~
-The ``sharding.middleware.BaseUseShardMiddleware`` class extends ``StateExceptionMiddleware`` and adds the option to
+The ``djanquiltdb.middleware.BaseUseShardMiddleware`` class extends ``StateExceptionMiddleware`` and adds the option to
 wrap views in a ``use_shard`` context manager. This prevents the need to take note of sharding in each of your views.
 
 How the middleware determines which shard to use is up to you however. To use the ``UseShardMiddleware`` you have to
@@ -284,8 +284,8 @@ It's value is a connection name of the node which is writable for MIRRORED data.
 
 .. code-block:: python
 
-  DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine='sharding.postgresql_backend'),
-               'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='sharding.postgresql_backend')}
+  DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine='djanquiltdb.postgresql_backend'),
+               'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='djanquiltdb.postgresql_backend')}
 
   SHARDING = {
       'PRIMARY_DB_ALIAS': 'default',
@@ -298,8 +298,8 @@ So we alter 'PRIMARY_DB_ALIAS' to tell that 'other' is now writable.
 
 .. code-block:: python
 
-  DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine='sharding.postgresql_backend'),
-               'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='sharding.postgresql_backend')}
+  DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine='djanquiltdb.postgresql_backend'),
+               'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='djanquiltdb.postgresql_backend')}
 
   SHARDING = {
       'PRIMARY_DB_ALIAS': 'other',
