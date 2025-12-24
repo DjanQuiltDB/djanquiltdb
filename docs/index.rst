@@ -22,6 +22,7 @@ The User Guide
     modules/utils
     modules/connection
     modules/migrations
+    modules/fixtures
     modules/celery
     modules/commands
     modules/contrib

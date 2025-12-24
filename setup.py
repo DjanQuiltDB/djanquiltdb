@@ -16,6 +16,7 @@ test_requirements = [
     'tblib',
     'filelock',
     'coverage',
+    'PyYAML',
 ]
 
 
