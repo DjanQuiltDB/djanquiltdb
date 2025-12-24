@@ -172,7 +172,7 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.CreateModel(
-            name='OrganizationShards',
+            name='OrganizationShard',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('organization_id', models.PositiveSmallIntegerField()),
@@ -260,7 +260,7 @@ class Migration(migrations.Migration):
             field=models.ForeignKey(to=settings.AUTH_USER_MODEL, verbose_name='user', on_delete=models.CASCADE),
         ),
         migrations.AddField(
-            model_name='organizationshards',
+            model_name='organizationshard',
             name='shard',
             field=models.ForeignKey(to='example.Shard', on_delete=models.CASCADE),
         ),

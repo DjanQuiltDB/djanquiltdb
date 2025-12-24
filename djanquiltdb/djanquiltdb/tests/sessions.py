@@ -5,7 +5,7 @@ Basic test to verify sessions are stored in the appropriate shard.
 """
 
 from django.test import override_settings
-from example.models import Organization, OrganizationShards, QuiltSession, Shard
+from example.models import Organization, OrganizationShard, QuiltSession, Shard
 
 from djanquiltdb.sessions import SessionStore
 from djanquiltdb.tests import ShardingTestCase
@@ -15,7 +15,7 @@ from djanquiltdb.utils import State, create_template_schema, use_shard
 @override_settings(
     SHARDING={
         'SHARD_CLASS': 'example.models.Shard',
-        'MAPPING_MODEL': 'example.models.OrganizationShards',
+        'MAPPING_MODEL': 'example.models.OrganizationShard',
     },
     QUILT_SESSIONS={
         'SESSION_MODEL': 'example.models.QuiltSession',
@@ -36,7 +36,7 @@ class SessionStoreShardRoutingTestCase(ShardingTestCase):
         # Create an organization and mapping for use_shard_for to work
         with use_shard(self.shard):
             self.org = Organization.objects.create(name='Test Org')
-        OrganizationShards.objects.create(organization_id=self.org.id, shard=self.shard)
+        OrganizationShard.objects.create(organization_id=self.org.id, shard=self.shard)
 
     def test_session_stored_in_correct_shard(self):
         """

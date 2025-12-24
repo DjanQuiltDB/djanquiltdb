@@ -1,6 +1,6 @@
 from unittest import mock
 
-from example.models import Organization, OrganizationShards, Shard
+from example.models import Organization, OrganizationShard, Shard
 
 from djanquiltdb import State
 from djanquiltdb.db import connection
@@ -172,7 +172,7 @@ class ShardOptionsTestCase(ShardingTestCase):
               is in maintenance.
         Expected: StateException raised
         """
-        OrganizationShards.objects.create(shard=self.shard, state=State.MAINTENANCE, organization_id=1)
+        OrganizationShard.objects.create(shard=self.shard, state=State.MAINTENANCE, organization_id=1)
         with self.assertRaisesMessage(
             StateException, 'Shard {} contains mapping objects that are in maintenance'.format(self.shard)
         ):
@@ -184,11 +184,11 @@ class ShardOptionsTestCase(ShardingTestCase):
               is active and having no mapping models which state is inactive for the current shard.
         Expected: No StateException raised
         """
-        OrganizationShards.objects.create(shard=self.shard, state=State.ACTIVE, organization_id=1)
+        OrganizationShard.objects.create(shard=self.shard, state=State.ACTIVE, organization_id=1)
 
         # Inactive mapping model for a different shard
         shard = Shard.objects.create(alias='test2', schema_name='test_schema2', node_name='default', state=State.ACTIVE)
-        OrganizationShards.objects.create(shard=shard, state=State.MAINTENANCE, organization_id=2)
+        OrganizationShard.objects.create(shard=shard, state=State.MAINTENANCE, organization_id=2)
 
         # No StateException raised
         ShardOptions.from_shard(self.shard, check_active_mapping_values=True)
@@ -379,7 +379,7 @@ class ShardOptionsTestCase(ShardingTestCase):
         """
         with self.shard.use():
             organization = Organization.objects.create(name='Foo')
-            OrganizationShards.objects.create(shard=self.shard, organization_id=organization.id, slug='foo')
+            OrganizationShard.objects.create(shard=self.shard, organization_id=organization.id, slug='foo')
 
         shard_options = ShardOptions(
             node_name=self.shard.node_name,

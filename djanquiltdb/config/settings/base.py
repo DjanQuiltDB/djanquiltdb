@@ -86,7 +86,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 SHARDING = {
     'SHARD_CLASS': 'example.models.Shard',
-    'MAPPING_MODEL': 'example.models.OrganizationShards',
+    'MAPPING_MODEL': 'example.models.OrganizationShard',
     'PRIMARY_DB_ALIAS': 'default',
     'NEW_SHARD_NODE': 'other',
     'OVERRIDE_SHARDING_MODE': {

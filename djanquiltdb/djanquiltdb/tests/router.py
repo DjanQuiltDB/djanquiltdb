@@ -10,7 +10,7 @@ from example.models import (
     DefaultUser,
     MirroredUser,
     Organization,
-    OrganizationShards,
+    OrganizationShard,
     Shard,
     Statement,
     SuperType,
@@ -203,7 +203,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
             mock_get_model_definition.return_value = DummyModelClass
 
-            self.assertEqual(self.router.db_for_read(model=OrganizationShards), 'other')
+            self.assertEqual(self.router.db_for_read(model=OrganizationShard), 'other')
 
         with self.subTest('route_to_primary_db=False'):
 
@@ -212,7 +212,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
             mock_get_model_definition.return_value = DummyModelClass
 
-            self.assertEqual(self.router.db_for_read(model=OrganizationShards), 'default')
+            self.assertEqual(self.router.db_for_read(model=OrganizationShard), 'default')
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     @mock.patch('djanquiltdb.router.get_model_sharding_mode')
@@ -359,20 +359,20 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
             with self.subTest('route_to_primary_db=True'):
                 mock_save_table.reset_mock()
-                obj = OrganizationShards()
+                obj = OrganizationShard()
                 obj.save()
-                self.assert_save_table(mock_save_table, OrganizationShards, 'other', None, options=False)
+                self.assert_save_table(mock_save_table, OrganizationShard, 'other', None, options=False)
 
             with self.subTest('route_to_primary_db=False'):
                 mock_save_table.reset_mock()
-                OrganizationShards.route_to_primary_db = False
+                OrganizationShard.route_to_primary_db = False
 
-                obj = OrganizationShards()
+                obj = OrganizationShard()
                 obj.save()
-                self.assert_save_table(mock_save_table, OrganizationShards, 'default', 'test_other_schema')
+                self.assert_save_table(mock_save_table, OrganizationShard, 'default', 'test_other_schema')
 
                 # cleanup
-                OrganizationShards.route_to_primary_db = True
+                OrganizationShard.route_to_primary_db = True
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     @mock.patch('django.db.models.base.Model._save_table')
@@ -412,20 +412,20 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
         with self.subTest('route_to_primary_db=True'):
             mock_save_table.reset_mock()
-            obj = OrganizationShards()
+            obj = OrganizationShard()
             obj.save()
-            self.assert_save_table(mock_save_table, OrganizationShards, 'other', None, options=False)
+            self.assert_save_table(mock_save_table, OrganizationShard, 'other', None, options=False)
 
         with self.subTest('route_to_primary_db=False'):
             mock_save_table.reset_mock()
-            OrganizationShards.route_to_primary_db = False
+            OrganizationShard.route_to_primary_db = False
 
-            obj = OrganizationShards()
+            obj = OrganizationShard()
             obj.save()
-            self.assert_save_table(mock_save_table, OrganizationShards, 'default', None, options=False)
+            self.assert_save_table(mock_save_table, OrganizationShard, 'default', None, options=False)
 
             # cleanup
-            OrganizationShards.route_to_primary_db = True
+            OrganizationShard.route_to_primary_db = True
 
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     def test_db_for_write_end_to_end(self):
@@ -486,13 +486,13 @@ class DynamicDbRouterTestCase(ShardingTestCase):
                     organization = Organization.objects.create(name='stay')
 
                 with use_shard(node_name='other', schema_name='public'):
-                    OrganizationShards.objects.create(shard=self.test_shard, organization_id=organization.id)
+                    OrganizationShard.objects.create(shard=self.test_shard, organization_id=organization.id)
 
                 with use_shard(node_name='default', schema_name='public'):
-                    self.assertTrue(OrganizationShards.objects.filter(organization_id=organization.id).exists())
+                    self.assertTrue(OrganizationShard.objects.filter(organization_id=organization.id).exists())
 
                 # cleanup
-                OrganizationShards.objects.all().delete()
+                OrganizationShard.objects.all().delete()
 
         with self.subTest('route_to_primary_db=False'):
             # the 'other' database does not even have OrganizationShard as a table.
@@ -501,17 +501,17 @@ class DynamicDbRouterTestCase(ShardingTestCase):
                     organization = Organization.objects.create(name='stay')
 
                 with use_shard(node_name='other', schema_name='public'):
-                    OrganizationShards.route_to_primary_db = False
+                    OrganizationShard.route_to_primary_db = False
                     with self.assertRaisesMessage(
-                        ProgrammingError, 'relation "example_organizationshards" does not exist'
+                        ProgrammingError, 'relation "example_organizationshard" does not exist'
                     ):
-                        OrganizationShards.objects.create(shard=self.test_shard, organization_id=organization.id)
+                        OrganizationShard.objects.create(shard=self.test_shard, organization_id=organization.id)
 
                 with use_shard(node_name='default', schema_name='public'):
-                    self.assertFalse(OrganizationShards.objects.filter(organization_id=organization.id).exists())
+                    self.assertFalse(OrganizationShard.objects.filter(organization_id=organization.id).exists())
 
                 # cleanup
-                OrganizationShards.route_to_primary_db = True
+                OrganizationShard.route_to_primary_db = True
 
     def test_allow_relation(self):
         """
@@ -607,7 +607,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             'example_caketype',
             'example_coatingtype',
             'example_coatingtype_super_type',
-            'example_organizationshards',
+            'example_organizationshard',
             'example_mirroreduser',
             'example_mirroreduser_type',
             'example_defaultuser',
@@ -684,7 +684,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
     @override_settings(
         SHARDING={
             'SHARD_CLASS': 'example.models.Shard',
-            'MAPPING_MODEL': 'example.models.OrganizationShards',
+            'MAPPING_MODEL': 'example.models.OrganizationShard',
             'NEW_SHARD_NODE': 'other',
             'OVERRIDE_SHARDING_MODE': {
                 ('example', 'organization'): ShardingMode.MIRRORED,

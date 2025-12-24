@@ -8,7 +8,7 @@ from django.db.models.signals import post_delete, pre_delete
 from example.models import (
     Cake,
     Organization,
-    OrganizationShards,
+    OrganizationShard,
     Shard,
     Statement,
     Suborganization,
@@ -60,10 +60,10 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
             )
             self.statement_3 = Statement.objects.create(content='Do you see the sun?', user=self.user_3, offset=3)
 
-            self.organization_shard1 = OrganizationShards.objects.create(
+            self.organization_shard1 = OrganizationShard.objects.create(
                 shard=self.source_shard, organization_id=self.organization_1.id, state=State.ACTIVE
             )
-            self.organization_shard2 = OrganizationShards.objects.create(
+            self.organization_shard2 = OrganizationShard.objects.create(
                 shard=self.source_shard, organization_id=self.organization_2.id, state=State.ACTIVE
             )
 
@@ -77,7 +77,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
             self.statement_4 = Statement.objects.create(content='Objection!', user=self.user_4, offset=4)
             self.statement_5 = Statement.objects.create(content='discrepancy', user=self.user_4, offset=5)
 
-            self.organization_shard3 = OrganizationShards.objects.create(
+            self.organization_shard3 = OrganizationShard.objects.create(
                 shard=self.source_shard, organization_id=self.organization_3.id, state=State.ACTIVE
             )
 

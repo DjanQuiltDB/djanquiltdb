@@ -11,7 +11,7 @@ from django.test import override_settings
 from example.models import (
     Cake,
     Organization,
-    OrganizationShards,
+    OrganizationShard,
     Shard,
     Statement,
     Suborganization,
@@ -40,7 +40,7 @@ class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
 
         with use_shard(self.source_shard):
             self.organization = Organization.objects.create(name='Ace')
-            self.organization_shard = OrganizationShards.objects.create(
+            self.organization_shard = OrganizationShard.objects.create(
                 shard=self.source_shard, organization_id=self.organization.id, state=State.ACTIVE
             )
             self.type = Type.objects.create(name='student')
@@ -125,10 +125,10 @@ class MoveDataToShardTestCase(ShardingTestCase):
             )
             self.statement_3 = Statement.objects.create(content='Do you see the sun?', user=self.user_3, offset=3)
 
-            self.organization_shard1 = OrganizationShards.objects.create(
+            self.organization_shard1 = OrganizationShard.objects.create(
                 shard=self.source_shard, organization_id=self.organization_1.id, state=State.ACTIVE
             )
-            self.organization_shard2 = OrganizationShards.objects.create(
+            self.organization_shard2 = OrganizationShard.objects.create(
                 shard=self.source_shard, organization_id=self.organization_2.id, state=State.ACTIVE
             )
 
@@ -142,7 +142,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
             self.statement_4 = Statement.objects.create(content='Objection!', user=self.user_4, offset=4)
             self.statement_5 = Statement.objects.create(content='discrepancy', user=self.user_4, offset=5)
 
-            self.organization_shard3 = OrganizationShards.objects.create(
+            self.organization_shard3 = OrganizationShard.objects.create(
                 shard=self.source_shard, organization_id=self.organization_3.id, state=State.ACTIVE
             )
 
@@ -1057,7 +1057,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_acquire_lock.assert_called_once_with(key='shard_{}'.format(self.source_shard.id), shared=False)
 
     @override_settings(
-        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards', 'SHARD_CLASS': 'example.models.Shard'}
+        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
     )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
     def test_pre_execution_with_mapping(self, mock_acquire_lock):
@@ -1073,7 +1073,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_acquire_lock.assert_called_once_with(key='mapping_{}'.format(self.organization_1.id), shared=False)
 
     @override_settings(
-        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards', 'SHARD_CLASS': 'example.models.Shard'}
+        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
     )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
     def test_pre_execution_with_mapping_multiple_objects(self, mock_acquire_lock):
@@ -1113,7 +1113,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_release_lock.assert_called_once_with(key='shard_{}'.format(self.source_shard.id), shared=False)
 
     @override_settings(
-        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards', 'SHARD_CLASS': 'example.models.Shard'}
+        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
     )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_post_execution_with_mapping(self, mock_release_lock):
@@ -1136,7 +1136,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_release_lock.assert_called_once_with(key='mapping_{}'.format(self.organization_1.id), shared=False)
 
     @override_settings(
-        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards', 'SHARD_CLASS': 'example.models.Shard'}
+        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
     )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_post_execution_with_mapping_multiple_objects(self, mock_release_lock):
@@ -1150,7 +1150,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
             self.organization_2.id: State.ACTIVE,
             self.organization_3.id: State.MAINTENANCE,
         }
-        OrganizationShards.objects.update(state=State.MAINTENANCE)  # Put all mapping models in maintenance
+        OrganizationShard.objects.update(state=State.MAINTENANCE)  # Put all mapping models in maintenance
 
         self.assertEqual(self.organization_shard1.shard, self.source_shard)
         self.assertEqual(self.organization_shard2.shard, self.source_shard)

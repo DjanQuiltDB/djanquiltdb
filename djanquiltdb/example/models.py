@@ -8,7 +8,7 @@ from djanquiltdb import STATES, State
 
 __all__ = [
     'Shard',
-    'OrganizationShards',
+    'OrganizationShard',
     'SuperType',
     'Type',
     'Organization',
@@ -34,7 +34,7 @@ class Shard(BaseShard):
 
 # mapping table
 @shard_mapping_model(mapping_field='organization_id')
-class OrganizationShards(models.Model):
+class OrganizationShard(models.Model):
     shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
     organization_id = models.PositiveSmallIntegerField()
     state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)

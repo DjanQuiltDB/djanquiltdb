@@ -87,7 +87,7 @@ the wanted shard from mapping table automatically.
 
     # myapp.models
     @shard_mapping_model(mapping_field='organization_id')
-    class OrganizationShards(models.Model):
+    class OrganizationShard(models.Model):
         shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
         organization_id = models.PositiveSmallIntegerField(db_index=True)
         state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)

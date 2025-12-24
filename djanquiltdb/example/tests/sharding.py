@@ -3,7 +3,7 @@ from unittest import mock
 from djanquiltdb.tests import ShardingTestCase
 from djanquiltdb.utils import State, create_template_schema, use_shard
 
-from example.models import Organization, OrganizationShards, Shard, Type, User
+from example.models import Organization, OrganizationShard, Shard, Type, User
 
 
 class ShardingExampleTestCase(ShardingTestCase):
@@ -38,8 +38,8 @@ class ShardingExampleTestCase(ShardingTestCase):
                 name='Ackbar', email='itsatrap@alliance.sw', organization=self.org2, type=self.type2
             )
 
-        OrganizationShards.objects.create(organization_id=self.org1.id, shard=self.shard1)
-        OrganizationShards.objects.create(organization_id=self.org2.id, shard=self.shard2)
+        OrganizationShard.objects.create(organization_id=self.org1.id, shard=self.shard1)
+        OrganizationShard.objects.create(organization_id=self.org2.id, shard=self.shard2)
 
     def test_schema_separation(self):
         """
@@ -67,21 +67,21 @@ class MappingQuerySetTestCase(ShardingTestCase):
                 alias='death_star_MK2', schema_name='empire_schema', node_name='default', state=State.MAINTENANCE
             )
 
-        self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1, state=State.ACTIVE)
-        self.org_shard2 = OrganizationShards.objects.create(
+        self.org_shard1 = OrganizationShard.objects.create(organization_id=1, shard=self.shard1, state=State.ACTIVE)
+        self.org_shard2 = OrganizationShard.objects.create(
             organization_id=2, shard=self.shard1, state=State.MAINTENANCE
         )
-        self.org_shard3 = OrganizationShards.objects.create(organization_id=3, shard=self.shard2, state=State.ACTIVE)
+        self.org_shard3 = OrganizationShard.objects.create(organization_id=3, shard=self.shard2, state=State.ACTIVE)
 
     def test_get_shard_for(self):
         """
         Case: Make two entries in the mapping table, and get one using for_target.
         Expected: Only the targeted shard to be returned
         """
-        self.assertEqual(OrganizationShards.objects.for_target(1), self.org_shard1)
+        self.assertEqual(OrganizationShard.objects.for_target(1), self.org_shard1)
 
     def test_active(self):
-        self.assertCountEqual(OrganizationShards.objects.active().all(), [self.org_shard1])
+        self.assertCountEqual(OrganizationShard.objects.active().all(), [self.org_shard1])
 
     def test_in_maintenance(self):
-        self.assertCountEqual(OrganizationShards.objects.in_maintenance().all(), [self.org_shard2, self.org_shard3])
+        self.assertCountEqual(OrganizationShard.objects.in_maintenance().all(), [self.org_shard2, self.org_shard3])

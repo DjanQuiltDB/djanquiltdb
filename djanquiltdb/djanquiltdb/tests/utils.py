@@ -24,7 +24,7 @@ from example.models import (
     CoatingType,
     MirroredUser,
     Organization,
-    OrganizationShards,
+    OrganizationShard,
     QuiltSession,
     Shard,
     Statement,
@@ -121,14 +121,14 @@ class GetMappingClass(SimpleTestCase):
         self.assertIsNone(get_mapping_class())
 
     @override_settings(
-        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards', 'SHARD_CLASS': 'example.models.Shard'}
+        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
     )
     def test_get_mapping_class_set(self):
         """
         Case: Call get_mapping_class while it is set in the settings.
         Expected: The mapping class.
         """
-        self.assertEqual(get_mapping_class(), OrganizationShards)
+        self.assertEqual(get_mapping_class(), OrganizationShard)
 
 
 class SetActiveConnectionTestCase(ResetConnectionTestCaseMixin, SimpleTestCase):
@@ -343,8 +343,8 @@ class UseShardTestCase(ShardingTestCase):
         shard = Shard.objects.create(
             alias='halls_of_justice', schema_name='test_halls_of_justice', node_name='default', state=State.ACTIVE
         )
-        OrganizationShards.objects.create(organization_id=5, shard=shard, state=State.ACTIVE)
-        OrganizationShards.objects.create(organization_id=6, shard=shard, state=State.MAINTENANCE)
+        OrganizationShard.objects.create(organization_id=5, shard=shard, state=State.ACTIVE)
+        OrganizationShard.objects.create(organization_id=6, shard=shard, state=State.MAINTENANCE)
 
         with self.assertRaises(StateException):
             with use_shard(shard, check_active_mapping_values=True):
@@ -377,8 +377,8 @@ class UseShardTestCase(ShardingTestCase):
         shard = Shard.objects.create(
             alias='mudville', schema_name='test_schema_muddied', node_name='default', state=State.ACTIVE
         )
-        OrganizationShards.objects.create(organization_id=5, shard=shard, state=State.ACTIVE)
-        OrganizationShards.objects.create(organization_id=6, shard=shard, state=State.MAINTENANCE)
+        OrganizationShard.objects.create(organization_id=5, shard=shard, state=State.ACTIVE)
+        OrganizationShard.objects.create(organization_id=6, shard=shard, state=State.MAINTENANCE)
         with use_shard(shard):
             pass
 
@@ -480,8 +480,8 @@ class UseShardForTestCase(ShardingTestCase):
                 alias='test_sharding', schema_name='test_schema', node_name='default', state=State.ACTIVE
             )
 
-        self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1, state=State.ACTIVE)
-        self.org_shard2 = OrganizationShards.objects.create(
+        self.org_shard1 = OrganizationShard.objects.create(organization_id=1, shard=self.shard1, state=State.ACTIVE)
+        self.org_shard2 = OrganizationShard.objects.create(
             organization_id=2, shard=self.shard1, state=State.MAINTENANCE
         )
 
@@ -602,7 +602,7 @@ class GetShardForTestCase(ShardingTestCase):
                 alias='test_sharding', schema_name='test_schema', node_name='default', state=State.ACTIVE
             )
 
-        self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1, slug='test_slug')
+        self.org_shard1 = OrganizationShard.objects.create(organization_id=1, shard=self.shard1, slug='test_slug')
 
     def test(self):
         """
