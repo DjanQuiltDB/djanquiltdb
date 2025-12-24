@@ -55,8 +55,8 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'patchman-django-sharding'
-copyright = '{}, Patchman B.V.'.format(datetime.date.today().year)
-author = 'Patchman B.V.'
+copyright = '2023-{}, Cloud Linux Software, Inc.; 2017-2023, Patchman B.V.'.format(datetime.date.today().year)
+author = 'Cloud Linux Software, Inc.; Patchman B.V.'
 
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
@@ -134,7 +134,7 @@ latex_elements = {
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
     (master_doc, '.tex'.format(project), '{} Documentation'.format(project),
-     'Patchman B.V.', 'manual'),
+     'Cloud Linux Software, Inc.; Patchman B.V.', 'manual'),
 ]
 
 

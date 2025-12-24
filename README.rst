@@ -1,3 +1,6 @@
+Note: This is an archived snapshot of the project as it was when originally released to the public. It is not actively
+maintained. The currently maintained fork of this can be found at https://github.com/DjanQuiltDB/djanquiltdb.
+
 patchman-django-sharding
 ========================
 
