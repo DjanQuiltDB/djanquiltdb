@@ -251,8 +251,8 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
         with use_shard(node_name='other', schema_name='public') as env:
             self.assertIsNone(env.connection.get_ps_schema('test_source'))
 
-    @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.copy_expert', side_effect=DatabaseError)
-    def test_failure_on_move(self, mock_copy_expert):
+    @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.copy_data_stream', side_effect=DatabaseError)
+    def test_failure_on_move(self, mock_copy_data_stream):
         """
         Case: Call move_shard_to_node command, and let it fail during move_data.
         Expected: Transaction to be rolled back, no shard is altered, no data moved or lost.
@@ -264,10 +264,10 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
 
         self.assert_nothing_changed()
 
-        self.assertTrue(mock_copy_expert.called)
+        self.assertTrue(mock_copy_data_stream.called)
 
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.retarget_relations', side_effect=ValueError)
-    def test_failure_on_retargeting(self, mock_copy_expert):
+    def test_failure_on_retargeting(self, mock_copy_data_stream):
         """
         Case: Call move_shard_to_node command, and let it fail during relation retargeting.
         Expected: Transaction to be rolled back, no shard is altered, no data moved or lost.
@@ -279,10 +279,10 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
 
         self.assert_nothing_changed()
 
-        self.assertTrue(mock_copy_expert.called)
+        self.assertTrue(mock_copy_data_stream.called)
 
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.reset_sequences', side_effect=DatabaseError)
-    def test_failure_on_sequence_resetting(self, mock_copy_expert):
+    def test_failure_on_sequence_resetting(self, mock_copy_data_stream):
         """
         Case: Call move_shard_to_node command, and let it fail during sequence resetting.
         Expected: Transaction to be rolled back, no shard is altered, no data moved or lost.
@@ -294,7 +294,7 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
 
         self.assert_nothing_changed()
 
-        self.assertTrue(mock_copy_expert.called)
+        self.assertTrue(mock_copy_data_stream.called)
 
 
 class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
@@ -419,11 +419,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.assertEqual(self.command.target_shard_options.node_name, 'other')
         self.assertEqual(self.command.target_shard_options.schema_name, 'test_source')
 
-    @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.copy_expert')
-    def test_copy_data(self, mock_copy_expert):
+    @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.copy_data_stream')
+    def test_copy_data(self, mock_copy_data_stream):
         """
         Case: Call copy_data.
-        Expected: copy_expert to be called twice the number of copied models.
+        Expected: copy_data_stream to be called twice the number of copied models.
         """
         self.command.source_shard = self.source_shard
         self.command.target_node = 'other'
@@ -432,7 +432,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         self.command.copy_data()
 
-        self.assertEqual(mock_copy_expert.call_count, 14)
+        self.assertEqual(mock_copy_data_stream.call_count, 14)
 
     def test_get_mapped_value(self):
         """

@@ -243,7 +243,13 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
                 "{} model is missing a CharField field named 'state'. "
                 "The @shard_mapping_model decorator requires this.".format(cls.__name__))
         else:
-            if not isinstance(state_field, models.CharField) or state_field.choices != STATES:
+            if not isinstance(state_field, models.CharField):
+                raise ImproperlyConfigured("The state field of model '{}' is not a CharField with "
+                                           "sharding.utils.STATES as choices".format(cls.__name__))
+            # Django 6.0+ may store choices differently, so compare the actual values
+            field_choices = list(state_field.choices) if state_field.choices else []
+            expected_choices = list(STATES)
+            if field_choices != expected_choices:
                 raise ImproperlyConfigured("The state field of model '{}' is not a CharField with "
                                            "djanquiltdb.utils.STATES as choices".format(cls.__name__))
 

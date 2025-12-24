@@ -110,8 +110,9 @@ class DynamicDbRouter:
             # This happens when no model_name is given.
             # We only know the sharding_mode when it is overridden in the settings.
             # If we get None from get_sharding_mode, there is nothing we can do with it.
-            raise ProgrammingError('Cannot determine sharding mode for this operation. '
-                                   'Are you sure it is bound to an existing model or has hints? '
+            raise ProgrammingError('Cannot determine sharding mode for this operation '
+                                   f'(app {app_label}{f', model {model_name}' if model_name else ''}). '
+                'Are you sure it is bound to an existing model or has hints? '
                 f'app_label: {app_label}, model_name: {model_name}'
             )
 

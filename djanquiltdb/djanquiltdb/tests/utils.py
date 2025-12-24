@@ -8,7 +8,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import connections, ProgrammingError, InterfaceError, OperationalError, transaction
 from django.db.models.signals import pre_init, post_init, pre_save, post_save, pre_delete, post_delete, pre_migrate, \
     post_migrate
-from django.db.utils import ConnectionDoesNotExist, IntegrityError
+from django.db.utils import ConnectionDoesNotExist, IntegrityError, OperationalError
 from django.test import SimpleTestCase, override_settings
 
 from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement, Suborganization, \
@@ -1343,7 +1343,7 @@ class TransactionForNodesTestCase(OverrideMirroredRoutingMixin, ShardingTransact
         with use_shard(node_name='other', schema_name='public'):
             self.assertEqual(Type.objects.count(), 0)
 
-        with self.assertRaises(InterfaceError):
+        with self.assertRaises(OperationalError):
             with transaction_for_nodes(nodes=['default', 'other']):
                 with use_shard(node_name='default', schema_name='public'):
                     Type.objects.create(name='test_type')  # this is to be rolled back

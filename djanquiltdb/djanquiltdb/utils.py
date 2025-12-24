@@ -618,9 +618,10 @@ def move_model_to_schema(model, node_name, to_schema_name, from_schema_name=PUBL
     """
     with use_shard(node_name=node_name, schema_name=from_schema_name) as env:
         cursor = env.connection.cursor()
-        if cursor.execute(
+        cursor.execute(
                 'SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = %s AND tablename = %s);',
-                [to_schema_name, model._meta.db_table]):
+                [to_schema_name, model._meta.db_table])
+        if cursor.fetchone()[0]:
             raise ProgrammingError("Table '{}' already exists on schema '{}'.".format(model._meta.db_table,
                                                                                       to_schema_name))
         cursor.execute('ALTER TABLE "{}" SET SCHEMA "{}";'.format(model._meta.db_table, to_schema_name))

@@ -182,11 +182,12 @@ class Command(BaseCommand):
             # Export
             io = StringIO()
             with self.source_shard.use(include_public=False, active_only_schemas=False, lock=False) as env:
-                query = env.connection.cursor().mogrify(
+                cursor = env.connection.cursor()
+                query = cursor.mogrify(
                     'COPY (SELECT * FROM "{t}") '  # nosec
                     'TO STDOUT WITH (FORMAT CSV, DELIMITER \';\', HEADER, FORCE_QUOTE *)'.format(  # nosec
                         t=table))
-                self.copy_expert(env.connection.cursor(), query, io)
+                self.copy_data_stream(cursor, query.decode() if isinstance(query, bytes) else query, io)
 
             # Import
             io.seek(0)
@@ -194,9 +195,10 @@ class Command(BaseCommand):
             headers = ', '.join([f'"{h}"' for h in headers])
             io.seek(0)
             with self.target_shard_options.use() as env:
-                self.copy_expert(env.connection.cursor(),
-                                 'COPY "{t}" ({headers}) FROM STDIN WITH (FORMAT CSV, DELIMITER \';\', HEADER)'  # nosec
-                                 .format(t=table, headers=headers), io)
+                cursor = env.connection.cursor()
+                copy_sql = 'COPY "{t}" ({headers}) FROM STDIN WITH (FORMAT CSV, DELIMITER \';\', HEADER)'.format(  # nosec
+                    t=table, headers=headers)
+                self.copy_data_stream(cursor, copy_sql, io)
 
             self.bar_update(bar)
 
@@ -426,8 +428,38 @@ class Command(BaseCommand):
         self.source_shard.save(update_fields=['state', 'node_name'])
 
     @staticmethod
-    def copy_expert(cursor, *args, **kwargs):
+    def copy_data_stream(cursor, sql, file_obj):
         """
-        Make this mockable by giving it a separate function.
+        Copy data using psycopg3's copy() API.
+        For export (TO STDOUT): reads from copy and writes to file_obj
+        For import (FROM STDIN): reads from file_obj and writes to copy
         """
-        cursor.copy_expert(*args, **kwargs)
+        with cursor.copy(sql) as copy:
+            # Check if it's TO STDOUT (export) or FROM STDIN (import)
+            if 'TO STDOUT' in sql.upper():
+                # Export: read from copy and write to file_obj
+                # psycopg3 copy.read() returns bytes or memoryview
+                while True:
+                    data = copy.read()
+                    if not data:
+                        break
+                    # Convert memoryview to bytes if needed
+                    if isinstance(data, memoryview):
+                        data = data.tobytes()
+                    elif not isinstance(data, bytes):
+                        data = bytes(data)
+                    # Check if file_obj is in binary mode
+                    if hasattr(file_obj, 'mode') and 'b' in file_obj.mode:
+                        file_obj.write(data)
+                    else:
+                        file_obj.write(data.decode('utf-8'))
+            else:
+                # Import: read from file_obj and write to copy
+                while True:
+                    data = file_obj.read(8192)  # Read in 8KB blocks
+                    if not data:
+                        break
+                    # Ensure data is bytes
+                    if isinstance(data, str):
+                        data = data.encode('utf-8')
+                    copy.write(data)

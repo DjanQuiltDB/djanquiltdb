@@ -328,8 +328,8 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.organization_1.refresh_from_db(using=self.target_shard)
         self.organization_2.refresh_from_db(using=self.target_shard)
 
-    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_expert', side_effect=DatabaseError)
-    def test_failure_on_move(self, mock_copy_expert):
+    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_data_stream', side_effect=DatabaseError)
+    def test_failure_on_move(self, mock_copy_data_stream):
         """
         Case: Call move_data_to_shard command, and let it fail during move_data.
         Expected: Transaction to be rolled back, no data moved or lost.
@@ -353,10 +353,10 @@ class MoveDataToShardTestCase(ShardingTestCase):
             self.assertFalse(User.objects.all().exists())
             self.assertFalse(Statement.objects.all().exists())
 
-        self.assertTrue(mock_copy_expert.called)
+        self.assertTrue(mock_copy_data_stream.called)
 
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.confirm_data_integrity', return_value=False)
-    def test_failure_on_integrity(self, mock_copy_expert):
+    def test_failure_on_integrity(self, mock_confirm_data_integrity):
         """
         Case: Call move_data_to_shard command, and let it fail during confirm_data_integrity.
         Expected: Transaction to be rolled back, no data moved or lost.
@@ -380,7 +380,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
             self.assertFalse(User.objects.all().exists())
             self.assertFalse(Statement.objects.all().exists())
 
-        self.assertTrue(mock_copy_expert.called)
+        # confirm_data_integrity was mocked to return False, so copy_data_stream wouldn't have been called
+        # The test verifies that data integrity check failed and transaction was rolled back
+        self.assertTrue(mock_confirm_data_integrity.called)
 
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.delete_data', side_effect=DatabaseError)
     def test_failure_on_delete(self, mock_delete_data):
@@ -708,16 +710,16 @@ class MoveDataToShardTestCase(ShardingTestCase):
                                           Suborganization: {self.suborganization}})
 
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.csv.reader')
-    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_expert')
-    def test_move_data(self, mock_copy_expert, mock_csv_reader):
+    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_data_stream')
+    def test_move_data(self, mock_copy_data_stream, mock_csv_reader):
         """
         Case: Call move_data.
-        Expected: copy_expert and copy_from to be called twice for each model (one for export, one for import).
+        Expected: copy_data_stream to be called twice for each model (one for export, one for import).
         """
         self.command.copy_data(pk_set=self.pk_set)
 
         # Since a cursor object is given, we cannot assert the calls specifically.
-        self.assertEqual(mock_copy_expert.call_count, len(self.data) * 2)
+        self.assertEqual(mock_copy_data_stream.call_count, len(self.data) * 2)
         self.assertEqual(mock_csv_reader.call_count, len(self.data.keys()))  # Once for each model
 
     def test_move_data_return_value(self):
@@ -749,18 +751,18 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command._sort', return_value='sorted_file')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.filecmp.cmp', return_value=True)
-    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_expert')
-    def test_validate_data_integrity(self, mock_copy_expert, mock_filecmp, mock_sort):
+    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_data_stream')
+    def test_validate_data_integrity(self, mock_copy_data_stream, mock_filecmp, mock_sort):
         """
         Case: Call validate_data_integrity.
-        Expected: copy_expert to be called for each model for both shards, and compare_files called with file paths.
+        Expected: copy_data_stream to be called for each model for both shards, and compare_files called with file paths.
         """
         self.command.source_shard = self.source_shard
         self.command.target_shard = self.target_shard
         self.assertTrue(self.command.validate_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock(),
                                                              temp_dir=None))
         # Since a cursor object is given, we cannot assert the calls specifically.
-        self.assertEqual(mock_copy_expert.call_count, len(self.data) * 2)
+        self.assertEqual(mock_copy_data_stream.call_count, len(self.data) * 2)
         # We cannot specifically assert the filecmp call, since the given arguments are randomly named temp files
         self.assertEqual(mock_filecmp.call_count, 1)
         self.assertEqual(mock_sort.call_count, 2)
@@ -780,8 +782,8 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command._sort', mock.Mock())
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.filecmp.cmp', mock.Mock())
-    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_expert')
-    def test_data_integrity_file_cleanup(self, mock_copy_expert):
+    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_data_stream')
+    def test_data_integrity_file_cleanup(self, mock_copy_data_stream):
         """
         Case: Call data_integrity, with keep_validation_files=False.
         Expected: The temporary directory to be removed, and so too all the files in it.
@@ -790,16 +792,16 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.command.target_shard = self.target_shard
         self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock(), options={})
 
-        (_, _, temp_file), _ = mock_copy_expert.call_args
+        (_, _, temp_file), _ = mock_copy_data_stream.call_args
 
         self.assertFalse(os.path.isfile(temp_file.name))
         self.assertFalse(os.path.isdir(os.path.dirname(temp_file.name)))
 
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command._sort', mock.Mock())
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.filecmp.cmp', mock.Mock())
-    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_expert')
+    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_data_stream')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.print')
-    def test_data_integrity_file_keep(self, mock_print, mock_copy_expert):
+    def test_data_integrity_file_keep(self, mock_print, mock_copy_data_stream):
         """
         Case: Call data_integrity, with keep_validation_files=True.
         Expected: No temporary directory created, temporary files to remain after conclusion.
@@ -810,7 +812,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock(),
                                             options={'keep_validation_files': True})
 
-        temp_files = set([temp_file for (_, _, temp_file), _ in mock_copy_expert.call_args_list])
+        temp_files = set([temp_file for (_, _, temp_file), _ in mock_copy_data_stream.call_args_list])
 
         # Temp files should still exist
         for temp_file in temp_files:
@@ -824,7 +826,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_print.assert_called_once_with('Validation artifacts can be found in: {}'
                                            .format(os.path.dirname(temp_file.name)))
 
-    def fake_copy_expert(self, _, __, target_file):
+    def fake_copy_data_stream(self, cursor, sql, file_obj):
         """
         Always write the same content to the file, but in a random order.
         """
@@ -832,16 +834,21 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
         lines = list(range(0, 42))
         shuffle(lines)
-        for line in lines:
-            target_file.write('{}\n'.format(line).encode('utf-8'))
+        # Check if file_obj is in binary mode
+        if hasattr(file_obj, 'mode') and 'b' in file_obj.mode:
+            for line in lines:
+                file_obj.write('{}\n'.format(line).encode('utf-8'))
+        else:
+            for line in lines:
+                file_obj.write('{}\n'.format(line))
 
-    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_expert')
-    def test_data_integrity_unsorted(self, mock_copy_expert):
+    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_data_stream')
+    def test_data_integrity_unsorted(self, mock_copy_data_stream):
         """
         Case: Call data_integrity, with an assurance the copy_export produced their contents out of order
         Expected:
         """
-        mock_copy_expert.side_effect = self.fake_copy_expert
+        mock_copy_data_stream.side_effect = self.fake_copy_data_stream
 
         self.command.source_shard = self.source_shard
         self.command.target_shard = self.target_shard

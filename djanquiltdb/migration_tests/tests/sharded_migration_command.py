@@ -1129,12 +1129,13 @@ class UnroutableMigrationTestCase(ShardingTestCase):
 
                 mock.call(
                     '    default|public: migration_tests.0001_run_python - ProgrammingError: Cannot determine '
-                    'sharding mode for this operation . Are you sure it is bound to an existing model or has '
-                      'hints? app_label: migration_tests, model_name: None\n'
-                ),
+                    'sharding mode for this operation (app migration_tests). Are you sure it is bound to an existing '
+                    'model or has hints? app_label: migration_tests, model_name: None\n'),
+
                 mock.call(
                     '    other|public: migration_tests.0001_run_python - ProgrammingError: Cannot determine sharding '
-                    'mode for this operation . Are you sure it is bound to an existing model or has hints? app_label: migration_tests, model_name: None\n')
+                    'mode for this operation (app migration_tests). Are you sure it is bound to an existing model or '
+                    'has hints? app_label: migration_tests, model_name: None\n')
         ], any_order=True)
 
         mock_exit.assert_called_once_with(1)
@@ -1209,11 +1210,11 @@ class SyncDbTestCase(MigrationTestCase):
 
         with mock.patch('djanquiltdb.management.commands.migrate_shards.emit_pre_migrate_signal') as mock_signal:
             call_command('migrate_shards', verbosity=verbosity, run_syncdb=True, interactive=interactive)
-            mock_signal.assert_called_once_with(verbosity, interactive, 'default')
+            mock_signal.assert_called_once_with(verbosity, interactive, 'default', plan=mock.ANY)
 
         with mock.patch('djanquiltdb.management.commands.migrate_shards.emit_pre_migrate_signal') as mock_signal:
             call_command('migrate_shards', verbosity=verbosity, run_syncdb=False, interactive=interactive)
-            mock_signal.assert_called_once_with(verbosity, interactive, 'default')
+            mock_signal.assert_called_once_with(verbosity, interactive, 'default', plan=mock.ANY)
 
 
 class StagesMigrationTestCase(ShardingTestCase):

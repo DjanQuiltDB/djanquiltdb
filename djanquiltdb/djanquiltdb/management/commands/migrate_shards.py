@@ -90,10 +90,10 @@ class Command(MigrateCommand):
         if run_syncdb:
             self.verbosity >= 1 and self.stdout.write(self.style.MIGRATE_HEADING('Synchronizing apps without '
                                                                                  'migrations:'))
-            emit_pre_migrate_signal(self.verbosity, self.interactive, connection.alias)
+            emit_pre_migrate_signal(self.verbosity, self.interactive, connection.alias, plan=plan)
             self._sync_apps(databases, schema_name, executor.loader.unmigrated_apps)
         else:
-            emit_pre_migrate_signal(self.verbosity, self.interactive, connection.alias)
+            emit_pre_migrate_signal(self.verbosity, self.interactive, connection.alias, plan=plan)
 
         # Execute the plan
         self.verbosity >= 1 and self.stdout.write(self.style.MIGRATE_HEADING('Running migrations:'))
@@ -355,3 +355,14 @@ class Command(MigrateCommand):
                         created_models.update(self.sync_apps(env.connection, app_labels) or {})
 
         return created_models
+
+    def get_check_kwargs(self, options):
+        check_kwargs = super().get_check_kwargs(options)
+
+        # The base MigrateCommand thinks that migrations can only occur on 1 database at a time, so it takes the
+        # --database argument and wraps it in a single-item list for databases (plural) to check. We can of course do
+        # multiple databases, and need to convert our "all" alias to actual database aliases.
+        if check_kwargs['databases'] == ['all']:
+            check_kwargs['databases'] = get_all_databases()
+
+        return check_kwargs

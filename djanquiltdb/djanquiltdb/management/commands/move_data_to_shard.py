@@ -232,12 +232,13 @@ class Command(BaseCommand):
             # Export
             io = StringIO()
             with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
-                query = env.connection.cursor().mogrify(
+                cursor = env.connection.cursor()
+                query = cursor.mogrify(
                     'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) '  # nosec
                     'TO STDOUT WITH CSV DELIMITER \';\' HEADER'.format(  # nosec
                         t=model._meta.db_table),
                     [list(pk_set)])
-                self.copy_expert(env.connection.cursor(), query, io)
+                self.copy_data_stream(cursor, query.decode() if isinstance(query, bytes) else query, io)
 
             # Read the csv headers from the output, and save them as a list of field names.
             # We will use this for importing and validation.
@@ -250,9 +251,10 @@ class Command(BaseCommand):
             # Import
             io.seek(0)
             with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
-                self.copy_expert(env.connection.cursor(),
-                                 'COPY "{t}" ({f}) FROM STDIN WITH CSV DELIMITER \';\' HEADER'  # nosec
-                                 .format(t=model._meta.db_table, f=fields), io)
+                cursor = env.connection.cursor()
+                copy_sql = 'COPY "{t}" ({f}) FROM STDIN WITH CSV DELIMITER \';\' HEADER'.format(  # nosec
+                    t=model._meta.db_table, f=fields)
+                self.copy_data_stream(cursor, copy_sql, io)
 
             if not self.quiet:
                 bar.update()
@@ -317,12 +319,14 @@ class Command(BaseCommand):
 
                 # We let the copy functions just append to the output file
                 with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
-                    query = env.connection.cursor().mogrify(query_string, [keys])
-                    self.copy_expert(env.connection.cursor(), query, source_file)
+                    cursor = env.connection.cursor()
+                    query = cursor.mogrify(query_string, [keys])
+                    self.copy_data_stream(cursor, query.decode() if isinstance(query, bytes) else query, source_file)
 
                 with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
-                    query = env.connection.cursor().mogrify(query_string, [keys])
-                    self.copy_expert(env.connection.cursor(), query, target_file)
+                    cursor = env.connection.cursor()
+                    query = cursor.mogrify(query_string, [keys])
+                    self.copy_data_stream(cursor, query.decode() if isinstance(query, bytes) else query, target_file)
 
                 if not self.quiet:
                     bar.update()
@@ -428,8 +432,38 @@ class Command(BaseCommand):
             source_connection.release_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
 
     @staticmethod
-    def copy_expert(cursor, *args, **kwargs):
+    def copy_data_stream(cursor, sql, file_obj):
         """
-        Make this mockable by giving it a separate function.
+        Copy data using psycopg3's copy() API.
+        For export (TO STDOUT): reads from copy and writes to file_obj
+        For import (FROM STDIN): reads from file_obj and writes to copy
         """
-        cursor.copy_expert(*args, **kwargs)
+        with cursor.copy(sql) as copy:
+            # Check if it's TO STDOUT (export) or FROM STDIN (import)
+            if 'TO STDOUT' in sql.upper():
+                # Export: read from copy and write to file_obj
+                # psycopg3 copy.read() returns bytes or memoryview
+                while True:
+                    data = copy.read()
+                    if not data:
+                        break
+                    # Convert memoryview to bytes if needed
+                    if isinstance(data, memoryview):
+                        data = data.tobytes()
+                    elif not isinstance(data, bytes):
+                        data = bytes(data)
+                    # Check if file_obj is in binary mode
+                    if hasattr(file_obj, 'mode') and 'b' in file_obj.mode:
+                        file_obj.write(data)
+                    else:
+                        file_obj.write(data.decode('utf-8'))
+            else:
+                # Import: read from file_obj and write to copy
+                while True:
+                    data = file_obj.read(8192)  # Read in 8KB blocks
+                    if not data:
+                        break
+                    # Ensure data is bytes
+                    if isinstance(data, str):
+                        data = data.encode('utf-8')
+                    copy.write(data)

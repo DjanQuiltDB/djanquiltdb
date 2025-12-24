@@ -19,7 +19,8 @@ from django.db.backends.base.base import NO_DB_ALIAS
 from django.db.backends.postgresql.base import DatabaseWrapper as BaseDatabaseWrapper
 from django.db.utils import DatabaseError, IntegrityError
 from django.utils.module_loading import import_string
-from psycopg2 import InternalError, sql
+from psycopg.errors import InternalError
+from psycopg import sql
 
 from djanquiltdb.postgresql_backend.introspection import DatabaseSchemaIntrospection
 from djanquiltdb.postgresql_backend.utils import CursorDebugWrapper, CursorWrapper
@@ -41,13 +42,23 @@ DECLARE
   parent_table_ TEXT;
   parent_schema_ TEXT;
   parent_column_ TEXT;
+  seq_name TEXT;
+  tbl_name TEXT;
+  max_id_val BIGINT;
 
 BEGIN
+  /* Set search_path to include source_schema and public so information_schema queries work correctly. */
+  /* We need source_schema in search_path so that column_default expressions referencing sequences in source_schema are visible. */
+  EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema) || ',public,pg_catalog';
+
   /* Create all sequences that exist on the source schema on the target schema.  */
   FOR dest_table IN
     SELECT sequence_name::text FROM information_schema.SEQUENCES WHERE sequence_schema = source_schema
   LOOP
-    EXECUTE 'CREATE SEQUENCE ' || dest_schema || '.' || dest_table;
+    EXECUTE 'CREATE SEQUENCE IF NOT EXISTS ' || dest_schema || '.' || dest_table;
+    /* Set sequence value based on source sequence last_value.
+     * After tables are cloned, we'll update sequences to ensure they're higher than any existing IDs.
+     */
     EXECUTE format('SELECT setval(%L, (SELECT last_value FROM %I.%I), (SELECT is_called FROM %I.%I))',
       dest_schema || '.' || dest_table, source_schema, dest_table, source_schema, dest_table);
   END LOOP;
@@ -115,6 +126,40 @@ BEGIN
         REFERENCES ' || parent_schema_ || '.' || parent_table_ || ' (' || parent_column_ || ')
         DEFERRABLE INITIALLY DEFERRED';
     END LOOP;
+  END LOOP;
+
+  /* After cloning all tables, update sequences/identity columns to be higher than any existing IDs.
+   * This prevents ID conflicts when inserting new records after cloning.
+   * Handle both:
+   * - Sequences (older Django versions)
+   * - Identity columns (Django 6.0+)
+   */
+  FOR dest_table IN
+    SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = dest_schema
+  LOOP
+    BEGIN
+      /* Check if table has an id column and get max ID */
+      EXECUTE format('SELECT COALESCE(MAX(id), 0) FROM %I.%I WHERE id IS NOT NULL',
+        dest_schema, dest_table) INTO max_id_val;
+      
+      IF max_id_val > 0 THEN
+        /* Try to get the sequence/identity sequence name */
+        DECLARE
+          seq_name_val TEXT;
+        BEGIN
+          seq_name_val := pg_get_serial_sequence(dest_schema || '.' || dest_table, 'id');
+          IF seq_name_val IS NOT NULL THEN
+            /* Reset sequence/identity to continue from max_id_val + 1 */
+            EXECUTE format('SELECT setval(%L, %s, false)',
+              seq_name_val, max_id_val + 1);
+          END IF;
+        END;
+      END IF;
+    EXCEPTION
+      WHEN OTHERS THEN
+        /* If table doesn't have id column or other error, skip */
+        NULL;
+    END;
   END LOOP;
 END;
 $BODY$
@@ -197,7 +242,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def get_ps_schema(self, schema_name, _cursor=None):
         cursor = _cursor or self.cursor()
-        cursor.execute('SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = %s);',
+        cursor.execute('SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = %s);',
                        [schema_name])
         if cursor.fetchall()[0][0]:
             return schema_name
@@ -217,10 +262,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def get_all_table_sequences(self, schema_name=None, _cursor=None):
         cursor = _cursor or self.cursor()
         schema = schema_name or self.get_schema()
-        cursor.execute(
-            "SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema=%s;",
-            [schema]
-        )
+        cursor.execute("""
+            SELECT cls.relname::text 
+            FROM pg_catalog.pg_sequence seq
+            JOIN pg_catalog.pg_class cls ON seq.seqrelid = cls.oid
+            JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+            WHERE nsp.nspname = %s
+        """, [schema])
         return [x[0] for x in cursor.fetchall()]  # We get a list of single tuples
 
     def truncate_all_tables(self, schema_name=None, _cursor=None):
@@ -234,9 +282,18 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         """
         cursor = _cursor or self.cursor()
         schema = schema_name or self.get_schema()
+        # Get all sequences first, before dropping tables
+        sequences = self.get_all_table_sequences(schema_name=schema)
+        # Drop tables with CASCADE (this will also drop sequences owned by tables)
+        # Use schema-qualified table names to ensure we drop from the correct schema
         for table in self.get_all_table_headers(schema_name=schema):
-            cursor.execute('DROP TABLE "{}" CASCADE'.format(table))
-            cursor.execute('DROP SEQUENCE IF EXISTS "{}_id_seq" CASCADE'.format(table))
+            cursor.execute('DROP TABLE "{schema}"."{table}" CASCADE'.format(
+                schema=schema, table=table))
+        # Drop any remaining sequences that weren't owned by tables
+        # (DROP TABLE CASCADE drops sequences owned by tables, but sequences can exist independently)
+        for sequence in sequences:
+            cursor.execute('DROP SEQUENCE IF EXISTS "{schema}"."{sequence}" CASCADE'.format(
+                schema=schema, sequence=sequence))
 
     def get_schema_for_model(self, model, _cursor=None):
         """
@@ -249,8 +306,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def get_schema_for_sequence(self, sequence_name, _cursor=None):
         cursor = _cursor or self.cursor()
-        cursor.execute('SELECT sequence_schema FROM information_schema.sequences WHERE sequence_name=%s;',
-                       [sequence_name])
+        cursor.execute("""
+            SELECT nspname::text 
+            FROM pg_catalog.pg_sequence seq
+            JOIN pg_catalog.pg_class cls ON seq.seqrelid = cls.oid
+            JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+            WHERE cls.relname = %s
+        """, [sequence_name])
         return cursor.fetchall()
 
     def create_schema(self, schema_name, is_template=False):
@@ -269,7 +331,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         if not self.get_ps_schema(from_schema, cursor):
             raise ValueError("Schema '{}' does not exist on node '{}'.".format(from_schema, self))
         if not self.get_ps_schema(to_schema, cursor):
-            raise ValueError("Schema '{}' does not exist on node '{}'.".format(from_schema, self))
+            raise ValueError("Schema '{}' does not exist on node '{}'.".format(to_schema, self))
 
         self.set_clone_function()
 
@@ -375,20 +437,25 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         if self.alias == NO_DB_ALIAS or self.current_search_paths == search_paths:
             return cursor
 
-        with self._get_cursor(name=name, skip_lock=True) as cursor_for_get_ps_schema:
+        # Use unnamed cursors for schema operations - named cursors require SELECT statements
+        # and cannot execute SET commands like SET search_path
+        with self._get_cursor(name=None, skip_lock=True) as cursor_for_get_ps_schema:
             if self.schema_name != PUBLIC_SCHEMA_NAME \
                     and not self.get_ps_schema(self.schema_name, cursor_for_get_ps_schema):
                 raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
 
-        with self._get_cursor(name=name, skip_lock=True) as cursor_for_search_path:
+        with self._get_cursor(name=None, skip_lock=True) as cursor_for_search_path:
             # In the event that an error already happened in this transaction and we are going
             # to rollback we should just ignore database error when setting the search_path
             # if the next instruction is not a rollback it will just fail also, so
             # we do not have to worry that it's not the good one
             try:
-                sql_ = 'SET search_path = {}'.format(','.join(sql.Identifier(x).string for x in search_paths))
+                identifiers = [sql.Identifier(x) for x in search_paths]
+                sql_ = sql.SQL('SET search_path = {}').format(
+                    sql.SQL(', ').join(identifiers)
+                )
                 cursor_for_search_path.execute(sql_)
-                logger.debug(sql_)
+                logger.debug(str(sql_))
             except (DatabaseError, InternalError):
                 logger.warning('Something went wrong with setting the search path.', exc_info=True)
             else:
@@ -432,9 +499,9 @@ class ShardDatabaseWrapper(DatabaseWrapper):
     that one.
     """
     _PROXY_FIELDS = ('connection', 'settings_dict', 'queries_log', 'force_debug_cursor', 'autocommit',
-                     'in_atomic_block', 'savepoint_state', 'savepoint_ids', 'commit_on_exit', 'needs_rollback',
+                     'in_atomic_block', 'atomic_blocks', 'savepoint_state', 'savepoint_ids', 'commit_on_exit', 'needs_rollback',
                      'close_at', 'closed_in_transaction', 'errors_occurred', '_thread_ident', 'current_search_paths',
-                     'run_on_commit', 'run_commit_hooks_on_set_autocommit_on')
+                     'run_on_commit', 'run_commit_hooks_on_set_autocommit_on', 'rollback_exc', 'health_check_enabled', 'health_check_done')
 
     def __init__(self, main_connection, options):
         self._main_connection = main_connection

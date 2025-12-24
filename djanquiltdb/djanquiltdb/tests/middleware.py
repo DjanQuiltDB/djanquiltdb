@@ -108,7 +108,7 @@ class ExceptionMiddlewareMixinIntegrationTestCase(ShardingTransactionTestCase):
         mock_get_shard_id.return_value = shard.id
 
         with override_settings(SHARDING=sharding_settings):
-            with mock.patch('psycopg2.connect', side_effect=OperationalError):
+            with mock.patch('psycopg.connect', side_effect=OperationalError):
                 # Close the connection. With `connect` being mocked no new connection can be started,
                 # making the node effectively unavailable
                 connection.close()
