@@ -8,10 +8,9 @@ services:
     container_name: djanquiltdb-test
     volumes:
       # Mount the entire project directory for live updates
-      - .:/app
-      # Persist tox cache between runs
-      - tox-cache:/root/.cache/pip
-      - tox-env-cache:/root/.tox
+      - .:/app:z
+      - /app/.ruff_cache
+      - /app/.tox
     environment:
       - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/test_db}
       - DATABASE_URL2=${DATABASE_URL2:-postgresql://postgres:postgres@postgres2:5432/test_db2}
@@ -32,7 +31,7 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=test_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     networks:
@@ -51,7 +50,7 @@ services:
       - POSTGRES_PASSWORD=postgres
       - POSTGRES_DB=test_db2
     ports:
-      - "5433:5432"
+      - "5434:5432"
     volumes:
       - postgres-data2:/var/lib/postgresql/data
     networks:

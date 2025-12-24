@@ -33,7 +33,7 @@ RUN curl https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py && \
 WORKDIR /app
 
 # Copy requirements and setup files first for better caching
-COPY setup.py setup.cfg tox.ini MANIFEST.in .bandit ./
+COPY setup.py setup.cfg tox.ini MANIFEST.in ./
 COPY djanquiltdb ./djanquiltdb
 
 # Install the package in development mode

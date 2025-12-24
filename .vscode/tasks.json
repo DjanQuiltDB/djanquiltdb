@@ -55,55 +55,6 @@
             }
         },
         {
-            "label": "Docker: Run Flake8 Linter",
-            "type": "shell",
-            "command": "docker-compose",
-            "args": [
-                "run",
-                "--rm",
-                "test",
-                "tox",
-                "-e",
-                "flake8"
-            ],
-            "problemMatcher": {
-                "owner": "python",
-                "fileLocation": ["relative", "${workspaceFolder}"],
-                "pattern": {
-                    "regexp": "^(.+):(\\d+):(\\d+):\\s+(\\w+)\\s+(.+)$",
-                    "file": 1,
-                    "line": 2,
-                    "column": 3,
-                    "severity": 4,
-                    "message": 5
-                }
-            },
-            "group": "test",
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared"
-            }
-        },
-        {
-            "label": "Docker: Run Bandit Security Check",
-            "type": "shell",
-            "command": "docker-compose",
-            "args": [
-                "run",
-                "--rm",
-                "test",
-                "tox",
-                "-e",
-                "bandit"
-            ],
-            "problemMatcher": [],
-            "group": "test",
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared"
-            }
-        },
-        {
             "label": "Docker: Run Coverage Report",
             "type": "shell",
             "command": "docker-compose",
