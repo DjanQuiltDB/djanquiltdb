@@ -20,7 +20,6 @@ def admin_shard_context(request):
         'shard_maintenance_mode': False,
         'shard_maintenance_message': None,
     }
-
     # Add maintenance status if available
     if hasattr(request, '_shard_maintenance_mode'):
         context['shard_maintenance_mode'] = request._shard_maintenance_mode

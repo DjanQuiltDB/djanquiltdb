@@ -580,20 +580,6 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
         self.assertTrue(self.router.allow_relation(Organization(), ShardedByDefaultModel()))
 
-    def test_allow_syncdb(self):
-        """
-        Case: Call allow_syncdb on a normal model.
-        Expected: None.
-        """
-        self.assertIsNone(self.router.allow_syncdb())
-
-    def test_allow_syncdb_on_test_model(self):
-        """
-        Case: Call allow_syncdb on a test model.
-        Expected: None.
-        """
-        self.assertFalse(self.router.allow_syncdb(model=DummyShardedModel))
-
     def test_allow_migrate(self):
         """
         Case: Migrate a combination of unsharded, mirrored and

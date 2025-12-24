@@ -78,13 +78,6 @@ class DynamicDbRouter:
         # Do not allow any other combination
         return False
 
-    def allow_syncdb(self, *args, **kwargs):
-        model = kwargs.pop('model', False)
-        if model and getattr(model, 'test_model', False):
-            return False
-
-        return None
-
     def allow_migrate(self, connection_name, app_label, model_name=None, **hints):
         options = ShardOptions.from_alias(connection_name)
         node_name, schema_name = (options.node_name, options.schema_name)
@@ -113,7 +106,7 @@ class DynamicDbRouter:
             # If we get None from get_sharding_mode, there is nothing we can do with it.
             raise ProgrammingError(
                 'Cannot determine sharding mode for this operation '
-                f'(app {app_label}{f', model {model_name}' if model_name else ''}). '
+                f'(app {app_label}{f", model {model_name}" if model_name else ""}). '
                 'Are you sure it is bound to an existing model or has hints? '
                 f'app_label: {app_label}, model_name: {model_name}'
             )

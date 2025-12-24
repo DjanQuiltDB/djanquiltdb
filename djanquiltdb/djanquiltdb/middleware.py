@@ -3,6 +3,7 @@ import logging
 from django.conf import settings
 from django.db import OperationalError
 from django.http import HttpResponse
+from django.utils.deprecation import MiddlewareMixin
 from django.utils.module_loading import import_string
 
 from djanquiltdb.utils import StateException, get_shard_class, use_shard, use_shard_for
@@ -134,24 +135,19 @@ class BaseUseShardForMiddleware(_BaseShardMiddleware):
         shard_context_manager.enable()
 
 
-try:
-    # noinspection PyUnresolvedReferences
-    # https://docs.djangoproject.com/en/1.11/topics/http/middleware/#upgrading-pre-django-1-10-style-middleware
-    from django.utils.deprecation import MiddlewareMixin
-except ImportError:
+# noinspection PyAbstractClass
+class ExceptionMiddlewareMixin(MiddlewareMixin, ExceptionMiddlewareMixin):  # nosec
     pass
-else:
-    # noinspection PyAbstractClass
-    class ExceptionMiddlewareMixin(MiddlewareMixin, ExceptionMiddlewareMixin):  # nosec
-        pass
 
-    # noinspection PyAbstractClass
-    class BaseUseShardMiddleware(MiddlewareMixin, BaseUseShardMiddleware):  # nosec
-        pass
 
-    # noinspection PyAbstractClass
-    class BaseUseShardForMiddleware(MiddlewareMixin, BaseUseShardForMiddleware):  # nosec
-        pass
+# noinspection PyAbstractClass
+class BaseUseShardMiddleware(MiddlewareMixin, BaseUseShardMiddleware):  # nosec
+    pass
+
+
+# noinspection PyAbstractClass
+class BaseUseShardForMiddleware(MiddlewareMixin, BaseUseShardForMiddleware):  # nosec
+    pass
 
 
 class UseShardMiddleware(BaseUseShardMiddleware, ExceptionMiddlewareMixin):

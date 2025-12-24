@@ -32,6 +32,7 @@ class SwitchShardView(View):
     """
     View to handle shard switching from the admin dropdown.
     """
+
     def post(self, request):
         mapping_class = get_mapping_class()
 

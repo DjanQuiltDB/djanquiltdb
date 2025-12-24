@@ -1,5 +1,3 @@
-from __future__ import unicode_literals
-
 from textwrap import indent
 
 from django.core.management.commands.sqlflush import Command as SQLFlushCommand
