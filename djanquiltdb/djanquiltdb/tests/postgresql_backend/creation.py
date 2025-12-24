@@ -3,22 +3,21 @@ from contextlib import contextmanager
 
 from django.db import connections
 from django.db.utils import load_backend
+from example.models import Cake, Shard, SuperType
 
-from example.models import Shard, Cake, SuperType
-from djanquiltdb import State, ShardingMode
+from djanquiltdb import ShardingMode, State
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import override_sharding_setting
-from djanquiltdb.postgresql_backend.base import get_database_creation_class, PUBLIC_SCHEMA_NAME
+from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME, get_database_creation_class
 from djanquiltdb.postgresql_backend.creation import DatabaseCreation, TemplateDatabaseCreation
-from djanquiltdb.tests import ShardingTransactionTestCase, ShardingTestCase
-from djanquiltdb.utils import create_template_schema, use_shard, get_template_name, \
-    get_sharding_mode
+from djanquiltdb.tests import ShardingTestCase, ShardingTransactionTestCase
+from djanquiltdb.utils import create_template_schema, get_sharding_mode, get_template_name, use_shard
 
 
 class DatabaseCreationClassTestCase(ShardingTransactionTestCase):
     @contextmanager
     def new_connection(self, alias):
-        """ Creates a new connection and deletes it afterwards"""
+        """Creates a new connection and deletes it afterwards"""
         db = connections.databases[alias]
         backend = load_backend(db['ENGINE'])
 
@@ -39,8 +38,9 @@ class DatabaseCreationClassTestCase(ShardingTransactionTestCase):
         with self.new_connection('default') as conn:
             self.assertEqual(conn.creation.__class__, DatabaseCreation)
 
-    @override_sharding_setting('DATABASE_CREATION_CLASS',
-                               'djanquiltdb.postgresql_backend.creation.TemplateDatabaseCreation')
+    @override_sharding_setting(
+        'DATABASE_CREATION_CLASS', 'djanquiltdb.postgresql_backend.creation.TemplateDatabaseCreation'
+    )
     def test_database_creation_class_set(self):
         """
         Case: Call get_database_creation_class with having DATABASE_CREATION_CLASS set and then check the connection
@@ -94,8 +94,9 @@ class DatabaseCreationTestCase(ShardingTestCase):
                   does contain instances when there is data on the shard.
         """
         create_template_schema(self.creation.connection.alias)
-        shard = Shard.objects.create(node_name=self.creation.connection.alias, schema_name='test_schema',
-                                     alias='schema', state=State.ACTIVE)
+        shard = Shard.objects.create(
+            node_name=self.creation.connection.alias, schema_name='test_schema', alias='schema', state=State.ACTIVE
+        )
         serialized_contents = json.loads(self.creation.serialize_db_to_string())
 
         self.test_serialized_contents[PUBLIC_SCHEMA_NAME].append(
@@ -107,12 +108,13 @@ class DatabaseCreationTestCase(ShardingTestCase):
                     'alias': shard.alias,
                     'state': shard.state,
                 },
-                'model': 'example.shard'
+                'model': 'example.shard',
             }
         )
 
-        self.assertCountEqual(serialized_contents[PUBLIC_SCHEMA_NAME],
-                              self.test_serialized_contents[PUBLIC_SCHEMA_NAME])
+        self.assertCountEqual(
+            serialized_contents[PUBLIC_SCHEMA_NAME], self.test_serialized_contents[PUBLIC_SCHEMA_NAME]
+        )
         self.assertEqual(serialized_contents[shard.schema_name], [])
 
         # Now create something on the shard
@@ -121,21 +123,25 @@ class DatabaseCreationTestCase(ShardingTestCase):
 
         serialized_contents = json.loads(self.creation.serialize_db_to_string())
 
-        self.assertCountEqual(serialized_contents[PUBLIC_SCHEMA_NAME],
-                              self.test_serialized_contents[PUBLIC_SCHEMA_NAME])  # No changes here
+        self.assertCountEqual(
+            serialized_contents[PUBLIC_SCHEMA_NAME], self.test_serialized_contents[PUBLIC_SCHEMA_NAME]
+        )  # No changes here
 
         # But the shard now has instances that has been serialized
-        self.assertEqual(serialized_contents[shard.schema_name], [
-            {
-                'pk': cake.pk,
-                'fields': {
-                    'name': cake.name,
-                    'type': None,
-                    'coating_type': None,
-                },
-                'model': 'example.cake'
-            }
-        ])
+        self.assertEqual(
+            serialized_contents[shard.schema_name],
+            [
+                {
+                    'pk': cake.pk,
+                    'fields': {
+                        'name': cake.name,
+                        'type': None,
+                        'coating_type': None,
+                    },
+                    'model': 'example.cake',
+                }
+            ],
+        )
 
     def test_serialize_with_inactive_shard(self):
         """
@@ -143,8 +149,9 @@ class DatabaseCreationTestCase(ShardingTestCase):
         Expected: Shard content still serialized.
         """
         create_template_schema(self.creation.connection.alias)
-        shard = Shard.objects.create(node_name=self.creation.connection.alias, schema_name='test_schema',
-                                     alias='schema', state=State.MAINTENANCE)
+        shard = Shard.objects.create(
+            node_name=self.creation.connection.alias, schema_name='test_schema', alias='schema', state=State.MAINTENANCE
+        )
         serialized_contents = json.loads(self.creation.serialize_db_to_string())
 
         self.assertIn(shard.schema_name, serialized_contents)
@@ -156,8 +163,9 @@ class DatabaseCreationTestCase(ShardingTestCase):
         """
         create_template_schema(self.creation.connection.alias)
         template_name = get_template_name()
-        shard = Shard.objects.create(node_name=self.creation.connection.alias, schema_name='test_schema',
-                                     alias='schema', state=State.ACTIVE)
+        shard = Shard.objects.create(
+            node_name=self.creation.connection.alias, schema_name='test_schema', alias='schema', state=State.ACTIVE
+        )
         serialized_contents = {
             shard.schema_name: [
                 {
@@ -165,7 +173,7 @@ class DatabaseCreationTestCase(ShardingTestCase):
                     'fields': {
                         'name': 'Bebinca',
                     },
-                    'model': 'example.cake'
+                    'model': 'example.cake',
                 }
             ],
             template_name: [
@@ -174,7 +182,7 @@ class DatabaseCreationTestCase(ShardingTestCase):
                     'fields': {
                         'name': 'Baumkuchen',
                     },
-                    'model': 'example.cake'
+                    'model': 'example.cake',
                 }
             ],
             PUBLIC_SCHEMA_NAME: [
@@ -183,9 +191,9 @@ class DatabaseCreationTestCase(ShardingTestCase):
                     'fields': {
                         'name': 'Cake',
                     },
-                    'model': 'example.supertype'
+                    'model': 'example.supertype',
                 }
-            ]
+            ],
         }
 
         self.creation.deserialize_db_from_string(json.dumps(serialized_contents))

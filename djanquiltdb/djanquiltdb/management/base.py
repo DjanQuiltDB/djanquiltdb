@@ -2,7 +2,7 @@ from django.core.management import CommandError
 from django.db import DEFAULT_DB_ALIAS, connections
 
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import get_shard_class, get_all_databases, get_template_name
+from djanquiltdb.utils import get_all_databases, get_shard_class, get_template_name
 
 
 def shard_table_exists(node_name=DEFAULT_DB_ALIAS):
@@ -28,8 +28,9 @@ def get_databases_and_schema_from_options(options):
 
     if schema_name and check_shard and schema_name not in ['public', get_template_name()]:
         if not shard_table_exists():
-            raise CommandError('You cannot check whether a shard exists because the public schema does not contain the '
-                               'shard table.')
+            raise CommandError(
+                'You cannot check whether a shard exists because the public schema does not contain the shard table.'
+            )
 
         for database_ in databases:
             if not get_shard_class().objects.filter(schema_name=schema_name, node_name=database_).exists():

@@ -2,10 +2,10 @@ import functools
 import itertools
 from unittest import mock
 
-from django.db import connections, DEFAULT_DB_ALIAS
+from django.db import DEFAULT_DB_ALIAS, connections
 from django.test import TestCase, TransactionTestCase
 
-from djanquiltdb.router import set_active_connection, DynamicDbRouter
+from djanquiltdb.router import DynamicDbRouter, set_active_connection
 
 
 class CleanShardingArtifactsMixin:
@@ -17,7 +17,7 @@ class CleanShardingArtifactsMixin:
         """
         # Can't access instance methods here, so we'll do this in setUp instead
         super()._fixture_setup()
-    
+
     def setUp(self):
         """
         Save the names of the schemas that exist on start of the test case.
@@ -50,6 +50,7 @@ class ResetConnectionTestCaseMixin:
     Makes sure that at the end of each test (and as fallback, at the beginning of each test) the connection is set to
     public.
     """
+
     @classmethod
     def _pre_setup(cls):
         # Django 6.0 calls _pre_setup as a classmethod from setUpClass
@@ -95,10 +96,11 @@ def disable_db_reconnect():
     def outer(func):
         @functools.wraps(func)
         def inner(*args, **kwargs):
-            with mock.patch('django.db.backends.postgresql.base.DatabaseWrapper.is_usable',
-                            return_value=True):
+            with mock.patch('django.db.backends.postgresql.base.DatabaseWrapper.is_usable', return_value=True):
                 return func(*args, **kwargs)
+
         return inner
+
     return outer
 
 
@@ -108,6 +110,7 @@ class OverrideMirroredRoutingMixin:
     nodes in our tests. To accomplish this we override the strict db_for_write function that does the write routing
     with non MIRRORED enforcing db_for_read. This is restored at cleanup.
     """
+
     def reset_router_override(self):
         DynamicDbRouter.db_for_write = self.old_db_for_write
 

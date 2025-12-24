@@ -7,7 +7,7 @@ from django.db import DEFAULT_DB_ALIAS, ProgrammingError
 from djanquiltdb import ShardingMode, public_modes
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import get_model_sharding_mode, get_sharding_mode, get_model_definition
+from djanquiltdb.utils import get_model_definition, get_model_sharding_mode, get_sharding_mode
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,7 @@ class DynamicDbRouter:
     """
     A router that decides what db to read from based on a variable local to the current thread.
     """
+
     def db_for_read(self, model, **hints):
         """
         We normally route to the active connection (usually set by `use_shard`). This is overridden by the state of
@@ -110,8 +111,9 @@ class DynamicDbRouter:
             # This happens when no model_name is given.
             # We only know the sharding_mode when it is overridden in the settings.
             # If we get None from get_sharding_mode, there is nothing we can do with it.
-            raise ProgrammingError('Cannot determine sharding mode for this operation '
-                                   f'(app {app_label}{f', model {model_name}' if model_name else ''}). '
+            raise ProgrammingError(
+                'Cannot determine sharding mode for this operation '
+                f'(app {app_label}{f', model {model_name}' if model_name else ''}). '
                 'Are you sure it is bound to an existing model or has hints? '
                 f'app_label: {app_label}, model_name: {model_name}'
             )

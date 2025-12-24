@@ -2,9 +2,9 @@ from django.conf import settings
 from django.db import DEFAULT_DB_ALIAS
 from django.db.transaction import Atomic
 
-from djanquiltdb.db import connections, connection, DefaultConnectionProxy
+from djanquiltdb.db import DefaultConnectionProxy, connection, connections
 from djanquiltdb.postgresql_backend.base import DatabaseWrapper
-from djanquiltdb.utils import transaction_for_nodes, get_connection_alias
+from djanquiltdb.utils import get_connection_alias, transaction_for_nodes
 
 """
 Both get_connection and atomic are copied from django native functions and altered.

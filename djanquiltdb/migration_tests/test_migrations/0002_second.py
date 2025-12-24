@@ -2,24 +2,18 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ("migration_tests", "0001_initial"),
+        ('migration_tests', '0001_initial'),
     ]
 
     operations = [
-
-        migrations.DeleteModel("Tribble"),
-
-        migrations.RemoveField("Author", "silly_field"),
-
-        migrations.AddField("Author", "rating", models.IntegerField(default=0)),
-
+        migrations.DeleteModel('Tribble'),
+        migrations.RemoveField('Author', 'silly_field'),
+        migrations.AddField('Author', 'rating', models.IntegerField(default=0)),
         migrations.CreateModel(
-            "Book",
+            'Book',
             [
-                ("id", models.AutoField(primary_key=True)),
+                ('id', models.AutoField(primary_key=True)),
             ],
-        )
-
+        ),
     ]

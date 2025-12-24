@@ -7,10 +7,18 @@ import progressbar
 from django.core.management import BaseCommand, CommandError
 from django.db import connections
 
-from djanquiltdb import State, ShardingMode
+from djanquiltdb import ShardingMode, State
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.utils import get_shard_class, get_all_databases, get_mapping_class, get_all_sharded_models, \
-    get_all_public_models, create_schema_on_node, transaction_for_nodes, get_model_sharding_mode
+from djanquiltdb.utils import (
+    create_schema_on_node,
+    get_all_databases,
+    get_all_public_models,
+    get_all_sharded_models,
+    get_mapping_class,
+    get_model_sharding_mode,
+    get_shard_class,
+    transaction_for_nodes,
+)
 
 
 def indent(text, indentation=1):
@@ -27,17 +35,38 @@ gray = functools.partial(color, code='8')
 
 class Command(BaseCommand):
     def add_arguments(self, parser):
-        parser.add_argument('--source-shard-alias', '-n', action='store', dest='source_shard_alias',
-                            help='Name of the shard which will move.', required=True)
-        parser.add_argument('--target-node-alias', '-t', action='store', dest='target_node_alias',
-                            help='Name of the node which will receive the shard.', required=True)
-        parser.add_argument('--batch-size', '-b', action='store', dest='batch_size', type=int,
-                            help='Size of the fetch batches during retargeting. 10k is the default', required=False,
-                            default=10000)
-        parser.add_argument('-q', '--quiet', '--silent', action='store_true', dest='quiet', help='Suppress output.',
-                            default=False)
-        parser.add_argument('--noinput', '--no-input', action='store_true', dest='no_input', help='Skip confirmation.',
-                            default=False)
+        parser.add_argument(
+            '--source-shard-alias',
+            '-n',
+            action='store',
+            dest='source_shard_alias',
+            help='Name of the shard which will move.',
+            required=True,
+        )
+        parser.add_argument(
+            '--target-node-alias',
+            '-t',
+            action='store',
+            dest='target_node_alias',
+            help='Name of the node which will receive the shard.',
+            required=True,
+        )
+        parser.add_argument(
+            '--batch-size',
+            '-b',
+            action='store',
+            dest='batch_size',
+            type=int,
+            help='Size of the fetch batches during retargeting. 10k is the default',
+            required=False,
+            default=10000,
+        )
+        parser.add_argument(
+            '-q', '--quiet', '--silent', action='store_true', dest='quiet', help='Suppress output.', default=False
+        )
+        parser.add_argument(
+            '--noinput', '--no-input', action='store_true', dest='no_input', help='Skip confirmation.', default=False
+        )
 
     def handle(self, *args, **options):
         self.quiet = options['quiet']
@@ -54,10 +83,12 @@ class Command(BaseCommand):
             raise CommandError(f"Batch size must be an int of 1 or higher, not '{self.batch_size}'")
 
         if not self.no_input:
-            confirm = input("This command will move a shard from one node to another. This will start with putting the "
-                            "shard (and if applicable, all mapping objects on it) in maintenance and acquiring an "
-                            "exclusive lock."
-                            "Type 'yes' if you want to continue: ")
+            confirm = input(
+                'This command will move a shard from one node to another. This will start with putting the '
+                'shard (and if applicable, all mapping objects on it) in maintenance and acquiring an '
+                'exclusive lock.'
+                "Type 'yes' if you want to continue: "
+            )
             if confirm != 'yes':
                 return
 
@@ -117,10 +148,10 @@ class Command(BaseCommand):
         mapping_model = get_mapping_class()
 
         if not self.quiet:
-            bar = progressbar.ProgressBar(max_value=progressbar.UnknownLength,
-                                          widgets=[progressbar.RotatingMarker(),
-                                                   ' Acquiring locks; ',
-                                                   progressbar.Timer()])
+            bar = progressbar.ProgressBar(
+                max_value=progressbar.UnknownLength,
+                widgets=[progressbar.RotatingMarker(), ' Acquiring locks; ', progressbar.Timer()],
+            )
 
         if mapping_model:
             for mapping_object in mapping_model.objects.for_shard(self.source_shard).iterator():
@@ -152,12 +183,11 @@ class Command(BaseCommand):
         """
         nodes = list({self.source_shard.node_name, self.target_node})
         with transaction_for_nodes(nodes=nodes):
-            create_schema_on_node(schema_name=self.source_shard.schema_name,
-                                  node_name=self.target_node,
-                                  migrate=True)
+            create_schema_on_node(schema_name=self.source_shard.schema_name, node_name=self.target_node, migrate=True)
 
-            self.target_shard_options = ShardOptions(node_name=self.target_node,
-                                                     schema_name=self.source_shard.schema_name)
+            self.target_shard_options = ShardOptions(
+                node_name=self.target_node, schema_name=self.source_shard.schema_name
+            )
 
             self.copy_data()
             self.retarget_relations()
@@ -170,9 +200,12 @@ class Command(BaseCommand):
         """
         bar = progressbar.ProgressBar(
             max_value=progressbar.UnknownLength,
-            widgets=[progressbar.RotatingMarker(),
-                     ' Moving data from {} to {}; '.format(self.source_shard, self.target_node),
-                     progressbar.Timer()])
+            widgets=[
+                progressbar.RotatingMarker(),
+                ' Moving data from {} to {}; '.format(self.source_shard, self.target_node),
+                progressbar.Timer(),
+            ],
+        )
 
         with self.source_shard.use(include_public=False, active_only_schemas=False, lock=False) as env:
             tables = env.connection.get_all_table_headers()
@@ -185,8 +218,10 @@ class Command(BaseCommand):
                 cursor = env.connection.cursor()
                 query = cursor.mogrify(
                     'COPY (SELECT * FROM "{t}") '  # nosec
-                    'TO STDOUT WITH (FORMAT CSV, DELIMITER \';\', HEADER, FORCE_QUOTE *)'.format(  # nosec
-                        t=table))
+                    "TO STDOUT WITH (FORMAT CSV, DELIMITER ';', HEADER, FORCE_QUOTE *)".format(  # nosec
+                        t=table
+                    )
+                )
                 self.copy_data_stream(cursor, query.decode() if isinstance(query, bytes) else query, io)
 
             # Import
@@ -197,7 +232,8 @@ class Command(BaseCommand):
             with self.target_shard_options.use() as env:
                 cursor = env.connection.cursor()
                 copy_sql = 'COPY "{t}" ({headers}) FROM STDIN WITH (FORMAT CSV, DELIMITER \';\', HEADER)'.format(  # nosec
-                    t=table, headers=headers)
+                    t=table, headers=headers
+                )
                 self.copy_data_stream(cursor, copy_sql, io)
 
             self.bar_update(bar)
@@ -245,8 +281,12 @@ class Command(BaseCommand):
                     source_object.id = None
                     self.print(indent(gray(f'Creating <{source_object._meta.object_name}>{source_object}'), 2))
                     source_object.save(using=self.target_shard_options, force_insert=True)
-                    self.print(indent(gray(f'Saved <{source_object._meta.object_name}>{source_object} to id '
-                                           f'{source_object.id}'), 3))
+                    self.print(
+                        indent(
+                            gray(f'Saved <{source_object._meta.object_name}>{source_object} to id {source_object.id}'),
+                            3,
+                        )
+                    )
 
                     self._check_relations(model, source_object)  # Recurse on the newly copied object.
                     mapped_value = source_object.id
@@ -254,10 +294,16 @@ class Command(BaseCommand):
             else:
                 with self.source_shard.use(active_only_schemas=False, lock=False):
                     source_object = model.objects.get_by_natural_key(*nat_keys_value)
-                raise ValueError('Data "{}.{}: {} - {}" not found for on target shard "{}", and the model does not '
-                                 'allow the data to be copied.'
-                                 .format(model._meta.app_label, model.__name__, nat_keys_value, source_object,
-                                         self.target_shard_options.node_name))
+                raise ValueError(
+                    'Data "{}.{}: {} - {}" not found for on target shard "{}", and the model does not '
+                    'allow the data to be copied.'.format(
+                        model._meta.app_label,
+                        model.__name__,
+                        nat_keys_value,
+                        source_object,
+                        self.target_shard_options.node_name,
+                    )
+                )
 
         return mapped_value
 
@@ -275,22 +321,31 @@ class Command(BaseCommand):
             object_field_value = getattr(object, field_name)
             if not object_field_value:
                 # This field is empty; no need to map it to anything.
-                self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object.id}, '
-                                       f"field '{field_name}' is empty"), 1))
+                self.print(
+                    indent(
+                        gray(f"Retargeting <{object._meta.object_name}>{object.id}, field '{field_name}' is empty"), 1
+                    )
+                )
                 continue
 
             nat_keys_value = self.source_data[related_model].get(object_field_value)
             if not nat_keys_value:
-                raise ValueError(f'No related data found for <{object._meta.object_name}>{object.id}.{field_name}:'
-                                 f' {getattr(object, field_name)} on source shard')
+                raise ValueError(
+                    f'No related data found for <{object._meta.object_name}>{object.id}.{field_name}:'
+                    f' {getattr(object, field_name)} on source shard'
+                )
 
             mapped_value = self.get_mapped_value(related_model, nat_keys_value)
             # If the mapping is the same, this fields does not need to be translated
             if mapped_value == object_field_value:
                 continue
 
-            self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object.id}, field {field_name} to '
-                                   f'{mapped_value}'), 1))
+            self.print(
+                indent(
+                    gray(f'Retargeting <{object._meta.object_name}>{object.id}, field {field_name} to {mapped_value}'),
+                    1,
+                )
+            )
             setattr(object, field_name, mapped_value)
             alter = True
 
@@ -323,14 +378,24 @@ class Command(BaseCommand):
         queries for each, does not scale well.
         """
         # Select models that have a related field to a PUBLIC model
-        sharded_models = [m for m in get_all_sharded_models(include_auto_created=True)
-                          if any(f for f in m._meta.fields
-                                 if f.is_relation
-                                 and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)]
-        public_models = [m for m in get_all_public_models(include_auto_created=True)
-                         if any(f for f in m._meta.fields
-                                if f.is_relation
-                                and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)]
+        sharded_models = [
+            m
+            for m in get_all_sharded_models(include_auto_created=True)
+            if any(
+                f
+                for f in m._meta.fields
+                if f.is_relation and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC
+            )
+        ]
+        public_models = [
+            m
+            for m in get_all_public_models(include_auto_created=True)
+            if any(
+                f
+                for f in m._meta.fields
+                if f.is_relation and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC
+            )
+        ]
 
         self.field_definitions = defaultdict(lambda: defaultdict(dict))
         # <model>: {<field_name>: ('natural_keys': (nat key name 1, name 2), 'related_model': <related model name>)}
@@ -339,36 +404,38 @@ class Command(BaseCommand):
 
         bar = progressbar.ProgressBar(
             max_value=progressbar.UnknownLength,
-            widgets=[progressbar.RotatingMarker(),
-                     ' Retargeting relations;',
-                     progressbar.Timer()])
+            widgets=[progressbar.RotatingMarker(), ' Retargeting relations;', progressbar.Timer()],
+        )
 
         # Build the source_data and target_data dicts. We also do this for public models, as might create new entries
         # that need to relate to other public models as well
         for model in sharded_models + public_models:
             self.field_definitions[model] = {}
-            fields = list(f for f in model._meta.fields if f.is_relation
-                          and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC)
+            fields = list(
+                f
+                for f in model._meta.fields
+                if f.is_relation and get_model_sharding_mode(self.get_related_model(f)) == ShardingMode.PUBLIC
+            )
             for field in fields:
                 related_model = self.get_related_model(field)
                 natural_keys = related_model._meta.unique_together
                 if not natural_keys:
                     raise ValueError('Model {} does not appear to have natural keys!'.format(related_model))
-                self.field_definitions[model][field.attname] = {'natural_keys': natural_keys[0],
-                                                                'related_model': related_model}
+                self.field_definitions[model][field.attname] = {
+                    'natural_keys': natural_keys[0],
+                    'related_model': related_model,
+                }
                 self.source_data[related_model] = {}
                 self.target_data[related_model] = {}
 
             with self.source_shard.use(active_only_schemas=False, lock=False):
                 for rel_model in self.source_data.keys():
-                    data = rel_model.objects.all() \
-                        .values_list('id', *rel_model._meta.unique_together[0])
+                    data = rel_model.objects.all().values_list('id', *rel_model._meta.unique_together[0])
                     self.source_data[rel_model] = {d[0]: d[1:] for d in data}
 
             with self.target_shard_options.use():
                 for rel_model in self.target_data.keys():
-                    data = rel_model.objects.all() \
-                        .values_list('id', *rel_model._meta.unique_together[0])
+                    data = rel_model.objects.all().values_list('id', *rel_model._meta.unique_together[0])
                     self.target_data[rel_model] = {d[1:]: d[0] for d in data}
 
             self.bar_update(bar)
@@ -377,12 +444,15 @@ class Command(BaseCommand):
         for model in sharded_models:
             with self.target_shard_options.use():
                 # Check for all entries that need retargeting
-                current_id = model.objects.order_by("pk")[0].pk  # Lowest id
-                end_id = model.objects.order_by("-pk")[0].pk  # Highest id
+                current_id = model.objects.order_by('pk')[0].pk  # Lowest id
+                end_id = model.objects.order_by('-pk')[0].pk  # Highest id
 
                 while current_id <= end_id:
-                    object_batch = list(model.objects.filter(pk__gte=current_id, pk__lt=current_id+self.batch_size)
-                                        .only(*list(self.field_definitions[model].keys()) + ['pk']))
+                    object_batch = list(
+                        model.objects.filter(pk__gte=current_id, pk__lt=current_id + self.batch_size).only(
+                            *list(self.field_definitions[model].keys()) + ['pk']
+                        )
+                    )
 
                     for obj in object_batch:
                         self._check_relations(model, obj)

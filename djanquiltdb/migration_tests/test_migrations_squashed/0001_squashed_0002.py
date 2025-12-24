@@ -5,31 +5,27 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     replaces = [
-        ("migration_tests", "0001_initial"),
-        ("migration_tests", "0002_second"),
+        ('migration_tests', '0001_initial'),
+        ('migration_tests', '0002_second'),
     ]
 
     operations = [
-
         migrations.CreateModel(
-            "Author",
+            'Author',
             [
-                ("id", models.AutoField(primary_key=True)),
-                ("name", models.CharField(max_length=255)),
-                ("slug", models.SlugField(null=True)),
-                ("age", models.IntegerField(default=0)),
-                ("rating", models.IntegerField(default=0)),
+                ('id', models.AutoField(primary_key=True)),
+                ('name', models.CharField(max_length=255)),
+                ('slug', models.SlugField(null=True)),
+                ('age', models.IntegerField(default=0)),
+                ('rating', models.IntegerField(default=0)),
             ],
         ),
-
         migrations.CreateModel(
-            "Book",
+            'Book',
             [
-                ("id", models.AutoField(primary_key=True)),
-                ("author", models.ForeignKey("migration_tests.Author", null=True, on_delete=models.CASCADE)),
+                ('id', models.AutoField(primary_key=True)),
+                ('author', models.ForeignKey('migration_tests.Author', null=True, on_delete=models.CASCADE)),
             ],
         ),
-
     ]

@@ -1,8 +1,8 @@
 from unittest import mock
 
-from django.test import SimpleTestCase, override_settings, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
-from djanquiltdb.db import connections, connection
+from djanquiltdb.db import connection, connections
 from djanquiltdb.transaction import atomic, get_connection
 from djanquiltdb.utils import use_shard
 
@@ -81,6 +81,7 @@ class AtomicTestCase(SimpleTestCase):
         Case: Call atomic with a function as using argument.
         Expected: atomic calls itself with using=None, and normal behavior resumes.
         """
+
         def some_function():
             pass
 

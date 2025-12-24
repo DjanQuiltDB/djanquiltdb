@@ -6,8 +6,8 @@ from django.conf import settings
 from django.db.backends.postgresql.creation import DatabaseCreation as BaseDatabaseCreation
 
 from djanquiltdb.management.base import shard_table_exists
-from djanquiltdb.utils import use_shard, get_template_name, get_shard_class, create_template_schema
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
+from djanquiltdb.utils import create_template_schema, get_shard_class, get_template_name, use_shard
 
 
 class DatabaseCreation(BaseDatabaseCreation):
@@ -68,7 +68,7 @@ class TemplateDatabaseCreation(DatabaseCreation):
         create_template_schema(
             node_name=self.connection.alias,
             verbosity=max(verbosity - 1, 0),
-            migrate=False  # Will be done in the migrate command
+            migrate=False,  # Will be done in the migrate command
         )
 
         return test_database_name

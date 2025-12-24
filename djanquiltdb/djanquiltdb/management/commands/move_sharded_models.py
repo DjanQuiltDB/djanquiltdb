@@ -3,8 +3,17 @@ from django.core.management import BaseCommand, CommandError
 from django.db import transaction
 
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import use_shard, get_all_databases, move_model_to_schema, State, \
-    create_template_schema, get_shard_class, get_all_sharded_models, get_template_name, create_schema_on_node
+from djanquiltdb.utils import (
+    State,
+    create_schema_on_node,
+    create_template_schema,
+    get_all_databases,
+    get_all_sharded_models,
+    get_shard_class,
+    get_template_name,
+    move_model_to_schema,
+    use_shard,
+)
 
 
 class Command(BaseCommand):
@@ -12,16 +21,28 @@ class Command(BaseCommand):
     This command creates a new schema and moves all sharded tables over from public to that new schema.
     It does so for a single database.
     """
+
     help = 'Move all models marked as sharded from public to a newly made sharded schema.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--database', action='store', dest='database', default='default',
-                            help="Nominates a database to execute the moving of tables. Defaults to 'default'.",
-                            choices=get_all_databases())
-        parser.add_argument('--target-schema-name', action='store', dest='target_schema_name', default='default_shard',
-                            help='Name of the to be created schema which will receive the moved tables.')
-        parser.add_argument('--noinput', '--no-input', action='store_true', dest='no_input', default=False,
-                            help='Skips confirmations.')
+        parser.add_argument(
+            '--database',
+            action='store',
+            dest='database',
+            default='default',
+            help="Nominates a database to execute the moving of tables. Defaults to 'default'.",
+            choices=get_all_databases(),
+        )
+        parser.add_argument(
+            '--target-schema-name',
+            action='store',
+            dest='target_schema_name',
+            default='default_shard',
+            help='Name of the to be created schema which will receive the moved tables.',
+        )
+        parser.add_argument(
+            '--noinput', '--no-input', action='store_true', dest='no_input', default=False, help='Skips confirmations.'
+        )
 
     def handle(self, *args, **options):
         self.no_input = options.get('no_input')
@@ -39,25 +60,28 @@ class Command(BaseCommand):
         create_template_schema(database)
         with transaction.atomic():
             # Create or get target shard
-            self.shard, shard_created = get_shard_class().objects.get_or_create(node_name=database,
-                                                                                schema_name=target_schema_name,
-                                                                                defaults={'alias': target_schema_name})
+            self.shard, shard_created = get_shard_class().objects.get_or_create(
+                node_name=database, schema_name=target_schema_name, defaults={'alias': target_schema_name}
+            )
 
             if not shard_created and not self.no_input:
-                confirm = input("Type 'yes' if you are sure that you want to remove all data of existing shard {}|{} "
-                                "to prepare to receive the tables from public: "
-                                .format(self.shard.node_name, self.shard.schema_name))
+                confirm = input(
+                    "Type 'yes' if you are sure that you want to remove all data of existing shard {}|{} "
+                    'to prepare to receive the tables from public: '.format(
+                        self.shard.node_name, self.shard.schema_name
+                    )
+                )
                 if confirm != 'yes':
                     return
 
             sharded_models = get_all_sharded_models(include_auto_created=True)  # Include many-to-many models
 
             if not self.no_input:
-                confirm = input("Type 'yes' if you are sure if you want to move the following models "
-                                "from {} to {}:\n{}: "
-                                .format(PUBLIC_SCHEMA_NAME,
-                                        target_schema_name,
-                                        [model._meta.db_table for model in sharded_models]))
+                confirm = input(
+                    "Type 'yes' if you are sure if you want to move the following models from {} to {}:\n{}: ".format(
+                        PUBLIC_SCHEMA_NAME, target_schema_name, [model._meta.db_table for model in sharded_models]
+                    )
+                )
                 if confirm != 'yes':
                     return
 
@@ -84,8 +108,12 @@ class Command(BaseCommand):
 
             # Move the tables over
             for model in sharded_models:
-                move_model_to_schema(model=model, node_name='default', from_schema_name=PUBLIC_SCHEMA_NAME,
-                                     to_schema_name=target_shard.schema_name)
+                move_model_to_schema(
+                    model=model,
+                    node_name='default',
+                    from_schema_name=PUBLIC_SCHEMA_NAME,
+                    to_schema_name=target_shard.schema_name,
+                )
 
     def copy_migration_table(self, target_shard):
         """
@@ -96,25 +124,30 @@ class Command(BaseCommand):
         """
         with use_shard(target_shard, include_public=False, lock=False, active_only_schemas=False) as env:
             cursor = env.connection.cursor()
-            
+
             # Create table with same structure (including identity column if present)
-            cursor.execute('CREATE TABLE "{target_schema}"."{table_name}" (LIKE "{source_schema}"."{table_name}" INCLUDING ALL)'.format(
-                target_schema=target_shard.schema_name,
-                source_schema=PUBLIC_SCHEMA_NAME,
-                table_name='django_migrations'
-            ))
-            
+            cursor.execute(
+                'CREATE TABLE "{target_schema}"."{table_name}" (LIKE "{source_schema}"."{table_name}" INCLUDING ALL)'.format(
+                    target_schema=target_shard.schema_name,
+                    source_schema=PUBLIC_SCHEMA_NAME,
+                    table_name='django_migrations',
+                )
+            )
+
             # Copy data
-            cursor.execute('INSERT INTO "{target_schema}"."{table_name}" (SELECT * FROM "{source_schema}"."{table_name}")'.format(
-                target_schema=target_shard.schema_name,
-                source_schema=PUBLIC_SCHEMA_NAME,
-                table_name='django_migrations'
-            ))
-            
+            cursor.execute(
+                'INSERT INTO "{target_schema}"."{table_name}" (SELECT * FROM "{source_schema}"."{table_name}")'.format(
+                    target_schema=target_shard.schema_name,
+                    source_schema=PUBLIC_SCHEMA_NAME,
+                    table_name='django_migrations',
+                )
+            )
+
             # Reset identity sequence to continue from max(id) + 1 to avoid conflicts
             # Django 6.0 uses identity columns (GENERATED BY DEFAULT AS IDENTITY) instead of sequences
             # pg_get_serial_sequence works for both sequences and identity columns
-            cursor.execute("""
+            cursor.execute(
+                """
                 DO $$
                 DECLARE
                     seq_name TEXT;
@@ -126,22 +159,24 @@ class Command(BaseCommand):
                         PERFORM setval(seq_name, max_id_val + 1, false);
                     END IF;
                 END $$;
-            """.format(
-                target_schema=target_shard.schema_name,
-                table_name='django_migrations'
-            ))
+            """.format(target_schema=target_shard.schema_name, table_name='django_migrations')
+            )
 
     def validate(self, target_shard):
         """Validate against template schema"""
 
         template_schema_name = get_template_name()
-        with use_shard(node_name=target_shard.node_name, schema_name=template_schema_name, lock=False,
-                       include_public=False) as env:
+        with use_shard(
+            node_name=target_shard.node_name, schema_name=template_schema_name, lock=False, include_public=False
+        ) as env:
             template_tables = sorted(env.connection.get_all_table_headers())
 
         with use_shard(target_shard, lock=False, active_only_schemas=False, include_public=False) as env:
             target_tables = sorted(env.connection.get_all_table_headers())
 
         if target_tables != template_tables:
-            raise(ValidationError('The following tables are not moved: {}'
-                                  .format(set(template_tables) - set(target_tables))))
+            raise (
+                ValidationError(
+                    'The following tables are not moved: {}'.format(set(template_tables) - set(target_tables))
+                )
+            )

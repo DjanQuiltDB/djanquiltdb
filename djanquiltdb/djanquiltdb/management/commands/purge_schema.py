@@ -3,7 +3,7 @@ from django.db.utils import IntegrityError
 from django.utils import termcolors
 
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.utils import get_shard_class, get_all_databases
+from djanquiltdb.utils import get_all_databases, get_shard_class
 
 
 class Command(BaseCommand):
@@ -22,24 +22,23 @@ class Command(BaseCommand):
             self.style.BOLD = termcolors.make_style(opts=('bold',))
 
     def add_arguments(self, parser):
-        parser.add_argument('--schema-name', '-s',
-                            action='store',
-                            dest='schema_name',
-                            help='Name of the schema to be deleted.')
-        parser.add_argument('--node-alias', '-n',
-                            action='store',
-                            dest='node_alias',
-                            help='alias of the node where the schema resides.')
-        parser.add_argument('-q', '--quiet', '--silent',
-                            action='store_true',
-                            dest='quiet',
-                            help='Suppress output.',
-                            default=False)
-        parser.add_argument('--noinput', '--no-input',
-                            action='store_false',
-                            dest='interactive',
-                            help="Do NOT prompt the user for input of any kind and assume 'yes' on all questions.",
-                            default=True)
+        parser.add_argument(
+            '--schema-name', '-s', action='store', dest='schema_name', help='Name of the schema to be deleted.'
+        )
+        parser.add_argument(
+            '--node-alias', '-n', action='store', dest='node_alias', help='alias of the node where the schema resides.'
+        )
+        parser.add_argument(
+            '-q', '--quiet', '--silent', action='store_true', dest='quiet', help='Suppress output.', default=False
+        )
+        parser.add_argument(
+            '--noinput',
+            '--no-input',
+            action='store_false',
+            dest='interactive',
+            help="Do NOT prompt the user for input of any kind and assume 'yes' on all questions.",
+            default=True,
+        )
 
     def print(self, *args):
         if not self.quiet:
@@ -87,21 +86,24 @@ class Command(BaseCommand):
                 raise error
 
         if get_shard_class().objects.filter(schema_name=schema_name, node_name=node_options.node_name).exists():
-            raise CommandError("schema '{}' on node '{}' is in use! Delete the Shard object using it if you want to "
-                               "remove it."
-                               .format(schema_name, node_options.node_name))
+            raise CommandError(
+                "schema '{}' on node '{}' is in use! Delete the Shard object using it if you want to remove it.".format(
+                    schema_name, node_options.node_name
+                )
+            )
 
         return schema_name
 
     def confirm(self):
         if self.options['interactive']:
-            confirm_msg = \
-                "\nYou have requested to delete schema '{}' from node {}.\nThis " \
-                "will IRREVERSIBLY DESTROY all data that lives on this schema.\n" \
-                "Are you sure you want to do this?\n" \
+            confirm_msg = (
+                "\nYou have requested to delete schema '{}' from node {}.\nThis "
+                'will IRREVERSIBLY DESTROY all data that lives on this schema.\n'
+                'Are you sure you want to do this?\n'
                 "\n\tType 'yes' to continue, or 'no' to cancel: ".format(
                     self.style.BOLD(self.schema_name), self.style.BOLD(self.node)
                 )
+            )
 
             confirm = input(confirm_msg)
 

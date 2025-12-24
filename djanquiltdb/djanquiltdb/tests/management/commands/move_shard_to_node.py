@@ -4,16 +4,34 @@ from unittest.mock import PropertyMock
 
 from django.apps import apps
 from django.conf import settings
-from django.core.management import call_command, CommandError
-from django.db import DatabaseError, models, connections
+from django.core.management import CommandError, call_command
+from django.db import DatabaseError, connections, models
 from django.test import override_settings
+from example.models import (
+    Cake,
+    CakeType,
+    CoatingType,
+    Organization,
+    OrganizationShards,
+    Shard,
+    Statement,
+    Suborganization,
+    SuperType,
+    Type,
+    User,
+)
 
-from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Suborganization, \
-    Cake, CakeType, CoatingType
-from djanquiltdb.options import ShardOptions
-from djanquiltdb.tests import ShardingTestCase, ShardingTransactionTestCase, OverrideMirroredRoutingMixin
-from djanquiltdb.utils import use_shard, create_template_schema, State, use_shard_for, get_shard_for, create_schema_on_node
 from djanquiltdb.management.commands.move_shard_to_node import Command as MoveCommand
+from djanquiltdb.options import ShardOptions
+from djanquiltdb.tests import OverrideMirroredRoutingMixin, ShardingTestCase, ShardingTransactionTestCase
+from djanquiltdb.utils import (
+    State,
+    create_schema_on_node,
+    create_template_schema,
+    get_shard_for,
+    use_shard,
+    use_shard_for,
+)
 
 
 class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):
@@ -28,13 +46,18 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
         self.target_shard_options = ShardOptions(schema_name='test_source', node_name='other')
 
         with use_shard(node_name='default', schema_name='public', override_class_method_use_shard=True):
-            self.source_shard = Shard.objects.create(alias='Curious Village', node_name='default',
-                                                     schema_name='test_source', state=State.ACTIVE)
+            self.source_shard = Shard.objects.create(
+                alias='Curious Village', node_name='default', schema_name='test_source', state=State.ACTIVE
+            )
 
         with use_shard(node_name='other', schema_name='public', override_class_method_use_shard=True):
-            Shard.objects.create(alias='Curious Village', node_name='default',
-                                 schema_name='test_source', state=State.ACTIVE,
-                                 id=self.source_shard.id)
+            Shard.objects.create(
+                alias='Curious Village',
+                node_name='default',
+                schema_name='test_source',
+                state=State.ACTIVE,
+                id=self.source_shard.id,
+            )
 
         with use_shard(self.source_shard):
             self.super = SuperType.objects.create(name='Character')
@@ -57,42 +80,48 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
 
             self.organization_1 = Organization.objects.create(name='Layton inc.')
             self.organization_2 = Organization.objects.create(name='Curious Village')
-            self.suborganization = Suborganization.objects.create(parent=self.organization_1,
-                                                                  child=self.organization_2)
+            self.suborganization = Suborganization.objects.create(parent=self.organization_1, child=self.organization_2)
 
-            self.user_1 = User.objects.create(name='Layton', email='professor@layton.l5',
-                                              organization=self.organization_1, type=self.type_1)
-            self.user_2 = User.objects.create(name='Luke', email='luke@layton.l5',
-                                              organization=self.organization_1, type=self.type_2)
-            self.user_3 = User.objects.create(name='Flora', email='f@reinhold.cap',
-                                              organization=self.organization_2, type=self.type_2)
+            self.user_1 = User.objects.create(
+                name='Layton', email='professor@layton.l5', organization=self.organization_1, type=self.type_1
+            )
+            self.user_2 = User.objects.create(
+                name='Luke', email='luke@layton.l5', organization=self.organization_1, type=self.type_2
+            )
+            self.user_3 = User.objects.create(
+                name='Flora', email='f@reinhold.cap', organization=self.organization_2, type=self.type_2
+            )
 
             self.statement_1 = Statement.objects.create(content="'Luke'!", user=self.user_1, offset=1)
-            self.statement_2 = Statement.objects.create(content='Try to; solve this "puzzle."', user=self.user_1,
-                                                        offset=2)
+            self.statement_2 = Statement.objects.create(
+                content='Try to; solve this "puzzle."', user=self.user_1, offset=2
+            )
             self.statement_3 = Statement.objects.create(content='Do you see the sun?', user=self.user_3, offset=3)
 
-            self.organization_shard1 = OrganizationShards.objects.create(shard=self.source_shard,
-                                                                         organization_id=self.organization_1.id,
-                                                                         state=State.ACTIVE)
-            self.organization_shard2 = OrganizationShards.objects.create(shard=self.source_shard,
-                                                                         organization_id=self.organization_2.id,
-                                                                         state=State.ACTIVE)
+            self.organization_shard1 = OrganizationShards.objects.create(
+                shard=self.source_shard, organization_id=self.organization_1.id, state=State.ACTIVE
+            )
+            self.organization_shard2 = OrganizationShards.objects.create(
+                shard=self.source_shard, organization_id=self.organization_2.id, state=State.ACTIVE
+            )
 
-            self.organization_3 = Organization.objects.create(name='Ace',)
-            self.user_4 = User.objects.create(name='Phoenix Wright', email='p@wright.cap',
-                                              organization=self.organization_3, type=self.type_3)
+            self.organization_3 = Organization.objects.create(
+                name='Ace',
+            )
+            self.user_4 = User.objects.create(
+                name='Phoenix Wright', email='p@wright.cap', organization=self.organization_3, type=self.type_3
+            )
             self.statement_4 = Statement.objects.create(content='Objection!', user=self.user_4, offset=4)
             self.statement_5 = Statement.objects.create(content='discrepancy', user=self.user_4, offset=5)
 
-            self.organization_shard3 = OrganizationShards.objects.create(shard=self.source_shard,
-                                                                         organization_id=self.organization_3.id,
-                                                                         state=State.ACTIVE)
+            self.organization_shard3 = OrganizationShards.objects.create(
+                shard=self.source_shard, organization_id=self.organization_3.id, state=State.ACTIVE
+            )
 
             # Some many-to-many models
-            self.coating_1 = CoatingType.objects.create(hash='a'*32, type=self.cake_type_1)
-            self.coating_2 = CoatingType.objects.create(hash='b'*32, type=self.cake_type_1)
-            self.coating_3 = CoatingType.objects.create(hash='c'*32, type=self.cake_type_2)
+            self.coating_1 = CoatingType.objects.create(hash='a' * 32, type=self.cake_type_1)
+            self.coating_2 = CoatingType.objects.create(hash='b' * 32, type=self.cake_type_1)
+            self.coating_3 = CoatingType.objects.create(hash='c' * 32, type=self.cake_type_2)
 
             self.cake_1 = Cake.objects.create(name='Butter cake', type=self.cake_type_1, coating_type=self.coating_1)
             self.cake_2 = Cake.objects.create(name='Chocolate cake', type=self.cake_type_1, coating_type=self.coating_2)
@@ -119,40 +148,22 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
                 self.organization_2,
                 self.organization_3,
             },
-            Suborganization: {
-                self.suborganization
-            },
-            User: {
-                self.user_1,
-                self.user_2,
-                self.user_3,
-                self.user_4
-            },
-            Statement: {
-                self.statement_1,
-                self.statement_2,
-                self.statement_3,
-                self.statement_4,
-                self.statement_5
-            },
-            self.user_cake_model: {
-                self.user_cake_1,
-                self.user_cake_2,
-                self.user_cake_3,
-                self.user_cake_4
-            }
+            Suborganization: {self.suborganization},
+            User: {self.user_1, self.user_2, self.user_3, self.user_4},
+            Statement: {self.statement_1, self.statement_2, self.statement_3, self.statement_4, self.statement_5},
+            self.user_cake_model: {self.user_cake_1, self.user_cake_2, self.user_cake_3, self.user_cake_4},
         }
 
         self.command = MoveCommand()
         self.command.quiet = True
-        self.command.source_shard = self.source_shard.alias,
+        self.command.source_shard = (self.source_shard.alias,)
 
         self.options = {
             'source_shard_alias': self.source_shard.alias,
             'target_node_alias': 'other',
             'batch_size': 1,
             'no_input': True,
-            'quiet': True
+            'quiet': True,
         }
 
     def format_options_to_args(self, options=None):
@@ -184,8 +195,12 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
         """
         call_command('move_shard_to_node', *self.format_options_to_args())
 
-        with use_shard(node_name='other', schema_name=self.source_shard.schema_name, active_only_schemas=False,
-                       include_public_schema=True):
+        with use_shard(
+            node_name='other',
+            schema_name=self.source_shard.schema_name,
+            active_only_schemas=False,
+            include_public_schema=True,
+        ):
             # Check if all the data that we moved is on the new shard
             for model, instances in self.data.items():
                 self.assertCountEqual(model.objects.all(), instances)
@@ -227,11 +242,15 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
     def assert_nothing_changed(self):
         # Shard object unaltered
         with use_shard(node_name='default', schema_name='public', override_class_method_use_shard=True):
-            self.assertCountEqual(Shard.objects.all().values_list('alias', 'node_name', 'schema_name', 'state'),
-                                  [('Curious Village', 'default', 'test_source', State.ACTIVE)])
+            self.assertCountEqual(
+                Shard.objects.all().values_list('alias', 'node_name', 'schema_name', 'state'),
+                [('Curious Village', 'default', 'test_source', State.ACTIVE)],
+            )
         with use_shard(node_name='other', schema_name='public', override_class_method_use_shard=True):
-            self.assertCountEqual(Shard.objects.all().values_list('alias', 'node_name', 'schema_name', 'state'),
-                                  [('Curious Village', 'default', 'test_source', State.ACTIVE)])
+            self.assertCountEqual(
+                Shard.objects.all().values_list('alias', 'node_name', 'schema_name', 'state'),
+                [('Curious Village', 'default', 'test_source', State.ACTIVE)],
+            )
 
         # Mapping unaltered
         shard = get_shard_for(self.organization_1.id)
@@ -240,18 +259,23 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
 
         # All data still just on the source shard
         with use_shard(self.source_shard):
-            self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2,
-                                                               self.organization_3])
+            self.assertCountEqual(
+                Organization.objects.all(), [self.organization_1, self.organization_2, self.organization_3]
+            )
             self.assertCountEqual(Suborganization.objects.all(), [self.suborganization])
             self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3, self.user_4])
-            self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3,
-                                                            self.statement_4, self.statement_5])
+            self.assertCountEqual(
+                Statement.objects.all(),
+                [self.statement_1, self.statement_2, self.statement_3, self.statement_4, self.statement_5],
+            )
 
         # Target schema not created
         with use_shard(node_name='other', schema_name='public') as env:
             self.assertIsNone(env.connection.get_ps_schema('test_source'))
 
-    @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.copy_data_stream', side_effect=DatabaseError)
+    @mock.patch(
+        'djanquiltdb.management.commands.move_shard_to_node.Command.copy_data_stream', side_effect=DatabaseError
+    )
     def test_failure_on_move(self, mock_copy_data_stream):
         """
         Case: Call move_shard_to_node command, and let it fail during move_data.
@@ -321,8 +345,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.target_shard_options = ShardOptions(schema_name='test_target', node_name='other')
 
         with use_shard(node_name='default', schema_name='public', override_class_method_use_shard=True):
-            self.source_shard = Shard.objects.create(alias='Curious Village', node_name='default',
-                                                     schema_name='test_source', state=State.ACTIVE)
+            self.source_shard = Shard.objects.create(
+                alias='Curious Village', node_name='default', schema_name='test_source', state=State.ACTIVE
+            )
 
         self.command = MoveCommand()
         self.command.quiet = True
@@ -333,7 +358,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             'target_node_alias': 'other',
             'batch_size': 1,
             'no_input': True,
-            'quiet': True
+            'quiet': True,
         }
 
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.get_source_shard', mock.Mock())
@@ -370,8 +395,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.pre_execution')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.move_shard')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.post_execution')
-    def test_handle(self, mock_post_execution, mock_move_shard, mock_pre_execution, mock_get_target_node,
-                    mock_get_source_shard):
+    def test_handle(
+        self, mock_post_execution, mock_move_shard, mock_pre_execution, mock_get_target_node, mock_get_source_shard
+    ):
         """
         Case: Call the handle.
         Expected: All sub-functions to be called with the correct arguments.
@@ -392,8 +418,14 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.copy_data')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.retarget_relations')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.reset_sequences')
-    def test_move_shard(self, mock_reset_sequences, mock_retarget_relations, mock_copy_data,
-                        mock_create_schema_on_node, mock_transaction_for_nodes):
+    def test_move_shard(
+        self,
+        mock_reset_sequences,
+        mock_retarget_relations,
+        mock_copy_data,
+        mock_create_schema_on_node,
+        mock_transaction_for_nodes,
+    ):
         """
         Case: Call move_shard.
         Expected: transaction_for_nodes to be used with the correct node names as argument.
@@ -409,9 +441,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.assertEqual(mock_transaction_for_nodes.call_count, 1)
         self.assertCountEqual(mock_transaction_for_nodes.call_args[1]['nodes'], ['default', 'other'])
 
-        mock_create_schema_on_node.assert_called_once_with(schema_name='test_source',
-                                                           node_name='other',
-                                                           migrate=True)
+        mock_create_schema_on_node.assert_called_once_with(schema_name='test_source', node_name='other', migrate=True)
         mock_copy_data.assert_called_once_with()
         mock_retarget_relations.assert_called_once_with()
         mock_reset_sequences.assert_called_once_with()
@@ -439,6 +469,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         Case: Have some public models that have relations in their natural keys, call get_mapped_value for them.
         Expected: Have their natural keys looked up recursively.
         """
+
         class TopManager(models.Manager):
             def get_by_natural_key(self, name):
                 return self.get(name=name)
@@ -450,7 +481,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
             class Meta:
                 app_label = 'djanquiltdb'
-                unique_together = ('name', )
+                unique_together = ('name',)
 
             def natural_key(self):
                 return self.name
@@ -493,12 +524,8 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         mid = Middle(name='berries', top=top)
         Bottom(name='dough', middle=mid)
 
-        self.command.source_data = {Bottom: {1: ('dough', 2)},
-                                    Middle: {2: ('berries', 3)},
-                                    Top: {3: ('sugar',)}}
-        self.command.target_data = {Bottom: {('dough', 12): 11},
-                                    Middle: {('berries', 13): 12},
-                                    Top: {('sugar', ): 13}}
+        self.command.source_data = {Bottom: {1: ('dough', 2)}, Middle: {2: ('berries', 3)}, Top: {3: ('sugar',)}}
+        self.command.target_data = {Bottom: {('dough', 12): 11}, Middle: {('berries', 13): 12}, Top: {('sugar',): 13}}
 
         self.assertEqual(self.command.get_mapped_value(Bottom, ('dough', 2)), 11)
         self.assertEqual(self.command.get_mapped_value(Middle, ('berries', 3)), 12)
@@ -512,14 +539,16 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
                   _check_relations called on the newly copied object.
                   target_data to be appended with the copied datapoint.
         """
-        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
-                              node_name=self.target_shard_options.node_name,
-                              migrate=True)
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
 
         with use_shard(node_name='default', schema_name='public'):
             CakeType.objects.create(name='lime', id=11)
 
-        self.command.source_data = {CakeType: {11: ('lime', )}}
+        self.command.source_data = {CakeType: {11: ('lime',)}}
         self.command.target_data = {CakeType: {}}
 
         self.command.source_shard = self.source_shard
@@ -529,7 +558,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.assertEqual(CakeType.objects.count(), 0)
 
         # The new CakeType will have an id of 1, since it's the first object on that node.
-        self.assertEqual(self.command.get_mapped_value(CakeType, ('lime', )), 1)
+        self.assertEqual(self.command.get_mapped_value(CakeType, ('lime',)), 1)
 
         with self.target_shard_options.use():
             self.assertEqual(CakeType.objects.count(), 1)
@@ -543,7 +572,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.assertEqual(call_args[1].id, 1)
 
         # Our given target_data is a pointer. The dict is to be altered by get_mapped_value.
-        self.assertCountEqual(self.command.target_data, {CakeType: {('lime', ): 1}})
+        self.assertCountEqual(self.command.target_data, {CakeType: {('lime',): 1}})
 
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command._check_relations')
     def test_get_mapped_value_missing_disallow_copy(self, mock_check_relations):
@@ -551,14 +580,16 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         Case: Call get_mapped_value for the target data that is missing, and a model that forbids copying.
         Expected: ValueError raised. target_data remains unaltered, _check_relations not called.
         """
-        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
-                              node_name=self.target_shard_options.node_name,
-                              migrate=True)
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
 
         with use_shard(node_name='default', schema_name='public'):
             SuperType.objects.create(name='lime', id=11)
 
-        self.command.source_data = {SuperType: {11: ('lime', )}}
+        self.command.source_data = {SuperType: {11: ('lime',)}}
         self.command.target_data = {SuperType: {}}
 
         self.command.source_shard = self.source_shard
@@ -568,10 +599,13 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.assertEqual(SuperType.objects.count(), 0)
 
         # The new SuperType will have an id of 1, since it's the first object on that node.
-        with self.assertRaisesMessage(ValueError, 'Data "example.SuperType: (\'lime\',) - lime" not found for on '
-                                                  'target shard "other", and the model does not allow the data to be '
-                                                  'copied.'):
-            self.assertIsNone(self.command.get_mapped_value(SuperType, ('lime', )))
+        with self.assertRaisesMessage(
+            ValueError,
+            'Data "example.SuperType: (\'lime\',) - lime" not found for on '
+            'target shard "other", and the model does not allow the data to be '
+            'copied.',
+        ):
+            self.assertIsNone(self.command.get_mapped_value(SuperType, ('lime',)))
 
         with self.target_shard_options.use():
             self.assertEqual(SuperType.objects.count(), 0)
@@ -593,9 +627,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         with use_shard(node_name='other', schema_name='public'):
             cake_type = CakeType.objects.create(name='Pantheon', id=1)
             cake_type2 = CakeType.objects.create(name='Monotheism', id=2)
-        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
-                              node_name=self.target_shard_options.node_name,
-                              migrate=True)
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
         with self.source_shard.use():
             cake = Cake.objects.create(name='A very normal deity', type=cake_type, id=1)
 
@@ -605,8 +641,10 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.command.target_shard_options = self.target_shard_options
         self.command.field_definitions = {Cake: {}}
         self.command.field_definitions[Cake]['type_id'] = {'natural_keys': ('name',), 'related_model': CakeType}
-        self.command.field_definitions[Cake]['coating_type_id'] = {'natural_keys': ('type', 'hash'),
-                                                                   'related_model': CoatingType}
+        self.command.field_definitions[Cake]['coating_type_id'] = {
+            'natural_keys': ('type', 'hash'),
+            'related_model': CoatingType,
+        }
         self.command.source_data = {CakeType: {1: ('A very normal deity')}, CoatingType: {}}
         self.command._check_relations(Cake, cake)
 
@@ -622,9 +660,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         """
         self.addCleanup(self.reset_debug)
 
-        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
-                              node_name=self.target_shard_options.node_name,
-                              migrate=True)
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
 
         with use_shard(node_name='default', schema_name='public'):
             cake_type_1 = CakeType.objects.create(name='Vanilla', id=1)
@@ -645,8 +685,10 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.command.target_shard_options = self.target_shard_options
         self.command.field_definitions = {Cake: {}}
         self.command.field_definitions[Cake]['type_id'] = {'natural_keys': ('name',), 'related_model': CakeType}
-        self.command.field_definitions[Cake]['coating_type_id'] = {'natural_keys': ('type', 'hash'),
-                                                                   'related_model': CoatingType}
+        self.command.field_definitions[Cake]['coating_type_id'] = {
+            'natural_keys': ('type', 'hash'),
+            'related_model': CoatingType,
+        }
         self.command.source_data = {CakeType: {1: ('Vanilla',), 2: ('Chocolate',)}, CoatingType: {}}
         self.command.target_data = {CakeType: {('Vanilla',): 10, ('Chocolate',): 2}, CoatingType: {}}
         self.command._check_relations(Cake, cake_1)
@@ -655,12 +697,12 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         # Only the cake where the relation to type_id needs to be retargeted from 1 to 10 is saved.
         queries = [i['sql'] for i in connections['other'].queries]
         self.assertEqual(len(queries), 1)
-        self.assertIn('UPDATE "example_cake" SET "type_id" = 10, "coating_type_id" = NULL WHERE '
-                      '"example_cake"."id" = 1',
-                      queries)
-        self.assertNotIn('UPDATE "example_cake" SET "type_id" = 2, "coating_type_id" = NULL WHERE '
-                         '"example_cake"."id" = 2',
-                         queries)
+        self.assertIn(
+            'UPDATE "example_cake" SET "type_id" = 10, "coating_type_id" = NULL WHERE "example_cake"."id" = 1', queries
+        )
+        self.assertNotIn(
+            'UPDATE "example_cake" SET "type_id" = 2, "coating_type_id" = NULL WHERE "example_cake"."id" = 2', queries
+        )
 
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command._check_relations')
     def test_retarget_relations(self, mock_check_relations):
@@ -669,9 +711,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         Expected: source_data, target_data and field_definitions to be populated,
                   _check_relations called for all objects in public models.
         """
-        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
-                              node_name=self.target_shard_options.node_name,
-                              migrate=True)
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
 
         with use_shard(node_name='default', schema_name='public'):
             super = SuperType.objects.create(name='Concepts', id=1)
@@ -706,9 +750,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         Case: Call retarget_relations for a set of data.
         Expected: Only relations targeting public models to be retargeted.
         """
-        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
-                              node_name=self.target_shard_options.node_name,
-                              migrate=True)
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
 
         with use_shard(node_name='default', schema_name='public'):
             super = SuperType.objects.create(name='Character', id=1)
@@ -732,10 +778,10 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         with self.target_shard_options.use():
             organization_1 = Organization.objects.create(name='Layton inc.')
-            user_1 = User.objects.create(name='Layton', email='professor@layton.l5',
-                                         organization=organization_1, type=type_1)
-            user_2 = User.objects.create(name='Luke', email='luke@layton.l5',
-                                         organization=organization_1, type=type_2)
+            user_1 = User.objects.create(
+                name='Layton', email='professor@layton.l5', organization=organization_1, type=type_1
+            )
+            user_2 = User.objects.create(name='Luke', email='luke@layton.l5', organization=organization_1, type=type_2)
 
             # Some many-to-many models
             cake_1 = Cake.objects.create(name='Butter cake', type=cake_type_1)
@@ -791,9 +837,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         """
         self.addCleanup(self.reset_debug)
 
-        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
-                              node_name=self.target_shard_options.node_name,
-                              migrate=True)
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
 
         with use_shard(node_name='default', schema_name='public'):
             cake_type_1 = CakeType.objects.create(name='Lies', id=1)
@@ -817,18 +865,26 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         #   5<10
         #   10<13
         queries = [i['sql'] for i in connections['other'].queries]
-        self.assertIn('SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
-                      '"example_cake" WHERE ("example_cake"."id" >= 1 AND "example_cake"."id" < 4)',
-                      queries)
-        self.assertIn('SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
-                      '"example_cake" WHERE ("example_cake"."id" >= 4 AND "example_cake"."id" < 7)',
-                      queries)
-        self.assertIn('SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
-                      '"example_cake" WHERE ("example_cake"."id" >= 7 AND "example_cake"."id" < 10)',
-                      queries)
-        self.assertIn('SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
-                      '"example_cake" WHERE ("example_cake"."id" >= 10 AND "example_cake"."id" < 13)',
-                      queries)
+        self.assertIn(
+            'SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
+            '"example_cake" WHERE ("example_cake"."id" >= 1 AND "example_cake"."id" < 4)',
+            queries,
+        )
+        self.assertIn(
+            'SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
+            '"example_cake" WHERE ("example_cake"."id" >= 4 AND "example_cake"."id" < 7)',
+            queries,
+        )
+        self.assertIn(
+            'SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
+            '"example_cake" WHERE ("example_cake"."id" >= 7 AND "example_cake"."id" < 10)',
+            queries,
+        )
+        self.assertIn(
+            'SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
+            '"example_cake" WHERE ("example_cake"."id" >= 10 AND "example_cake"."id" < 13)',
+            queries,
+        )
 
     def test_retarget_relations_system_with_missing_data_allow_copy(self):
         """
@@ -836,9 +892,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
               but is allowed to be copied.
         Expected: Only relations targeting public models to be retargeted, missing data to be copied.
         """
-        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
-                              node_name=self.target_shard_options.node_name,
-                              migrate=True)
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
 
         with use_shard(node_name='default', schema_name='public'):
             super = SuperType.objects.create(name='Character', id=1)
@@ -856,8 +914,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         with self.target_shard_options.use():
             organization_1 = Organization.objects.create(name='Layton inc.')
-            user_1 = User.objects.create(name='Layton', email='professor@layton.l5',
-                                         organization=organization_1, type=type_1)
+            user_1 = User.objects.create(
+                name='Layton', email='professor@layton.l5', organization=organization_1, type=type_1
+            )
 
             # Some many-to-many models
             cake_1 = Cake.objects.create(name='Butter cake', type=cake_type_1)
@@ -915,9 +974,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             coating_type = CoatingType.objects.create(hash='a' * 32, type=cake_type_s, id=1)
             cake = Cake.objects.create(name='syrup cake', coating_type=coating_type, id=1)
 
-        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
-                              node_name=self.target_shard_options.node_name,
-                              migrate=True)
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
         with use_shard(node_name=self.target_shard_options.node_name, schema_name='public'):
             cake_type_t = CakeType.objects.create(name='delicious', id=2)
             # Missing CoatingType aaaaaaaaaaaaa
@@ -967,9 +1028,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             coating_type = CoatingType.objects.create(hash='a' * 32, type=cake_type_s, id=1)
             cake = Cake.objects.create(name='syrup cake', coating_type=coating_type, id=1)
 
-        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
-                              node_name=self.target_shard_options.node_name,
-                              migrate=True)
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
         with use_shard(node_name=self.target_shard_options.node_name, schema_name='public') as env:
             # We create nothing relevant on the target node, for it is missing all the public data needed.
             # But we do make a random CakeType so that the copied over objects will get a different id.
@@ -1008,15 +1071,18 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         Case: Call retarget_relations for a data set while a model lacks natural keys.
         Expected: Value error raised.
         """
+
         def restore_cake_type(cake_type_unique_together, cake_type_natural_key):
             CakeType._meta.unique_together = cake_type_unique_together
             CakeType.natural_key = cake_type_natural_key
 
         self.addCleanup(restore_cake_type, CakeType._meta.unique_together, CakeType.natural_key)
 
-        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
-                              node_name=self.target_shard_options.node_name,
-                              migrate=True)
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
 
         with use_shard(node_name='default', schema_name='public'):
             CakeType.objects.create(name='Gone', id=1)
@@ -1032,8 +1098,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         self.command.source_shard = self.source_shard
         self.command.target_shard_options = self.target_shard_options
-        with self.assertRaisesMessage(ValueError, "Model <class 'example.models.CakeType'> does not appear to have "
-                                                  "natural keys!"):
+        with self.assertRaisesMessage(
+            ValueError, "Model <class 'example.models.CakeType'> does not appear to have natural keys!"
+        ):
             self.command.retarget_relations()
 
         # Remove cake so cleanup goes without issues
@@ -1045,9 +1112,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         Case: Call retarget_relations for a data set where some source data is missing.
         Expected: Value error raised.
         """
-        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
-                              node_name=self.target_shard_options.node_name,
-                              migrate=True)
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
 
         with use_shard(node_name='default', schema_name='public'):
             CakeType.objects.create(name='Gone', id=1)
@@ -1064,8 +1133,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         self.command.source_shard = self.source_shard
         self.command.target_shard_options = self.target_shard_options
-        with self.assertRaisesMessage(ValueError,
-                                      f'No related data found for <Cake>{cake.id}.type_id: 1 on source shard'):
+        with self.assertRaisesMessage(
+            ValueError, f'No related data found for <Cake>{cake.id}.type_id: 1 on source shard'
+        ):
             self.command.retarget_relations()
 
         # Remove cake so cleanup goes without issues
@@ -1077,9 +1147,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         Case: Call retarget_relations for a data set where some target data is missing, and not allowed to be copied.
         Expected: Value error raised.
         """
-        create_schema_on_node(schema_name=self.target_shard_options.schema_name,
-                              node_name=self.target_shard_options.node_name,
-                              migrate=True)
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
 
         with use_shard(node_name='default', schema_name='public'):
             CakeType.objects.create(name='Gone', id=1)
@@ -1105,8 +1177,10 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             Cake.objects.all().delete(force=True)
 
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.reset_sequence')
-    @mock.patch('djanquiltdb.management.commands.move_shard_to_node.get_all_sharded_models',
-                return_value=['app', 'noot', 'mies'])
+    @mock.patch(
+        'djanquiltdb.management.commands.move_shard_to_node.get_all_sharded_models',
+        return_value=['app', 'noot', 'mies'],
+    )
     def test_reset_sequences(self, mock_get_all_models, mock_reset_sequence):
         """
         Case: Call reset_sequences.
@@ -1139,8 +1213,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.assertEqual(self.source_shard.node_name, 'other')
         mock_release_lock.assert_called_once_with(key='shard_{}'.format(self.source_shard.id), shared=False)
 
-    @override_settings(SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards',
-                                 'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(
+        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards', 'SHARD_CLASS': 'example.models.Shard'}
+    )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_post_execution_with_mapping(self, mock_release_lock):
         """
@@ -1150,9 +1225,9 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         """
         with use_shard(self.source_shard):
             organization = Organization.objects.create(name='Layton inc.')
-        self.organization_shard1 = OrganizationShards.objects.create(shard=self.source_shard,
-                                                                     organization_id=organization.id,
-                                                                     state=State.ACTIVE)
+        self.organization_shard1 = OrganizationShards.objects.create(
+            shard=self.source_shard, organization_id=organization.id, state=State.ACTIVE
+        )
 
         self.command.old_shard_state = State.ACTIVE
         self.command.old_source_states = {self.organization_shard1.id: State.ACTIVE}
@@ -1172,8 +1247,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.assertEqual(self.source_shard.node_name, 'other')
 
         mock_release_lock.assert_has_calls(
-            [mock.call(key='mapping_{}'.format(self.organization_shard1.id), shared=False),
-             mock.call(key='shard_{}'.format(self.source_shard.id), shared=False)])
+            [
+                mock.call(key='mapping_{}'.format(self.organization_shard1.id), shared=False),
+                mock.call(key='shard_{}'.format(self.source_shard.id), shared=False),
+            ]
+        )
 
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.copy_data', side_effect=DatabaseError)
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.post_execution')

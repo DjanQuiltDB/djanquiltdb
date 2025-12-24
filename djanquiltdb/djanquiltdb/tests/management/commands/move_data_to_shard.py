@@ -1,20 +1,29 @@
 import copy
 import os
 import subprocess  # nosec
-from tempfile import TemporaryDirectory, NamedTemporaryFile
+from tempfile import NamedTemporaryFile, TemporaryDirectory
 from unittest import mock
 
 from django.core.exceptions import ValidationError
-from django.core.management import call_command, CommandError
+from django.core.management import CommandError, call_command
 from django.db import DatabaseError, IntegrityError
 from django.test import override_settings
+from example.models import (
+    Cake,
+    Organization,
+    OrganizationShards,
+    Shard,
+    Statement,
+    Suborganization,
+    SuperType,
+    Type,
+    User,
+)
 
-from example.models import Type, User, SuperType, Organization, Shard, Statement, OrganizationShards, Suborganization, \
-    Cake
 from djanquiltdb.collector import SimpleCollector
-from djanquiltdb.tests import ShardingTestCase, ShardingTransactionTestCase
-from djanquiltdb.utils import use_shard, create_template_schema, State
 from djanquiltdb.management.commands.move_data_to_shard import Command as MoveCommand
+from djanquiltdb.tests import ShardingTestCase, ShardingTransactionTestCase
+from djanquiltdb.utils import State, create_template_schema, use_shard
 
 
 class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
@@ -22,27 +31,34 @@ class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
         super().setUp()
 
         create_template_schema()
-        self.source_shard = Shard.objects.create(alias='court', node_name='default', schema_name='test_source',
-                                                 state=State.ACTIVE)
-        self.target_shard = Shard.objects.create(alias='Curious Village', node_name='default',
-                                                 schema_name='test_target', state=State.ACTIVE)
+        self.source_shard = Shard.objects.create(
+            alias='court', node_name='default', schema_name='test_source', state=State.ACTIVE
+        )
+        self.target_shard = Shard.objects.create(
+            alias='Curious Village', node_name='default', schema_name='test_target', state=State.ACTIVE
+        )
 
         with use_shard(self.source_shard):
             self.organization = Organization.objects.create(name='Ace')
-            self.organization_shard = OrganizationShards.objects.create(shard=self.source_shard,
-                                                                        organization_id=self.organization.id,
-                                                                        state=State.ACTIVE)
+            self.organization_shard = OrganizationShards.objects.create(
+                shard=self.source_shard, organization_id=self.organization.id, state=State.ACTIVE
+            )
             self.type = Type.objects.create(name='student')
-            self.user = User.objects.create(name='Luke', email='luke@layton.l15', type=self.type,
-                                            organization=self.organization)
+            self.user = User.objects.create(
+                name='Luke', email='luke@layton.l15', type=self.type, organization=self.organization
+            )
 
         self.options = [
-            '--source-shard-alias', self.source_shard.alias,
-            '--target-shard-alias', self.target_shard.alias,
-            '--root-object-id', self.organization.pk,
-            '--model-name', 'example.organization',
+            '--source-shard-alias',
+            self.source_shard.alias,
+            '--target-shard-alias',
+            self.target_shard.alias,
+            '--root-object-id',
+            self.organization.pk,
+            '--model-name',
+            'example.organization',
             '--no-input',
-            '--quiet'
+            '--quiet',
         ]
 
     def test_sequencer_on_same_node(self):
@@ -61,11 +77,12 @@ class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
         with use_shard(self.target_shard):
             # make new organization and user, check if the id does not collide
             organization_new = Organization.objects.create(name='Scribblenauts')
-            self.assertEqual(organization_new.id, self.organization.id+1)
+            self.assertEqual(organization_new.id, self.organization.id + 1)
 
-            user_new = User.objects.create(name='Jean Descole', email='jean@layton.l15', type=self.type,
-                                           organization=organization_new)
-            self.assertEqual(user_new.id, self.user.id+1)
+            user_new = User.objects.create(
+                name='Jean Descole', email='jean@layton.l15', type=self.type, organization=organization_new
+            )
+            self.assertEqual(user_new.id, self.user.id + 1)
 
 
 class MoveDataToShardTestCase(ShardingTestCase):
@@ -75,10 +92,12 @@ class MoveDataToShardTestCase(ShardingTestCase):
         super().setUp()
 
         create_template_schema()
-        self.source_shard = Shard.objects.create(alias='Curious Village', node_name='default',
-                                                 schema_name='test_source', state=State.ACTIVE)
-        self.target_shard = Shard.objects.create(alias='Court', node_name='default',
-                                                 schema_name='test_target', state=State.ACTIVE)
+        self.source_shard = Shard.objects.create(
+            alias='Curious Village', node_name='default', schema_name='test_source', state=State.ACTIVE
+        )
+        self.target_shard = Shard.objects.create(
+            alias='Court', node_name='default', schema_name='test_target', state=State.ACTIVE
+        )
 
         with use_shard(self.source_shard):
             self.super = SuperType.objects.create(name='Character')
@@ -88,38 +107,44 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
             self.organization_1 = Organization.objects.create(name='Layton inc.')
             self.organization_2 = Organization.objects.create(name='Curious Village')
-            self.suborganization = Suborganization.objects.create(parent=self.organization_1,
-                                                                  child=self.organization_2)
+            self.suborganization = Suborganization.objects.create(parent=self.organization_1, child=self.organization_2)
 
-            self.user_1 = User.objects.create(name='Layton', email='professor@layton.l5',
-                                              organization=self.organization_1, type=self.type_1)
-            self.user_2 = User.objects.create(name='Luke', email='luke@layton.l5',
-                                              organization=self.organization_1, type=self.type_2)
-            self.user_3 = User.objects.create(name='Flora', email='f@reinhold.cap',
-                                              organization=self.organization_2, type=self.type_2)
+            self.user_1 = User.objects.create(
+                name='Layton', email='professor@layton.l5', organization=self.organization_1, type=self.type_1
+            )
+            self.user_2 = User.objects.create(
+                name='Luke', email='luke@layton.l5', organization=self.organization_1, type=self.type_2
+            )
+            self.user_3 = User.objects.create(
+                name='Flora', email='f@reinhold.cap', organization=self.organization_2, type=self.type_2
+            )
 
             self.statement_1 = Statement.objects.create(content="'Luke'!", user=self.user_1, offset=1)
-            self.statement_2 = Statement.objects.create(content='Try to; solve this "puzzle."', user=self.user_1,
-                                                        offset=2)
+            self.statement_2 = Statement.objects.create(
+                content='Try to; solve this "puzzle."', user=self.user_1, offset=2
+            )
             self.statement_3 = Statement.objects.create(content='Do you see the sun?', user=self.user_3, offset=3)
 
-            self.organization_shard1 = OrganizationShards.objects.create(shard=self.source_shard,
-                                                                         organization_id=self.organization_1.id,
-                                                                         state=State.ACTIVE)
-            self.organization_shard2 = OrganizationShards.objects.create(shard=self.source_shard,
-                                                                         organization_id=self.organization_2.id,
-                                                                         state=State.ACTIVE)
+            self.organization_shard1 = OrganizationShards.objects.create(
+                shard=self.source_shard, organization_id=self.organization_1.id, state=State.ACTIVE
+            )
+            self.organization_shard2 = OrganizationShards.objects.create(
+                shard=self.source_shard, organization_id=self.organization_2.id, state=State.ACTIVE
+            )
 
             self.type_3 = Type.objects.create(name='Attorney', super=self.super)
-            self.organization_3 = Organization.objects.create(name='Ace',)
-            self.user_4 = User.objects.create(name='Phoenix Wright', email='p@wright.cap',
-                                              organization=self.organization_3, type=self.type_3)
+            self.organization_3 = Organization.objects.create(
+                name='Ace',
+            )
+            self.user_4 = User.objects.create(
+                name='Phoenix Wright', email='p@wright.cap', organization=self.organization_3, type=self.type_3
+            )
             self.statement_4 = Statement.objects.create(content='Objection!', user=self.user_4, offset=4)
             self.statement_5 = Statement.objects.create(content='discrepancy', user=self.user_4, offset=5)
 
-            self.organization_shard3 = OrganizationShards.objects.create(shard=self.source_shard,
-                                                                         organization_id=self.organization_3.id,
-                                                                         state=State.ACTIVE)
+            self.organization_shard3 = OrganizationShards.objects.create(
+                shard=self.source_shard, organization_id=self.organization_3.id, state=State.ACTIVE
+            )
 
             # Some many-to-many models
             self.cake_1 = Cake.objects.create(name='Butter cake')
@@ -142,25 +167,11 @@ class MoveDataToShardTestCase(ShardingTestCase):
             self.user_cake_4 = self.user_cake_model.objects.get(cake=self.cake_4, user=self.user_3)
 
         self.data = {
-            Organization: {
-                self.organization_1
-            },
-            Suborganization: {
-                self.suborganization
-            },
-            User: {
-                self.user_1,
-                self.user_2
-            },
-            Statement: {
-                self.statement_1,
-                self.statement_2
-            },
-            self.user_cake_model: {
-                self.user_cake_1,
-                self.user_cake_2,
-                self.user_cake_3
-            }
+            Organization: {self.organization_1},
+            Suborganization: {self.suborganization},
+            User: {self.user_1, self.user_2},
+            Statement: {self.statement_1, self.statement_2},
+            self.user_cake_model: {self.user_cake_1, self.user_cake_2, self.user_cake_3},
         }
 
         self.leftover_data = {
@@ -180,7 +191,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
             },
             self.user_cake_model: {
                 self.user_cake_4,
-            }
+            },
         }
 
         self.pk_set = self.get_pk_set_from_data(self.data)
@@ -200,7 +211,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
             'model_name': self.command.model_name,
             'reuse_simple_collector_for_delete': False,
             'no_input': True,
-            'quiet': True
+            'quiet': True,
         }
 
     def _should_check_constraints(self, connection):
@@ -328,7 +339,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.organization_1.refresh_from_db(using=self.target_shard)
         self.organization_2.refresh_from_db(using=self.target_shard)
 
-    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_data_stream', side_effect=DatabaseError)
+    @mock.patch(
+        'djanquiltdb.management.commands.move_data_to_shard.Command.copy_data_stream', side_effect=DatabaseError
+    )
     def test_failure_on_move(self, mock_copy_data_stream):
         """
         Case: Call move_data_to_shard command, and let it fail during move_data.
@@ -340,12 +353,15 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
         with use_shard(self.source_shard):
             # Fails at the moment: The data is not removed from the source yet.
-            self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2,
-                                                               self.organization_3])
+            self.assertCountEqual(
+                Organization.objects.all(), [self.organization_1, self.organization_2, self.organization_3]
+            )
             self.assertCountEqual(Suborganization.objects.all(), [self.suborganization])
             self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3, self.user_4])
-            self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3,
-                                                            self.statement_4, self.statement_5])
+            self.assertCountEqual(
+                Statement.objects.all(),
+                [self.statement_1, self.statement_2, self.statement_3, self.statement_4, self.statement_5],
+            )
 
         with use_shard(self.target_shard):
             self.assertFalse(Organization.objects.all().exists())
@@ -367,12 +383,15 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
         with use_shard(self.source_shard):
             # Fails at the moment: The data is not removed from the source yet.
-            self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2,
-                                                               self.organization_3])
+            self.assertCountEqual(
+                Organization.objects.all(), [self.organization_1, self.organization_2, self.organization_3]
+            )
             self.assertCountEqual(Suborganization.objects.all(), [self.suborganization])
             self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3, self.user_4])
-            self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3,
-                                                            self.statement_4, self.statement_5])
+            self.assertCountEqual(
+                Statement.objects.all(),
+                [self.statement_1, self.statement_2, self.statement_3, self.statement_4, self.statement_5],
+            )
 
         with use_shard(self.target_shard):
             self.assertFalse(Organization.objects.all().exists())
@@ -396,12 +415,15 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
         with use_shard(self.source_shard):
             # Fails at the moment: The data is not removed from the source yet.
-            self.assertCountEqual(Organization.objects.all(), [self.organization_1, self.organization_2,
-                                                               self.organization_3])
+            self.assertCountEqual(
+                Organization.objects.all(), [self.organization_1, self.organization_2, self.organization_3]
+            )
             self.assertCountEqual(Suborganization.objects.all(), [self.suborganization])
             self.assertCountEqual(User.objects.all(), [self.user_1, self.user_2, self.user_3, self.user_4])
-            self.assertCountEqual(Statement.objects.all(), [self.statement_1, self.statement_2, self.statement_3,
-                                                            self.statement_4, self.statement_5])
+            self.assertCountEqual(
+                Statement.objects.all(),
+                [self.statement_1, self.statement_2, self.statement_3, self.statement_4, self.statement_5],
+            )
 
         with use_shard(self.target_shard):
             self.assertFalse(Organization.objects.all().exists())
@@ -420,9 +442,18 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.confirm_data_integrity')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.delete_data')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.post_execution')
-    def test_handle(self, mock_post_execution, mock_delete_data, mock_confirm, mock_copy_data,
-                    mock_reset_sequencers, mock_get_data_collector, mock_get_objects, mock_pre_execution,
-                    mock_get_target_shard):
+    def test_handle(
+        self,
+        mock_post_execution,
+        mock_delete_data,
+        mock_confirm,
+        mock_copy_data,
+        mock_reset_sequencers,
+        mock_get_data_collector,
+        mock_get_objects,
+        mock_pre_execution,
+        mock_get_target_shard,
+    ):
         """
         Case: Call the handle.
         Expected: All sub-functions to be called with the correct arguments.
@@ -446,8 +477,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_get_data_collector.assert_any_call(objects=self.organization_1, use_original_collector=True)
         mock_copy_data.assert_called_once_with(pk_set=pk_set)
         mock_reset_sequencers.assert_called_once_with(data=data)
-        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value,
-                                             options=self.options)
+        mock_confirm.assert_called_once_with(
+            pk_set=pk_set, model_fields=mock_copy_data.return_value, options=self.options
+        )
         mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
         mock_post_execution.assert_called_once_with(succeeded=True)
 
@@ -460,9 +492,18 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.confirm_data_integrity')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.delete_data')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.post_execution')
-    def test_handle_reuse_data(self, mock_post_execution, mock_delete_data, mock_confirm, mock_copy_data,
-                               mock_reset_sequencers, mock_get_data_collector, mock_get_objects, mock_pre_execution,
-                               mock_get_target_shard):
+    def test_handle_reuse_data(
+        self,
+        mock_post_execution,
+        mock_delete_data,
+        mock_confirm,
+        mock_copy_data,
+        mock_reset_sequencers,
+        mock_get_data_collector,
+        mock_get_objects,
+        mock_pre_execution,
+        mock_get_target_shard,
+    ):
         """
         Case: Call the handle with reuse_simple_collector_for_delete set to True.
         Expected: All sub-functions to be called with the correct arguments.
@@ -487,8 +528,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.assertEqual(mock_pre_execution.call_count, 1)
         mock_get_data_collector.assert_called_once_with(objects=self.organization_1)
         mock_copy_data.assert_called_once_with(pk_set=pk_set)
-        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value,
-                                             options=self.options)
+        mock_confirm.assert_called_once_with(
+            pk_set=pk_set, model_fields=mock_copy_data.return_value, options=self.options
+        )
         mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
         self.assertEqual(mock_post_execution.call_count, 1)
 
@@ -502,9 +544,19 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.delete_data')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.post_execution')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.print')
-    def test_handle_no_delete(self, mock_print, mock_post_execution, mock_delete_data, mock_confirm, mock_copy_data,
-                              mock_reset_sequencers, mock_get_data_collector, mock_get_objects, mock_pre_execution,
-                              mock_get_target_shard):
+    def test_handle_no_delete(
+        self,
+        mock_print,
+        mock_post_execution,
+        mock_delete_data,
+        mock_confirm,
+        mock_copy_data,
+        mock_reset_sequencers,
+        mock_get_data_collector,
+        mock_get_objects,
+        mock_pre_execution,
+        mock_get_target_shard,
+    ):
         """
         Case: Call the handle while providing --no-delete.
         Expected: All sub-functions to be called with the correct arguments, but `delete_data` not called
@@ -528,8 +580,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_get_data_collector.assert_any_call(objects=self.organization_1)
         mock_copy_data.assert_called_once_with(pk_set=pk_set)
         mock_reset_sequencers.assert_called_once_with(data=data)
-        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value,
-                                             options=self.options)
+        mock_confirm.assert_called_once_with(
+            pk_set=pk_set, model_fields=mock_copy_data.return_value, options=self.options
+        )
         self.assertFalse(mock_delete_data.called)
         mock_post_execution.assert_called_once_with(succeeded=True)
 
@@ -545,9 +598,19 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.delete_data')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.post_execution')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.print')
-    def test_handle_keep_validating_files(self, mock_print, mock_post_execution, mock_delete_data,
-                                          mock_confirm, mock_copy_data, mock_reset_sequencers, mock_get_data_collector,
-                                          mock_get_objects, mock_pre_execution, mock_get_target_shard):
+    def test_handle_keep_validating_files(
+        self,
+        mock_print,
+        mock_post_execution,
+        mock_delete_data,
+        mock_confirm,
+        mock_copy_data,
+        mock_reset_sequencers,
+        mock_get_data_collector,
+        mock_get_objects,
+        mock_pre_execution,
+        mock_get_target_shard,
+    ):
         """
         Case: Call the handle while providing --keep-validation-files.
         Expected: All sub-functions to be called with the correct arguments.
@@ -572,8 +635,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_get_data_collector.assert_any_call(objects=self.organization_1)
         mock_copy_data.assert_called_once_with(pk_set=pk_set)
         mock_reset_sequencers.assert_called_once_with(data=data)
-        mock_confirm.assert_called_once_with(pk_set=pk_set, model_fields=mock_copy_data.return_value,
-                                             options=self.options)
+        mock_confirm.assert_called_once_with(
+            pk_set=pk_set, model_fields=mock_copy_data.return_value, options=self.options
+        )
         mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
         self.assertEqual(mock_post_execution.call_count, 1)
 
@@ -586,24 +650,36 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.confirm_data_integrity')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.delete_data')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.post_execution')
-    def test_handle_trans_node(self, mock_post_execution, mock_delete_data, mock_confirm, mock_copy_data,
-                               mock_reset_sequencers, mock_get_data_collector, mock_get_objects, mock_pre_execution,
-                               mock_get_target_shard):
+    def test_handle_trans_node(
+        self,
+        mock_post_execution,
+        mock_delete_data,
+        mock_confirm,
+        mock_copy_data,
+        mock_reset_sequencers,
+        mock_get_data_collector,
+        mock_get_objects,
+        mock_pre_execution,
+        mock_get_target_shard,
+    ):
         """
         Case: Call the handle for data living on one node, and a target that lives on another.
         Expected: ValidationError raised, and no data selected or moved.
         """
         create_template_schema('other')
-        target_shard = Shard.objects.create(alias='Grass', node_name='other',
-                                            schema_name='test_target', state=State.ACTIVE)
+        target_shard = Shard.objects.create(
+            alias='Grass', node_name='other', schema_name='test_target', state=State.ACTIVE
+        )
 
         mock_get_target_shard.return_value = target_shard
 
-        with self.assertRaisesMessage(ValidationError,
-                                      'The source shard Curious Village(default|test_source) and target shard '
-                                      'Grass(other|test_target) are on different database nodes. This command does not '
-                                      'work across nodes.Move data to a shard on the same node as the source, then use '
-                                      'the move_shard_to_node command to migrate the data to a different node.'):
+        with self.assertRaisesMessage(
+            ValidationError,
+            'The source shard Curious Village(default|test_source) and target shard '
+            'Grass(other|test_target) are on different database nodes. This command does not '
+            'work across nodes.Move data to a shard on the same node as the source, then use '
+            'the move_shard_to_node command to migrate the data to a different node.',
+        ):
             self.command.handle(**self.options)
 
         mock_get_target_shard.assert_called_once_with(options=self.options)
@@ -706,8 +782,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
                   NestedCollector is unreliable, hence we have a collector of our own.
         """
         collector = self.command.get_data_collector(objects=[self.organization_1], use_original_collector=True)
-        self.assertEqual(collector.data, {Organization: {self.organization_1},
-                                          Suborganization: {self.suborganization}})
+        self.assertEqual(collector.data, {Organization: {self.organization_1}, Suborganization: {self.suborganization}})
 
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.csv.reader')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_data_stream')
@@ -733,10 +808,10 @@ class MoveDataToShardTestCase(ShardingTestCase):
                 Organization: '"id","name","created_at"',
                 Suborganization: '"id","child_id","parent_id"',
                 User: '"id","password","last_login","name","email","created_at","is_staff","is_active",'
-                      '"organization_id","type_id"',
+                '"organization_id","type_id"',
                 Statement: '"id","content","offset","user_id"',
                 self.user_cake_model: '"id","user_id","cake_id"',
-            }
+            },
         )
 
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.reset_sequence')
@@ -746,8 +821,10 @@ class MoveDataToShardTestCase(ShardingTestCase):
         Expected: reset_sequence on the connection to be called with the correct model list.
         """
         self.command.reset_sequencers(data=self.data)
-        self.assertCountEqual(mock_reset_sequence.call_args[1]['model_list'], [User, Statement, Organization,
-                                                                               Suborganization, self.user_cake_model])
+        self.assertCountEqual(
+            mock_reset_sequence.call_args[1]['model_list'],
+            [User, Statement, Organization, Suborganization, self.user_cake_model],
+        )
 
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command._sort', return_value='sorted_file')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.filecmp.cmp', return_value=True)
@@ -759,8 +836,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
         """
         self.command.source_shard = self.source_shard
         self.command.target_shard = self.target_shard
-        self.assertTrue(self.command.validate_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock(),
-                                                             temp_dir=None))
+        self.assertTrue(
+            self.command.validate_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock(), temp_dir=None)
+        )
         # Since a cursor object is given, we cannot assert the calls specifically.
         self.assertEqual(mock_copy_data_stream.call_count, len(self.data) * 2)
         # We cannot specifically assert the filecmp call, since the given arguments are randomly named temp files
@@ -809,8 +887,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
         """
         self.command.source_shard = self.source_shard
         self.command.target_shard = self.target_shard
-        self.command.confirm_data_integrity(pk_set=self.pk_set, model_fields=mock.Mock(),
-                                            options={'keep_validation_files': True})
+        self.command.confirm_data_integrity(
+            pk_set=self.pk_set, model_fields=mock.Mock(), options={'keep_validation_files': True}
+        )
 
         temp_files = set([temp_file for (_, _, temp_file), _ in mock_copy_data_stream.call_args_list])
 
@@ -823,8 +902,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.assertEqual(len(temp_files), 2)
 
         self.assertEqual(mock_print.call_count, 1)
-        mock_print.assert_called_once_with('Validation artifacts can be found in: {}'
-                                           .format(os.path.dirname(temp_file.name)))
+        mock_print.assert_called_once_with(
+            'Validation artifacts can be found in: {}'.format(os.path.dirname(temp_file.name))
+        )
 
     def fake_copy_data_stream(self, cursor, sql, file_obj):
         """
@@ -871,14 +951,17 @@ class MoveDataToShardTestCase(ShardingTestCase):
         """
         if hasattr(subprocess, 'run'):
             self.original_run = subprocess.run  # have a reference to the original before mocking it.
-            with mock.patch('djanquiltdb.management.commands.move_data_to_shard.subprocess.run',
-                            side_effect=self.fake_subsystem_run):
+            with mock.patch(
+                'djanquiltdb.management.commands.move_data_to_shard.subprocess.run', side_effect=self.fake_subsystem_run
+            ):
                 with self.assertRaises(CommandError):
                     self.command._sort('file')
         else:
             self.original_run = subprocess.Popen  # have a reference to the original before mocking it.
-            with mock.patch('djanquiltdb.management.commands.move_data_to_shard.subprocess.Popen',
-                            side_effect=self.fake_subsystem_run):
+            with mock.patch(
+                'djanquiltdb.management.commands.move_data_to_shard.subprocess.Popen',
+                side_effect=self.fake_subsystem_run,
+            ):
                 with self.assertRaises(CommandError):
                     self.command._sort('file')
 
@@ -901,10 +984,11 @@ class MoveDataToShardTestCase(ShardingTestCase):
             self.skipTest('Python 3.4 does not support subprocess.run')
 
         with self.assertRaises(subprocess.TimeoutExpired):
-                self.original_run = subprocess.run  # have a reference to the original before mocking it.
-                with mock.patch('djanquiltdb.management.commands.move_data_to_shard.subprocess.run',
-                                side_effect=self.subsystem_sleep):
-                    self.command._sort('file')
+            self.original_run = subprocess.run  # have a reference to the original before mocking it.
+            with mock.patch(
+                'djanquiltdb.management.commands.move_data_to_shard.subprocess.run', side_effect=self.subsystem_sleep
+            ):
+                self.command._sort('file')
 
     def test_sort_call(self):
         """
@@ -916,8 +1000,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
         if hasattr(subprocess, 'run'):
             with mock.patch('djanquiltdb.management.commands.move_data_to_shard.subprocess.run') as mock_run:
                 result = self.command._sort('file')
-                mock_run.assert_called_once_with(['sort', 'file', '-o', 'file-sorted'], shell=False, check=True,
-                                                 timeout=60)
+                mock_run.assert_called_once_with(
+                    ['sort', 'file', '-o', 'file-sorted'], shell=False, check=True, timeout=60
+                )
         else:
             with mock.patch('djanquiltdb.management.commands.move_data_to_shard.subprocess.Popen') as mock_popen:
                 result = self.command._sort('file')
@@ -971,8 +1056,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
         mock_acquire_lock.assert_called_once_with(key='shard_{}'.format(self.source_shard.id), shared=False)
 
-    @override_settings(SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards',
-                                 'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(
+        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards', 'SHARD_CLASS': 'example.models.Shard'}
+    )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
     def test_pre_execution_with_mapping(self, mock_acquire_lock):
         """
@@ -986,8 +1072,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.assertEqual(self.command.old_source_state, {self.organization_1.id: State.ACTIVE})
         mock_acquire_lock.assert_called_once_with(key='mapping_{}'.format(self.organization_1.id), shared=False)
 
-    @override_settings(SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards',
-                                 'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(
+        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards', 'SHARD_CLASS': 'example.models.Shard'}
+    )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
     def test_pre_execution_with_mapping_multiple_objects(self, mock_acquire_lock):
         """
@@ -1001,10 +1088,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
         self.assertEqual(self.organization_shard1.state, State.MAINTENANCE)
         self.assertEqual(self.organization_shard2.state, State.MAINTENANCE)
-        self.assertEqual(self.command.old_source_state, {
-            self.organization_1.id: State.ACTIVE,
-            self.organization_2.id: State.ACTIVE
-        })
+        self.assertEqual(
+            self.command.old_source_state, {self.organization_1.id: State.ACTIVE, self.organization_2.id: State.ACTIVE}
+        )
 
         mock_acquire_lock.assert_any_call(key='mapping_{}'.format(self.organization_1.id), shared=False)
         mock_acquire_lock.assert_any_call(key='mapping_{}'.format(self.organization_2.id), shared=False)
@@ -1026,8 +1112,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.assertEqual(self.source_shard.state, State.ACTIVE)
         mock_release_lock.assert_called_once_with(key='shard_{}'.format(self.source_shard.id), shared=False)
 
-    @override_settings(SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards',
-                                 'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(
+        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards', 'SHARD_CLASS': 'example.models.Shard'}
+    )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_post_execution_with_mapping(self, mock_release_lock):
         """
@@ -1048,8 +1135,9 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
         mock_release_lock.assert_called_once_with(key='mapping_{}'.format(self.organization_1.id), shared=False)
 
-    @override_settings(SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards',
-                                 'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(
+        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards', 'SHARD_CLASS': 'example.models.Shard'}
+    )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_post_execution_with_mapping_multiple_objects(self, mock_release_lock):
         """
@@ -1118,6 +1206,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         Case: Have the collector return mirrored models
         Expected: Only sharded models are in the collector's data, and mirrored models are removed from the data
         """
+
         class FakeCollector(SimpleCollector):
             def collect(self, objs, *args, **kwargs):
                 obj = objs[0]

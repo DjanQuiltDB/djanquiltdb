@@ -2,12 +2,12 @@ from unittest import mock
 
 from django.core.management import CommandError, call_command
 from django.db.utils import IntegrityError
+from example.models import Cake, CakeType, Organization, Shard, SuperType, Type, User
 
-from example.models import Shard, SuperType, Type, Organization, User, Cake, CakeType
-from djanquiltdb.options import ShardOptions
-from djanquiltdb.tests import ShardingTestCase, ShardingTransactionTestCase, OverrideMirroredRoutingMixin
-from djanquiltdb.utils import use_shard, create_template_schema, create_schema_on_node
 from djanquiltdb.management.commands.purge_schema import Command
+from djanquiltdb.options import ShardOptions
+from djanquiltdb.tests import OverrideMirroredRoutingMixin, ShardingTestCase, ShardingTransactionTestCase
+from djanquiltdb.utils import create_schema_on_node, create_template_schema, use_shard
 
 
 class PurgeShardDataTransactionTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):
@@ -31,8 +31,9 @@ class PurgeShardDataTransactionTestCase(OverrideMirroredRoutingMixin, ShardingTr
 
             self.organization_1 = Organization.objects.create(name='Layton inc.')
 
-            self.user_1 = User.objects.create(name='Layton', email='professor@layton.l5',
-                                              organization=self.organization_1, type=self.type_1)
+            self.user_1 = User.objects.create(
+                name='Layton', email='professor@layton.l5', organization=self.organization_1, type=self.type_1
+            )
 
             self.cake_type = CakeType.objects.create(name='The Best')  # public model
             self.cake_1 = Cake.objects.create(name='Butter cake', type=self.cake_type)
@@ -103,8 +104,9 @@ class PurgeSchemaTestCase(ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.purge_schema.Command.confirm')
     @mock.patch('djanquiltdb.management.commands.purge_schema.Command.delete_schema')
     @mock.patch('djanquiltdb.management.commands.purge_schema.Command.print')
-    def test_handle(self, mock_print, mock_delete_schema, mock_confirm, mock_get_schema_name, mock_shard_options,
-                    mock_get_node):
+    def test_handle(
+        self, mock_print, mock_delete_schema, mock_confirm, mock_get_schema_name, mock_shard_options, mock_get_node
+    ):
         """
         Case: Call handle on the command.
         Expected: Bunch of functions called with correct arguments. Completion of the operation reported.
@@ -183,8 +185,11 @@ class PurgeSchemaTestCase(ShardingTestCase):
         Expected: CommandError raised
         """
         Shard.objects.create(alias='desolace', node_name='other', schema_name='desolate_lands')
-        with self.assertRaisesMessage(CommandError, "schema 'desolate_lands' on node 'other' is in use! "
-                                                    "Delete the Shard object using it if you want to remove it."):
+        with self.assertRaisesMessage(
+            CommandError,
+            "schema 'desolate_lands' on node 'other' is in use! "
+            'Delete the Shard object using it if you want to remove it.',
+        ):
             self.command.get_schema_name(self.options, self.node_options)
 
     def test_get_schema_name_for_schema_active_on_other_node(self):
@@ -211,9 +216,10 @@ class PurgeSchemaTestCase(ShardingTestCase):
 
             mock_input.assert_called_once_with(
                 "\nYou have requested to delete schema '\x1b[1mdesolate_lands\x1b[0m' from node \x1b[1mother\x1b[0m.\n"
-                "This will IRREVERSIBLY DESTROY all data that lives on this schema.\n"
-                "Are you sure you want to do this?\n\n"
-                "\tType 'yes' to continue, or 'no' to cancel: ")
+                'This will IRREVERSIBLY DESTROY all data that lives on this schema.\n'
+                'Are you sure you want to do this?\n\n'
+                "\tType 'yes' to continue, or 'no' to cancel: "
+            )
 
             mock_input.reset_mock()
 
@@ -223,9 +229,10 @@ class PurgeSchemaTestCase(ShardingTestCase):
 
             mock_input.assert_called_once_with(
                 "\nYou have requested to delete schema '\x1b[1mdesolate_lands\x1b[0m' from node \x1b[1mother\x1b[0m.\n"
-                "This will IRREVERSIBLY DESTROY all data that lives on this schema.\n"
-                "Are you sure you want to do this?\n\n"
-                "\tType 'yes' to continue, or 'no' to cancel: ")
+                'This will IRREVERSIBLY DESTROY all data that lives on this schema.\n'
+                'Are you sure you want to do this?\n\n'
+                "\tType 'yes' to continue, or 'no' to cancel: "
+            )
 
             mock_input.reset_mock()
 

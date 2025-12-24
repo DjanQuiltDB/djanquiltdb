@@ -11,6 +11,7 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 """
+
 import logging
 import re
 
@@ -19,8 +20,8 @@ from django.db.backends.base.base import NO_DB_ALIAS
 from django.db.backends.postgresql.base import DatabaseWrapper as BaseDatabaseWrapper
 from django.db.utils import DatabaseError, IntegrityError
 from django.utils.module_loading import import_string
-from psycopg.errors import InternalError
 from psycopg import sql
+from psycopg.errors import InternalError
 
 from djanquiltdb.postgresql_backend.introspection import DatabaseSchemaIntrospection
 from djanquiltdb.postgresql_backend.utils import CursorDebugWrapper, CursorWrapper
@@ -176,18 +177,23 @@ def get_validated_schema_name(schema_name, is_template=False):
         raise ValueError("Schema name '{}' needs to be a string".format(schema_name))
 
     if not re.match(r'^[A-Za-z][0-9A-Za-z_]*$', schema_name):
-        raise ValueError("Schema name '{}' contains illegal characters and/or does not start with a letter"
-                         .format(schema_name))
+        raise ValueError(
+            "Schema name '{}' contains illegal characters and/or does not start with a letter".format(schema_name)
+        )
 
     if not is_template and schema_name == get_template_name():
-        raise ValueError("Schema name '{}' cannot be the same as the template name '{}' ".format(schema_name,
-                                                                                                 get_template_name()))
+        raise ValueError(
+            "Schema name '{}' cannot be the same as the template name '{}' ".format(schema_name, get_template_name())
+        )
     if schema_name in [PUBLIC_SCHEMA_NAME, 'information_schema', 'default']:
         raise ValueError("Schema name '{}' is not allowed ".format(schema_name))
 
     if schema_name.startswith('pg_'):
-        raise ValueError("Schema name '{}' is not allowed to mimic PostgreSQL native schema names "
-                         "(starting with 'pg_')".format(schema_name))
+        raise ValueError(
+            "Schema name '{}' is not allowed to mimic PostgreSQL native schema names (starting with 'pg_')".format(
+                schema_name
+            )
+        )
 
     return schema_name
 
@@ -202,6 +208,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     """
     Adds the capability to manipulate the search_path using set_schema and set_schema_to_public
     """
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -221,7 +228,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
         # Django < 2.0 require this attribute set, in our case it should be just a noop.
         if hasattr(self, '_start_transaction_under_autocommit'):
-            self._start_transaction_under_autocommit = (lambda x: None)
+            self._start_transaction_under_autocommit = lambda x: None
 
     def __str__(self):
         return self.alias
@@ -242,8 +249,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def get_ps_schema(self, schema_name, _cursor=None):
         cursor = _cursor or self.cursor()
-        cursor.execute('SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = %s);',
-                       [schema_name])
+        cursor.execute('SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_namespace WHERE nspname = %s);', [schema_name])
         if cursor.fetchall()[0][0]:
             return schema_name
 
@@ -255,20 +261,23 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         schema = schema_name or self.get_schema()
         cursor.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_schema=%s AND table_type='BASE TABLE';",
-            [schema]
+            [schema],
         )
         return [x[0] for x in cursor.fetchall()]  # We get a list of single tuples
 
     def get_all_table_sequences(self, schema_name=None, _cursor=None):
         cursor = _cursor or self.cursor()
         schema = schema_name or self.get_schema()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT cls.relname::text 
             FROM pg_catalog.pg_sequence seq
             JOIN pg_catalog.pg_class cls ON seq.seqrelid = cls.oid
             JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
             WHERE nsp.nspname = %s
-        """, [schema])
+        """,
+            [schema],
+        )
         return [x[0] for x in cursor.fetchall()]  # We get a list of single tuples
 
     def truncate_all_tables(self, schema_name=None, _cursor=None):
@@ -287,39 +296,44 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # Drop tables with CASCADE (this will also drop sequences owned by tables)
         # Use schema-qualified table names to ensure we drop from the correct schema
         for table in self.get_all_table_headers(schema_name=schema):
-            cursor.execute('DROP TABLE "{schema}"."{table}" CASCADE'.format(
-                schema=schema, table=table))
+            cursor.execute('DROP TABLE "{schema}"."{table}" CASCADE'.format(schema=schema, table=table))
         # Drop any remaining sequences that weren't owned by tables
         # (DROP TABLE CASCADE drops sequences owned by tables, but sequences can exist independently)
         for sequence in sequences:
-            cursor.execute('DROP SEQUENCE IF EXISTS "{schema}"."{sequence}" CASCADE'.format(
-                schema=schema, sequence=sequence))
+            cursor.execute(
+                'DROP SEQUENCE IF EXISTS "{schema}"."{sequence}" CASCADE'.format(schema=schema, sequence=sequence)
+            )
 
     def get_schema_for_model(self, model, _cursor=None):
         """
         Returns the schema the given model lives on.
         """
         cursor = _cursor or self.cursor()
-        cursor.execute('SELECT table_schema FROM information_schema.tables WHERE table_name=%s;',
-                       [model._meta.db_table])
+        cursor.execute(
+            'SELECT table_schema FROM information_schema.tables WHERE table_name=%s;', [model._meta.db_table]
+        )
         return cursor.fetchall()
 
     def get_schema_for_sequence(self, sequence_name, _cursor=None):
         cursor = _cursor or self.cursor()
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT nspname::text 
             FROM pg_catalog.pg_sequence seq
             JOIN pg_catalog.pg_class cls ON seq.seqrelid = cls.oid
             JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
             WHERE cls.relname = %s
-        """, [sequence_name])
+        """,
+            [sequence_name],
+        )
         return cursor.fetchall()
 
     def create_schema(self, schema_name, is_template=False):
         schema_name = get_validated_schema_name(schema_name, is_template=is_template)
         cursor = self.cursor()
         cursor.execute(
-            'CREATE SCHEMA IF NOT EXISTS "{}";'.format(schema_name))  # Params cannot be used for schema names
+            'CREATE SCHEMA IF NOT EXISTS "{}";'.format(schema_name)
+        )  # Params cannot be used for schema names
 
     def delete_schema(self, schema_name, is_template=False):
         schema_name = get_validated_schema_name(schema_name, is_template=is_template)
@@ -335,7 +349,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
         self.set_clone_function()
 
-        cursor.execute("SELECT clone_schema(%s, %s);", [from_schema, to_schema])
+        cursor.execute('SELECT clone_schema(%s, %s);', [from_schema, to_schema])
 
     def set_clone_function(self, _cursor=None):
         cursor = _cursor or self.cursor()
@@ -355,11 +369,10 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             for f in model._meta.local_fields:
                 if isinstance(f, models.AutoField):
                     statements.append(
-                        "SELECT setval('{s}', coalesce(max({f}), 1), max({f}) IS NOT null) FROM {qnm}"  # nosec
-                        .format(
+                        "SELECT setval('{s}', coalesce(max({f}), 1), max({f}) IS NOT null) FROM {qnm}".format(  # nosec
                             s='{}_{}_seq'.format(model._meta.db_table, f.column),
                             f=qn(f.column),
-                            qnm=qn(model._meta.db_table)
+                            qnm=qn(model._meta.db_table),
                         )
                     )
                     break  # Only one AutoField is allowed per model, so don't bother continuing.
@@ -368,11 +381,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 remote_field = 'rel' if hasattr(f, 'rel') else 'remote_field'
                 if not getattr(f, remote_field).through:
                     statements.append(
-                        "SELECT setval('{s}', coalesce(max({f}), 1), max({f}) IS NOT null) FROM {qnm}"  # nosec
-                        .format(
-                            s='{}_{}_seq'.format(f.m2m_db_table(), 'id'),
-                            f=qn('id'),
-                            qnm=qn(f.m2m_db_table())
+                        "SELECT setval('{s}', coalesce(max({f}), 1), max({f}) IS NOT null) FROM {qnm}".format(  # nosec
+                            s='{}_{}_seq'.format(f.m2m_db_table(), 'id'), f=qn('id'), qnm=qn(f.m2m_db_table())
                         )
                     )
         cursor.execute(';\n'.join(statements))
@@ -440,8 +450,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # Use unnamed cursors for schema operations - named cursors require SELECT statements
         # and cannot execute SET commands like SET search_path
         with self._get_cursor(name=None, skip_lock=True) as cursor_for_get_ps_schema:
-            if self.schema_name != PUBLIC_SCHEMA_NAME \
-                    and not self.get_ps_schema(self.schema_name, cursor_for_get_ps_schema):
+            if self.schema_name != PUBLIC_SCHEMA_NAME and not self.get_ps_schema(
+                self.schema_name, cursor_for_get_ps_schema
+            ):
                 raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
 
         with self._get_cursor(name=None, skip_lock=True) as cursor_for_search_path:
@@ -451,9 +462,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             # we do not have to worry that it's not the good one
             try:
                 identifiers = [sql.Identifier(x) for x in search_paths]
-                sql_ = sql.SQL('SET search_path = {}').format(
-                    sql.SQL(', ').join(identifiers)
-                )
+                sql_ = sql.SQL('SET search_path = {}').format(sql.SQL(', ').join(identifiers))
                 cursor_for_search_path.execute(sql_)
                 logger.debug(str(sql_))
             except (DatabaseError, InternalError):
@@ -498,10 +507,30 @@ class ShardDatabaseWrapper(DatabaseWrapper):
     Note that this class should not be used for connections to the public schema. You can use the main connection for
     that one.
     """
-    _PROXY_FIELDS = ('connection', 'settings_dict', 'queries_log', 'force_debug_cursor', 'autocommit',
-                     'in_atomic_block', 'atomic_blocks', 'savepoint_state', 'savepoint_ids', 'commit_on_exit', 'needs_rollback',
-                     'close_at', 'closed_in_transaction', 'errors_occurred', '_thread_ident', 'current_search_paths',
-                     'run_on_commit', 'run_commit_hooks_on_set_autocommit_on', 'rollback_exc', 'health_check_enabled', 'health_check_done')
+
+    _PROXY_FIELDS = (
+        'connection',
+        'settings_dict',
+        'queries_log',
+        'force_debug_cursor',
+        'autocommit',
+        'in_atomic_block',
+        'atomic_blocks',
+        'savepoint_state',
+        'savepoint_ids',
+        'commit_on_exit',
+        'needs_rollback',
+        'close_at',
+        'closed_in_transaction',
+        'errors_occurred',
+        '_thread_ident',
+        'current_search_paths',
+        'run_on_commit',
+        'run_commit_hooks_on_set_autocommit_on',
+        'rollback_exc',
+        'health_check_enabled',
+        'health_check_done',
+    )
 
     def __init__(self, main_connection, options):
         self._main_connection = main_connection

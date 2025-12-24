@@ -1,8 +1,8 @@
 import pickle  # nosec
 
 from django.db import IntegrityError
+from example.models import Cake, Organization, Shard, Suborganization, SuperType
 
-from example.models import Shard, Organization, Cake, SuperType, Suborganization
 from djanquiltdb import State
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.tests import ShardingTestCase
@@ -14,8 +14,9 @@ class QuerySetTestCase(ShardingTestCase):
         super().setUp()
 
         create_template_schema()
-        self.shard = Shard.objects.create(alias='death_star', schema_name='test_empire_schema', node_name='default',
-                                          state=State.ACTIVE)
+        self.shard = Shard.objects.create(
+            alias='death_star', schema_name='test_empire_schema', node_name='default', state=State.ACTIVE
+        )
 
     def test(self):
         """
@@ -94,8 +95,9 @@ class QuerySetTestCase(ShardingTestCase):
         Expected: Despite the fact that the queryset is initialized in a different shard context, the results are
                   retrieved from the shard the related object was living on, as expected.
         """
-        other_shard = Shard.objects.create(alias='other', schema_name='test_other', node_name='default',
-                                           state=State.ACTIVE)
+        other_shard = Shard.objects.create(
+            alias='other', schema_name='test_other', node_name='default', state=State.ACTIVE
+        )
 
         with use_shard(self.shard):
             organization1 = Organization.objects.create(name='Foo')
@@ -116,8 +118,9 @@ class UsingTestCase(ShardingTestCase):
         super().setUp()
 
         create_template_schema()
-        self.shard = Shard.objects.create(alias='test', schema_name='test_schema', node_name='default',
-                                          state=State.ACTIVE)
+        self.shard = Shard.objects.create(
+            alias='test', schema_name='test_schema', node_name='default', state=State.ACTIVE
+        )
 
     def test_pipe_node_name_schema_name(self):
         """

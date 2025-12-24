@@ -1,26 +1,20 @@
 import sys
 from unittest import mock
 
+from django.core.management import CommandError, call_command
 from django.db.utils import IntegrityError
-from django.core.management import call_command, CommandError
 from django.test import override_settings
+from example.models import DefaultUser, MirroredUser, Shard, User
 
-from example.models import Shard, User, MirroredUser, DefaultUser
 from djanquiltdb import State
-from djanquiltdb.tests import ShardingTransactionTestCase, ShardingTestCase, OverrideMirroredRoutingMixin
+from djanquiltdb.tests import OverrideMirroredRoutingMixin, ShardingTestCase, ShardingTransactionTestCase
 from djanquiltdb.utils import create_template_schema, use_shard
 
 
 class CreateSuperUserTestCaseMixin:
     @staticmethod
     def command(*args, **kwargs):
-        return call_command(
-            'createsuperuser',
-            '--noinput',
-            '--verbosity', '0',
-            *args,
-            **kwargs
-        )
+        return call_command('createsuperuser', '--noinput', '--verbosity', '0', *args, **kwargs)
 
 
 @override_settings(AUTH_USER_MODEL='example.User')
@@ -28,6 +22,7 @@ class CreateSuperUserShardedUserModelTestCase(CreateSuperUserTestCaseMixin, Shar
     """
     Test cases for usage of the `createsuperuser` command in combination with a user model that's a sharded model.
     """
+
     available_apps = None  # We do want all apps installed
 
     def setUp(self):
@@ -36,8 +31,9 @@ class CreateSuperUserShardedUserModelTestCase(CreateSuperUserTestCaseMixin, Shar
         create_template_schema()
         create_template_schema('other')
 
-        self.shard = Shard.objects.create(alias='sadala', schema_name='sadala_schema', node_name='default',
-                                          state=State.ACTIVE)
+        self.shard = Shard.objects.create(
+            alias='sadala', schema_name='sadala_schema', node_name='default', state=State.ACTIVE
+        )
 
     def test(self):
         """
@@ -45,9 +41,12 @@ class CreateSuperUserShardedUserModelTestCase(CreateSuperUserTestCaseMixin, Shar
         Expected: Superuser created on that shard
         """
         self.command(
-            '--database', 'default',
-            '--schema-name', 'sadala_schema',
-            '--email', 'vegeta@saiyans.zgt',
+            '--database',
+            'default',
+            '--schema-name',
+            'sadala_schema',
+            '--email',
+            'vegeta@saiyans.zgt',
         )
 
         with self.shard.use():
@@ -60,7 +59,8 @@ class CreateSuperUserShardedUserModelTestCase(CreateSuperUserTestCaseMixin, Shar
         """
         with self.assertRaises(CommandError) as cm:
             self.command(
-                '--database', 'foo',
+                '--database',
+                'foo',
             )
 
         error_message = str(cm.exception)
@@ -75,8 +75,10 @@ class CreateSuperUserShardedUserModelTestCase(CreateSuperUserTestCaseMixin, Shar
         """
         with self.assertRaisesMessage(CommandError, 'The shard you provided (default|namek_schema) does not exist'):
             self.command(
-                '--database', 'default',
-                '--schema-name', 'namek_schema',
+                '--database',
+                'default',
+                '--schema-name',
+                'namek_schema',
             )
 
     def test_no_database(self):
@@ -86,7 +88,8 @@ class CreateSuperUserShardedUserModelTestCase(CreateSuperUserTestCaseMixin, Shar
         """
         with self.assertRaisesMessage(CommandError, 'Error: the following arguments are required: --database'):
             self.command(
-                '--schema-name', 'sadala_schema',
+                '--schema-name',
+                'sadala_schema',
             )
 
     def test_no_schema_name(self):
@@ -96,16 +99,19 @@ class CreateSuperUserShardedUserModelTestCase(CreateSuperUserTestCaseMixin, Shar
         """
         with self.assertRaisesMessage(CommandError, 'Error: the following arguments are required: --schema-name'):
             self.command(
-                '--database', 'default',
+                '--database',
+                'default',
             )
 
 
 @override_settings(AUTH_USER_MODEL='example.MirroredUser')
-class CreateSuperUserMirroredUserModelTestCase(OverrideMirroredRoutingMixin, CreateSuperUserTestCaseMixin,
-                                               ShardingTransactionTestCase):
+class CreateSuperUserMirroredUserModelTestCase(
+    OverrideMirroredRoutingMixin, CreateSuperUserTestCaseMixin, ShardingTransactionTestCase
+):
     """
     Test cases for usage of the `createsuperuser` command in combination with a user model that's a mirrored model.
     """
+
     available_apps = None  # We do want all apps installed
 
     def test_single_database(self):
@@ -114,8 +120,10 @@ class CreateSuperUserMirroredUserModelTestCase(OverrideMirroredRoutingMixin, Cre
         Expected: Superuser created on that database
         """
         self.command(
-            '--database', 'default',
-            '--email', 'kakarot@saiyans.zgt',
+            '--database',
+            'default',
+            '--email',
+            'kakarot@saiyans.zgt',
         )
 
         with use_shard(node_name='default', schema_name='public'):
@@ -130,8 +138,10 @@ class CreateSuperUserMirroredUserModelTestCase(OverrideMirroredRoutingMixin, Cre
         Expected: Superuser created on all the databases
         """
         self.command(
-            '--database', 'all',
-            '--email', 'broly@saiyans.zgt',
+            '--database',
+            'all',
+            '--email',
+            'broly@saiyans.zgt',
         )
 
         with use_shard(node_name='default', schema_name='public'):
@@ -148,8 +158,10 @@ class CreateSuperUserMirroredUserModelTestCase(OverrideMirroredRoutingMixin, Cre
         expected_message = "Error: argument --database: invalid choice: 'foo'"
         with self.assertRaises(CommandError) as cm:
             self.command(
-                '--database', 'foo',
+                '--database',
+                'foo',
             )
+        self.assertIn(expected_message, str(cm.exception))
 
     def test_no_database(self):
         """
@@ -157,7 +169,8 @@ class CreateSuperUserMirroredUserModelTestCase(OverrideMirroredRoutingMixin, Cre
         Expected: Defaults to all databases, so superuser created on all the databases
         """
         self.command(
-            '--email', 'raditz@saiyans.zgt',
+            '--email',
+            'raditz@saiyans.zgt',
         )
 
         with use_shard(node_name='default', schema_name='public'):
@@ -176,8 +189,10 @@ class CreateSuperUserMirroredUserModelTestCase(OverrideMirroredRoutingMixin, Cre
 
         with self.assertRaises((CommandError, IntegrityError)):
             self.command(
-                '--database', 'all',
-                '--email', 'bardock@saiyans.zgt',
+                '--database',
+                'all',
+                '--email',
+                'bardock@saiyans.zgt',
             )
 
         with use_shard(node_name='default', schema_name='public'):
@@ -189,6 +204,7 @@ class CreateSuperUserMirroredUserModelTestCase(OverrideMirroredRoutingMixin, Cre
         Case: Create a superuser while the user already exists on one database, while using the interactive mode
         Expected: Error written to stderr that the email address is already taken
         """
+
         # The username input runs in a while loop, so we need to stop that in someway. We do that to keep track of the
         # fact we returned something already or not by saving that on a class instance the `get_input_data` method can
         # access and modify. If it already returned something, we raise a TestError, which we assert.
@@ -198,6 +214,7 @@ class CreateSuperUserMirroredUserModelTestCase(OverrideMirroredRoutingMixin, Cre
         class Sentinel:
             def __init__(self, returned=False):
                 self.returned = returned
+
         obj = Sentinel()
 
         def get_input_data(*args, **kwargs):
@@ -210,7 +227,8 @@ class CreateSuperUserMirroredUserModelTestCase(OverrideMirroredRoutingMixin, Cre
         mock_get_input_data.side_effect = get_input_data
 
         class MockTTY:
-            """ Need to trick the command that we are actually in tty """
+            """Need to trick the command that we are actually in tty"""
+
             def isatty(self):
                 return True
 
@@ -235,6 +253,7 @@ class CreateSuperUserNoShardingModeTestCase(CreateSuperUserTestCaseMixin, Shardi
     Test cases for usage of the `createsuperuser` command in combination with a user model that's not sharded nor
     mirrored.
     """
+
     available_apps = None  # We do want all apps installed
 
     def test(self):
@@ -244,7 +263,8 @@ class CreateSuperUserNoShardingModeTestCase(CreateSuperUserTestCaseMixin, Shardi
                   exists on
         """
         self.command(
-            '--email', 'paragus@saiyans.zgt',
+            '--email',
+            'paragus@saiyans.zgt',
         )
 
         with use_shard(node_name='default', schema_name='public'):

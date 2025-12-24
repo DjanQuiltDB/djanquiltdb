@@ -13,4 +13,4 @@ def get(setting, fallback=None, fallback_dict=None):
             if fallback is not None:
                 return fallback
 
-            raise ImproperlyConfigured("The setting {0} was not found in your environment".format(setting))
+            raise ImproperlyConfigured('The setting {0} was not found in your environment'.format(setting))

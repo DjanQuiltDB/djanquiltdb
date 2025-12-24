@@ -13,7 +13,7 @@ from djanquiltdb.db import connection
 from djanquiltdb.decorators import class_method_use_shard, class_method_use_shard_from_db_arg
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import ShardDatabaseWrapper
-from djanquiltdb.utils import get_all_sharded_models, get_all_public_models, get_all_mirrored_models
+from djanquiltdb.utils import get_all_mirrored_models, get_all_public_models, get_all_sharded_models
 
 
 class DjanQuiltDBConfig(AppConfig):
@@ -32,7 +32,8 @@ class DjanQuiltDBConfig(AppConfig):
         class_ = import_string(settings.SHARDING['SHARD_CLASS'])
         if not issubclass(class_, BaseShard):
             raise ImproperlyConfigured(
-                'The type {} should inherit from {}.'.format(settings.SHARDING['SHARD_CLASS'], BaseShard.__name__))
+                'The type {} should inherit from {}.'.format(settings.SHARDING['SHARD_CLASS'], BaseShard.__name__)
+            )
         if hasattr(class_, '__sharding_mode') and getattr(class_, '__sharding_mode') == ShardingMode.SHARDED:
             raise ImproperlyConfigured(
                 'The Shard model cannot itself be sharded. It can only be non-sharded or mirrored.'
@@ -46,25 +47,31 @@ class DjanQuiltDBConfig(AppConfig):
             _validate_override_sharding_mode_entry(key, value)
 
         # Convert app and model names to lowercase
-        settings.SHARDING['OVERRIDE_SHARDING_MODE'] = dict((tuple(x.lower() for x in k), v)
-                                                           for k, v in override_sharding_mode.items())
+        settings.SHARDING['OVERRIDE_SHARDING_MODE'] = dict(
+            (tuple(x.lower() for x in k), v) for k, v in override_sharding_mode.items()
+        )
 
-        if 'DATABASE_ROUTERS' not in dir(settings) or 'djanquiltdb.router.DynamicDbRouter' \
-                not in settings.DATABASE_ROUTERS:
+        if (
+            'DATABASE_ROUTERS' not in dir(settings)
+            or 'djanquiltdb.router.DynamicDbRouter' not in settings.DATABASE_ROUTERS
+        ):
             raise ImproperlyConfigured(
-                'djanquiltdb.router.DynamicDbRouter must be present in the DATABASE_ROUTERS setting.')
+                'djanquiltdb.router.DynamicDbRouter must be present in the DATABASE_ROUTERS setting.'
+            )
 
-        if 'SESSION_ENGINE' in dir(settings) and \
-            settings.SESSION_ENGINE == 'django.contrib.sessions.backends.cached_db' and \
-                getattr(get_user_model(), '__sharding_mode', False) in [ShardingMode.MIRRORED, ShardingMode.SHARDED]:
-
+        if (
+            'SESSION_ENGINE' in dir(settings)
+            and settings.SESSION_ENGINE == 'django.contrib.sessions.backends.cached_db'
+            and getattr(get_user_model(), '__sharding_mode', False) in [ShardingMode.MIRRORED, ShardingMode.SHARDED]
+        ):
             raise ImproperlyConfigured(
-                "When the user model is sharded, you cannot use django.contrib.sessions.backends.cached_db "
+                'When the user model is sharded, you cannot use django.contrib.sessions.backends.cached_db '
                 "to store sessions. It references the user table and won't know where to find it."
             )
 
-        if ('PRIMARY_DB_ALIAS' not in settings.SHARDING or not settings.SHARDING.get('PRIMARY_DB_ALIAS', None))\
-                and get_all_mirrored_models():
+        if (
+            'PRIMARY_DB_ALIAS' not in settings.SHARDING or not settings.SHARDING.get('PRIMARY_DB_ALIAS', None)
+        ) and get_all_mirrored_models():
             raise ImproperlyConfigured("There are MIRRORED models, but SHARDING['PRIMARY_DB_ALIAS'] is not set.")
 
         _validate_public_models()
@@ -81,9 +88,7 @@ def _validate_public_models():
             )
 
         if not hasattr(model, 'natural_key'):
-            raise ImproperlyConfigured(
-                f'{model._meta.app_label}.{model.__name__} must define "natural_key" method.'
-            )
+            raise ImproperlyConfigured(f'{model._meta.app_label}.{model.__name__} must define "natural_key" method.')
 
         if not hasattr(model._default_manager, 'get_by_natural_key'):
             raise ImproperlyConfigured(
@@ -94,8 +99,9 @@ def _validate_public_models():
 
 def _validate_override_sharding_mode_entry(key, value):
     if not (isinstance(key, tuple) and len(key) in (1, 2) and isinstance(value, ShardingMode)):
-        raise ImproperlyConfigured('The override sharding mode entry is improperly configured: '
-                                   '{{ {}: {} }}'.format(repr(key), repr(value)))
+        raise ImproperlyConfigured(
+            'The override sharding mode entry is improperly configured: {{ {}: {} }}'.format(repr(key), repr(value))
+        )
 
 
 def _initialize_sharded_models():
@@ -131,6 +137,7 @@ def post_init(func):
             hints['_shard_options'] = connection.shard_options
 
         func(self, *args, hints=hints, **kwargs)
+
     inner.__decorator__ = post_init
     return inner
 
@@ -140,8 +147,10 @@ def _initialize_sharded_model_querysets(model):
     Override all the querysets of the managers, so they can remember the shard where they are initialized on
     """
     for instance in model._meta.managers:
-        if hasattr(instance._queryset_class.__init__, '__decorator__') and \
-                instance._queryset_class.__init__.__decorator__ == post_init:
+        if (
+            hasattr(instance._queryset_class.__init__, '__decorator__')
+            and instance._queryset_class.__init__.__decorator__ == post_init
+        ):
             continue
         setattr(instance._queryset_class, '__init__', post_init(instance._queryset_class.__init__))
 
@@ -160,6 +169,7 @@ def patch_getitem(func):
 
         # Sets up the sharded connection
         return ShardDatabaseWrapper(connection_, options)
+
     return inner
 
 
@@ -175,6 +185,7 @@ def _patch_connections():
     """
     import django.db
     from django.db.utils import ConnectionHandler
+
     setattr(ConnectionHandler, '__getitem__', patch_getitem(ConnectionHandler.__getitem__))
     setattr(django.db, 'connection', connection)
 
@@ -184,7 +195,8 @@ def _patch_transactions():
     Monkeypatch django.db.transaction.get_connection to use the active node, not always the default:
     """
     import django.db.transaction
-    from djanquiltdb.transaction import get_connection, atomic
+
+    from djanquiltdb.transaction import atomic, get_connection
 
     setattr(django.db.transaction, 'get_connection', get_connection)
     setattr(django.db.transaction, 'atomic', atomic)

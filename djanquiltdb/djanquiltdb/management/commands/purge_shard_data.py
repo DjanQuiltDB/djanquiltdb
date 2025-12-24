@@ -4,13 +4,13 @@ from django.core.exceptions import FieldError, MultipleObjectsReturned
 from django.core.management import BaseCommand, CommandError
 from django.db import connections
 from django.db.models import ObjectDoesNotExist
-from django.db.models.signals import pre_delete, post_delete
+from django.db.models.signals import post_delete, pre_delete
 from django.utils import termcolors
 
 from djanquiltdb import ShardingMode
 from djanquiltdb.collector import SimpleCollector
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.utils import get_shard_class, get_all_sharded_models, get_model_sharding_mode, disable_signals
+from djanquiltdb.utils import disable_signals, get_all_sharded_models, get_model_sharding_mode, get_shard_class
 
 
 class Command(BaseCommand):
@@ -29,35 +29,46 @@ class Command(BaseCommand):
             self.style.BOLD = termcolors.make_style(opts=('bold',))
 
     def add_arguments(self, parser):
-        parser.add_argument('--shard-alias', '-s',
-                            action='store',
-                            dest='shard_alias',
-                            help='Name of the shard for which to purge the data.')
-        parser.add_argument('--model-name', '-m',
-                            action='store',
-                            dest='model_name',
-                            help='Dot notation of the module path to the root object model class, e.g. '
-                                 '"app_label.model_name".')
-        parser.add_argument('--object-value', '-o',
-                            action='store',
-                            dest='object_value',
-                            help='The object value for the object field.')
-        parser.add_argument('--object-field',
-                            action='store',
-                            dest='object_field',
-                            help="The field to map the object object value to. Defaults to 'id'.",
-                            default='id')
-        parser.add_argument('--simple-collector',
-                            action='store_true',
-                            dest='simple_collector',
-                            help="Do not use Django's delete collector to determine what needs to be deleted from the "
-                                 "shard, but use the simple collector.",
-                            default=False)
-        parser.add_argument('--noinput', '--no-input',
-                            action='store_false',
-                            dest='interactive',
-                            help='Do NOT prompt the user for input of any kind and assume "yes" on all questions.',
-                            default=True)
+        parser.add_argument(
+            '--shard-alias',
+            '-s',
+            action='store',
+            dest='shard_alias',
+            help='Name of the shard for which to purge the data.',
+        )
+        parser.add_argument(
+            '--model-name',
+            '-m',
+            action='store',
+            dest='model_name',
+            help='Dot notation of the module path to the root object model class, e.g. "app_label.model_name".',
+        )
+        parser.add_argument(
+            '--object-value', '-o', action='store', dest='object_value', help='The object value for the object field.'
+        )
+        parser.add_argument(
+            '--object-field',
+            action='store',
+            dest='object_field',
+            help="The field to map the object object value to. Defaults to 'id'.",
+            default='id',
+        )
+        parser.add_argument(
+            '--simple-collector',
+            action='store_true',
+            dest='simple_collector',
+            help="Do not use Django's delete collector to determine what needs to be deleted from the "
+            'shard, but use the simple collector.',
+            default=False,
+        )
+        parser.add_argument(
+            '--noinput',
+            '--no-input',
+            action='store_false',
+            dest='interactive',
+            help='Do NOT prompt the user for input of any kind and assume "yes" on all questions.',
+            default=True,
+        )
 
     def log(self, msg, level=2):
         if self.options['verbosity'] >= level:
@@ -89,13 +100,14 @@ class Command(BaseCommand):
             self.log('\t{} data points'.format(len(instances)))
 
         if self.options['interactive']:
-            confirm_msg = \
-                "\nYou have requested to purge all data for object with object value\n{} on shard {}.\nThis " \
-                "will IRREVERSIBLY DESTROY all data for this object on the given shard.\n" \
-                "Are you sure you want to do this?\n" \
+            confirm_msg = (
+                '\nYou have requested to purge all data for object with object value\n{} on shard {}.\nThis '
+                'will IRREVERSIBLY DESTROY all data for this object on the given shard.\n'
+                'Are you sure you want to do this?\n'
                 "\n\tType 'yes' to continue, or 'no' to cancel: ".format(
                     self.style.BOLD(self.options['object_value']), self.style.BOLD(self.shard)
                 )
+            )
 
             confirm = input(confirm_msg)
 
@@ -125,9 +137,7 @@ class Command(BaseCommand):
                 "'{model_name}'.".format(**fmt)
             )
         except FieldError:
-            raise CommandError(
-                "Object field '{object_field}' is not valid for model '{model_name}'.".format(**fmt)
-            )
+            raise CommandError("Object field '{object_field}' is not valid for model '{model_name}'.".format(**fmt))
         except ObjectDoesNotExist:
             raise CommandError(
                 "No object could be found with object field '{object_field}' and object value "

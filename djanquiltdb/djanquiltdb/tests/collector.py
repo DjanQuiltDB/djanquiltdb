@@ -1,10 +1,11 @@
 from unittest import mock
 
-from example.models import Type, Organization, User, Shard, SuperType, Statement
+from example.models import Organization, Shard, Statement, SuperType, Type, User
+
 from djanquiltdb import State
 from djanquiltdb.collector import SimpleCollector
 from djanquiltdb.tests import ShardingTestCase
-from djanquiltdb.utils import use_shard, create_template_schema
+from djanquiltdb.utils import create_template_schema, use_shard
 
 
 class SimpleCollectorTestCase(ShardingTestCase):
@@ -12,8 +13,9 @@ class SimpleCollectorTestCase(ShardingTestCase):
         super().setUp()
 
         create_template_schema('default')
-        self.test_shard = Shard.objects.create(alias='other', node_name='default', schema_name='test_other_schema',
-                                               state=State.ACTIVE)
+        self.test_shard = Shard.objects.create(
+            alias='other', node_name='default', schema_name='test_other_schema', state=State.ACTIVE
+        )
         super_type = SuperType.objects.create(name='Animals')
         type = Type.objects.create(name='Birds', super=super_type)
 
@@ -27,8 +29,9 @@ class SimpleCollectorTestCase(ShardingTestCase):
 
             # Other organization, not to be collected
             other_organization = Organization.objects.create(name='Beach')
-            other_user = User.objects.create(organization=other_organization, name='Seagull', email='s@b.mine',
-                                             type=type)
+            other_user = User.objects.create(
+                organization=other_organization, name='Seagull', email='s@b.mine', type=type
+            )
             Statement.objects.create(content='Mine', user=other_user)
 
     def test(self):
@@ -44,19 +47,10 @@ class SimpleCollectorTestCase(ShardingTestCase):
             self.assertEqual(
                 collector.data,
                 {
-                    Organization: {
-                        self.organization
-                    },
-                    User: {
-                        self.user_1,
-                        self.user_2
-                    },
-                    Statement: {
-                        self.statement_1,
-                        self.statement_2,
-                        self.statement_3
-                    }
-                }
+                    Organization: {self.organization},
+                    User: {self.user_1, self.user_2},
+                    Statement: {self.statement_1, self.statement_2, self.statement_3},
+                },
             )
 
     def test_collect(self):

@@ -1,9 +1,9 @@
 from django.conf import settings
-from django.db import models, connections, transaction
+from django.db import connections, models, transaction
 from django.db.models import Q
 
-from djanquiltdb import State, STATES
-from djanquiltdb.utils import get_shard_class, use_shard, delete_schema
+from djanquiltdb import STATES, State
+from djanquiltdb.utils import delete_schema, get_shard_class, use_shard
 
 
 class MappingQuerySet(models.QuerySet):
@@ -31,7 +31,6 @@ class BaseShard(models.Model):
     You often don't need additional fields, so it could just be::
 
         class Shard(BaseShard):
-
             class Meta:
                 app_label = 'example'
 
@@ -43,6 +42,7 @@ class BaseShard(models.Model):
     Since this model will create a schema when saved, it has logic to only do so on the node is targets.
 
     """
+
     alias = models.CharField(max_length=128, db_index=True, unique=True)
     schema_name = models.CharField(max_length=64)  # PostgreSQL default max limit = 63 chars
     node_name = models.CharField(max_length=64)
@@ -56,13 +56,13 @@ class BaseShard(models.Model):
     def save(self, using=None, **kwargs):
         self.node_name = self.node_name or settings.SHARDING.get('NEW_SHARD_NODE', None)
         if not self.node_name:
-            raise ValueError("No node_name given, or no NEW_SHARD_NODE set in the SHARDING settings.")
+            raise ValueError('No node_name given, or no NEW_SHARD_NODE set in the SHARDING settings.')
 
         # If this is an update, no need to create a schema
         if self.pk and get_shard_class().objects.filter(pk=self.pk).exists():
             return super().save(using=using, **kwargs)
 
-        from djanquiltdb.utils import schema_exists, create_schema_on_node  # Prevent cyclic imports
+        from djanquiltdb.utils import create_schema_on_node, schema_exists  # Prevent cyclic imports
 
         # Only create the schema is if does not exist yet. This prevents re-creation if the shard object is saved
         # multiple times for different nodes. (The save-on-all-nodes style of data replication across nodes)
@@ -80,11 +80,12 @@ class BaseShard(models.Model):
 
     def clean(self):
         if self.node_name not in connections:
-            raise ValueError("Connection '{}' does not exist. Is it listed in settings.DATABASES?"
-                             .format(self.node_name))
+            raise ValueError(
+                "Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(self.node_name)
+            )
 
     def __str__(self):
-        return "{}({}|{})".format(self.alias, self.node_name, self.schema_name)
+        return '{}({}|{})'.format(self.alias, self.node_name, self.schema_name)
 
     def use(self, *args, **kwargs):
         return use_shard(self, *args, **kwargs)

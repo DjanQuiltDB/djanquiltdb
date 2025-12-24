@@ -1,6 +1,6 @@
 from djanquiltdb import State
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import use_shard, get_shard_class, StateException, get_mapping_class, use_shard_for
+from djanquiltdb.utils import StateException, get_mapping_class, get_shard_class, use_shard, use_shard_for
 
 
 class ShardOptions:
@@ -53,19 +53,16 @@ class ShardOptions:
         if check_active_mapping_values:
             mapping_model = get_mapping_class()
             if not mapping_model:
-                raise ValueError("You set 'check_active_mapping_values' to True while you didn't define the "
-                                 "mapping model.")
+                raise ValueError(
+                    "You set 'check_active_mapping_values' to True while you didn't define the mapping model."
+                )
 
             if mapping_model.objects.for_shard(shard).in_maintenance().exists():
-                raise StateException('Shard {} contains mapping objects that are in maintenance'.format(shard),
-                                     State.MAINTENANCE)
+                raise StateException(
+                    'Shard {} contains mapping objects that are in maintenance'.format(shard), State.MAINTENANCE
+                )
 
-        return cls(
-            schema_name=shard.schema_name,
-            node_name=shard.node_name,
-            shard_id=shard.id,
-            **kwargs
-        )
+        return cls(schema_name=shard.schema_name, node_name=shard.node_name, shard_id=shard.id, **kwargs)
 
     @classmethod
     def from_alias(cls, alias):

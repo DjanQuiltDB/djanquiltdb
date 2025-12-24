@@ -3,13 +3,13 @@ from unittest import mock
 from django.db.models.signals import post_init
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
+from example.models import Organization, ProxyCake, Shard, Type, User
 
-from example.models import Shard, Organization, User, Type, ProxyCake
 from djanquiltdb import State
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.tests import ShardingTestCase
 from djanquiltdb.tests.app_config import DummyShard
-from djanquiltdb.utils import get_shard_class, use_shard, create_template_schema, create_schema_on_node
+from djanquiltdb.utils import create_schema_on_node, create_template_schema, get_shard_class, use_shard
 
 
 class GetShardTestCase(SimpleTestCase):
@@ -191,8 +191,9 @@ class MirroredModelTestCase(ShardingTestCase):
         Case: Create a mirrored model
         Expected: _shard attribute is not set on the mirrored model
         """
-        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
-                                     state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='death_star', schema_name='empire_schema', node_name='default', state=State.ACTIVE
+        )
 
         with use_shard(shard):
             type_ = Type.objects.create(name='test')
@@ -211,10 +212,12 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
               in a different shard
         Expected: The model method is performed in the shard the model instance is living on
         """
-        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
-                                     state=State.ACTIVE)
-        other_shard = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default',
-                                           state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='death_star', schema_name='empire_schema', node_name='default', state=State.ACTIVE
+        )
+        other_shard = Shard.objects.create(
+            alias='dantooine', schema_name='alliance_schema', node_name='default', state=State.ACTIVE
+        )
 
         with use_shard(shard):
             org = Organization.objects.create(name='The Empire')
@@ -231,10 +234,12 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         Case: Use a model method while being a shard with override_class_method_use_shard=True
         Expected: The model method is not performed in a use_shard context of the shard the model instance is living on
         """
-        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
-                                     state=State.ACTIVE)
-        other_shard = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default',
-                                           state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='death_star', schema_name='empire_schema', node_name='default', state=State.ACTIVE
+        )
+        other_shard = Shard.objects.create(
+            alias='dantooine', schema_name='alliance_schema', node_name='default', state=State.ACTIVE
+        )
 
         with use_shard(shard):
             org = Organization.objects.create(name='The Empire')
@@ -256,8 +261,9 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         Case: Call a sharded model instance method in the same use_shard context as the user was retrieved with
         Expected: use_shard for the model method not called, since we are already in that shard
         """
-        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
-                                     state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='death_star', schema_name='empire_schema', node_name='default', state=State.ACTIVE
+        )
 
         with use_shard(shard):
             org = Organization.objects.create(name='The Empire')
@@ -272,8 +278,9 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
         Case: Get a related model instance outside a use_shard context
         Expected: Related model retrieved from the same shard the current model is living on
         """
-        shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
-                                     state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='death_star', schema_name='empire_schema', node_name='default', state=State.ACTIVE
+        )
 
         with shard.use():
             organization = Organization.objects.create(name='The Empire')
@@ -292,8 +299,9 @@ class ShardedModelFromDbUseShardTestCase(ShardingTestCase):
 
         self.addCleanup(self.disconnect_signals)
 
-        self.shard = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
-                                          state=State.ACTIVE)
+        self.shard = Shard.objects.create(
+            alias='death_star', schema_name='empire_schema', node_name='default', state=State.ACTIVE
+        )
 
         def post_init_signal(instance, *args, **kwargs):
             from django.db import connection
@@ -318,7 +326,7 @@ class ShardedModelFromDbUseShardTestCase(ShardingTestCase):
         Expected: Only the requested fields have a value
         """
         now = timezone.now()
-        with self.subTest("No signals"):
+        with self.subTest('No signals'):
             with self.shard.use():
                 id = Organization.objects.create(name='Hope', created_at=now).id
                 organization = Organization.objects.only('id', 'created_at').get(id=id)
@@ -326,7 +334,7 @@ class ShardedModelFromDbUseShardTestCase(ShardingTestCase):
             self.assertEqual(organization.__dict__.get('created_at'), now)
             self.assertIsNone(organization.__dict__.get('name'))
 
-        with self.subTest("With post_init signal"):
+        with self.subTest('With post_init signal'):
             post_init.connect(self.post_init_signal, sender='example.Organization', weak=False)
 
             with self.shard.use():

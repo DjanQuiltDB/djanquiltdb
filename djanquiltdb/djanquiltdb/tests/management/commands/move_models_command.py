@@ -4,13 +4,19 @@ from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.core.management import CommandError
 from django.db import ProgrammingError
-
 from example.models import Organization, Shard, Statement
+
 from djanquiltdb.db import connection
 from djanquiltdb.management.commands.move_sharded_models import Command as MoveCommand
 from djanquiltdb.tests import ShardingTransactionTestCase
-from djanquiltdb.utils import migrate_schema, use_shard, create_template_schema, State, get_all_sharded_models, \
-    get_template_name
+from djanquiltdb.utils import (
+    State,
+    create_template_schema,
+    get_all_sharded_models,
+    get_template_name,
+    migrate_schema,
+    use_shard,
+)
 
 
 @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'djanquiltdb'}))
@@ -44,26 +50,33 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # Make sure all tables and sequences now live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            self.assertCountEqual(connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)),
-                                  [('public',)])
+            self.assertCountEqual(
+                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
+            )
 
         MoveCommand().handle(database='default', target_schema_name='test_target_schema', no_input=True)
 
         # A new shard is created.
-        self.assertTrue(Shard.objects.filter(alias='test_target_schema', node_name='default',
-                                             schema_name='test_target_schema').exists())
+        self.assertTrue(
+            Shard.objects.filter(
+                alias='test_target_schema', node_name='default', schema_name='test_target_schema'
+            ).exists()
+        )
 
         # Sharded models are now moved to the newly created default_shard and the template.
         for model in sharded_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('test_target_schema',), ('template',)])
-            self.assertCountEqual(connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)),
-                                  [('test_target_schema',), ('template',)])
+            self.assertCountEqual(
+                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)),
+                [('test_target_schema',), ('template',)],
+            )
 
         # Mirrored models are unaffected.
         for model in non_sharded_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            self.assertCountEqual(connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)),
-                                  [('public',)])
+            self.assertCountEqual(
+                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
+            )
 
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.validate')
     def test_rollback_on_validation(self, mock_validate):
@@ -71,6 +84,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         Case: Run move_sharded_models command, and let the validator raise an error.
         Expected: The transaction to be rolled back, no data is modified.
         """
+
         def fake_validate(target_shard):
             raise ValidationError('test')
 
@@ -88,8 +102,9 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # Make sure all tables and sequences now live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            self.assertCountEqual(connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)),
-                                  [('public',)])
+            self.assertCountEqual(
+                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
+            )
 
         with self.assertRaises(ValidationError):
             MoveCommand().handle(database='default', target_schema_name='test_target_schema', no_input=True)
@@ -103,8 +118,9 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # All tables and sequences should still live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            self.assertCountEqual(connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)),
-                                  [('public',)])
+            self.assertCountEqual(
+                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
+            )
 
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.move_model_to_schema')
     def test_rollback_on_error_during_move(self, mock_move_model_to_schema):
@@ -112,6 +128,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         Case: Run move_sharded_models command, and let the move_model_to_schema util raise an error.
         Expected: The transaction to be rolled back, no data is modified.
         """
+
         def fake_move_model(*args, **kwargs):
             raise ProgrammingError('test')
 
@@ -129,8 +146,9 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # Make sure all tables and sequences now live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            self.assertCountEqual(connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)),
-                                  [('public',)])
+            self.assertCountEqual(
+                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
+            )
 
         with self.assertRaises(ProgrammingError):
             MoveCommand().handle(database='default', target_schema_name='test_target_schema', no_input=True)
@@ -144,10 +162,13 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # All tables and sequences should still live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            self.assertCountEqual(connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)),
-                                  [('public',)])
+            self.assertCountEqual(
+                connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
+            )
 
-    @mock.patch('djanquiltdb.management.commands.move_sharded_models.create_schema_on_node',)
+    @mock.patch(
+        'djanquiltdb.management.commands.move_sharded_models.create_schema_on_node',
+    )
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.move_models')
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.copy_migration_table')
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.validate')
@@ -158,17 +179,20 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         """
         create_template_schema('default')
 
-        with mock.patch('djanquiltdb.management.commands.move_sharded_models.create_template_schema') \
-                as mock_create_template:
+        with mock.patch(
+            'djanquiltdb.management.commands.move_sharded_models.create_template_schema'
+        ) as mock_create_template:
             MoveCommand().handle(database='default', target_schema_name='test_target_schema', no_input=True)
 
         shard = Shard.objects.get(alias='test_target_schema')
 
         mock_create_template.assert_called_once_with('default')
-        mock_create_schema.assert_called_once_with(node_name=shard.node_name, schema_name=shard.schema_name,
-                                                   migrate=False)
-        mock_move_models.assert_called_once_with(target_shard=shard,
-                                                 sharded_models=get_all_sharded_models(include_auto_created=True))
+        mock_create_schema.assert_called_once_with(
+            node_name=shard.node_name, schema_name=shard.schema_name, migrate=False
+        )
+        mock_move_models.assert_called_once_with(
+            target_shard=shard, sharded_models=get_all_sharded_models(include_auto_created=True)
+        )
         mock_copy_migration_table.assert_called_once_with(target_shard=shard)
         mock_validate.assert_called_once_with(target_shard=shard)
 
@@ -176,23 +200,27 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.validate', mock.Mock())
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.move_model_to_schema', mock.Mock())
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.flush_schema')
-    @mock.patch('djanquiltdb.management.commands.move_sharded_models.create_schema_on_node',)
+    @mock.patch(
+        'djanquiltdb.management.commands.move_sharded_models.create_schema_on_node',
+    )
     def test_on_existing_shard(self, mock_create_schema, mock_flush_schema):
         """
         Case: Call move_sharded_models while the target schema already exists.
         Expected: flush_shard to be called.
         """
         create_template_schema('default')
-        shard = Shard.objects.create(alias='test_target_schema', node_name='default', schema_name='test_target_schema',
-                                     state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='test_target_schema', node_name='default', schema_name='test_target_schema', state=State.ACTIVE
+        )
         with use_shard(shard):
-            Organization.objects.create(name="Lilly inc.")
+            Organization.objects.create(name='Lilly inc.')
 
         # The User table is already on the sharded schema.
         MoveCommand().handle(database='default', target_schema_name='test_target_schema', no_input=True)
 
-        mock_create_schema.assert_called_once_with(node_name=shard.node_name, schema_name=shard.schema_name,
-                                                   migrate=False)
+        mock_create_schema.assert_called_once_with(
+            node_name=shard.node_name, schema_name=shard.schema_name, migrate=False
+        )
         mock_flush_schema.assert_called_once_with(shard.schema_name)
 
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.copy_migration_table', mock.Mock())
@@ -237,16 +265,18 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
                   And a Shard to be created
         """
         create_template_schema('default')
-        shard = Shard.objects.create(alias='test_target', node_name='default', schema_name='test_target',
-                                     state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='test_target', node_name='default', schema_name='test_target', state=State.ACTIVE
+        )
 
         MoveCommand().move_models(target_shard=shard, sharded_models=get_all_sharded_models())
 
         mock_flush_schema.assert_called_once_with('test_target')
 
         for model in get_all_sharded_models():
-            mock_move_model_to_schema.assert_any_call(model=model, node_name='default', from_schema_name='public',
-                                                      to_schema_name='test_target')
+            mock_move_model_to_schema.assert_any_call(
+                model=model, node_name='default', from_schema_name='public', to_schema_name='test_target'
+            )
 
     def test_copy_migration_table(self):
         """
@@ -260,18 +290,21 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
             public_migration_table_contents = cursor.fetchall()
 
         create_template_schema('default')
-        shard = Shard.objects.create(alias='test_target', node_name='default', schema_name='test_target',
-                                     state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='test_target', node_name='default', schema_name='test_target', state=State.ACTIVE
+        )
         with use_shard(shard) as env:
             env.connection.flush_schema(shard.schema_name)
 
         MoveCommand().copy_migration_table(target_shard=shard)
 
         with use_shard(shard, include_public=False) as env:
-            self.assertCountEqual(env.connection.get_all_table_headers(schema_name=shard.schema_name),
-                                  ['django_migrations'])
-            self.assertCountEqual(env.connection.get_all_table_sequences(schema_name=shard.schema_name),
-                                  ['django_migrations_id_seq'])
+            self.assertCountEqual(
+                env.connection.get_all_table_headers(schema_name=shard.schema_name), ['django_migrations']
+            )
+            self.assertCountEqual(
+                env.connection.get_all_table_sequences(schema_name=shard.schema_name), ['django_migrations_id_seq']
+            )
 
             # Check contents vs public.django_migrations
             cursor = env.connection.cursor()
@@ -284,29 +317,35 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         with use_shard(node_name='default', schema_name='template') as env:
             cursor = env.connection.cursor()
             # Check if it's an identity column (Django 6.0) or has a sequence default (older Django)
-            cursor.execute("""
+            cursor.execute(
+                """
                 SELECT column_default, is_identity 
                 FROM information_schema.columns 
                 WHERE table_schema=%s AND table_name='django_migrations' AND column_name='id'
-            """, [shard.schema_name])
+            """,
+                [shard.schema_name],
+            )
             result = cursor.fetchone()
-            self.assertIsNotNone(result, "Should find id column in django_migrations")
+            self.assertIsNotNone(result, 'Should find id column in django_migrations')
             column_default, is_identity = result
-            
+
             if is_identity == 'YES':
                 # Django 6.0: identity column, column_default is NULL
                 self.assertIsNone(column_default, "Identity columns don't have column_default")
                 # Verify identity sequence exists and is set correctly
-                cursor.execute("""
+                cursor.execute(
+                    """
                     SELECT pg_get_serial_sequence(%s, 'id')
-                """, ['{}.django_migrations'.format(shard.schema_name)])
+                """,
+                    ['{}.django_migrations'.format(shard.schema_name)],
+                )
                 seq_result = cursor.fetchone()
-                self.assertIsNotNone(seq_result[0], "Identity column should have underlying sequence")
+                self.assertIsNotNone(seq_result[0], 'Identity column should have underlying sequence')
             else:
                 # Older Django: sequence-based, should have column_default
-                self.assertIsNotNone(column_default, "Sequence-based columns should have column_default")
-                self.assertIn('nextval', column_default.lower(), "column_default should reference nextval")
-                self.assertIn(shard.schema_name, column_default, "column_default should reference target schema")
+                self.assertIsNotNone(column_default, 'Sequence-based columns should have column_default')
+                self.assertIn('nextval', column_default.lower(), 'column_default should reference nextval')
+                self.assertIn(shard.schema_name, column_default, 'column_default should reference target schema')
 
     def test_validate(self):
         """
@@ -314,8 +353,9 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         Expected: A ValidationError to be raised.
         """
         create_template_schema('default')
-        shard = Shard.objects.create(alias='test_target', node_name='default', schema_name='test_target',
-                                     state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='test_target', node_name='default', schema_name='test_target', state=State.ACTIVE
+        )
 
         with use_shard(shard) as env:
             cursor = env.connection.cursor()

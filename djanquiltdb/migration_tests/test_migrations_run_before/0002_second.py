@@ -5,19 +5,16 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
     dependencies = [
-        ("migration_tests", "0001_initial"),
+        ('migration_tests', '0001_initial'),
     ]
 
     operations = [
-
         migrations.CreateModel(
-            "Book",
+            'Book',
             [
-                ("id", models.AutoField(primary_key=True)),
-                ("author", models.ForeignKey("migration_tests.Author", null=True, on_delete=models.CASCADE)),
+                ('id', models.AutoField(primary_key=True)),
+                ('author', models.ForeignKey('migration_tests.Author', null=True, on_delete=models.CASCADE)),
             ],
         )
-
     ]

@@ -1,6 +1,7 @@
 """
 Python script used by tox to print the code coverage total results to the build log.
 """
+
 import json
 import os
 
@@ -14,7 +15,7 @@ if not os.path.exists(status_file):
 try:
     with open(status_file, 'r') as f:
         coverage_data = json.load(f)
-    
+
     files_data = coverage_data.get('files', {})
     if not files_data:
         print('No coverage data found.')
@@ -23,12 +24,12 @@ try:
     # Sum up all the coverage numbers
     # Format: [n_files, n_lines, n_statements, n_missing, n_branches, n_partial, n_missing_branches, n_excluded]
     totals = [0] * 8
-    
+
     for file_info in files_data.values():
         nums = file_info.get('index', {}).get('nums', [])
         if not nums:
             continue
-        
+
         # Handle both list and dict formats
         if isinstance(nums, dict):
             # If nums is a dict, convert to list format
@@ -46,7 +47,7 @@ try:
             nums_list = nums
         else:
             continue
-            
+
         for i in range(8):
             totals[i] += nums_list[i]
 
@@ -58,12 +59,13 @@ try:
     absolute_total_covered = statements - missing - partial
     coverage_percent = (absolute_total_covered / absolute_total * 100) if absolute_total > 0 else 0
 
-    print(f'Coverage Summary:')
+    print('Coverage Summary:')
     print(f'  Total lines: {absolute_total}')
     print(f'  Covered lines: {absolute_total_covered}')
     print(f'  Coverage: {coverage_percent:.2f}%')
 except Exception as e:
     print(f'Error processing coverage data: {e}')
     import traceback
+
     traceback.print_exc()
     exit(1)

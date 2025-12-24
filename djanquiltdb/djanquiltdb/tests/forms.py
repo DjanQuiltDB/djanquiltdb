@@ -1,6 +1,7 @@
 import importlib
 
 from example.models import Shard
+
 from djanquiltdb import State
 from djanquiltdb.tests.utils import ShardingTestCase
 from djanquiltdb.utils import create_template_schema, use_shard
@@ -11,8 +12,9 @@ class ModelFormTestCase(ShardingTestCase):
         super().setUp()
 
         create_template_schema()
-        self.shard = Shard.objects.create(alias='death_star', schema_name='test_empire_schema', node_name='default',
-                                          state=State.ACTIVE)
+        self.shard = Shard.objects.create(
+            alias='death_star', schema_name='test_empire_schema', node_name='default', state=State.ACTIVE
+        )
 
     def test_queryset_shard_options(self):
         """
@@ -27,6 +29,7 @@ class ModelFormTestCase(ShardingTestCase):
             # our sharding.forms.ModelForm. We reload it explicitly to make sure that previous imports in our tests are
             # undone and that we have the _shard attribute set.
             import example.forms
+
             importlib.reload(example.forms)
 
         # No _shard_options set as hint on the queryset

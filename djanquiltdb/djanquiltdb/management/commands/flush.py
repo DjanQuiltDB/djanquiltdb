@@ -3,7 +3,7 @@ from django.db import connections
 
 from djanquiltdb.management.base import get_databases_and_schema_from_options, shard_table_exists
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.utils import get_all_databases, get_template_name, get_shard_class
+from djanquiltdb.utils import get_all_databases, get_shard_class, get_template_name
 
 
 class Command(FlushCommand):
@@ -12,24 +12,30 @@ class Command(FlushCommand):
 
         # Since we can now target multiple databases change the default to 'all' and the options to databases allowed.
         parser._option_string_actions['--database'].default = 'all'
-        parser._option_string_actions['--database'].help = \
-            'Nominates a database to synchronize. Defaults to all databases.'
+        parser._option_string_actions[
+            '--database'
+        ].help = 'Nominates a database to synchronize. Defaults to all databases.'
         parser._option_string_actions['--database'].choices = ['all'] + get_all_databases()
 
         parser.add_argument(
-            '--schema-name', '-s', action='store', dest='schema_name',
-            help='Nominates a schema to flush. When empty all schemas will be flushed.'
+            '--schema-name',
+            '-s',
+            action='store',
+            dest='schema_name',
+            help='Nominates a schema to flush. When empty all schemas will be flushed.',
         )
 
     def handle(self, **options):
         interactive = options['interactive']
 
         if interactive:
-            confirm = input("You have requested a flush of the database.\n"
-                            "This will IRREVERSIBLY DESTROY all data currently in the selected database,\n"
-                            "and return each table to an empty state.\n"
-                            "Are you sure you want to do this?\n"
-                            "    Type 'yes' to continue, or 'no' to cancel: ")
+            confirm = input(
+                'You have requested a flush of the database.\n'
+                'This will IRREVERSIBLY DESTROY all data currently in the selected database,\n'
+                'and return each table to an empty state.\n'
+                'Are you sure you want to do this?\n'
+                "    Type 'yes' to continue, or 'no' to cancel: "
+            )
 
             if confirm != 'yes':
                 self.stdout.write('Flush cancelled.\n')
@@ -54,8 +60,9 @@ class Command(FlushCommand):
                 # Flush all schemas on this database, starting with the template schema, if it exists.
                 if connection_.get_ps_schema(template_name):
                     template_options = options.copy()
-                    template_options['database'] = ShardOptions(node_name=node_name, schema_name=template_name,
-                                                                include_public=False)
+                    template_options['database'] = ShardOptions(
+                        node_name=node_name, schema_name=template_name, include_public=False
+                    )
                     super().handle(**template_options)
 
                 # And now all other shards, but only if the shard table exists on the public schema. If not, we can

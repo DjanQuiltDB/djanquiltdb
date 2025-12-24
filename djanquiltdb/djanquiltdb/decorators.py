@@ -3,16 +3,16 @@ import functools
 import inspect
 
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured, FieldDoesNotExist
+from django.core.exceptions import FieldDoesNotExist, ImproperlyConfigured
 from django.db import models
 from django.test import override_settings
 
-from djanquiltdb import ShardingMode, STATES
+from djanquiltdb import STATES, ShardingMode
 from djanquiltdb.db import connection
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.router import get_active_connection
-from djanquiltdb.utils import transaction_for_every_node, get_all_databases, use_shard
+from djanquiltdb.utils import get_all_databases, transaction_for_every_node, use_shard
 
 shard_mapping_models = False
 
@@ -37,20 +37,23 @@ def class_method_use_shard(func):
     Decorator that is used to decorate all class methods of a certain class. It will make sure that the class methods
     are run in the same shard as the instance lives in.
     """
+
     @functools.wraps(func)
     def inner(self, *args, **kwargs):
         if not hasattr(self, '_state') or not getattr(self._state, 'db', None):
             return func(self, *args, **kwargs)
 
         shard_options = ShardOptions.from_alias(self._state.db)
-        override_class_method_use_shard = hasattr(connection, 'shard_options') \
-            and connection.shard_options.kwargs.get('override_class_method_use_shard', False)
+        override_class_method_use_shard = hasattr(connection, 'shard_options') and connection.shard_options.kwargs.get(
+            'override_class_method_use_shard', False
+        )
 
         if shard_options == get_active_connection() or override_class_method_use_shard:
             return func(self, *args, **kwargs)
 
         with shard_options.use():
             return func(self, *args, **kwargs)
+
     return _add_decorator_reference(inner, decorator=class_method_use_shard, args=(func,))
 
 
@@ -60,6 +63,7 @@ def class_method_use_shard_from_db_arg(func):
     be executed on that db/shard. This is to ensure the model instancing happens within the correct shard context,
     otherwise signals like pre_init and post_init will be outside the proper context and can lead to unwanted behavior.
     """
+
     @functools.wraps(func)
     def inner(db, *args, **kwargs):
         shard_options = ShardOptions.from_alias(db)
@@ -69,6 +73,7 @@ def class_method_use_shard_from_db_arg(func):
 
         with shard_options.use():
             return func(db, *args, **kwargs)
+
     return _add_decorator_reference(inner, decorator=class_method_use_shard_from_db_arg, args=(func,))
 
 
@@ -85,6 +90,7 @@ def mirrored_model():
             from django.db import models
             from djanquiltdb.decorators import mirrored_model
 
+
             @mirrored_model()
             class Type(models.Model):
                 name = models.CharField('name', max_length=100)
@@ -98,8 +104,10 @@ def mirrored_model():
                 # This runs within a use_node
                 Type.objects.create(name=new_type_name)
 
+
             update_type('new_type')  # add a new Type object to all nodes.
     """
+
     def configure(cls):
         cls.__sharding_mode = ShardingMode.MIRRORED
         return cls
@@ -124,12 +132,14 @@ def public_model(allow_copy=True):
             from django.db import models
             from djanquiltdb.decorators import public_model
 
+
             @public_model(allow_copy=True)
             class Author(models.Model):
                 name = models.CharField('name', max_length=100)
 
                 class Meta:
                     app_label = 'example'
+
 
             # Create authors for their own node.
             with use_shard(node_name='the_cate_node', schema_name='public'):
@@ -138,6 +148,7 @@ def public_model(allow_copy=True):
             with use_shard(node_name='the_bob_node', schema_name='public'):
                 Author.objects.create(name='Bob')
     """
+
     def configure(cls):
         cls.__sharding_mode = ShardingMode.PUBLIC
         cls.__allow_copy = allow_copy
@@ -178,9 +189,11 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
             from djanquiltdb.models import BaseShard
             from djanquiltdb.utils import State
 
+
             class Shard(BaseShard):
                 class Meta:
                     app_label = 'example'
+
 
             @public_model()
             @shard_mapping_model(mapping_field='organization_id')
@@ -196,6 +209,7 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
                 class Meta:
                     app_label = 'example'
 
+
             @sharded_model()
             class Organization(models.Model):
                 name = models.CharField('name', max_length=100)
@@ -205,59 +219,76 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
                     app_label = 'example'
 
     """
+
     def configure(cls):
         try:
             shard_field = cls._meta.get_field('shard')
         except FieldDoesNotExist:
             raise ImproperlyConfigured(
                 "{} model is missing a foreignkey field named 'shard'. "
-                "The @shard_mapping_model decorator requires this."
-                .format(cls.__name__))
+                'The @shard_mapping_model decorator requires this.'.format(cls.__name__)
+            )
         else:
             if not isinstance(shard_field, models.ForeignKey):
                 raise ImproperlyConfigured(
                     "The shard field of model '{}' is not a Foreignkey to the shard model. "
-                    "The @shard_mapping_model decorator requires this."
-                    .format(cls.__name__))
+                    'The @shard_mapping_model decorator requires this.'.format(cls.__name__)
+                )
 
             related_to = shard_field.remote_field.model
-            related_to = related_to if isinstance(related_to, str) else \
-                f'{related_to.__module__.replace(".models", "")}.{related_to.__name__}'
+            related_to = (
+                related_to
+                if isinstance(related_to, str)
+                else f'{related_to.__module__.replace(".models", "")}.{related_to.__name__}'
+            )
 
             if related_to != settings.SHARDING['SHARD_CLASS'].replace('.models', ''):
-                raise ImproperlyConfigured("The shard field of model {} is points to '{}' instead of '{}'. "
-                                           "The @shard_mapping_model decorator requires this."
-                                           .format(cls.__name__, related_to,
-                                                   settings.SHARDING['SHARD_CLASS'].replace('.models', '')))
+                raise ImproperlyConfigured(
+                    "The shard field of model {} is points to '{}' instead of '{}'. "
+                    'The @shard_mapping_model decorator requires this.'.format(
+                        cls.__name__, related_to, settings.SHARDING['SHARD_CLASS'].replace('.models', '')
+                    )
+                )
 
         try:
             cls._meta.get_field(mapping_field)
         except FieldDoesNotExist:
-            raise ImproperlyConfigured("{} model is missing a field named '{}'. Yet it is given as the mapping field."
-                                       .format(cls.__name__, mapping_field))
+            raise ImproperlyConfigured(
+                "{} model is missing a field named '{}'. Yet it is given as the mapping field.".format(
+                    cls.__name__, mapping_field
+                )
+            )
 
         try:
             state_field = cls._meta.get_field('state')
         except FieldDoesNotExist:
             raise ImproperlyConfigured(
                 "{} model is missing a CharField field named 'state'. "
-                "The @shard_mapping_model decorator requires this.".format(cls.__name__))
+                'The @shard_mapping_model decorator requires this.'.format(cls.__name__)
+            )
         else:
             if not isinstance(state_field, models.CharField):
-                raise ImproperlyConfigured("The state field of model '{}' is not a CharField with "
-                                           "sharding.utils.STATES as choices".format(cls.__name__))
+                raise ImproperlyConfigured(
+                    "The state field of model '{}' is not a CharField with sharding.utils.STATES as choices".format(
+                        cls.__name__
+                    )
+                )
             # Django 6.0+ may store choices differently, so compare the actual values
             field_choices = list(state_field.choices) if state_field.choices else []
             expected_choices = list(STATES)
             if field_choices != expected_choices:
-                raise ImproperlyConfigured("The state field of model '{}' is not a CharField with "
-                                           "djanquiltdb.utils.STATES as choices".format(cls.__name__))
+                raise ImproperlyConfigured(
+                    "The state field of model '{}' is not a CharField with sharding.utils.STATES as choices".format(
+                        cls.__name__
+                    )
+                )
 
         # set global counter to detect multiple usages of this decorator, which is not allowed.
         global shard_mapping_models
         if shard_mapping_models:
             raise ImproperlyConfigured(
-                'More than one model uses the @shard_mapping_model decorator. This is not allowed.')
+                'More than one model uses the @shard_mapping_model decorator. This is not allowed.'
+            )
         else:
             shard_mapping_models = True
 
@@ -280,9 +311,11 @@ def sharded_model():
             from djanquiltdb.decorators import sharded_model
             from djanquiltdb.models import BaseShard
 
+
             class Shard(BaseShard):
                 class Meta:
                     app_label = 'example'
+
 
             @sharded_model()
             class Organization(models.Model):
@@ -293,6 +326,7 @@ def sharded_model():
                     app_label = 'example'
 
     """
+
     def configure(cls):
         cls.__sharding_mode = ShardingMode.SHARDED
         return cls
@@ -336,6 +370,7 @@ def atomic_write_to_every_node(schema_name=PUBLIC_SCHEMA_NAME, lock_models=(), p
                 Type.objects.create(name='unique type')
 
     """
+
     def decorate(func):
         @functools.wraps(func)
         def decorator(*args, **kwargs):
@@ -349,8 +384,13 @@ def atomic_write_to_every_node(schema_name=PUBLIC_SCHEMA_NAME, lock_models=(), p
                         return_values[node_name] = func(*args, **kwargs)
 
             return return_values
-        return _add_decorator_reference(decorator, decorator=atomic_write_to_every_node,
-                                        kwargs={'schema_name': schema_name, 'lock_models': lock_models})
+
+        return _add_decorator_reference(
+            decorator,
+            decorator=atomic_write_to_every_node,
+            kwargs={'schema_name': schema_name, 'lock_models': lock_models},
+        )
+
     return decorate
 
 

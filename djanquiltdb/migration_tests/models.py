@@ -1,5 +1,4 @@
 from django.db import models
-
 from djanquiltdb.decorators import mirrored_model, sharded_model
 
 __all__ = [

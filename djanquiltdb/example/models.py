@@ -1,11 +1,10 @@
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
-from django.db import models, IntegrityError
+from django.db import IntegrityError, models
 from django.utils import timezone
-
-from djanquiltdb import State, STATES
-from djanquiltdb.decorators import mirrored_model, sharded_model, shard_mapping_model, public_model
+from djanquiltdb.decorators import mirrored_model, public_model, shard_mapping_model, sharded_model
 from djanquiltdb.models import BaseShard, MappingQuerySet
 
+from djanquiltdb import STATES, State
 
 __all__ = [
     'Shard',
@@ -28,7 +27,6 @@ __all__ = [
 
 @mirrored_model()
 class Shard(BaseShard):
-
     class Meta:
         app_label = 'example'
 
@@ -63,7 +61,7 @@ class SuperType(models.Model):
         unique_together = [['name']]
 
     def natural_key(self):
-        return self.name,
+        return (self.name,)
 
 
 @mirrored_model()
@@ -99,10 +97,12 @@ class Organization(models.Model):
 
 @sharded_model()
 class Suborganization(models.Model):
-    parent = models.ForeignKey('Organization', verbose_name='organization', related_name='parent',
-                               on_delete=models.CASCADE)
-    child = models.OneToOneField('Organization', verbose_name='organization', related_name='children',
-                                 on_delete=models.CASCADE)
+    parent = models.ForeignKey(
+        'Organization', verbose_name='organization', related_name='parent', on_delete=models.CASCADE
+    )
+    child = models.OneToOneField(
+        'Organization', verbose_name='organization', related_name='children', on_delete=models.CASCADE
+    )
 
     class Meta:
         app_label = 'example'
@@ -124,7 +124,7 @@ class CakeType(models.Model):
         unique_together = [['name']]
 
     def natural_key(self):
-        return self.name,
+        return (self.name,)
 
     def __str__(self):
         return self.name
@@ -155,7 +155,7 @@ class CoatingType(models.Model):
         unique_together = [['hash']]
 
     def natural_key(self):
-        return self.hash,
+        return (self.hash,)
 
     def __str__(self):
         return self.hash
@@ -203,13 +203,7 @@ class UserManager(BaseUserManager):
         if not email:
             raise ValueError('The given email must be set')
         email = self.normalize_email(email)
-        user = self.model(
-            email=email,
-            is_staff=is_staff,
-            is_active=True,
-            created_at=now,
-            **extra_fields
-        )
+        user = self.model(email=email, is_staff=is_staff, is_active=True, created_at=now, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
         return user
@@ -226,11 +220,15 @@ class AbstractUser(AbstractBaseUser):
     email = models.EmailField('email address', unique=True)
 
     created_at = models.DateTimeField('date joined', default=timezone.now)
-    is_staff = models.BooleanField('staff status', default=False,
-                                   help_text='Designates whether the user can log into this admin site.')
-    is_active = models.BooleanField('active', default=True,
-                                    help_text='Designates whether this user should be treated as active. '
-                                              'Unselect this instead of deleting accounts.')
+    is_staff = models.BooleanField(
+        'staff status', default=False, help_text='Designates whether the user can log into this admin site.'
+    )
+    is_active = models.BooleanField(
+        'active',
+        default=True,
+        help_text='Designates whether this user should be treated as active. '
+        'Unselect this instead of deleting accounts.',
+    )
 
     USERNAME_FIELD = 'email'
 
@@ -263,7 +261,7 @@ class User(AbstractUser):
         app_label = 'example'
 
     def get_organization_name(self):
-        """ For testing purposes, we do a new query here to get the organization name """
+        """For testing purposes, we do a new query here to get the organization name"""
         return Organization.objects.get(id=self.organization_id).name
 
 
@@ -283,7 +281,7 @@ class ProxyMirroredUser(MirroredUser):
 
 
 class DefaultUser(AbstractUser):
-    """ User that's not sharded nor mirrored. Used for the `createsuperuser` test """
+    """User that's not sharded nor mirrored. Used for the `createsuperuser` test"""
 
     class Meta:
         app_label = 'example'
@@ -305,6 +303,7 @@ class Statement(models.Model):
 
 class Unrelated(models.Model):
     """Model that does not have a sharding mode assigned"""
+
     name = models.CharField('name', max_length=64)
 
     class Meta:

@@ -1,9 +1,9 @@
 from unittest import mock
 
-from example.models import Organization, Type, User, OrganizationShards, Shard
-from djanquiltdb.utils import use_shard, create_template_schema
 from djanquiltdb.tests import ShardingTestCase
-from djanquiltdb.utils import State
+from djanquiltdb.utils import State, create_template_schema, use_shard
+
+from example.models import Organization, OrganizationShards, Shard, Type, User
 
 
 class ShardingExampleTestCase(ShardingTestCase):
@@ -12,10 +12,12 @@ class ShardingExampleTestCase(ShardingTestCase):
         create_template_schema()
 
         # tables for the 'public' schema (in this case: Type) are not mirrored yet. So stick to default node for now.
-        self.shard1 = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
-                                           state=State.ACTIVE)
-        self.shard2 = Shard.objects.create(alias='dantooine', schema_name='alliance_schema', node_name='default',
-                                           state=State.ACTIVE)
+        self.shard1 = Shard.objects.create(
+            alias='death_star', schema_name='empire_schema', node_name='default', state=State.ACTIVE
+        )
+        self.shard2 = Shard.objects.create(
+            alias='dantooine', schema_name='alliance_schema', node_name='default', state=State.ACTIVE
+        )
 
         # default shard
         self.type1 = Type.objects.create(name='Leader')
@@ -23,15 +25,18 @@ class ShardingExampleTestCase(ShardingTestCase):
 
         with use_shard(self.shard1):
             self.org1 = Organization.objects.create(name='The Empire')
-            self.user1 = User.objects.create(name='Sheev Palpatine', email='s.palpatine@sith.sw',
-                                             organization=self.org1, type=self.type1)
+            self.user1 = User.objects.create(
+                name='Sheev Palpatine', email='s.palpatine@sith.sw', organization=self.org1, type=self.type1
+            )
 
         with use_shard(self.shard2):
             self.org2 = Organization.objects.create(name='The Rebel Alliance')
-            self.user2 = User.objects.create(name='Mon Mothma', email='m.mothma@alliance.sw', organization=self.org2,
-                                             type=self.type1)
-            self.user3 = User.objects.create(name='Ackbar', email='itsatrap@alliance.sw', organization=self.org2,
-                                             type=self.type2)
+            self.user2 = User.objects.create(
+                name='Mon Mothma', email='m.mothma@alliance.sw', organization=self.org2, type=self.type1
+            )
+            self.user3 = User.objects.create(
+                name='Ackbar', email='itsatrap@alliance.sw', organization=self.org2, type=self.type2
+            )
 
         OrganizationShards.objects.create(organization_id=self.org1.id, shard=self.shard1)
         OrganizationShards.objects.create(organization_id=self.org2.id, shard=self.shard2)
@@ -55,14 +60,17 @@ class MappingQuerySetTestCase(ShardingTestCase):
         super().setUp()
 
         with mock.patch('djanquiltdb.utils.create_schema_on_node'):
-            self.shard1 = Shard.objects.create(alias='death_star', schema_name='empire_schema', node_name='default',
-                                               state=State.ACTIVE)
-            self.shard2 = Shard.objects.create(alias='death_star_MK2', schema_name='empire_schema', node_name='default',
-                                               state=State.MAINTENANCE)
+            self.shard1 = Shard.objects.create(
+                alias='death_star', schema_name='empire_schema', node_name='default', state=State.ACTIVE
+            )
+            self.shard2 = Shard.objects.create(
+                alias='death_star_MK2', schema_name='empire_schema', node_name='default', state=State.MAINTENANCE
+            )
 
         self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1, state=State.ACTIVE)
-        self.org_shard2 = OrganizationShards.objects.create(organization_id=2, shard=self.shard1,
-                                                            state=State.MAINTENANCE)
+        self.org_shard2 = OrganizationShards.objects.create(
+            organization_id=2, shard=self.shard1, state=State.MAINTENANCE
+        )
         self.org_shard3 = OrganizationShards.objects.create(organization_id=3, shard=self.shard2, state=State.ACTIVE)
 
     def test_get_shard_for(self):
@@ -73,9 +81,7 @@ class MappingQuerySetTestCase(ShardingTestCase):
         self.assertEqual(OrganizationShards.objects.for_target(1), self.org_shard1)
 
     def test_active(self):
-        self.assertCountEqual(OrganizationShards.objects.active().all(),
-                              [self.org_shard1])
+        self.assertCountEqual(OrganizationShards.objects.active().all(), [self.org_shard1])
 
     def test_in_maintenance(self):
-        self.assertCountEqual(OrganizationShards.objects.in_maintenance().all(),
-                              [self.org_shard2, self.org_shard3])
+        self.assertCountEqual(OrganizationShards.objects.in_maintenance().all(), [self.org_shard2, self.org_shard3])

@@ -11,4 +11,5 @@ class Command(MigrateCommand):
     There are also utilities (like the test runner in Django) that will call migrate, and this makes that compatible
     without requiring excessive monkey patching.
     """
+
     pass

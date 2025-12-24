@@ -1,5 +1,7 @@
 import os
-from setuptools import setup, find_packages
+
+from setuptools import find_packages, setup
+
 from djanquiltdb.djanquiltdb import __version__
 
 # allow setup.py to be run from any path
@@ -30,7 +32,7 @@ setup(
     name='djanquiltdb',
     version=__version__,
     license='BSD-3-Clause',
-    description='Library to shard a database on the hierarchy\'s top level table.',
+    description="Library to shard a database on the hierarchy's top level table.",
     author='DjanQuiltDB Project; Cloud Linux Software, Inc.; Patchman B.V.',
     author_email='djanquiltdb@portal42.net; info@cloudlinux.com; hello@patchman.co',
     url='https://www.github.com/DjanQuiltDB/djanquiltdb',

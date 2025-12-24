@@ -2,7 +2,7 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
-from djanquiltdb.postgresql_backend.utils import LockCursorWrapperMixin, CursorDebugWrapper, CursorWrapper
+from djanquiltdb.postgresql_backend.utils import CursorDebugWrapper, CursorWrapper, LockCursorWrapperMixin
 
 
 class LockCursorWrapperTestCase(SimpleTestCase):
@@ -41,6 +41,7 @@ class LockCursorWrapperTestCase(SimpleTestCase):
         def inner(name=None, skip_lock=False):
             cursor = mock.Mock()
             return self.CursorWrapper(cursor, db, lock=getattr(db, 'lock_on_execute', False) and not skip_lock)
+
         return inner
 
     @mock.patch('hashlib.md5')
@@ -134,11 +135,13 @@ class LockCursorWrapperTestCase(SimpleTestCase):
 
         self.assertEqual(mock_execute.call_count, 3)
 
-        mock_execute.assert_has_calls([
-            mock.call('SELECT pg_advisory_lock_shared(%s);', ['bar']),
-            mock.call('SELECT * FROM dummy;'),
-            mock.call('SELECT pg_advisory_unlock_shared(%s);', ['bar']),
-        ])
+        mock_execute.assert_has_calls(
+            [
+                mock.call('SELECT pg_advisory_lock_shared(%s);', ['bar']),
+                mock.call('SELECT * FROM dummy;'),
+                mock.call('SELECT pg_advisory_unlock_shared(%s);', ['bar']),
+            ]
+        )
 
         # New cursor asked for acquiring and releasing locks
         self._db._get_cursor.assert_called_once_with(skip_lock=True)
@@ -195,10 +198,12 @@ class LockCursorWrapperTestCase(SimpleTestCase):
 
         self.assertEqual(mock_execute.call_count, 2)
 
-        mock_execute.assert_has_calls([
-            mock.call('SELECT pg_advisory_lock_shared(%s);', ['bar']),
-            mock.call('SELECT pg_advisory_unlock_shared(%s);', ['bar']),
-        ])
+        mock_execute.assert_has_calls(
+            [
+                mock.call('SELECT pg_advisory_lock_shared(%s);', ['bar']),
+                mock.call('SELECT pg_advisory_unlock_shared(%s);', ['bar']),
+            ]
+        )
 
         mock_executemany.assert_called_once_with('SELECT * FROM dummy;')
 

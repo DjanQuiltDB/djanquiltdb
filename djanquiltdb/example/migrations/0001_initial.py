@@ -7,9 +7,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-
-    dependencies = [
-    ]
+    dependencies = []
 
     operations = [
         migrations.CreateModel(
@@ -21,8 +19,22 @@ class Migration(migrations.Migration):
                 ('name', models.CharField(verbose_name='name', max_length=100)),
                 ('email', models.EmailField(unique=True, verbose_name='email address', max_length=254)),
                 ('created_at', models.DateTimeField(verbose_name='date joined', default=django.utils.timezone.now)),
-                ('is_staff', models.BooleanField(verbose_name='staff status', default=False, help_text='Designates whether the user can log into this admin site.')),
-                ('is_active', models.BooleanField(verbose_name='active', default=True, help_text='Designates whether this user should be treated as active. Unselect this instead of deleting accounts.')),
+                (
+                    'is_staff',
+                    models.BooleanField(
+                        verbose_name='staff status',
+                        default=False,
+                        help_text='Designates whether the user can log into this admin site.',
+                    ),
+                ),
+                (
+                    'is_active',
+                    models.BooleanField(
+                        verbose_name='active',
+                        default=True,
+                        help_text='Designates whether this user should be treated as active. Unselect this instead of deleting accounts.',
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
@@ -38,8 +50,7 @@ class Migration(migrations.Migration):
         ),
         migrations.CreateModel(
             name='ProxyCakeType',
-            fields=[
-            ],
+            fields=[],
             options={
                 'proxy': True,
             },
@@ -50,22 +61,44 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('hash', models.CharField(verbose_name='hash', max_length=40)),
-                ('type',
-                 models.ForeignKey(null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='example.CakeType',
-                                   verbose_name='type')),
+                (
+                    'type',
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.DO_NOTHING,
+                        to='example.CakeType',
+                        verbose_name='type',
+                    ),
+                ),
             ],
         ),
         migrations.AlterUniqueTogether(
             name='coatingtype',
-            unique_together=set([('hash', )]),
+            unique_together=set([('hash',)]),
         ),
         migrations.CreateModel(
             name='Cake',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('name', models.CharField(verbose_name='name', max_length=128)),
-                ('type', models.ForeignKey(null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='example.CakeType', verbose_name='type')),
-                ('coating_type', models.ForeignKey(null=True, on_delete=django.db.models.deletion.DO_NOTHING, to='example.CoatingType', verbose_name='Coating Type')),
+                (
+                    'type',
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.DO_NOTHING,
+                        to='example.CakeType',
+                        verbose_name='type',
+                    ),
+                ),
+                (
+                    'coating_type',
+                    models.ForeignKey(
+                        null=True,
+                        on_delete=django.db.models.deletion.DO_NOTHING,
+                        to='example.CoatingType',
+                        verbose_name='Coating Type',
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
@@ -77,8 +110,22 @@ class Migration(migrations.Migration):
                 ('name', models.CharField(verbose_name='name', max_length=100)),
                 ('email', models.EmailField(unique=True, verbose_name='email address', max_length=254)),
                 ('created_at', models.DateTimeField(verbose_name='date joined', default=django.utils.timezone.now)),
-                ('is_staff', models.BooleanField(verbose_name='staff status', default=False, help_text='Designates whether the user can log into this admin site.')),
-                ('is_active', models.BooleanField(verbose_name='active', default=True, help_text='Designates whether this user should be treated as active. Unselect this instead of deleting accounts.')),
+                (
+                    'is_staff',
+                    models.BooleanField(
+                        verbose_name='staff status',
+                        default=False,
+                        help_text='Designates whether the user can log into this admin site.',
+                    ),
+                ),
+                (
+                    'is_active',
+                    models.BooleanField(
+                        verbose_name='active',
+                        default=True,
+                        help_text='Designates whether this user should be treated as active. Unselect this instead of deleting accounts.',
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
@@ -90,14 +137,27 @@ class Migration(migrations.Migration):
                 ('name', models.CharField(verbose_name='name', max_length=100)),
                 ('email', models.EmailField(unique=True, verbose_name='email address', max_length=254)),
                 ('created_at', models.DateTimeField(verbose_name='date joined', default=django.utils.timezone.now)),
-                ('is_staff', models.BooleanField(verbose_name='staff status', default=False, help_text='Designates whether the user can log into this admin site.')),
-                ('is_active', models.BooleanField(verbose_name='active', default=True, help_text='Designates whether this user should be treated as active. Unselect this instead of deleting accounts.')),
+                (
+                    'is_staff',
+                    models.BooleanField(
+                        verbose_name='staff status',
+                        default=False,
+                        help_text='Designates whether the user can log into this admin site.',
+                    ),
+                ),
+                (
+                    'is_active',
+                    models.BooleanField(
+                        verbose_name='active',
+                        default=True,
+                        help_text='Designates whether this user should be treated as active. Unselect this instead of deleting accounts.',
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
             name='ProxyMirroredUser',
-            fields=[
-            ],
+            fields=[],
             options={
                 'proxy': True,
                 'indexes': [],
@@ -143,8 +203,24 @@ class Migration(migrations.Migration):
             name='Suborganization',
             fields=[
                 ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
-                ('child', models.OneToOneField(to='example.Organization', verbose_name='organization', related_name='children', on_delete=models.CASCADE)),
-                ('parent', models.ForeignKey(to='example.Organization', related_name='parent', verbose_name='organization', on_delete=models.CASCADE)),
+                (
+                    'child',
+                    models.OneToOneField(
+                        to='example.Organization',
+                        verbose_name='organization',
+                        related_name='children',
+                        on_delete=models.CASCADE,
+                    ),
+                ),
+                (
+                    'parent',
+                    models.ForeignKey(
+                        to='example.Organization',
+                        related_name='parent',
+                        verbose_name='organization',
+                        on_delete=models.CASCADE,
+                    ),
+                ),
             ],
         ),
         migrations.CreateModel(
@@ -163,7 +239,15 @@ class Migration(migrations.Migration):
             fields=[
                 ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
                 ('name', models.CharField(verbose_name='name', max_length=100)),
-                ('super', models.ForeignKey(to='example.SuperType', on_delete=django.db.models.deletion.DO_NOTHING, verbose_name='super', null=True)),
+                (
+                    'super',
+                    models.ForeignKey(
+                        to='example.SuperType',
+                        on_delete=django.db.models.deletion.DO_NOTHING,
+                        verbose_name='super',
+                        null=True,
+                    ),
+                ),
             ],
         ),
         migrations.AddField(
@@ -189,12 +273,16 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name='user',
             name='organization',
-            field=models.ForeignKey(to='example.Organization', verbose_name='organization', null=True, on_delete=models.SET_NULL),
+            field=models.ForeignKey(
+                to='example.Organization', verbose_name='organization', null=True, on_delete=models.SET_NULL
+            ),
         ),
         migrations.AddField(
             model_name='user',
             name='type',
-            field=models.ForeignKey(to='example.Type', on_delete=django.db.models.deletion.DO_NOTHING, verbose_name='type', null=True),
+            field=models.ForeignKey(
+                to='example.Type', on_delete=django.db.models.deletion.DO_NOTHING, verbose_name='type', null=True
+            ),
         ),
         migrations.AddField(
             model_name='mirroreduser',
@@ -208,8 +296,7 @@ class Migration(migrations.Migration):
         ),
         migrations.CreateModel(
             name='ProxyCake',
-            fields=[
-            ],
+            fields=[],
             options={
                 'proxy': True,
             },

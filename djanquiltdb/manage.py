@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 import sys
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     from config.settings import set_settings_module
+
     set_settings_module()
 
     try:
@@ -16,8 +17,8 @@ if __name__ == "__main__":
         except ImportError:
             raise ImportError(
                 "Couldn't import Django. Are you sure it's installed and "
-                "available on your PYTHONPATH environment variable? Did you "
-                "forget to activate a virtual environment?"
+                'available on your PYTHONPATH environment variable? Did you '
+                'forget to activate a virtual environment?'
             )
         raise
     execute_from_command_line(sys.argv)

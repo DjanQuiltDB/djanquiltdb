@@ -43,15 +43,17 @@ class LockCursorWrapperMixin:
         """
         Set a shared or exclusive advisory lock on a given key.
         """
-        return super().execute('SELECT pg_advisory_lock{}(%s);'.format('_shared' if shared else ''),
-                               [self.get_int_from_key(key)])
+        return super().execute(
+            'SELECT pg_advisory_lock{}(%s);'.format('_shared' if shared else ''), [self.get_int_from_key(key)]
+        )
 
     def release_advisory_lock(self, key, shared=True):
         """
         Release a shared or exclusive advisory lock on a given key.
         """
-        return super().execute('SELECT pg_advisory_unlock{}(%s);'.format('_shared' if shared else ''),
-                               [self.get_int_from_key(key)])
+        return super().execute(
+            'SELECT pg_advisory_unlock{}(%s);'.format('_shared' if shared else ''), [self.get_int_from_key(key)]
+        )
 
     @staticmethod
     def get_int_from_key(key):

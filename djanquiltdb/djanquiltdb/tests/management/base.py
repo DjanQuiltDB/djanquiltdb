@@ -2,8 +2,8 @@ from unittest import mock
 
 from django.conf import settings
 from django.core.management import CommandError, call_command
-
 from example.models import Shard
+
 from djanquiltdb import State
 from djanquiltdb.management.base import get_databases_and_schema_from_options, shard_table_exists
 from djanquiltdb.tests import ShardingTestCase
@@ -97,7 +97,9 @@ class GetDatabasesAndSchemaFromOptionsTestCase(ShardingTestCase):
         self.assertCountEqual(databases, ['default', 'other'])
         self.assertEqual(schema_name, 'test_sina')
 
-    @mock.patch('djanquiltdb.management.base.get_all_databases', mock.Mock(return_value=[db for db in settings.DATABASES]))
+    @mock.patch(
+        'djanquiltdb.management.base.get_all_databases', mock.Mock(return_value=[db for db in settings.DATABASES])
+    )
     def test_with_unexisting_shard(self):
         """
         Case: Call get_database_and_schema_from_options with a targeted database and non-existing shard with check_shard
@@ -105,8 +107,9 @@ class GetDatabasesAndSchemaFromOptionsTestCase(ShardingTestCase):
         Expected: CommandError raised
         """
         with self.assertRaisesMessage(CommandError, 'Shard other|paul does not exist.'):
-            get_databases_and_schema_from_options(options={'database': 'other', 'schema_name': 'paul',
-                                                           'check_shard': True})
+            get_databases_and_schema_from_options(
+                options={'database': 'other', 'schema_name': 'paul', 'check_shard': True}
+            )
 
     @mock.patch('djanquiltdb.management.base.get_all_databases', return_value=[db for db in settings.DATABASES])
     def test_with_unexisting_shard_not_check_shard(self, mock_get_all_dbs):
@@ -130,9 +133,7 @@ class GetDatabasesAndSchemaFromOptionsTestCase(ShardingTestCase):
         Expected: CommandError raised
         """
         with self.assertRaisesMessage(CommandError, 'Shard default|george does not exist.'):
-            get_databases_and_schema_from_options(options={
-                'database': 'default',
-                'schema_name': 'george',
-                'check_shard': True
-            })
+            get_databases_and_schema_from_options(
+                options={'database': 'default', 'schema_name': 'george', 'check_shard': True}
+            )
         self.assertTrue(mock_get_all_dbs.called)

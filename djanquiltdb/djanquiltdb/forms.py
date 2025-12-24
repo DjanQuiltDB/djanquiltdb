@@ -1,4 +1,5 @@
-from django.forms.models import ModelFormMetaclass as _ModelFormMetaclass, ModelForm as _ModelForm
+from django.forms.models import ModelForm as _ModelForm
+from django.forms.models import ModelFormMetaclass as _ModelFormMetaclass
 
 
 class ModelFormMetaClass(_ModelFormMetaclass):

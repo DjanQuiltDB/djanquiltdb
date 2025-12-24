@@ -1,8 +1,8 @@
 from unittest import mock
 
 from django.core.management import call_command
+from example.models import Organization, Shard, Type
 
-from example.models import Shard, Type, Organization
 from djanquiltdb import State
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.tests import ShardingTransactionTestCase
@@ -15,11 +15,13 @@ class SQLFlushTestCase(ShardingTransactionTestCase):
         create_template_schema()
         create_template_schema('other')
 
-        self.shard1 = Shard.objects.create(alias='sinaloa', schema_name='el_chapo', node_name='default',
-                                           state=State.ACTIVE)
+        self.shard1 = Shard.objects.create(
+            alias='sinaloa', schema_name='el_chapo', node_name='default', state=State.ACTIVE
+        )
 
-        self.shard2 = Shard.objects.create(alias='medellin', schema_name='pablo_escobar', node_name='other',
-                                           state=State.ACTIVE)
+        self.shard2 = Shard.objects.create(
+            alias='medellin', schema_name='pablo_escobar', node_name='other', state=State.ACTIVE
+        )
 
         with use_shard(node_name='default', schema_name=PUBLIC_SCHEMA_NAME):
             Type.objects.create(name='narco')
@@ -47,14 +49,17 @@ class SQLFlushTestCase(ShardingTransactionTestCase):
 
         self.assertEqual(mock_sql_flush.call_count, 6)
 
-        self.stdout.write.assert_has_calls([
-            mock.call('SQL on other|template\n'),
-            mock.call('SQL on other\n'),
-            mock.call('SQL on default|template\n'),
-            mock.call('SQL on default|el_chapo\n'),
-            mock.call('SQL on other|pablo_escobar\n'),
-            mock.call('SQL on default\n'),
-        ], any_order=True)
+        self.stdout.write.assert_has_calls(
+            [
+                mock.call('SQL on other|template\n'),
+                mock.call('SQL on other\n'),
+                mock.call('SQL on default|template\n'),
+                mock.call('SQL on default|el_chapo\n'),
+                mock.call('SQL on other|pablo_escobar\n'),
+                mock.call('SQL on default\n'),
+            ],
+            any_order=True,
+        )
 
     def test_single_database(self, mock_sql_flush):
         """
@@ -65,11 +70,14 @@ class SQLFlushTestCase(ShardingTransactionTestCase):
 
         self.assertEqual(mock_sql_flush.call_count, 3)
 
-        self.stdout.write.assert_has_calls([
-            mock.call('SQL on default|template\n'),
-            mock.call('SQL on default|el_chapo\n'),
-            mock.call('SQL on default\n'),
-        ], any_order=True)
+        self.stdout.write.assert_has_calls(
+            [
+                mock.call('SQL on default|template\n'),
+                mock.call('SQL on default|el_chapo\n'),
+                mock.call('SQL on default\n'),
+            ],
+            any_order=True,
+        )
 
     def test_single_schema(self, mock_sql_flush):
         """
@@ -80,6 +88,4 @@ class SQLFlushTestCase(ShardingTransactionTestCase):
 
         self.assertEqual(mock_sql_flush.call_count, 1)
 
-        self.stdout.write.assert_has_calls([
-            mock.call('SQL on default|el_chapo\n')
-        ])
+        self.stdout.write.assert_has_calls([mock.call('SQL on default|el_chapo\n')])

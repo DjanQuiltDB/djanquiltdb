@@ -5,26 +5,76 @@ from unittest import mock
 
 from django.apps import apps
 from django.core.exceptions import ImproperlyConfigured
-from django.db import connections, ProgrammingError, InterfaceError, OperationalError, transaction
-from django.db.models.signals import pre_init, post_init, pre_save, post_save, pre_delete, post_delete, pre_migrate, \
-    post_migrate
+from django.db import ProgrammingError, connections, transaction
+from django.db.models.signals import (
+    post_delete,
+    post_init,
+    post_migrate,
+    post_save,
+    pre_delete,
+    pre_init,
+    pre_migrate,
+    pre_save,
+)
 from django.db.utils import ConnectionDoesNotExist, IntegrityError, OperationalError
 from django.test import SimpleTestCase, override_settings
+from example.models import (
+    Cake,
+    CakeType,
+    CoatingType,
+    MirroredUser,
+    Organization,
+    OrganizationShards,
+    Shard,
+    Statement,
+    Suborganization,
+    SuperType,
+    Type,
+    User,
+)
 
-from example.models import Shard, OrganizationShards, Type, SuperType, User, Organization, Statement, Suborganization, \
-    Cake, MirroredUser, CakeType, CoatingType
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import atomic_write_to_every_node
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.router import set_active_connection, get_active_connection
-from djanquiltdb.tests import ShardingTestCase, ShardingTransactionTestCase, ResetConnectionTestCaseMixin, \
-    OverrideMirroredRoutingMixin
-from djanquiltdb.utils import use_shard, create_schema_on_node, create_template_schema, migrate_schema, \
-    get_template_name, _node_exists, StateException, use_shard_for, get_shard_for, for_each_shard, State, \
-    for_each_node, transaction_for_every_node, move_model_to_schema, get_all_databases, ShardingMode, \
-    get_sharding_mode, get_model_sharding_mode, get_all_sharded_models, get_shard_class, get_mapping_class, \
-    transaction_for_nodes, get_all_mirrored_models, delete_schema, schema_exists, disable_signals, \
-    get_all_public_models, get_all_public_schema_models, get_connection_alias, get_model_definition
+from djanquiltdb.router import get_active_connection, set_active_connection
+from djanquiltdb.tests import (
+    OverrideMirroredRoutingMixin,
+    ResetConnectionTestCaseMixin,
+    ShardingTestCase,
+    ShardingTransactionTestCase,
+)
+from djanquiltdb.utils import (
+    ShardingMode,
+    State,
+    StateException,
+    _node_exists,
+    create_schema_on_node,
+    create_template_schema,
+    delete_schema,
+    disable_signals,
+    for_each_node,
+    for_each_shard,
+    get_all_databases,
+    get_all_mirrored_models,
+    get_all_public_models,
+    get_all_public_schema_models,
+    get_all_sharded_models,
+    get_connection_alias,
+    get_mapping_class,
+    get_model_definition,
+    get_model_sharding_mode,
+    get_shard_class,
+    get_shard_for,
+    get_sharding_mode,
+    get_template_name,
+    migrate_schema,
+    move_model_to_schema,
+    schema_exists,
+    transaction_for_every_node,
+    transaction_for_nodes,
+    use_shard,
+    use_shard_for,
+)
 
 
 class GetShardClass(SimpleTestCase):
@@ -32,6 +82,7 @@ class GetShardClass(SimpleTestCase):
     We don't need to test for the situation where the class is not set in the settings.
     For we will give an error on run in that case.
     """
+
     @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
     def test_get_shard_class_set(self):
         """
@@ -68,8 +119,9 @@ class GetMappingClass(SimpleTestCase):
         """
         self.assertIsNone(get_mapping_class())
 
-    @override_settings(SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards',
-                                 'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(
+        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShards', 'SHARD_CLASS': 'example.models.Shard'}
+    )
     def test_get_mapping_class_set(self):
         """
         Case: Call get_mapping_class while it is set in the settings.
@@ -95,12 +147,15 @@ class UseShardTestCase(ShardingTestCase):
 
         create_template_schema('default')
         create_template_schema('other')
-        self.shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='default',
-                                          state=State.ACTIVE)
-        self.other_shard = Shard.objects.create(alias='other_shard', schema_name='test_other_schema', node_name='other',
-                                                state=State.ACTIVE)
-        self.inactive_shard = Shard.objects.create(alias='inactive_shard', schema_name='test_inactive_schema',
-                                                   node_name='other', state=State.MAINTENANCE)
+        self.shard = Shard.objects.create(
+            alias='test_shard', schema_name='test_schema', node_name='default', state=State.ACTIVE
+        )
+        self.other_shard = Shard.objects.create(
+            alias='other_shard', schema_name='test_other_schema', node_name='other', state=State.ACTIVE
+        )
+        self.inactive_shard = Shard.objects.create(
+            alias='inactive_shard', schema_name='test_inactive_schema', node_name='other', state=State.MAINTENANCE
+        )
 
     @mock.patch('djanquiltdb.router.set_active_connection')
     def test_use_shard(self, mock_set_active_connection):
@@ -111,17 +166,20 @@ class UseShardTestCase(ShardingTestCase):
         with use_shard(self.shard):
             pass
 
-        options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                               shard_id=self.shard.id, use_shard=True)
+        options = ShardOptions(
+            node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id, use_shard=True
+        )
 
         self.assertEqual(mock_set_active_connection.call_count, 2)
 
-        mock_set_active_connection.assert_has_calls([
-            # First the shard we want to enter
-            mock.call(options),
-            # And then to enter the old connection again on exiting the context manager
-            mock.call('default'),
-        ])
+        mock_set_active_connection.assert_has_calls(
+            [
+                # First the shard we want to enter
+                mock.call(options),
+                # And then to enter the old connection again on exiting the context manager
+                mock.call('default'),
+            ]
+        )
 
     @mock.patch('djanquiltdb.router.set_active_connection')
     def test_use_shard_with_invalid_argument(self, mock_set_active_connection):
@@ -168,8 +226,13 @@ class UseShardTestCase(ShardingTestCase):
         with use_shard(self.shard, include_public=False) as env:
             self.assertFalse(env.connection.include_public_schema)
 
-            options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                   shard_id=self.shard.id, use_shard=True, include_public=False)
+            options = ShardOptions(
+                node_name=self.shard.node_name,
+                schema_name=self.shard.schema_name,
+                shard_id=self.shard.id,
+                use_shard=True,
+                include_public=False,
+            )
 
             mock_set_active_connection.assert_called_once_with(options)
 
@@ -180,36 +243,45 @@ class UseShardTestCase(ShardingTestCase):
         Expected: Connection to switch twice and set_active_connection to be called accordingly.
         """
         with use_shard(self.shard) as env1:
-            options1 = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                    shard_id=self.shard.id, use_shard=True)
+            options1 = ShardOptions(
+                node_name=self.shard.node_name,
+                schema_name=self.shard.schema_name,
+                shard_id=self.shard.id,
+                use_shard=True,
+            )
             mock_set_active_connection.assert_called_once_with(options1)
 
             with use_shard(self.other_shard) as env2:
-                options2 = ShardOptions(node_name=self.other_shard.node_name, schema_name=self.other_shard.schema_name,
-                                        shard_id=self.other_shard.id, use_shard=True)
+                options2 = ShardOptions(
+                    node_name=self.other_shard.node_name,
+                    schema_name=self.other_shard.schema_name,
+                    shard_id=self.other_shard.id,
+                    use_shard=True,
+                )
 
                 env2._old_connection = env1.options  # Override this, because we mock _set_active_connection
 
                 self.assertEqual(mock_set_active_connection.call_count, 2)
-                mock_set_active_connection.assert_has_calls([
-                    mock.call(options1),
-                    mock.call(options2)
-                ])
+                mock_set_active_connection.assert_has_calls([mock.call(options1), mock.call(options2)])
 
             self.assertEqual(mock_set_active_connection.call_count, 3)
-            mock_set_active_connection.assert_has_calls([
+            mock_set_active_connection.assert_has_calls(
+                [
+                    mock.call(options1),
+                    mock.call(options2),
+                    mock.call(options1),
+                ]
+            )
+
+        self.assertEqual(mock_set_active_connection.call_count, 4)
+        mock_set_active_connection.assert_has_calls(
+            [
                 mock.call(options1),
                 mock.call(options2),
                 mock.call(options1),
-            ])
-
-        self.assertEqual(mock_set_active_connection.call_count, 4)
-        mock_set_active_connection.assert_has_calls([
-            mock.call(options1),
-            mock.call(options2),
-            mock.call(options1),
-            mock.call('default'),
-        ])
+                mock.call('default'),
+            ]
+        )
 
     def test_use_shard_inception_integration(self):
         """
@@ -220,19 +292,28 @@ class UseShardTestCase(ShardingTestCase):
         self.assertEqual(connection.alias, 'default')
 
         with use_shard(self.shard):
-            options1 = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                    shard_id=self.shard.id, use_shard=True)
+            options1 = ShardOptions(
+                node_name=self.shard.node_name,
+                schema_name=self.shard.schema_name,
+                shard_id=self.shard.id,
+                use_shard=True,
+            )
 
             self.assertEqual(get_active_connection(), options1)
             self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
 
             with use_shard(self.other_shard):
-                options2 = ShardOptions(node_name=self.other_shard.node_name, schema_name=self.other_shard.schema_name,
-                                        shard_id=self.other_shard.id, use_shard=True)
+                options2 = ShardOptions(
+                    node_name=self.other_shard.node_name,
+                    schema_name=self.other_shard.schema_name,
+                    shard_id=self.other_shard.id,
+                    use_shard=True,
+                )
 
                 self.assertEqual(get_active_connection(), options2)
-                self.assertEqual(connection.alias, '{}|{}'.format(self.other_shard.node_name,
-                                                                  self.other_shard.schema_name))
+                self.assertEqual(
+                    connection.alias, '{}|{}'.format(self.other_shard.node_name, self.other_shard.schema_name)
+                )
             self.assertEqual(get_active_connection(), options1)
             self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
 
@@ -258,8 +339,9 @@ class UseShardTestCase(ShardingTestCase):
               check_active_mapping_values to True.
         Expected: StateException to be raised.
         """
-        shard = Shard.objects.create(alias='halls_of_justice', schema_name='test_halls_of_justice', node_name='default',
-                                     state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='halls_of_justice', schema_name='test_halls_of_justice', node_name='default', state=State.ACTIVE
+        )
         OrganizationShards.objects.create(organization_id=5, shard=shard, state=State.ACTIVE)
         OrganizationShards.objects.create(organization_id=6, shard=shard, state=State.MAINTENANCE)
 
@@ -274,11 +356,13 @@ class UseShardTestCase(ShardingTestCase):
         Case: Set check_active_mapping_values to True on use_shard while not having a mapping model defined.
         Expected: ValueError raised.
         """
-        shard = Shard.objects.create(alias='halls_of_justice', schema_name='test_halls_of_justice', node_name='default',
-                                     state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='halls_of_justice', schema_name='test_halls_of_justice', node_name='default', state=State.ACTIVE
+        )
 
-        with self.assertRaisesMessage(ValueError, "You set 'check_active_mapping_values' to True while you didn't "
-                                                  "define the mapping model."):
+        with self.assertRaisesMessage(
+            ValueError, "You set 'check_active_mapping_values' to True while you didn't define the mapping model."
+        ):
             with use_shard(shard, check_active_mapping_values=True):
                 pass
 
@@ -289,8 +373,9 @@ class UseShardTestCase(ShardingTestCase):
         Case: Call use_shard with a valid shard object while no mapping_model exists.
         Expected: No StateException to be raised.
         """
-        shard = Shard.objects.create(alias='mudville', schema_name='test_schema_muddied', node_name='default',
-                                     state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='mudville', schema_name='test_schema_muddied', node_name='default', state=State.ACTIVE
+        )
         OrganizationShards.objects.create(organization_id=5, shard=shard, state=State.ACTIVE)
         OrganizationShards.objects.create(organization_id=6, shard=shard, state=State.MAINTENANCE)
         with use_shard(shard):
@@ -390,12 +475,14 @@ class UseShardForTestCase(ShardingTestCase):
         super().setUp()
 
         with mock.patch('djanquiltdb.utils.create_schema_on_node'):
-            self.shard1 = Shard.objects.create(alias='test_sharding', schema_name='test_schema', node_name='default',
-                                               state=State.ACTIVE)
+            self.shard1 = Shard.objects.create(
+                alias='test_sharding', schema_name='test_schema', node_name='default', state=State.ACTIVE
+            )
 
         self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1, state=State.ACTIVE)
-        self.org_shard2 = OrganizationShards.objects.create(organization_id=2, shard=self.shard1,
-                                                            state=State.MAINTENANCE)
+        self.org_shard2 = OrganizationShards.objects.create(
+            organization_id=2, shard=self.shard1, state=State.MAINTENANCE
+        )
 
     @mock.patch('djanquiltdb.router.set_active_connection')
     @mock.patch.object(use_shard_for, 'acquire_lock')
@@ -439,8 +526,9 @@ class UseShardForTestCase(ShardingTestCase):
     @mock.patch('djanquiltdb.router.set_active_connection')
     @mock.patch.object(use_shard_for, 'acquire_lock')
     @mock.patch.object(use_shard_for, 'release_lock')
-    def test_use_shard_for_inactive_object_include_inactive(self, mock_release_lock, mock_acquire_lock,
-                                                            mock_set_active_connection):
+    def test_use_shard_for_inactive_object_include_inactive(
+        self, mock_release_lock, mock_acquire_lock, mock_set_active_connection
+    ):
         """
         Case: Use use_shard_for with an inactive mapping object, but have active_only_schemas set to False.
         Expected: Successful usage of use_shard_for.
@@ -477,10 +565,12 @@ class UseShardForTestCase(ShardingTestCase):
 
         self.assertEqual(mock_acquire_lock.call_count, 2)
 
-        mock_acquire_lock.assert_has_calls([
-            mock.call('shard_{}'.format(self.shard1.id), shared=True),
-            mock.call('mapping_{}'.format(self.org_shard1.organization_id), shared=True),
-        ])
+        mock_acquire_lock.assert_has_calls(
+            [
+                mock.call('shard_{}'.format(self.shard1.id), shared=True),
+                mock.call('mapping_{}'.format(self.org_shard1.organization_id), shared=True),
+            ]
+        )
 
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_release_lock(self, mock_release_advisory_lock):
@@ -494,10 +584,12 @@ class UseShardForTestCase(ShardingTestCase):
 
         self.assertEqual(mock_release_advisory_lock.call_count, 2)
 
-        mock_release_advisory_lock.assert_has_calls([
-            mock.call('shard_{}'.format(self.shard1.id), shared=True),
-            mock.call('mapping_{}'.format(self.org_shard1.organization_id), shared=True),
-        ])
+        mock_release_advisory_lock.assert_has_calls(
+            [
+                mock.call('shard_{}'.format(self.shard1.id), shared=True),
+                mock.call('mapping_{}'.format(self.org_shard1.organization_id), shared=True),
+            ]
+        )
 
 
 class GetShardForTestCase(ShardingTestCase):
@@ -505,8 +597,9 @@ class GetShardForTestCase(ShardingTestCase):
         super().setUp()
 
         with mock.patch('djanquiltdb.utils.create_schema_on_node'):
-            self.shard1 = Shard.objects.create(alias='test_sharding', schema_name='test_schema', node_name='default',
-                                               state=State.ACTIVE)
+            self.shard1 = Shard.objects.create(
+                alias='test_sharding', schema_name='test_schema', node_name='default', state=State.ACTIVE
+            )
 
         self.org_shard1 = OrganizationShards.objects.create(organization_id=1, shard=self.shard1, slug='test_slug')
 
@@ -719,10 +812,19 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
         template_tables = [table[1] for table in cursor.fetchall()]
         # Filter test models
         template_tables = [table for table in template_tables if not re.search(r'_[t|T]est', table)]
-        self.assertCountEqual(sorted(template_tables), ['django_migrations', 'example_organization',
-                                                        'example_suborganization', 'example_user',
-                                                        'example_statement', 'example_cake', 'example_user_cake',
-                                                        'example_statement_type'])
+        self.assertCountEqual(
+            sorted(template_tables),
+            [
+                'django_migrations',
+                'example_organization',
+                'example_suborganization',
+                'example_user',
+                'example_statement',
+                'example_cake',
+                'example_user_cake',
+                'example_statement_type',
+            ],
+        )
 
     def test_create_template_schema_invalid_node(self):
         """
@@ -796,11 +898,21 @@ class GetShardingModeTestCase(SimpleTestCase):
         Expected: The router should return the overriden setting for the model.
         """
         with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'organization'): ShardingMode.MIRRORED, }}):
+            SHARDING={
+                'OVERRIDE_SHARDING_MODE': {
+                    ('example', 'organization'): ShardingMode.MIRRORED,
+                }
+            }
+        ):
             self.assertEqual(get_sharding_mode('example', 'organization'), ShardingMode.MIRRORED)
 
         with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', ): ShardingMode.MIRRORED, }}):
+            SHARDING={
+                'OVERRIDE_SHARDING_MODE': {
+                    ('example',): ShardingMode.MIRRORED,
+                }
+            }
+        ):
             self.assertEqual(get_sharding_mode('example', 'user'), ShardingMode.MIRRORED)
 
     def test_get_sharding_mode_fallback(self):
@@ -810,7 +922,12 @@ class GetShardingModeTestCase(SimpleTestCase):
         Expected: The router should return the class setting for the model.
         """
         with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'user'): ShardingMode.MIRRORED, }}):
+            SHARDING={
+                'OVERRIDE_SHARDING_MODE': {
+                    ('example', 'user'): ShardingMode.MIRRORED,
+                }
+            }
+        ):
             self.assertEqual(get_sharding_mode('example', 'organization'), ShardingMode.SHARDED)
 
     def test_get_sharding_mode_without_model_name(self):
@@ -826,7 +943,12 @@ class GetShardingModeTestCase(SimpleTestCase):
         Expected: Mode returned as defined by the settings override.
         """
         with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('example',): ShardingMode.PUBLIC, }}):
+            SHARDING={
+                'OVERRIDE_SHARDING_MODE': {
+                    ('example',): ShardingMode.PUBLIC,
+                }
+            }
+        ):
             self.assertEqual(get_sharding_mode('example', None), ShardingMode.PUBLIC)
 
     def test_get_sharding_mode_for_auto_created_model(self):
@@ -847,8 +969,12 @@ class GetAllShardedModels(ShardingTestCase):
         Note: System test
         """
         with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE':
-                          {('example', 'organization'): ShardingMode.MIRRORED, }}):
+            SHARDING={
+                'OVERRIDE_SHARDING_MODE': {
+                    ('example', 'organization'): ShardingMode.MIRRORED,
+                }
+            }
+        ):
             self.assertCountEqual(get_all_sharded_models(), [User, Statement, Suborganization, Cake])
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
@@ -858,9 +984,10 @@ class GetAllShardedModels(ShardingTestCase):
         Expected: get_model_sharding_mode called for each model that's not a proxy model.
         """
         get_all_sharded_models()
-        mock_get_model_sharding_mode.assert_has_calls([
-            mock.call(model) for model in apps.get_models(include_auto_created=False) if not model._meta.proxy
-        ], any_order=True)
+        mock_get_model_sharding_mode.assert_has_calls(
+            [mock.call(model) for model in apps.get_models(include_auto_created=False) if not model._meta.proxy],
+            any_order=True,
+        )
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
     def test_include_auto_created(self, mock_get_model_sharding_mode):
@@ -869,9 +996,10 @@ class GetAllShardedModels(ShardingTestCase):
         Expected: get_model_sharding_mode called for each model that's not a proxy model.
         """
         get_all_sharded_models(include_auto_created=True)
-        mock_get_model_sharding_mode.assert_has_calls([
-            mock.call(model) for model in apps.get_models(include_auto_created=True) if not model._meta.proxy
-        ], any_order=True)
+        mock_get_model_sharding_mode.assert_has_calls(
+            [mock.call(model) for model in apps.get_models(include_auto_created=True) if not model._meta.proxy],
+            any_order=True,
+        )
 
     def test_include_auto_created_result(self):
         """
@@ -880,14 +1008,18 @@ class GetAllShardedModels(ShardingTestCase):
         """
         # We compare it string based, since we cannot import the auto created fields as classes.
         result = [str(model) for model in get_all_sharded_models(include_auto_created=True)]
-        self.assertCountEqual(result,
-                              ["<class 'example.models.Organization'>",
-                               "<class 'example.models.Suborganization'>",
-                               "<class 'example.models.Cake'>",
-                               "<class 'example.models.User_cake'>",
-                               "<class 'example.models.User'>",
-                               "<class 'example.models.Statement_type'>",  # This is a auto-created model
-                               "<class 'example.models.Statement'>"])
+        self.assertCountEqual(
+            result,
+            [
+                "<class 'example.models.Organization'>",
+                "<class 'example.models.Suborganization'>",
+                "<class 'example.models.Cake'>",
+                "<class 'example.models.User_cake'>",
+                "<class 'example.models.User'>",
+                "<class 'example.models.Statement_type'>",  # This is a auto-created model
+                "<class 'example.models.Statement'>",
+            ],
+        )
 
     def test_include_proxy_models(self):
         """
@@ -896,13 +1028,17 @@ class GetAllShardedModels(ShardingTestCase):
         """
         # We compare it string based, since we cannot import the auto created fields as classes.
         result = [str(model) for model in get_all_sharded_models(include_proxy=True)]
-        self.assertCountEqual(result,
-                              ["<class 'example.models.Organization'>",
-                               "<class 'example.models.Suborganization'>",
-                               "<class 'example.models.Cake'>",
-                               "<class 'example.models.ProxyCake'>",  # This is a proxy model
-                               "<class 'example.models.User'>",
-                               "<class 'example.models.Statement'>"])
+        self.assertCountEqual(
+            result,
+            [
+                "<class 'example.models.Organization'>",
+                "<class 'example.models.Suborganization'>",
+                "<class 'example.models.Cake'>",
+                "<class 'example.models.ProxyCake'>",  # This is a proxy model
+                "<class 'example.models.User'>",
+                "<class 'example.models.Statement'>",
+            ],
+        )
 
 
 class GetAllMirroredModels(ShardingTestCase):
@@ -915,8 +1051,7 @@ class GetAllMirroredModels(ShardingTestCase):
                   the rest is sharded and/or not mirrored.
         Note: System test
         """
-        with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'type'): ShardingMode.SHARDED}}):
+        with override_settings(SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'type'): ShardingMode.SHARDED}}):
             self.assertCountEqual(get_all_mirrored_models(), [MirroredUser, Shard])
 
     def test_with_override_archived_models(self):
@@ -926,8 +1061,13 @@ class GetAllMirroredModels(ShardingTestCase):
         Note: System test
         """
         with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('non-existing-app', 'long_gone_model'): ShardingMode.MIRRORED,
-                                                     ('example', 'mirroreduser'): ShardingMode.SHARDED}}):
+            SHARDING={
+                'OVERRIDE_SHARDING_MODE': {
+                    ('non-existing-app', 'long_gone_model'): ShardingMode.MIRRORED,
+                    ('example', 'mirroreduser'): ShardingMode.SHARDED,
+                }
+            }
+        ):
             self.assertCountEqual(get_all_mirrored_models(), [Type, Shard])
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
@@ -937,9 +1077,9 @@ class GetAllMirroredModels(ShardingTestCase):
         Expected: get_model_sharding_mode called for each model that's not a proxy model, nor an auto-created model.
         """
         get_all_mirrored_models()
-        mock_get_model_sharding_mode.assert_has_calls([
-            mock.call(model) for model in apps.get_models() if not model._meta.proxy
-        ], any_order=True)
+        mock_get_model_sharding_mode.assert_has_calls(
+            [mock.call(model) for model in apps.get_models() if not model._meta.proxy], any_order=True
+        )
 
     def test_include_auto_created_result(self):
         """
@@ -948,11 +1088,15 @@ class GetAllMirroredModels(ShardingTestCase):
         """
         # We compare it string based, since we cannot import the auto created fields as classes.
         result = [str(model) for model in get_all_mirrored_models(include_auto_created=True)]
-        self.assertCountEqual(result,
-                              ["<class 'example.models.Shard'>",
-                               "<class 'example.models.Type'>",
-                               "<class 'example.models.MirroredUser'>",
-                               "<class 'example.models.MirroredUser_type'>"])  # This is an auto-created model
+        self.assertCountEqual(
+            result,
+            [
+                "<class 'example.models.Shard'>",
+                "<class 'example.models.Type'>",
+                "<class 'example.models.MirroredUser'>",
+                "<class 'example.models.MirroredUser_type'>",
+            ],
+        )  # This is an auto-created model
 
     def test_include_proxy_models(self):
         """
@@ -961,11 +1105,15 @@ class GetAllMirroredModels(ShardingTestCase):
         """
         # We compare it string based, since we cannot import the auto created fields as classes.
         result = [str(model) for model in get_all_mirrored_models(include_proxy=True)]
-        self.assertCountEqual(result,
-                              ["<class 'example.models.Shard'>",
-                               "<class 'example.models.Type'>",
-                               "<class 'example.models.MirroredUser'>",
-                               "<class 'example.models.ProxyMirroredUser'>"])  # This is a proxy model
+        self.assertCountEqual(
+            result,
+            [
+                "<class 'example.models.Shard'>",
+                "<class 'example.models.Type'>",
+                "<class 'example.models.MirroredUser'>",
+                "<class 'example.models.ProxyMirroredUser'>",
+            ],
+        )  # This is a proxy model
 
 
 class GetAllPublicModels(ShardingTestCase):
@@ -978,8 +1126,7 @@ class GetAllPublicModels(ShardingTestCase):
                   The rest is sharded and/or not mirrored.
         Note: System test
         """
-        with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
+        with override_settings(SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
             self.assertCountEqual(get_all_public_models(), [SuperType, MirroredUser, CakeType, CoatingType])
 
     def test_with_override_archived_models(self):
@@ -990,8 +1137,13 @@ class GetAllPublicModels(ShardingTestCase):
         Note: System test
         """
         with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('non-existing-app', 'long_gone_model'): ShardingMode.PUBLIC,
-                                                     ('example', 'type'): ShardingMode.SHARDED}}):
+            SHARDING={
+                'OVERRIDE_SHARDING_MODE': {
+                    ('non-existing-app', 'long_gone_model'): ShardingMode.PUBLIC,
+                    ('example', 'type'): ShardingMode.SHARDED,
+                }
+            }
+        ):
             self.assertCountEqual(get_all_public_models(), [SuperType, CakeType, CoatingType])
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
@@ -1001,9 +1153,9 @@ class GetAllPublicModels(ShardingTestCase):
         Expected: get_model_sharding_mode called for each model that's not a proxy model, nor an auto-created model.
         """
         get_all_public_models()
-        mock_get_model_sharding_mode.assert_has_calls([
-            mock.call(model) for model in apps.get_models() if not model._meta.proxy
-        ], any_order=True)
+        mock_get_model_sharding_mode.assert_has_calls(
+            [mock.call(model) for model in apps.get_models() if not model._meta.proxy], any_order=True
+        )
 
     def test_include_auto_created_result(self):
         """
@@ -1012,11 +1164,15 @@ class GetAllPublicModels(ShardingTestCase):
         """
         # We compare it string based, since we cannot import the auto created fields as classes.
         result = [str(model) for model in get_all_public_models(include_auto_created=True)]
-        self.assertCountEqual(result,
-                              ["<class 'example.models.SuperType'>",
-                               "<class 'example.models.CakeType'>",
-                               "<class 'example.models.CoatingType'>",
-                               "<class 'example.models.CoatingType_super_type'>"])  # This is an auto-created model
+        self.assertCountEqual(
+            result,
+            [
+                "<class 'example.models.SuperType'>",
+                "<class 'example.models.CakeType'>",
+                "<class 'example.models.CoatingType'>",
+                "<class 'example.models.CoatingType_super_type'>",
+            ],
+        )  # This is an auto-created model
 
     def test_include_proxy_models(self):
         """
@@ -1026,11 +1182,15 @@ class GetAllPublicModels(ShardingTestCase):
         # We compare it string based, since we cannot import the auto created fields as classes.
         self.maxDiff = None
         result = [str(model) for model in get_all_public_models(include_proxy=True)]
-        self.assertCountEqual(result,
-                              ["<class 'example.models.SuperType'>",
-                               "<class 'example.models.CakeType'>",
-                               "<class 'example.models.ProxyCakeType'>",  # This is a proxy model
-                               "<class 'example.models.CoatingType'>"])
+        self.assertCountEqual(
+            result,
+            [
+                "<class 'example.models.SuperType'>",
+                "<class 'example.models.CakeType'>",
+                "<class 'example.models.ProxyCakeType'>",  # This is a proxy model
+                "<class 'example.models.CoatingType'>",
+            ],
+        )
 
 
 class GetAllPublicSchemaModels(ShardingTestCase):
@@ -1043,10 +1203,10 @@ class GetAllPublicSchemaModels(ShardingTestCase):
                   The rest is sharded and/or not mirrored.
         Note: System test
         """
-        with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
-            self.assertCountEqual(get_all_public_schema_models(), [Shard, SuperType, Type, MirroredUser, CakeType,
-                                                                   CoatingType])
+        with override_settings(SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
+            self.assertCountEqual(
+                get_all_public_schema_models(), [Shard, SuperType, Type, MirroredUser, CakeType, CoatingType]
+            )
 
     def test_with_override_archived_models(self):
         """
@@ -1056,10 +1216,16 @@ class GetAllPublicSchemaModels(ShardingTestCase):
         Note: System test
         """
         with override_settings(
-                SHARDING={'OVERRIDE_SHARDING_MODE': {('non-existing-app', 'long_gone_model'): ShardingMode.PUBLIC,
-                                                     ('example', 'type'): ShardingMode.SHARDED}}):
-            self.assertCountEqual(get_all_public_schema_models(),
-                                  [Shard, SuperType, MirroredUser, CakeType, CoatingType])
+            SHARDING={
+                'OVERRIDE_SHARDING_MODE': {
+                    ('non-existing-app', 'long_gone_model'): ShardingMode.PUBLIC,
+                    ('example', 'type'): ShardingMode.SHARDED,
+                }
+            }
+        ):
+            self.assertCountEqual(
+                get_all_public_schema_models(), [Shard, SuperType, MirroredUser, CakeType, CoatingType]
+            )
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):
@@ -1068,9 +1234,9 @@ class GetAllPublicSchemaModels(ShardingTestCase):
         Expected: get_model_sharding_mode called for each model that's not a proxy model, nor an auto-created model.
         """
         get_all_public_schema_models()
-        mock_get_model_sharding_mode.assert_has_calls([
-            mock.call(model) for model in apps.get_models() if not model._meta.proxy
-        ], any_order=True)
+        mock_get_model_sharding_mode.assert_has_calls(
+            [mock.call(model) for model in apps.get_models() if not model._meta.proxy], any_order=True
+        )
 
     def test_include_auto_created_result(self):
         """
@@ -1079,15 +1245,19 @@ class GetAllPublicSchemaModels(ShardingTestCase):
         """
         # We compare it string based, since we cannot import the auto created fields as classes.
         result = [str(model) for model in get_all_public_schema_models(include_auto_created=True)]
-        self.assertCountEqual(result,
-                              ["<class 'example.models.Shard'>",
-                               "<class 'example.models.Type'>",
-                               "<class 'example.models.MirroredUser'>",
-                               "<class 'example.models.MirroredUser_type'>",
-                               "<class 'example.models.SuperType'>",
-                               "<class 'example.models.CakeType'>",
-                               "<class 'example.models.CoatingType'>",
-                               "<class 'example.models.CoatingType_super_type'>"])  # This is an auto-created model
+        self.assertCountEqual(
+            result,
+            [
+                "<class 'example.models.Shard'>",
+                "<class 'example.models.Type'>",
+                "<class 'example.models.MirroredUser'>",
+                "<class 'example.models.MirroredUser_type'>",
+                "<class 'example.models.SuperType'>",
+                "<class 'example.models.CakeType'>",
+                "<class 'example.models.CoatingType'>",
+                "<class 'example.models.CoatingType_super_type'>",
+            ],
+        )  # This is an auto-created model
 
     def test_include_proxy_models(self):
         """
@@ -1097,15 +1267,19 @@ class GetAllPublicSchemaModels(ShardingTestCase):
         # We compare it string based, since we cannot import the auto created fields as classes.
         self.maxDiff = None
         result = [str(model) for model in get_all_public_schema_models(include_proxy=True)]
-        self.assertCountEqual(result,
-                              ["<class 'example.models.Shard'>",
-                               "<class 'example.models.Type'>",
-                               "<class 'example.models.MirroredUser'>",
-                               "<class 'example.models.ProxyMirroredUser'>",
-                               "<class 'example.models.SuperType'>",
-                               "<class 'example.models.CakeType'>",
-                               "<class 'example.models.ProxyCakeType'>",  # This is a proxy model
-                               "<class 'example.models.CoatingType'>"])
+        self.assertCountEqual(
+            result,
+            [
+                "<class 'example.models.Shard'>",
+                "<class 'example.models.Type'>",
+                "<class 'example.models.MirroredUser'>",
+                "<class 'example.models.ProxyMirroredUser'>",
+                "<class 'example.models.SuperType'>",
+                "<class 'example.models.CakeType'>",
+                "<class 'example.models.ProxyCakeType'>",  # This is a proxy model
+                "<class 'example.models.CoatingType'>",
+            ],
+        )
 
 
 class GetAllDatabases(SimpleTestCase):
@@ -1174,8 +1348,9 @@ class ForEachShardTestCase(ShardingTestCase):
         super().setUp()
 
         with mock.patch('djanquiltdb.utils.create_schema_on_node'):
-            self.shard1 = Shard.objects.create(alias='test_sharding', schema_name='test_schema', node_name='default',
-                                               state=State.ACTIVE)
+            self.shard1 = Shard.objects.create(
+                alias='test_sharding', schema_name='test_schema', node_name='default', state=State.ACTIVE
+            )
 
     def repeatable_function(self, shard=None, shard_id=None, **kwargs):
         if shard:
@@ -1368,8 +1543,9 @@ class TransactionForNodesTestCase(OverrideMirroredRoutingMixin, ShardingTransact
             mock_cursor = mock_connection.return_value.cursor = mock.Mock()
             mock_execute = mock_cursor.return_value.execute = mock.Mock()
 
-            with transaction_for_nodes(nodes=['default', 'other'],
-                                       lock_models=((Type, 'ROW SHARE'), (SuperType, 'SHARE'))):
+            with transaction_for_nodes(
+                nodes=['default', 'other'], lock_models=((Type, 'ROW SHARE'), (SuperType, 'SHARE'))
+            ):
                 pass
 
             self.assertEqual(mock_execute.call_count, 4)  # we test with two databases and 2 tables
@@ -1391,14 +1567,11 @@ class TransactionForNodesTestCase(OverrideMirroredRoutingMixin, ShardingTransact
             with transaction.atomic():
                 con = connections['default']
                 with self.assertRaises(OperationalError):
-                    con.cursor().execute(
-                        'LOCK TABLE "example_type" IN ACCESS EXCLUSIVE MODE NOWAIT'
-                    )
+                    con.cursor().execute('LOCK TABLE "example_type" IN ACCESS EXCLUSIVE MODE NOWAIT')
                     Type.objects.create(name='test_type')
                 con.close()
 
-        with transaction_for_nodes(nodes=['default', 'other'],
-                                   lock_models=((Type, 'ACCESS EXCLUSIVE'),)):
+        with transaction_for_nodes(nodes=['default', 'other'], lock_models=((Type, 'ACCESS EXCLUSIVE'),)):
             with use_shard(node_name='default', schema_name='public'):
                 # Don't create an object before calling the other thread.
                 # A write will lock the table too, and will only be released when the transaction is committed.
@@ -1418,7 +1591,7 @@ class TransactionForNodesTestCase(OverrideMirroredRoutingMixin, ShardingTransact
 class TransactionForEveryNodeTestCase(SimpleTestCase):
     @mock.patch('djanquiltdb.utils.transaction_for_nodes.__init__')
     @mock.patch('djanquiltdb.utils.transaction_for_nodes.__enter__', mock.Mock)
-    @mock.patch('djanquiltdb.utils.transaction_for_nodes.__exit__',  mock.Mock)
+    @mock.patch('djanquiltdb.utils.transaction_for_nodes.__exit__', mock.Mock)
     @mock.patch('djanquiltdb.utils.get_all_databases', return_value=['default', 'other'])
     def test(self, mock_all_databases, mock_init):
         """
@@ -1465,6 +1638,7 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
         Case: Use the @atomic_write_to_every_node, and call the decorated function with an argument.
         Expected: The function gives back a dict with the node_name as keys and the return value as their values.
         """
+
         @atomic_write_to_every_node(schema_name='some_schema')
         def test_function(test_argument, node_name):
             return (test_argument, node_name)
@@ -1476,17 +1650,21 @@ class WriteToEveryNodeTestCase(SimpleTestCase):
         mock_use_shard.assert_any_call(node_name='maria', schema_name='some_schema')
         self.assertEqual(mock_transaction.call_count, 1)
         self.assertEqual(mock_get_all_databases.call_count, 1)
-        self.assertEqual({
-            'sina': ('Firestone', 'sina'),
-            'rose': ('Firestone', 'rose'),
-            'maria': ('Firestone', 'maria'),
-        }, return_value)
+        self.assertEqual(
+            {
+                'sina': ('Firestone', 'sina'),
+                'rose': ('Firestone', 'rose'),
+                'maria': ('Firestone', 'maria'),
+            },
+            return_value,
+        )
 
     def test_decorated_with(self):
         """
         Case: Check if the function is decorator with a specific decorator.
         Expected: The function is decorated and called with the expected argument.
         """
+
         @atomic_write_to_every_node(schema_name='some_schema', lock_models=())
         def test_function(test_argument, node_name):
             pass
@@ -1510,8 +1688,9 @@ class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
         """
         if Shard.objects.filter(schema_name='test_other_schema').exists():
             with use_shard(node_name='default', schema_name='test_other_schema'):
-                move_model_to_schema(model=Type, node_name='default', from_schema_name='test_other_schema',
-                                     to_schema_name='public')
+                move_model_to_schema(
+                    model=Type, node_name='default', from_schema_name='test_other_schema', to_schema_name='public'
+                )
 
     def setUp(self):
         self.addCleanup(self.clean_up)
@@ -1523,8 +1702,9 @@ class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
         Expected: The Type model to be moved. All data should remain in tact.
         """
         create_template_schema('default')
-        other_shard = Shard.objects.create(alias='other', node_name='default', schema_name='test_other_schema',
-                                           state=State.ACTIVE)
+        other_shard = Shard.objects.create(
+            alias='other', node_name='default', schema_name='test_other_schema', state=State.ACTIVE
+        )
 
         # Create a bunch of connected objects.
         supertype = SuperType.objects.create(id=4, name='tesla')  # use a specific id
@@ -1593,8 +1773,9 @@ class MoveModelToExistingSchemaTestCase(ShardingTransactionTestCase):
         Expected: move_model_to_schema to raise an error.
         """
         create_template_schema('default')
-        another_schema = Shard.objects.create(alias='another', node_name='default', schema_name='test_another_schema',
-                                              state=State.ACTIVE)
+        another_schema = Shard.objects.create(
+            alias='another', node_name='default', schema_name='test_another_schema', state=State.ACTIVE
+        )
 
         # The User table is already on the sharded schema.
         with self.assertRaises(ProgrammingError):
@@ -1631,8 +1812,9 @@ class DisableSignalsTestCase(ShardingTestCase):
         post_save.connect(fake_post_save_signal, sender='example.Organization')
 
         create_template_schema()
-        self.shard = Shard.objects.create(alias='light', node_name='default', schema_name='test_light',
-                                          state=State.ACTIVE)
+        self.shard = Shard.objects.create(
+            alias='light', node_name='default', schema_name='test_light', state=State.ACTIVE
+        )
 
         with use_shard(self.shard):
             organization = Organization(name='EastShade')
@@ -1674,8 +1856,10 @@ class DisableSignalsTestCase(ShardingTestCase):
         manager = disable_signals()
 
         self.assertEqual(manager.stashed_signals, {})
-        self.assertEqual(manager.disabled_signals, [pre_init, post_init, pre_save, post_save, pre_delete, post_delete,
-                                                    pre_migrate, post_migrate])
+        self.assertEqual(
+            manager.disabled_signals,
+            [pre_init, post_init, pre_save, post_save, pre_delete, post_delete, pre_migrate, post_migrate],
+        )
 
     def test_init_with_argument(self):
         """
@@ -1754,8 +1938,7 @@ class DisableSignalsTestCase(ShardingTestCase):
         fake_signal_2.lock.__exit__ = mock.Mock()
         fake_signal_2.receivers = []
 
-        manager.stashed_signals = {fake_signal_1: ['some_receiver'],
-                                   fake_signal_2: ['some_other_receiver']}
+        manager.stashed_signals = {fake_signal_1: ['some_receiver'], fake_signal_2: ['some_other_receiver']}
         manager.reconnect(fake_signal_1)
 
         # fake_signal_1 locked, cleared and restored
@@ -1779,6 +1962,7 @@ def fake_transaction_exit(self, exc_type, exc_value, traceback):
     """
     # Content of mocked __exit__ function
     import django.db.transaction
+
     for database in reversed(self.databases):
         self.using = database
 
@@ -1797,8 +1981,9 @@ class TransactionUtilTestCase(ShardingTransactionTestCase):
         Note: Vanilla it would _always_ be created on the default node.
         """
         create_template_schema('other')
-        other_shard = Shard.objects.create(alias='other', node_name='other', schema_name='test_other_schema',
-                                           state=State.ACTIVE)
+        other_shard = Shard.objects.create(
+            alias='other', node_name='other', schema_name='test_other_schema', state=State.ACTIVE
+        )
 
         with use_shard(other_shard):
             self.assertFalse(Organization.objects.exists())
@@ -1819,8 +2004,9 @@ class TransactionUtilTestCase(ShardingTransactionTestCase):
         """
         create_template_schema('default')
         create_template_schema('other')
-        other_shard = Shard.objects.create(alias='other', node_name='other', schema_name='test_other_schema',
-                                           state=State.ACTIVE)
+        other_shard = Shard.objects.create(
+            alias='other', node_name='other', schema_name='test_other_schema', state=State.ACTIVE
+        )
 
         with use_shard(other_shard):
             self.assertFalse(Organization.objects.exists())
@@ -1853,21 +2039,23 @@ class TransactionUtilTestCase(ShardingTransactionTestCase):
         """
         create_template_schema('default')
         create_template_schema('other')
-        other_shard = Shard.objects.create(alias='other', node_name='other', schema_name='test_other_schema',
-                                           state=State.ACTIVE)
+        other_shard = Shard.objects.create(
+            alias='other', node_name='other', schema_name='test_other_schema', state=State.ACTIVE
+        )
 
         with use_shard(other_shard):
             self.assertFalse(Organization.objects.exists())
 
             with self.assertRaises(ProgrammingError):
-                with mock.patch('djanquiltdb.utils.transaction_for_nodes.__exit__',
-                                side_effect=fake_transaction_exit,
-                                autospec=True):
+                with mock.patch(
+                    'djanquiltdb.utils.transaction_for_nodes.__exit__', side_effect=fake_transaction_exit, autospec=True
+                ):
                     with transaction.atomic():  # Cascading transaction
                         # Shard write queries are always routed to the primary node.
                         # So it will be wrapped in then outer transaction
-                        Shard.objects.create(alias='Windswept Wastes', node_name='default', schema_name='wastes',
-                                             state='A')
+                        Shard.objects.create(
+                            alias='Windswept Wastes', node_name='default', schema_name='wastes', state='A'
+                        )
                         Organization.objects.create(name='Seafarer')
 
             # Cleanup. The connection failed to close properly, since an error occurred.
@@ -1889,8 +2077,9 @@ class TransactionUtilTestCase(ShardingTransactionTestCase):
         """
         create_template_schema('default')
         create_template_schema('other')
-        other_shard = Shard.objects.create(alias='other', node_name='other', schema_name='test_other_schema',
-                                           state=State.ACTIVE)
+        other_shard = Shard.objects.create(
+            alias='other', node_name='other', schema_name='test_other_schema', state=State.ACTIVE
+        )
 
         with use_shard(other_shard):
             self.assertFalse(Organization.objects.exists())

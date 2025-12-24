@@ -5,11 +5,11 @@ from django.db import OperationalError
 from django.http import HttpResponse
 from django.test import SimpleTestCase, override_settings
 from django.test.client import RequestFactory
-from django.views.generic import View, TemplateView
-
+from django.views.generic import TemplateView, View
 from example.models import Shard
+
 from djanquiltdb.db import connection
-from djanquiltdb.middleware import BaseUseShardMiddleware, BaseUseShardForMiddleware, ExceptionMiddlewareMixin
+from djanquiltdb.middleware import BaseUseShardForMiddleware, BaseUseShardMiddleware, ExceptionMiddlewareMixin
 from djanquiltdb.tests import ShardingTestCase, ShardingTransactionTestCase
 from djanquiltdb.utils import State, StateException, create_template_schema
 
@@ -55,8 +55,9 @@ class ExceptionMiddlewareMixinIntegrationTestCase(ShardingTransactionTestCase):
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
         create_template_schema('other')
-        shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='other',
-                                     state=State.MAINTENANCE)
+        shard = Shard.objects.create(
+            alias='test_shard', schema_name='test_schema', node_name='other', state=State.MAINTENANCE
+        )
 
         mock_get_shard_id.return_value = shard.id
 
@@ -79,8 +80,9 @@ class ExceptionMiddlewareMixinIntegrationTestCase(ShardingTransactionTestCase):
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
         create_template_schema('other')
-        shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='other',
-                                     state=State.MAINTENANCE)
+        shard = Shard.objects.create(
+            alias='test_shard', schema_name='test_schema', node_name='other', state=State.MAINTENANCE
+        )
 
         mock_get_shard_id.return_value = shard.id
 
@@ -102,8 +104,9 @@ class ExceptionMiddlewareMixinIntegrationTestCase(ShardingTransactionTestCase):
         sharding_settings.pop('CONNECTION_EXCEPTION_VIEW', False)
 
         create_template_schema('other')
-        shard = Shard.objects.create(alias='test_shard', schema_name='test_schema', node_name='other',
-                                     state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='test_shard', schema_name='test_schema', node_name='other', state=State.ACTIVE
+        )
 
         mock_get_shard_id.return_value = shard.id
 
@@ -123,8 +126,9 @@ class ExceptionMiddlewareMixinIntegrationTestCase(ShardingTransactionTestCase):
 class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
     @mock.patch('djanquiltdb.middleware.ConnectionExceptionProcessor.process_exception')
     @mock.patch('djanquiltdb.middleware.StateExceptionProcessor.process_exception')
-    def test_process_exception_with_state_exception(self, mock_state_process_exception,
-                                                    mock_connection_process_exception):
+    def test_process_exception_with_state_exception(
+        self, mock_state_process_exception, mock_connection_process_exception
+    ):
         """
         Case: Call the process_exception of the ExceptionMiddlewareMixin with a StateException.
         Expected: process_exception to be called on StateExceptionProcessor.
@@ -134,16 +138,16 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
 
         with override_settings(SHARDING=sharding_settings):
             ExceptionMiddlewareMixin(lambda x: None).process_exception(
-                RequestFactory().get('/'),
-                StateException('Shard is not in available state!', 'M')
+                RequestFactory().get('/'), StateException('Shard is not in available state!', 'M')
             )
         self.assertTrue(mock_state_process_exception.called)
         mock_connection_process_exception.assert_not_called()
 
     @mock.patch('djanquiltdb.middleware.ConnectionExceptionProcessor.process_exception')
     @mock.patch('djanquiltdb.middleware.StateExceptionProcessor.process_exception')
-    def test_process_exception_with_connection_exception(self, mock_state_process_exception,
-                                                         mock_connection_process_exception):
+    def test_process_exception_with_connection_exception(
+        self, mock_state_process_exception, mock_connection_process_exception
+    ):
         """
         Case: Call the process_exception of the ExceptionMiddlewareMixin with a OperationalError.
         Expected: process_exception to be called on ConnectionExceptionProcessor.
@@ -153,16 +157,16 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
 
         with override_settings(SHARDING=sharding_settings):
             ExceptionMiddlewareMixin(lambda x: None).process_exception(
-                RequestFactory().get('/'),
-                OperationalError('Node is not available')
+                RequestFactory().get('/'), OperationalError('Node is not available')
             )
         mock_state_process_exception.assert_not_called()
         self.assertTrue(mock_connection_process_exception.called)
 
     @mock.patch('djanquiltdb.middleware.ConnectionExceptionProcessor.process_exception')
     @mock.patch('djanquiltdb.middleware.StateExceptionProcessor.process_exception')
-    def test_process_exception_with_other_exception(self, mock_state_process_exception,
-                                                    mock_connection_process_exception):
+    def test_process_exception_with_other_exception(
+        self, mock_state_process_exception, mock_connection_process_exception
+    ):
         """
         Case: Call the process_exception of the StateOrConnectionExceptionMiddleware with a different exception
         Expected: No process_exception to be called.
@@ -172,8 +176,7 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
 
         with override_settings(SHARDING=sharding_settings):
             ExceptionMiddlewareMixin(lambda x: None).process_exception(
-                RequestFactory().get('/'),
-                ValueError('Generic Error')
+                RequestFactory().get('/'), ValueError('Generic Error')
             )
         self.assertFalse(mock_state_process_exception.called)
         self.assertFalse(mock_connection_process_exception.called)
@@ -190,15 +193,13 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
             with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
                     UseShardMiddleware(lambda x: None).process_exception(
-                        RequestFactory().get('/'),
-                        StateException('Shard is not in available state!', 'M')
+                        RequestFactory().get('/'), StateException('Shard is not in available state!', 'M')
                     )
                 self.assertFalse(mock_render.called)
 
             with self.subTest('Test response'):
                 response = UseShardMiddleware(lambda x: None).process_exception(
-                    RequestFactory().get('/'),
-                    StateException('Shard is not in available state!', 'M')
+                    RequestFactory().get('/'), StateException('Shard is not in available state!', 'M')
                 )
                 self.assertContains(response, 'Test state exception view', html=True)
 
@@ -214,15 +215,13 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
             with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
                     UseShardMiddleware(lambda x: None).process_exception(
-                        RequestFactory().get('/'),
-                        StateException('Shard is not in available state!', 'M')
+                        RequestFactory().get('/'), StateException('Shard is not in available state!', 'M')
                     )
                 self.assertTrue(mock_render.called)
 
             with self.subTest('Test response'):
                 response = UseShardMiddleware(lambda x: None).process_exception(
-                    RequestFactory().get('/'),
-                    StateException('Shard is not in available state!', 'M')
+                    RequestFactory().get('/'), StateException('Shard is not in available state!', 'M')
                 )
                 self.assertContains(response, '<h2>Shard unavailable</h2>', html=True)
 
@@ -236,8 +235,7 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
 
         with override_settings(SHARDING=sharding_settings):
             response = UseShardMiddleware(lambda x: None).process_exception(
-                RequestFactory().get('/'),
-                StateException('Shard is not in available state!', 'M')
+                RequestFactory().get('/'), StateException('Shard is not in available state!', 'M')
             )
         self.assertEqual(response.status_code, 503)
 
@@ -253,15 +251,13 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
             with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
                     UseShardMiddleware(lambda x: None).process_exception(
-                        RequestFactory().get('/'),
-                        OperationalError('Node is not available')
+                        RequestFactory().get('/'), OperationalError('Node is not available')
                     )
                 self.assertFalse(mock_render.called)
 
             with self.subTest('Test response'):
                 response = UseShardMiddleware(lambda x: None).process_exception(
-                    RequestFactory().get('/'),
-                    OperationalError('Node is not available')
+                    RequestFactory().get('/'), OperationalError('Node is not available')
                 )
                 self.assertContains(response, 'Test connection exception view', html=True)
 
@@ -271,21 +267,21 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         Expected: The view is rendered and return as response.
         """
         sharding_settings = settings.SHARDING
-        sharding_settings['CONNECTION_EXCEPTION_VIEW'] = 'djanquiltdb.tests.middleware.ConnectionExceptionTestTemplateView'
+        sharding_settings['CONNECTION_EXCEPTION_VIEW'] = (
+            'djanquiltdb.tests.middleware.ConnectionExceptionTestTemplateView'
+        )
 
         with override_settings(SHARDING=sharding_settings):
             with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
                     UseShardMiddleware(lambda x: None).process_exception(
-                        RequestFactory().get('/'),
-                        OperationalError('Node is not available')
+                        RequestFactory().get('/'), OperationalError('Node is not available')
                     )
                 self.assertTrue(mock_render.called)
 
             with self.subTest('Test response'):
                 response = UseShardMiddleware(lambda x: None).process_exception(
-                    RequestFactory().get('/'),
-                    OperationalError('Node is not available')
+                    RequestFactory().get('/'), OperationalError('Node is not available')
                 )
                 self.assertContains(response, '<h2>Database unavailable</h2>', html=True)
 
@@ -299,8 +295,7 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
 
         with override_settings(SHARDING=sharding_settings):
             response = UseShardMiddleware(lambda x: None).process_exception(
-                RequestFactory().get('/'),
-                OperationalError('Node is not available')
+                RequestFactory().get('/'), OperationalError('Node is not available')
             )
         self.assertEqual(response.status_code, 503)
 
@@ -364,8 +359,9 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
         mock_use_shard_value.enable = enable_mock
         mock_use_shard_value.disable = disable_mock
         mock_use_shard.return_value = mock_use_shard_value
-        mock_use_shard.side_effect = \
-            StateException('Shard {} state is {}'.format(1, State.MAINTENANCE), State.MAINTENANCE)
+        mock_use_shard.side_effect = StateException(
+            'Shard {} state is {}'.format(1, State.MAINTENANCE), State.MAINTENANCE
+        )
 
         with mock.patch('djanquiltdb.middleware.ExceptionProcessor.process_exception') as mock_process_exception:
             UseShardMiddleware(lambda x: None).process_request(RequestFactory().get('/'))
@@ -405,17 +401,19 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
         sharding_settings = settings.SHARDING
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
-        with mock.patch('djanquiltdb.tests.middleware.UseShardMiddleware.get_shard_context_manager') as \
-                mock_use_shard_context_manager:
+        with mock.patch(
+            'djanquiltdb.tests.middleware.UseShardMiddleware.get_shard_context_manager'
+        ) as mock_use_shard_context_manager:
             mock_return_value = mock.Mock()
             mock_return_value.return_value.disable = mock.Mock()
             mock_use_shard_context_manager.return_value = mock_return_value
 
-            with mock.patch('djanquiltdb.middleware.ExceptionMiddlewareMixin.process_exception') as mock_process_exception:
+            with mock.patch(
+                'djanquiltdb.middleware.ExceptionMiddlewareMixin.process_exception'
+            ) as mock_process_exception:
                 with override_settings(SHARDING=sharding_settings):
                     UseShardMiddleware(lambda x: None).process_exception(
-                        RequestFactory().get('/'),
-                        ValueError('Generic error.')
+                        RequestFactory().get('/'), ValueError('Generic error.')
                     )
 
         self.assertFalse(mock_process_exception.called)
@@ -445,10 +443,13 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
         middleware = SecondUseShardMiddleware(lambda x: None)
         middleware.process_request(request)
 
-        self.assertEqual(request._middleware_shard_context_manager, {
-            UseShardMiddleware: mock_use_shard_value,
-            SecondUseShardMiddleware: mock_use_shard_value,
-        })
+        self.assertEqual(
+            request._middleware_shard_context_manager,
+            {
+                UseShardMiddleware: mock_use_shard_value,
+                SecondUseShardMiddleware: mock_use_shard_value,
+            },
+        )
 
 
 class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
@@ -510,8 +511,9 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
         disable_mock = mock.Mock()
         mock_use_shard_for_value.enable = enable_mock
         mock_use_shard_for_value.disable = disable_mock
-        mock_use_shard_for.side_effect = \
-            StateException('Shard {} state is {}'.format(1, State.MAINTENANCE), State.MAINTENANCE)
+        mock_use_shard_for.side_effect = StateException(
+            'Shard {} state is {}'.format(1, State.MAINTENANCE), State.MAINTENANCE
+        )
         mock_use_shard_for.return_value = mock_use_shard_for_value
 
         with mock.patch('djanquiltdb.middleware.BaseUseShardForMiddleware.process_exception') as mock_process_exception:
@@ -552,18 +554,19 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
         sharding_settings = settings.SHARDING
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
-        with mock.patch('djanquiltdb.tests.middleware.UseShardForMiddleware.get_shard_context_manager') as \
-                mock_use_shard_for_context_manager:
-
+        with mock.patch(
+            'djanquiltdb.tests.middleware.UseShardForMiddleware.get_shard_context_manager'
+        ) as mock_use_shard_for_context_manager:
             mock_return_value = mock.Mock()
             mock_return_value.return_value.disable = mock.Mock()
             mock_use_shard_for_context_manager.return_value = mock_return_value
 
-            with mock.patch('djanquiltdb.middleware.ExceptionMiddlewareMixin.process_exception') as mock_process_exception:
+            with mock.patch(
+                'djanquiltdb.middleware.ExceptionMiddlewareMixin.process_exception'
+            ) as mock_process_exception:
                 with override_settings(SHARDING=sharding_settings):
                     UseShardForMiddleware(lambda x: None).process_exception(
-                        RequestFactory().get('/'),
-                        ValueError('Generic error.')
+                        RequestFactory().get('/'), ValueError('Generic error.')
                     )
 
         self.assertFalse(mock_process_exception.called)

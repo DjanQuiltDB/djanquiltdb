@@ -9,6 +9,7 @@ class DefaultConnectionProxy(object):
     @property
     def db_alias(self):
         from djanquiltdb.router import get_active_connection
+
         return get_active_connection()
 
     def __getattr__(self, item):

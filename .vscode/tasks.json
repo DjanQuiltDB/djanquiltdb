@@ -36,7 +36,7 @@
             }
         },
         {
-            "label": "Docker: Run Tox Tests (Python 3.6, Django 3.2)",
+            "label": "Docker: Run Tox Tests (Python 3.14, Django 6.0)",
             "type": "shell",
             "command": "docker-compose",
             "args": [
@@ -45,45 +45,7 @@
                 "test",
                 "tox",
                 "-e",
-                "py36-dj32"
-            ],
-            "problemMatcher": [],
-            "group": "test",
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared"
-            }
-        },
-        {
-            "label": "Docker: Run Tox Tests (Python 3.11, Django 3.2)",
-            "type": "shell",
-            "command": "docker-compose",
-            "args": [
-                "run",
-                "--rm",
-                "test",
-                "tox",
-                "-e",
-                "py311-dj32"
-            ],
-            "problemMatcher": [],
-            "group": "test",
-            "presentation": {
-                "reveal": "always",
-                "panel": "shared"
-            }
-        },
-        {
-            "label": "Docker: Run Tox Tests (Python 3.11, Django 4.0)",
-            "type": "shell",
-            "command": "docker-compose",
-            "args": [
-                "run",
-                "--rm",
-                "test",
-                "tox",
-                "-e",
-                "py311-dj40"
+                "py314-dj60"
             ],
             "problemMatcher": [],
             "group": "test",

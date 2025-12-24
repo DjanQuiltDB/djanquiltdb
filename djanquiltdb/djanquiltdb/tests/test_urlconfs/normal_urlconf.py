@@ -1,6 +1,5 @@
-from django.urls import re_path
-
 from django.http import HttpResponse
+from django.urls import re_path
 from django.views import View
 
 
@@ -10,6 +9,4 @@ class TestNormalView(View):
 
 
 # New URLs for StateExceptionMiddlewareIntegrationTestCase
-urlpatterns = [
-    re_path(r'^$', TestNormalView.as_view(), name='normal')
-]
+urlpatterns = [re_path(r'^$', TestNormalView.as_view(), name='normal')]

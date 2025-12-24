@@ -5,7 +5,6 @@ from unittest import mock
 from django.core.management import get_commands
 from django.db import connections
 from django.db.migrations.recorder import MigrationRecorder
-
 from djanquiltdb.db import connection
 from djanquiltdb.tests import ShardingTestCase
 from djanquiltdb.utils import create_template_schema

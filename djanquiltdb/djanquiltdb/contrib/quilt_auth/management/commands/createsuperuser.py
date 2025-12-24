@@ -6,7 +6,7 @@ from django.core.management import CommandError
 
 from djanquiltdb import ShardingMode
 from djanquiltdb.decorators import atomic_write_to_every_node
-from djanquiltdb.utils import get_model_sharding_mode, get_all_databases, use_shard, get_shard_class, for_each_node
+from djanquiltdb.utils import for_each_node, get_all_databases, get_model_sharding_mode, get_shard_class, use_shard
 
 
 def patch_get_by_natural_key(func):
@@ -31,6 +31,7 @@ def patch_get_by_natural_key(func):
 
         if all(exists is False for exists, _ in exists_on_node.values()):
             raise list(exists_on_node.values())[0][1]
+
     return get_by_natural_key
 
 
@@ -73,14 +74,11 @@ class Command(CreateSuperUserCommand):
             parser._option_string_actions['--database'].default = None
             parser._option_string_actions['--database'].required = True
             parser._option_string_actions['--database'].choices = sorted(get_all_databases())
-            parser.add_argument(
-                '--schema-name',
-                required=True,
-                help='Specifies the schema to use.'
-            )
+            parser.add_argument('--schema-name', required=True, help='Specifies the schema to use.')
         elif self.user_sharding_mode == ShardingMode.MIRRORED:
-            parser._option_string_actions['--database'].help = \
-                'Specifies the database to use. Defaults to all databases.'
+            parser._option_string_actions[
+                '--database'
+            ].help = 'Specifies the database to use. Defaults to all databases.'
             parser._option_string_actions['--database'].default = 'all'
             parser._option_string_actions['--database'].choices = ['all'] + sorted(get_all_databases())
 
@@ -88,13 +86,16 @@ class Command(CreateSuperUserCommand):
         if self.user_sharding_mode == ShardingMode.SHARDED:
             # We can safely do the .filter().first(), because node_name and schema_name are unique together. So it
             # either returns `None` or a shard.
-            shard = get_shard_class().objects \
-                .filter(node_name=options['database'], schema_name=options['schema_name']) \
+            shard = (
+                get_shard_class()
+                .objects.filter(node_name=options['database'], schema_name=options['schema_name'])
                 .first()
+            )
 
             if not shard:
-                raise CommandError('The shard you provided ({}|{}) does not exist'.format(options['database'],
-                                                                                          options['schema_name']))
+                raise CommandError(
+                    'The shard you provided ({}|{}) does not exist'.format(options['database'], options['schema_name'])
+                )
 
             options['database'] = shard
             super().handle(*args, **options)

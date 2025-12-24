@@ -4,13 +4,22 @@ from unittest import mock
 from django.contrib.admin.utils import NestedObjects
 from django.core.management import CommandError, call_command
 from django.db import DatabaseError
-from django.db.models.signals import pre_delete, post_delete
+from django.db.models.signals import post_delete, pre_delete
+from example.models import (
+    Cake,
+    Organization,
+    OrganizationShards,
+    Shard,
+    Statement,
+    Suborganization,
+    SuperType,
+    Type,
+    User,
+)
 
-from example.models import Shard, OrganizationShards, SuperType, Type, Organization, Suborganization, User, Statement, \
-    Cake
-from djanquiltdb.tests import ShardingTestCase
-from djanquiltdb.utils import use_shard, create_template_schema, State
 from djanquiltdb.management.commands.purge_shard_data import Command
+from djanquiltdb.tests import ShardingTestCase
+from djanquiltdb.utils import State, create_template_schema, use_shard
 
 
 class PurgeShardDataTransactionTestCase(ShardingTestCase):
@@ -21,8 +30,9 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
 
         create_template_schema()
 
-        self.source_shard = Shard.objects.create(alias='CuriousVillage', node_name='default',
-                                                 schema_name='test', state=State.ACTIVE)
+        self.source_shard = Shard.objects.create(
+            alias='CuriousVillage', node_name='default', schema_name='test', state=State.ACTIVE
+        )
 
         with use_shard(self.source_shard):
             self.super = SuperType.objects.create(name='Character')
@@ -32,38 +42,44 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
 
             self.organization_1 = Organization.objects.create(name='Layton inc.')
             self.organization_2 = Organization.objects.create(name='Curious Village')
-            self.suborganization = Suborganization.objects.create(parent=self.organization_1,
-                                                                  child=self.organization_2)
+            self.suborganization = Suborganization.objects.create(parent=self.organization_1, child=self.organization_2)
 
-            self.user_1 = User.objects.create(name='Layton', email='professor@layton.l5',
-                                              organization=self.organization_1, type=self.type_1)
-            self.user_2 = User.objects.create(name='Luke', email='luke@layton.l5',
-                                              organization=self.organization_1, type=self.type_2)
-            self.user_3 = User.objects.create(name='Flora', email='f@reinhold.cap',
-                                              organization=self.organization_2, type=self.type_2)
+            self.user_1 = User.objects.create(
+                name='Layton', email='professor@layton.l5', organization=self.organization_1, type=self.type_1
+            )
+            self.user_2 = User.objects.create(
+                name='Luke', email='luke@layton.l5', organization=self.organization_1, type=self.type_2
+            )
+            self.user_3 = User.objects.create(
+                name='Flora', email='f@reinhold.cap', organization=self.organization_2, type=self.type_2
+            )
 
             self.statement_1 = Statement.objects.create(content="'Luke'!", user=self.user_1, offset=1)
-            self.statement_2 = Statement.objects.create(content='Try to; solve this "puzzle."', user=self.user_1,
-                                                        offset=2)
+            self.statement_2 = Statement.objects.create(
+                content='Try to; solve this "puzzle."', user=self.user_1, offset=2
+            )
             self.statement_3 = Statement.objects.create(content='Do you see the sun?', user=self.user_3, offset=3)
 
-            self.organization_shard1 = OrganizationShards.objects.create(shard=self.source_shard,
-                                                                         organization_id=self.organization_1.id,
-                                                                         state=State.ACTIVE)
-            self.organization_shard2 = OrganizationShards.objects.create(shard=self.source_shard,
-                                                                         organization_id=self.organization_2.id,
-                                                                         state=State.ACTIVE)
+            self.organization_shard1 = OrganizationShards.objects.create(
+                shard=self.source_shard, organization_id=self.organization_1.id, state=State.ACTIVE
+            )
+            self.organization_shard2 = OrganizationShards.objects.create(
+                shard=self.source_shard, organization_id=self.organization_2.id, state=State.ACTIVE
+            )
 
             self.type_3 = Type.objects.create(name='Attorney', super=self.super)
-            self.organization_3 = Organization.objects.create(name='Ace',)
-            self.user_4 = User.objects.create(name='Phoenix Wright', email='p@wright.cap',
-                                              organization=self.organization_3, type=self.type_3)
+            self.organization_3 = Organization.objects.create(
+                name='Ace',
+            )
+            self.user_4 = User.objects.create(
+                name='Phoenix Wright', email='p@wright.cap', organization=self.organization_3, type=self.type_3
+            )
             self.statement_4 = Statement.objects.create(content='Objection!', user=self.user_4, offset=4)
             self.statement_5 = Statement.objects.create(content='discrepancy', user=self.user_4, offset=5)
 
-            self.organization_shard3 = OrganizationShards.objects.create(shard=self.source_shard,
-                                                                         organization_id=self.organization_3.id,
-                                                                         state=State.ACTIVE)
+            self.organization_shard3 = OrganizationShards.objects.create(
+                shard=self.source_shard, organization_id=self.organization_3.id, state=State.ACTIVE
+            )
 
             # Some many-to-many models
             self.cake_1 = Cake.objects.create(name='Butter cake')
@@ -86,25 +102,11 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
             self.user_cake_4 = self.user_cake_model.objects.get(cake=self.cake_4, user=self.user_3)
 
         self.expected_data = {
-            Organization: {
-                self.organization_1
-            },
-            Suborganization: {
-                self.suborganization
-            },
-            User: {
-                self.user_1,
-                self.user_2
-            },
-            Statement: {
-                self.statement_1,
-                self.statement_2
-            },
-            self.user_cake_model: {
-                self.user_cake_1,
-                self.user_cake_2,
-                self.user_cake_3
-            }
+            Organization: {self.organization_1},
+            Suborganization: {self.suborganization},
+            User: {self.user_1, self.user_2},
+            Statement: {self.statement_1, self.statement_2},
+            self.user_cake_model: {self.user_cake_1, self.user_cake_2, self.user_cake_3},
         }
 
         self.leftover_data = {
@@ -124,7 +126,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
             },
             self.user_cake_model: {
                 self.user_cake_4,
-            }
+            },
         }
 
         # Used for unit tests
@@ -198,7 +200,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         msg = "No object could be found with object field '{}' and object value '{}' for model '{}'.".format(
             self.command.options['object_field'],
             self.command.options['object_value'],
-            self.command.options['model_name']
+            self.command.options['model_name'],
         )
 
         with self.assertRaisesRegex(CommandError, '^{}$'.format(re.escape(msg))):
@@ -221,7 +223,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         msg = "Multiple objects found with object field '{}' and object value '{}' for model '{}'.".format(
             self.command.options['object_field'],
             self.command.options['object_value'],
-            self.command.options['model_name']
+            self.command.options['model_name'],
         )
 
         with self.assertRaisesRegex(CommandError, '^{}$'.format(re.escape(msg))):
@@ -238,7 +240,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         msg = "Provided object value '{}' is invalid for object field '{}' for model '{}'.".format(
             self.command.options['object_value'],
             self.command.options['object_field'],
-            self.command.options['model_name']
+            self.command.options['model_name'],
         )
 
         with self.assertRaisesRegex(CommandError, '^{}$'.format(re.escape(msg))):
@@ -328,8 +330,9 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         with use_shard(self.source_shard):
             self.assertFalse(Organization.objects.filter(id=self.organization_1.id).exists())
 
-    @mock.patch('djanquiltdb.management.commands.purge_shard_data.NestedObjects.collect',
-                mock.Mock(side_effect=DatabaseError))
+    @mock.patch(
+        'djanquiltdb.management.commands.purge_shard_data.NestedObjects.collect', mock.Mock(side_effect=DatabaseError)
+    )
     @mock.patch('djanquiltdb.management.commands.purge_shard_data.Command.delete_data')
     def test_no_change_on_failure_get_data_collector(self, mock_delete_data):
         """
@@ -363,6 +366,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         Case: Have the collector return mirrored models.
         Expected: CommandError is raised with a specific message.
         """
+
         class FakeCollector(NestedObjects):
             def collect(self, objs, *args, **kwargs):
                 obj = objs[0]
@@ -370,9 +374,11 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
 
         mock_collector.side_effect = FakeCollector
 
-        msg = 'There might be something wrong with your data structure, because the collector ' \
-            'collected mirrored models. Check your data points closely to see if no unexpected ' \
+        msg = (
+            'There might be something wrong with your data structure, because the collector '
+            'collected mirrored models. Check your data points closely to see if no unexpected '
             'model instances are collected.'
+        )
 
         with self.assertRaisesRegex(CommandError, '^{}$'.format(re.escape(msg))):
             self.command.get_data_collector(objects=[self.user_1], use_original_collector=True)
@@ -383,8 +389,9 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         Expected: The object's data is deleted on the source shard and (still) exists on the target shard. The leftover
                   data is untouched and remains on the source shard.
         """
-        self.target_shard = Shard.objects.create(alias='Court', node_name='default',
-                                                 schema_name='test_target', state=State.ACTIVE)
+        self.target_shard = Shard.objects.create(
+            alias='Court', node_name='default', schema_name='test_target', state=State.ACTIVE
+        )
 
         call_command(
             'move_data_to_shard',
@@ -394,14 +401,13 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
             '--model-name=' + self.options['model_name'],
             '--no-input',
             '--quiet',
-            '--no-delete'
+            '--no-delete',
         )
 
         # Check if all the initial data is still on the source shard
         for model, instances in self.expected_data.items():
             self.assertEqual(
-                list(model.objects.using(self.source_shard).all()),
-                list(instances) + list(self.leftover_data[model])
+                list(model.objects.using(self.source_shard).all()), list(instances) + list(self.leftover_data[model])
             )
 
         call_command('purge_shard_data', **self.options)

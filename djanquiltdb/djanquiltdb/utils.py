@@ -6,9 +6,17 @@ from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
-from django.db import connections, ProgrammingError
-from django.db.models.signals import pre_init, post_init, pre_save, post_save, pre_delete, post_delete, pre_migrate, \
-    post_migrate
+from django.db import ProgrammingError, connections
+from django.db.models.signals import (
+    post_delete,
+    post_init,
+    post_migrate,
+    post_save,
+    pre_delete,
+    pre_init,
+    pre_migrate,
+    pre_save,
+)
 from django.db.transaction import Atomic
 from django.utils.module_loading import import_string
 
@@ -26,7 +34,7 @@ class StateException(Exception):
 
 
 def get_shard_class():
-    """ Helper function to get implemented Shard class """
+    """Helper function to get implemented Shard class"""
     return import_string(settings.SHARDING['SHARD_CLASS'])
 
 
@@ -77,12 +85,13 @@ class use_shard(object):
             from example.models import User
 
 
-            shard = Shard.objects.get(alias="North")
+            shard = Shard.objects.get(alias='North')
             with use_shard(shard):
                 # create user on the North shard
-                User.objects.create(name="John Snow")
+                User.objects.create(name='John Snow')
 
     """
+
     def __init__(self, shard=None, node_name=None, schema_name=None, **kwargs):
         from djanquiltdb.options import ShardOptions  # Prevent cyclic imports
 
@@ -188,9 +197,11 @@ def get_shard_for(target_value, active_only=True, field=None):
             from djanquiltdb.models import BaseShard
             from djanquiltdb.utils import State
 
+
             class Shard(BaseShard):
                 class Meta:
                     app_label = 'myapp'
+
 
             @shard_mapping_model(mapping_field='organization_id')
             class OrganizationShards(models.Model):
@@ -204,14 +215,15 @@ def get_shard_for(target_value, active_only=True, field=None):
                 class Meta:
                     app_label = 'myapp'
 
+
             # myapp.views
             from djanquiltdb.utils import get_shard_for
 
-            print (get_shard_for(user.organization.id))  # <class 'myapp.models.Shard'>
-            print (get_shard_for(user.organization.id, active_only=True))  # StateException if state is not active
-            print (get_shard_for(user.organization.id, field='slug'))  # <class 'myapp.models.Shard'>
+            print(get_shard_for(user.organization.id))  # <class 'myapp.models.Shard'>
+            print(get_shard_for(user.organization.id, active_only=True))  # StateException if state is not active
+            print(get_shard_for(user.organization.id, field='slug'))  # <class 'myapp.models.Shard'>
 
-       """
+    """
     mapping_model = get_mapping_class()
     if not mapping_model:
         raise ImproperlyConfigured('Missing or incorrect type of a setting SHARDING["{}"].'.format('MAPPING_MODEL'))
@@ -219,13 +231,15 @@ def get_shard_for(target_value, active_only=True, field=None):
     mapping_object = mapping_model.objects.select_related('shard').for_target(target_value, field)
     if active_only:
         if mapping_object.state != State.ACTIVE:
-            raise StateException('Mapping object {} state is {}'.format(mapping_object,
-                                                                        mapping_object.get_state_display()),
-                                 mapping_object.state)
+            raise StateException(
+                'Mapping object {} state is {}'.format(mapping_object, mapping_object.get_state_display()),
+                mapping_object.state,
+            )
         if mapping_object.shard.state != State.ACTIVE:
-            raise StateException('Shard {} state is {}'.format(mapping_object.state,
-                                                               mapping_object.shard.get_state_display()),
-                                 mapping_object.shard.state)
+            raise StateException(
+                'Shard {} state is {}'.format(mapping_object.state, mapping_object.shard.get_state_display()),
+                mapping_object.shard.state,
+            )
     return mapping_object.shard
 
 
@@ -286,6 +300,7 @@ class use_shard_for(use_shard):
                 # Do things on my shard
 
     """
+
     def __init__(self, target_value, **kwargs):
         shard = get_shard_for(target_value, active_only=kwargs.get('active_only_schemas', True))
         super().__init__(shard=shard, mapping_value=target_value, **kwargs)
@@ -316,11 +331,11 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
             from example.models import User
 
 
-            create_schema_on_node(shard_name="North", node_name="default", migrate=True)
+            create_schema_on_node(shard_name='North', node_name='default', migrate=True)
 
-            with use_shard(node_name="default", schema_name="North"):
+            with use_shard(node_name='default', schema_name='North'):
                 # create user on the North shard
-                User.objects.create(name="John Snow")
+                User.objects.create(name='John Snow')
 
     """
     node_name = node_name or get_new_shard_node()
@@ -360,6 +375,7 @@ def create_template_schema(node_name='default', interactive=False, verbosity=0, 
         .. code-block:: python
 
             from djanquiltdb.utils import create_template_schema
+
             create_template_schema(node_name='default')
 
     """
@@ -406,8 +422,14 @@ def migrate_schema(node_name, schema_name, interactive=False, verbosity=0, check
     if not connections[node_name].get_ps_schema(schema_name):
         raise ValueError("Schema '{}' does not exist on node '{}'.".format(schema_name, node_name))
 
-    call_command('migrate_shards', database=node_name, schema_name=schema_name, interactive=interactive,
-                 verbosity=verbosity, check_shard=check_shard)
+    call_command(
+        'migrate_shards',
+        database=node_name,
+        schema_name=schema_name,
+        interactive=interactive,
+        verbosity=verbosity,
+        check_shard=check_shard,
+    )
 
 
 def for_each_shard(func, args=(), kwargs=None, as_id=False):
@@ -489,8 +511,11 @@ def get_all_sharded_models(include_auto_created=False, include_proxy=False):
     Return all models that are decorated with @sharded_model.
     """
     models = apps.get_models(include_auto_created=include_auto_created)
-    return [model for model in models
-            if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) == ShardingMode.SHARDED]
+    return [
+        model
+        for model in models
+        if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) == ShardingMode.SHARDED
+    ]
 
 
 def get_all_mirrored_models(include_auto_created=False, include_proxy=False):
@@ -498,8 +523,11 @@ def get_all_mirrored_models(include_auto_created=False, include_proxy=False):
     Return all models that are decorated with @mirrored_model.
     """
     models = apps.get_models(include_auto_created=include_auto_created)
-    return [model for model in models
-            if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) == ShardingMode.MIRRORED]
+    return [
+        model
+        for model in models
+        if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) == ShardingMode.MIRRORED
+    ]
 
 
 def get_all_public_models(include_auto_created=False, include_proxy=False):
@@ -507,8 +535,11 @@ def get_all_public_models(include_auto_created=False, include_proxy=False):
     Return all models that are decorated with @public_model.
     """
     models = apps.get_models(include_auto_created=include_auto_created)
-    return [model for model in models
-            if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) == ShardingMode.PUBLIC]
+    return [
+        model
+        for model in models
+        if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) == ShardingMode.PUBLIC
+    ]
 
 
 def get_all_public_schema_models(include_auto_created=False, include_proxy=False):
@@ -516,8 +547,11 @@ def get_all_public_schema_models(include_auto_created=False, include_proxy=False
     Return all models that live on the public schema. So models that are decorated with @sharded_model or @public_model.
     """
     models = apps.get_models(include_auto_created=include_auto_created)
-    return [model for model in models
-            if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) in public_modes]
+    return [
+        model
+        for model in models
+        if (not model._meta.proxy or include_proxy) and get_model_sharding_mode(model) in public_modes
+    ]
 
 
 def get_all_databases():
@@ -578,6 +612,7 @@ class transaction_for_nodes(Atomic):
     """
     Context manager to start a transaction for each given node and close them afterwards.
     """
+
     def __init__(self, nodes, savepoint=True, lock_models=(), durable=True):
         # we don't support the 'using' argument of transaction.Atomic
         self.databases = nodes
@@ -607,6 +642,7 @@ class transaction_for_every_node(transaction_for_nodes):
     Context manager to start a transaction for all existing nodes and close them afterwards.
     Used by atomic_write_to_every_node.
     """
+
     def __init__(self, **kwargs):
         super().__init__(nodes=get_all_databases(), **kwargs)
 
@@ -619,11 +655,13 @@ def move_model_to_schema(model, node_name, to_schema_name, from_schema_name=PUBL
     with use_shard(node_name=node_name, schema_name=from_schema_name) as env:
         cursor = env.connection.cursor()
         cursor.execute(
-                'SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = %s AND tablename = %s);',
-                [to_schema_name, model._meta.db_table])
+            'SELECT EXISTS (SELECT 1 FROM pg_tables WHERE schemaname = %s AND tablename = %s);',
+            [to_schema_name, model._meta.db_table],
+        )
         if cursor.fetchone()[0]:
-            raise ProgrammingError("Table '{}' already exists on schema '{}'.".format(model._meta.db_table,
-                                                                                      to_schema_name))
+            raise ProgrammingError(
+                "Table '{}' already exists on schema '{}'.".format(model._meta.db_table, to_schema_name)
+            )
         cursor.execute('ALTER TABLE "{}" SET SCHEMA "{}";'.format(model._meta.db_table, to_schema_name))
 
 
@@ -642,13 +680,18 @@ class disable_signals(object):
         with disable_signals([pre_save, post_save]):
             user.save()  # Will not call save related signals
     """
+
     def __init__(self, disabled_signals=None):
         self.stashed_signals = defaultdict(list)
         self.disabled_signals = disabled_signals or [
-            pre_init, post_init,
-            pre_save, post_save,
-            pre_delete, post_delete,
-            pre_migrate, post_migrate,
+            pre_init,
+            post_init,
+            pre_save,
+            post_save,
+            pre_delete,
+            post_delete,
+            pre_migrate,
+            post_migrate,
         ]
 
     def __enter__(self):

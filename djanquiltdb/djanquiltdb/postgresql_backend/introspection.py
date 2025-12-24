@@ -11,7 +11,9 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 """
-from django.db.backends.postgresql.introspection import DatabaseIntrospection as BaseDatabaseIntrospection, TableInfo
+
+from django.db.backends.postgresql.introspection import DatabaseIntrospection as BaseDatabaseIntrospection
+from django.db.backends.postgresql.introspection import TableInfo
 
 
 class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
@@ -184,26 +186,17 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
         """
         Returns a list of table and view names in the current schema.
         """
-        cursor.execute(self._get_table_list_query, {
-            'schema': self.connection.schema_name
-        })
+        cursor.execute(self._get_table_list_query, {'schema': self.connection.schema_name})
 
         col_count = len(TableInfo._fields)
-        return [
-            TableInfo(*row[:col_count])
-            for row in cursor.fetchall()
-            if row[0] not in self.ignored_tables
-        ]
+        return [TableInfo(*row[:col_count]) for row in cursor.fetchall() if row[0] not in self.ignored_tables]
 
     def get_relations(self, cursor, table_name):
         """
         Returns a dictionary of {field_name: (field_name_other_table, other_table)}
         representing all relationships to the given table.
         """
-        cursor.execute(self._get_relations_query, {
-            'schema': self.connection.schema_name,
-            'table': table_name
-        })
+        cursor.execute(self._get_relations_query, {'schema': self.connection.schema_name, 'table': table_name})
         relations = {}
         for row in cursor.fetchall():
             relations[row[1]] = (row[2], row[0])
@@ -211,19 +204,19 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
         return relations
 
     def get_key_columns(self, cursor, table_name):
-        cursor.execute(self._get_key_columns_query, {
-            'schema': self.connection.schema_name,
-            'table': table_name
-        })
+        cursor.execute(self._get_key_columns_query, {'schema': self.connection.schema_name, 'table': table_name})
         return list(cursor.fetchall())
 
     def get_indexes(self, cursor, table_name):
         # This query retrieves each index on the given table, including the
         # first associated field name
-        cursor.execute(self._get_indexes_query, {
-            'schema': self.connection.schema_name,
-            'table': table_name,
-        })
+        cursor.execute(
+            self._get_indexes_query,
+            {
+                'schema': self.connection.schema_name,
+                'table': table_name,
+            },
+        )
         indexes = {}
         for row in cursor.fetchall():
             # row[1] (idx.indkey) is stored in the DB as an array. It comes out as
@@ -253,10 +246,13 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
         # created
         # The subquery containing generate_series can be replaced with
         # "WITH ORDINALITY" when support for PostgreSQL 9.3 is dropped.
-        cursor.execute(self._get_constraints_query, {
-            'schema': self.connection.schema_name,
-            'table': table_name,
-        })
+        cursor.execute(
+            self._get_constraints_query,
+            {
+                'schema': self.connection.schema_name,
+                'table': table_name,
+            },
+        )
 
         for constraint, columns, kind, used_cols in cursor.fetchall():
             constraints[constraint] = {
@@ -270,10 +266,13 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
             }
 
         # Now get indexes
-        cursor.execute(self._get_index_constraints_query, {
-            'schema': self.connection.schema_name,
-            'table': table_name,
-        })
+        cursor.execute(
+            self._get_index_constraints_query,
+            {
+                'schema': self.connection.schema_name,
+                'table': table_name,
+            },
+        )
 
         for index, columns, unique, primary, orders, type_, definition in cursor.fetchall():
             if index not in constraints:

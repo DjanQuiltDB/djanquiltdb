@@ -1,13 +1,14 @@
 from unittest import mock
 
-from example.models import Shard, OrganizationShards, Organization
+from example.models import Organization, OrganizationShards, Shard
+
 from djanquiltdb import State
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import override_sharding_setting
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.tests import ShardingTestCase
-from djanquiltdb.utils import create_template_schema, StateException
+from djanquiltdb.utils import StateException, create_template_schema
 
 
 class ShardOptionsTestCase(ShardingTestCase):
@@ -15,8 +16,9 @@ class ShardOptionsTestCase(ShardingTestCase):
         super().setUp()
 
         create_template_schema()
-        self.shard = Shard.objects.create(alias='test', schema_name='test_schema', node_name='default',
-                                          state=State.ACTIVE)
+        self.shard = Shard.objects.create(
+            alias='test', schema_name='test_schema', node_name='default', state=State.ACTIVE
+        )
 
     def test(self):
         """
@@ -25,10 +27,15 @@ class ShardOptionsTestCase(ShardingTestCase):
         """
         shard_options = ShardOptions(node_name='default', schema_name='test_schema')
 
-        self.assertEqual(shard_options.options, frozenset({
-            ('node_name', 'default'),
-            ('schema_name', 'test_schema'),
-        }))
+        self.assertEqual(
+            shard_options.options,
+            frozenset(
+                {
+                    ('node_name', 'default'),
+                    ('schema_name', 'test_schema'),
+                }
+            ),
+        )
         self.assertEqual(shard_options.node_name, 'default')
         self.assertEqual(shard_options.schema_name, 'test_schema')
         self.assertIsNone(shard_options.shard_id)
@@ -77,7 +84,7 @@ class ShardOptionsTestCase(ShardingTestCase):
         """
         self.assertEqual(
             ShardOptions(node_name='default', schema_name='test_schema'),
-            ShardOptions(node_name='default', schema_name='test_schema')
+            ShardOptions(node_name='default', schema_name='test_schema'),
         )
 
     def test_not_equal(self):
@@ -89,17 +96,16 @@ class ShardOptionsTestCase(ShardingTestCase):
 
         self.assertNotEqual(
             shard_options,
-            ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id)
+            ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id),
+        )
+
+        self.assertNotEqual(
+            shard_options, ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name, lock=True)
         )
 
         self.assertNotEqual(
             shard_options,
-            ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name, lock=True)
-        )
-
-        self.assertNotEqual(
-            shard_options,
-            ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name, use_shard=True)
+            ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name, use_shard=True),
         )
 
         self.assertNotEqual(shard_options, self.shard)
@@ -155,8 +161,9 @@ class ShardOptionsTestCase(ShardingTestCase):
         Case: Get ShardOptions for a shard with check_active_mapping_values=True while not having a mapping model set
         Expected: ValueError raised
         """
-        with self.assertRaisesMessage(ValueError, "You set 'check_active_mapping_values' to True while you didn't "
-                                                  "define the mapping model."):
+        with self.assertRaisesMessage(
+            ValueError, "You set 'check_active_mapping_values' to True while you didn't define the mapping model."
+        ):
             ShardOptions.from_shard(self.shard, check_active_mapping_values=True)
 
     def test_from_shard_check_active_mapping_values(self):
@@ -166,8 +173,9 @@ class ShardOptionsTestCase(ShardingTestCase):
         Expected: StateException raised
         """
         OrganizationShards.objects.create(shard=self.shard, state=State.MAINTENANCE, organization_id=1)
-        with self.assertRaisesMessage(StateException, 'Shard {} contains mapping objects that are in '
-                                                      'maintenance'.format(self.shard)):
+        with self.assertRaisesMessage(
+            StateException, 'Shard {} contains mapping objects that are in maintenance'.format(self.shard)
+        ):
             ShardOptions.from_shard(self.shard, check_active_mapping_values=True)
 
     def test_from_shard_check_active_mapping_values_no_maintenance(self):
@@ -179,8 +187,7 @@ class ShardOptionsTestCase(ShardingTestCase):
         OrganizationShards.objects.create(shard=self.shard, state=State.ACTIVE, organization_id=1)
 
         # Inactive mapping model for a different shard
-        shard = Shard.objects.create(alias='test2', schema_name='test_schema2', node_name='default',
-                                     state=State.ACTIVE)
+        shard = Shard.objects.create(alias='test2', schema_name='test_schema2', node_name='default', state=State.ACTIVE)
         OrganizationShards.objects.create(shard=shard, state=State.MAINTENANCE, organization_id=2)
 
         # No StateException raised
@@ -213,10 +220,15 @@ class ShardOptionsTestCase(ShardingTestCase):
         Expected: ShardOptions returned with node name and schema name being the ones provided
         """
         shard_options = ShardOptions.from_alias('default|test_schema')
-        self.assertEqual(shard_options.options, frozenset({
-            ('node_name', 'default'),
-            ('schema_name', 'test_schema'),
-        }))
+        self.assertEqual(
+            shard_options.options,
+            frozenset(
+                {
+                    ('node_name', 'default'),
+                    ('schema_name', 'test_schema'),
+                }
+            ),
+        )
         self.assertEqual(shard_options.node_name, 'default')
         self.assertEqual(shard_options.schema_name, 'test_schema')
 
@@ -227,10 +239,15 @@ class ShardOptionsTestCase(ShardingTestCase):
                   schema
         """
         shard_options = ShardOptions.from_alias('default')
-        self.assertEqual(shard_options.options, frozenset({
-            ('node_name', 'default'),
-            ('schema_name', PUBLIC_SCHEMA_NAME),
-        }))
+        self.assertEqual(
+            shard_options.options,
+            frozenset(
+                {
+                    ('node_name', 'default'),
+                    ('schema_name', PUBLIC_SCHEMA_NAME),
+                }
+            ),
+        )
         self.assertEqual(shard_options.node_name, 'default')
         self.assertEqual(shard_options.schema_name, PUBLIC_SCHEMA_NAME)
 
@@ -240,10 +257,15 @@ class ShardOptionsTestCase(ShardingTestCase):
         Expected: ShardOptions returned with node name and schema name being the ones provided
         """
         shard_options = ShardOptions.from_alias(('default', 'test_schema'))
-        self.assertEqual(shard_options.options, frozenset({
-            ('node_name', 'default'),
-            ('schema_name', 'test_schema'),
-        }))
+        self.assertEqual(
+            shard_options.options,
+            frozenset(
+                {
+                    ('node_name', 'default'),
+                    ('schema_name', 'test_schema'),
+                }
+            ),
+        )
         self.assertEqual(shard_options.node_name, 'default')
         self.assertEqual(shard_options.schema_name, 'test_schema')
 
@@ -269,8 +291,9 @@ class ShardOptionsTestCase(ShardingTestCase):
         Case: Get the lock keys from a ShardOptions instance that has a shard id
         Expected: List with `shard_<SHARD_ID>` returned
         """
-        shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                     shard_id=self.shard.id)
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id
+        )
         self.assertEqual(shard_options.lock_keys, ['shard_{}'.format(self.shard.id)])
 
     def test_lock_keys_mapping_value(self):
@@ -278,8 +301,9 @@ class ShardOptionsTestCase(ShardingTestCase):
         Case: Get the lock keys from a ShardOptions instance that has a shard id and a mapping value
         Expected: List with `shard_<SHARD_ID>` and `mapping_<MAPPING_VALUE>` returned
         """
-        shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                     shard_id=self.shard.id, mapping_value=42)
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id, mapping_value=42
+        )
         self.assertEqual(shard_options.lock_keys, ['shard_{}'.format(self.shard.id), 'mapping_42'])
 
     def test_is_public_schema(self):
@@ -300,8 +324,13 @@ class ShardOptionsTestCase(ShardingTestCase):
         mock_use_shard_for.return_value = _use_shard_for
         kwargs = {'lock': False}
 
-        shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                     shard_id=self.shard.id, mapping_value=42, **kwargs)
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name,
+            schema_name=self.shard.schema_name,
+            shard_id=self.shard.id,
+            mapping_value=42,
+            **kwargs,
+        )
 
         self.assertEqual(shard_options.use(), _use_shard_for)
 
@@ -317,8 +346,9 @@ class ShardOptionsTestCase(ShardingTestCase):
         mock_use_shard.return_value = _use_shard
         kwargs = {'lock': False}
 
-        shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                     shard_id=self.shard.id, **kwargs)
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id, **kwargs
+        )
 
         self.assertEqual(shard_options.use(), _use_shard)
 
@@ -338,8 +368,9 @@ class ShardOptionsTestCase(ShardingTestCase):
 
         self.assertEqual(shard_options.use(), _use_shard)
 
-        mock_use_shard.assert_called_once_with(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                               **kwargs)
+        mock_use_shard.assert_called_once_with(
+            node_name=self.shard.node_name, schema_name=self.shard.schema_name, **kwargs
+        )
 
     def test_use_mapping_value_integration(self):
         """
@@ -350,8 +381,12 @@ class ShardOptionsTestCase(ShardingTestCase):
             organization = Organization.objects.create(name='Foo')
             OrganizationShards.objects.create(shard=self.shard, organization_id=organization.id, slug='foo')
 
-        shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                     shard_id=self.shard.id, mapping_value=organization.id)
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name,
+            schema_name=self.shard.schema_name,
+            shard_id=self.shard.id,
+            mapping_value=organization.id,
+        )
 
         with shard_options.use():
             self.assertTrue(Organization.objects.filter(name='Foo').exists())
@@ -366,8 +401,9 @@ class ShardOptionsTestCase(ShardingTestCase):
         with self.shard.use():
             Organization.objects.create(name='Foo')
 
-        shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                     shard_id=self.shard.id)
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id
+        )
 
         with shard_options.use():
             self.assertTrue(Organization.objects.filter(name='Foo').exists())

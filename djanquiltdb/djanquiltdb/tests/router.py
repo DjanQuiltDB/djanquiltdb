@@ -1,20 +1,29 @@
 from collections import OrderedDict
-from threading import Thread, Event
+from threading import Event, Thread
 from unittest import mock
 
 from django.apps import apps
-from django.db import connections, ProgrammingError, models, DEFAULT_DB_ALIAS
+from django.db import DEFAULT_DB_ALIAS, ProgrammingError, connections, models
 from django.test import override_settings
+from example.models import (
+    CakeType,
+    DefaultUser,
+    MirroredUser,
+    Organization,
+    OrganizationShards,
+    Shard,
+    Statement,
+    SuperType,
+    Type,
+    Unrelated,
+)
 
-from example.models import (Organization, Shard, Type, SuperType, Unrelated, OrganizationShards, CakeType,
-                            MirroredUser, Statement, DefaultUser)
 from djanquiltdb import State
-from djanquiltdb.decorators import sharded_model, mirrored_model, public_model, override_sharding_setting
+from djanquiltdb.decorators import mirrored_model, override_sharding_setting, public_model, sharded_model
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.router import DynamicDbRouter, set_active_connection, get_active_connection, _active_connection
+from djanquiltdb.router import DynamicDbRouter, _active_connection, get_active_connection, set_active_connection
 from djanquiltdb.tests import ShardingTestCase, ShardingTransactionTestCase
-from djanquiltdb.utils import create_schema_on_node, create_template_schema, migrate_schema, \
-    ShardingMode, use_shard
+from djanquiltdb.utils import ShardingMode, create_schema_on_node, create_template_schema, migrate_schema, use_shard
 
 
 @sharded_model()
@@ -139,12 +148,11 @@ class ActiveConnectionTestCase(ShardingTransactionTestCase):
             self.assertEqual(
                 active_connection,
                 shard_options,
-                'Active connection for {} is incorrect. Is the active connection thread safe?'.format(shard)
+                'Active connection for {} is incorrect. Is the active connection thread safe?'.format(shard),
             )
 
 
 class DynamicDbRouterTestCase(ShardingTestCase):
-
     def clean_models(self):
         apps.app_configs['djanquiltdb'].models = {}
 
@@ -154,10 +162,14 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         self.addCleanup(self.clean_models)
 
         # Trick to register abstract models. We want them to be abstract or they will show up in other tests as well.
-        apps.app_configs['djanquiltdb'].models = OrderedDict([('dummyshardedmodel', DummyShardedModel),
-                                                           ('dummymirroredmodel', DummyMirroredModel),
-                                                           ('dummypublicmodel', DummyPublicModel),
-                                                           ('dummynonshardedmodel', DummyNonShardedModel)])
+        apps.app_configs['djanquiltdb'].models = OrderedDict(
+            [
+                ('dummyshardedmodel', DummyShardedModel),
+                ('dummymirroredmodel', DummyMirroredModel),
+                ('dummypublicmodel', DummyPublicModel),
+                ('dummynonshardedmodel', DummyNonShardedModel),
+            ]
+        )
 
         self.router = DynamicDbRouter()
 
@@ -185,6 +197,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Expected: Directly routed to the primary db when set to True, normal flow when set to False.
         """
         with self.subTest('route_to_primary_db=True'):
+
             class DummyModelClass:
                 route_to_primary_db = True
 
@@ -193,6 +206,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             self.assertEqual(self.router.db_for_read(model=OrganizationShards), 'other')
 
         with self.subTest('route_to_primary_db=False'):
+
             class DummyModelClass:
                 route_to_primary_db = False
 
@@ -314,8 +328,9 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Note: System test
         """
         create_template_schema('default')
-        self.test_shard = Shard.objects.create(alias='a_shard', node_name='default', schema_name='test_other_schema',
-                                               state=State.ACTIVE)
+        self.test_shard = Shard.objects.create(
+            alias='a_shard', node_name='default', schema_name='test_other_schema', state=State.ACTIVE
+        )
         with use_shard(self.test_shard):
             with self.subTest('Non-sharded model'):
                 mock_save_table.reset_mock()
@@ -421,8 +436,9 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Note: System test.
         """
         create_template_schema('default')
-        self.test_shard = Shard.objects.create(alias='a_shard', node_name='default', schema_name='test_other_schema',
-                                               state=State.ACTIVE)
+        self.test_shard = Shard.objects.create(
+            alias='a_shard', node_name='default', schema_name='test_other_schema', state=State.ACTIVE
+        )
 
         with self.subTest('Non-sharded model'):
             # In the example app, the Unrelated model is not denoted with a sharding mode.
@@ -465,14 +481,12 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
         with self.subTest('route_to_primary_db=True'):
             # the 'other' database does not even have OrganizationShard as a table.
-            with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
-                                             'PRIMARY_DB_ALIAS': 'default'}):
+            with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'default'}):
                 with use_shard(self.test_shard):
                     organization = Organization.objects.create(name='stay')
 
                 with use_shard(node_name='other', schema_name='public'):
-                    OrganizationShards.objects.create(shard=self.test_shard,
-                                                      organization_id=organization.id)
+                    OrganizationShards.objects.create(shard=self.test_shard, organization_id=organization.id)
 
                 with use_shard(node_name='default', schema_name='public'):
                     self.assertTrue(OrganizationShards.objects.filter(organization_id=organization.id).exists())
@@ -482,17 +496,16 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
         with self.subTest('route_to_primary_db=False'):
             # the 'other' database does not even have OrganizationShard as a table.
-            with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
-                                             'PRIMARY_DB_ALIAS': 'default'}):
+            with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'default'}):
                 with use_shard(self.test_shard):
                     organization = Organization.objects.create(name='stay')
 
                 with use_shard(node_name='other', schema_name='public'):
                     OrganizationShards.route_to_primary_db = False
-                    with self.assertRaisesMessage(ProgrammingError,
-                                                  'relation "example_organizationshards" does not exist'):
-                        OrganizationShards.objects.create(shard=self.test_shard,
-                                                          organization_id=organization.id)
+                    with self.assertRaisesMessage(
+                        ProgrammingError, 'relation "example_organizationshards" does not exist'
+                    ):
+                        OrganizationShards.objects.create(shard=self.test_shard, organization_id=organization.id)
 
                 with use_shard(node_name='default', schema_name='public'):
                     self.assertFalse(OrganizationShards.objects.filter(organization_id=organization.id).exists())
@@ -527,10 +540,14 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             with self.subTest(name):
                 self.assertEqual(self.router.allow_relation(model_to(), model_from()), result)
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
-                                 'OVERRIDE_SHARDING_MODE': {
-                                     ('djanquiltdb', 'simplemodel'): ShardingMode.SHARDED,
-                                 }})
+    @override_settings(
+        SHARDING={
+            'SHARD_CLASS': 'example.models.Shard',
+            'OVERRIDE_SHARDING_MODE': {
+                ('djanquiltdb', 'simplemodel'): ShardingMode.SHARDED,
+            },
+        }
+    )
     def test_allow_relation_between_sharded_models_settings_override_model(self):
         """
         Case: Call allow_relation with two sharded models, the latter is set through the configuration.
@@ -543,10 +560,14 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
         self.assertTrue(self.router.allow_relation(Organization(), SimpleModel()))
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
-                                 'OVERRIDE_SHARDING_MODE': {
-                                     ('djanquiltdb',): ShardingMode.SHARDED,
-                                 }})
+    @override_settings(
+        SHARDING={
+            'SHARD_CLASS': 'example.models.Shard',
+            'OVERRIDE_SHARDING_MODE': {
+                ('djanquiltdb',): ShardingMode.SHARDED,
+            },
+        }
+    )
     def test_allow_relation_between_sharded_models_settings_override_app(self):
         """
         Case: Call allow_relation with two sharded models, the latter is set through the configuration.
@@ -587,25 +608,58 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         # Mirrored, mapping and django default tables. Note that this also included tables from apps outside those
         # selected for the testcase. Since the initial migration happens before that, and includes all models knows to
         # django.
-        default_public_tables = ['django_migrations', 'django_content_type', 'auth_group', 'auth_permission',
-                                 'auth_group_permissions', 'example_shard', 'django_session', 'example_type',
-                                 'example_supertype', 'example_caketype', 'example_coatingtype',
-                                 'example_coatingtype_super_type', 'example_organizationshards', 'example_mirroreduser',
-                                 'example_mirroreduser_type', 'example_defaultuser',
-                                 'migration_tests_supermirroredmodel', 'migration_tests_mirroredmodel',
-                                 'example_unrelated']
+        default_public_tables = [
+            'django_migrations',
+            'django_content_type',
+            'auth_group',
+            'auth_permission',
+            'auth_group_permissions',
+            'example_shard',
+            'django_session',
+            'example_type',
+            'example_supertype',
+            'example_caketype',
+            'example_coatingtype',
+            'example_coatingtype_super_type',
+            'example_organizationshards',
+            'example_mirroreduser',
+            'example_mirroreduser_type',
+            'example_defaultuser',
+            'migration_tests_supermirroredmodel',
+            'migration_tests_mirroredmodel',
+            'example_unrelated',
+        ]
         # The tables present on all non-default public schema's are all the mirrored tables.
-        other_public_tables = ['django_migrations', 'example_shard', 'example_type', 'example_supertype',
-                               'example_coatingtype', 'example_coatingtype_super_type', 'example_caketype',
-                               'django_content_type', 'auth_group', 'auth_permission', 'auth_group_permissions',
-                               'example_mirroreduser', 'example_mirroreduser_type',
-                               'migration_tests_supermirroredmodel', 'migration_tests_mirroredmodel']
+        other_public_tables = [
+            'django_migrations',
+            'example_shard',
+            'example_type',
+            'example_supertype',
+            'example_coatingtype',
+            'example_coatingtype_super_type',
+            'example_caketype',
+            'django_content_type',
+            'auth_group',
+            'auth_permission',
+            'auth_group_permissions',
+            'example_mirroreduser',
+            'example_mirroreduser_type',
+            'migration_tests_supermirroredmodel',
+            'migration_tests_mirroredmodel',
+        ]
         # The tables present on the template schema's are all the sharded tables.
-        template_tables = ['django_migrations', 'example_organization', 'example_suborganization', 'example_user',
-                           'example_statement', 'example_cake', 'example_user_cake', 'example_statement_type']
+        template_tables = [
+            'django_migrations',
+            'example_organization',
+            'example_suborganization',
+            'example_user',
+            'example_statement',
+            'example_cake',
+            'example_user_cake',
+            'example_statement_type',
+        ]
 
-        self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'),
-                              default_public_tables)
+        self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='public'), default_public_tables)
         self.assertCountEqual(connections['default'].get_all_table_headers(schema_name='template'), template_tables)
         self.assertCountEqual(connections['other'].get_all_table_headers(schema_name='public'), other_public_tables)
 
@@ -640,12 +694,16 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         self.router.allow_migrate('default', 'example', 'outer_space')
         self.assertEqual(mock_logger_warning.call_count, 1)
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard',
-                                 'MAPPING_MODEL': 'example.models.OrganizationShards',
-                                 'NEW_SHARD_NODE': 'other',
-                                 'OVERRIDE_SHARDING_MODE': {
-                                     ('example', 'organization'): ShardingMode.MIRRORED,
-                                 }})
+    @override_settings(
+        SHARDING={
+            'SHARD_CLASS': 'example.models.Shard',
+            'MAPPING_MODEL': 'example.models.OrganizationShards',
+            'NEW_SHARD_NODE': 'other',
+            'OVERRIDE_SHARDING_MODE': {
+                ('example', 'organization'): ShardingMode.MIRRORED,
+            },
+        }
+    )
     def test_allow_migrate_sharded_settings_override_to_mirrored(self):
         """
         Case: Check if previously sharded model is allowed to migrate onto public schema if it is set
@@ -668,12 +726,17 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         Case: run_python in migration with hints given
         Expected: Router to route correctly
         """
-        self.assertTrue(self.router.allow_migrate('default', 'example', model_name=None,
-                                                  sharding_mode=ShardingMode.MIRRORED))
-        self.assertFalse(self.router.allow_migrate('default', 'example', model_name=None,
-                                                   sharding_mode=ShardingMode.SHARDED))
-        self.assertTrue(self.router.allow_migrate('default', 'example', model_name='organization',
-                                                  sharding_mode=ShardingMode.MIRRORED))
+        self.assertTrue(
+            self.router.allow_migrate('default', 'example', model_name=None, sharding_mode=ShardingMode.MIRRORED)
+        )
+        self.assertFalse(
+            self.router.allow_migrate('default', 'example', model_name=None, sharding_mode=ShardingMode.SHARDED)
+        )
+        self.assertTrue(
+            self.router.allow_migrate(
+                'default', 'example', model_name='organization', sharding_mode=ShardingMode.MIRRORED
+            )
+        )
 
 
 class DynamicDbRouterSystemTestCase(ShardingTestCase):

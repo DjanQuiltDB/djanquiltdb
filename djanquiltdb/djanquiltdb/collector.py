@@ -1,6 +1,6 @@
 import progressbar
-
-from django.db.models.deletion import get_candidate_relations_to_delete as get_candidate_relations_to_collect, Collector
+from django.db.models.deletion import Collector
+from django.db.models.deletion import get_candidate_relations_to_delete as get_candidate_relations_to_collect
 
 
 class SimpleCollector(Collector):
@@ -8,6 +8,7 @@ class SimpleCollector(Collector):
     Simple collector does basically the same as the default Django collector, but also follows the on delete SET NULL
     relations. We need this to move data from one shard to another.
     """
+
     def __init__(self, connection, verbose=False):
         super().__init__(using=connection.alias)
 
@@ -23,8 +24,8 @@ class SimpleCollector(Collector):
                     ' Collected ',
                     progressbar.Counter(),
                     ' datapoints; ',
-                    progressbar.Timer()
-                ]
+                    progressbar.Timer(),
+                ],
             )
 
     def add(self, *args, **kwargs):
@@ -40,11 +41,9 @@ class SimpleCollector(Collector):
         """
         Returns the objs in suitably sized batches for the used connection.
         """
-        conn_batch_size = max(
-            self.connection.ops.bulk_batch_size([field.name], objs), 1)
+        conn_batch_size = max(self.connection.ops.bulk_batch_size([field.name], objs), 1)
         if len(objs) > conn_batch_size:
-            return [objs[i:i + conn_batch_size]
-                    for i in range(0, len(objs), conn_batch_size)]
+            return [objs[i : i + conn_batch_size] for i in range(0, len(objs), conn_batch_size)]
         else:
             return [objs]
 
@@ -52,8 +51,17 @@ class SimpleCollector(Collector):
         if self.verbose:
             self.bar.finish()
 
-    def collect(self, objs, source=None, nullable=False, collect_related=True, source_attr=None,
-                reverse_dependency=False, keep_parents=False, fail_on_restricted=True):
+    def collect(
+        self,
+        objs,
+        source=None,
+        nullable=False,
+        collect_related=True,
+        source_attr=None,
+        reverse_dependency=False,
+        keep_parents=False,
+        fail_on_restricted=True,
+    ):
         """
         Kind of the same as the original collector, but now also follows the on delete SET NULL relations.
         """
@@ -75,9 +83,9 @@ class SimpleCollector(Collector):
                 # but we don't have a nice way to turn that data into parent
                 # object instance.
                 parent_objs = [getattr(obj, ptr.name) for obj in new_objs]
-                self.collect(parent_objs, source=model,
-                             source_attr=ptr.remote_field.related_name,
-                             collect_related=False)
+                self.collect(
+                    parent_objs, source=model, source_attr=ptr.remote_field.related_name, collect_related=False
+                )
 
         if collect_related:
             for related in get_candidate_relations_to_collect(model._meta):
@@ -87,9 +95,7 @@ class SimpleCollector(Collector):
                     sub_objs = self.related_objects(related.related_model, [field], batch)
                     if not sub_objs:
                         continue
-                    self.collect(sub_objs,
-                                 source=model,
-                                 source_attr=field.name)
+                    self.collect(sub_objs, source=model, source_attr=field.name)
             for field in model._meta.private_fields:
                 if hasattr(field, 'bulk_related_objects'):
                     # It's something like generic foreign key.

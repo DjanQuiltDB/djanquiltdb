@@ -1,8 +1,8 @@
 from unittest import mock
 
 from django.core.management import call_command
-
 from example.models import Shard
+
 from djanquiltdb import State
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.tests import ShardingTestCase

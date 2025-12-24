@@ -1,9 +1,9 @@
 from django.core.management import call_command
+from example.models import Organization, Shard, Type
 
-from example.models import Shard, Type, Organization
 from djanquiltdb import State
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.tests import ShardingTransactionTestCase, OverrideMirroredRoutingMixin
+from djanquiltdb.tests import OverrideMirroredRoutingMixin, ShardingTransactionTestCase
 from djanquiltdb.utils import create_template_schema, use_shard
 
 
@@ -14,11 +14,13 @@ class FlushTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):
         create_template_schema()
         create_template_schema('other')
 
-        self.shard1 = Shard.objects.create(alias='sinaloa', schema_name='el_chapo', node_name='default',
-                                           state=State.ACTIVE)
+        self.shard1 = Shard.objects.create(
+            alias='sinaloa', schema_name='el_chapo', node_name='default', state=State.ACTIVE
+        )
 
-        self.shard2 = Shard.objects.create(alias='medellin', schema_name='pablo_escobar', node_name='other',
-                                           state=State.ACTIVE)
+        self.shard2 = Shard.objects.create(
+            alias='medellin', schema_name='pablo_escobar', node_name='other', state=State.ACTIVE
+        )
 
         with use_shard(node_name='default', schema_name=PUBLIC_SCHEMA_NAME):
             Type.objects.create(name='narco')

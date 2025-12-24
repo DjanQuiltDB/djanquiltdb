@@ -15,7 +15,7 @@ from django.utils.module_loading import module_has_submodule
 from djanquiltdb.db import connection
 from djanquiltdb.management.base import get_databases_and_schema_from_options, shard_table_exists
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import get_shard_class, use_shard, get_template_name, get_all_databases, schema_exists
+from djanquiltdb.utils import get_all_databases, get_shard_class, get_template_name, schema_exists, use_shard
 
 
 class Command(MigrateCommand):
@@ -31,6 +31,7 @@ class Command(MigrateCommand):
             before moving to the next node.
         Same for fake and reverse operations.
     """
+
     help = 'Updates database schema. Manages both apps with migrations and those without.'
 
     def add_arguments(self, parser):
@@ -42,14 +43,24 @@ class Command(MigrateCommand):
         # change the default to 'all'
         # and the options to databases allowed.
         parser._option_string_actions['--database'].default = 'all'
-        parser._option_string_actions['--database'].help = \
-            'Nominates a database to synchronize. Defaults to all databases.'
+        parser._option_string_actions[
+            '--database'
+        ].help = 'Nominates a database to synchronize. Defaults to all databases.'
         parser._option_string_actions['--database'].choices = ['all'] + get_all_databases()
 
-        parser.add_argument('--schema-name', '-s', action='store', dest='schema_name',
-                            help='Nominates a schema to synchronize. When empty all schemas will be migrated.')
-        parser.add_argument('--check-shard', action='store_false', dest='check_shard',
-                            help='A flag used internally by the sharding library.')
+        parser.add_argument(
+            '--schema-name',
+            '-s',
+            action='store',
+            dest='schema_name',
+            help='Nominates a schema to synchronize. When empty all schemas will be migrated.',
+        )
+        parser.add_argument(
+            '--check-shard',
+            action='store_false',
+            dest='check_shard',
+            help='A flag used internally by the sharding library.',
+        )
 
     def handle(self, *args, **options):
         self.verbosity = options.get('verbosity', 0)
@@ -66,8 +77,7 @@ class Command(MigrateCommand):
 
         if options.get('list', False):
             self.stderr.write(
-                "The 'migrate --list' command is not supported in djanquiltdb. Use 'showmigrations' "
-                "instead."
+                "The 'migrate --list' command is not supported in djanquiltdb. Use 'showmigrations' instead."
             )
 
         for connection_ in connections:
@@ -88,8 +98,9 @@ class Command(MigrateCommand):
 
         # Run the syncdb phase. Note that we need this for apps that don't have migrations.
         if run_syncdb:
-            self.verbosity >= 1 and self.stdout.write(self.style.MIGRATE_HEADING('Synchronizing apps without '
-                                                                                 'migrations:'))
+            self.verbosity >= 1 and self.stdout.write(
+                self.style.MIGRATE_HEADING('Synchronizing apps without migrations:')
+            )
             emit_pre_migrate_signal(self.verbosity, self.interactive, connection.alias, plan=plan)
             self._sync_apps(databases, schema_name, executor.loader.unmigrated_apps)
         else:
@@ -103,8 +114,9 @@ class Command(MigrateCommand):
             executor.check_replacements()
             self.verbosity >= 1 and self.check_for_changes(executor)
         else:
-            error = self.perform_migration(plan, databases, schema_name,
-                                           fake=options.get('fake'), fake_initial=options.get('fake_initial'))
+            error = self.perform_migration(
+                plan, databases, schema_name, fake=options.get('fake'), fake_initial=options.get('fake_initial')
+            )
 
         emit_post_migrate_signal(self.verbosity, self.interactive, connection.alias)
 
@@ -116,8 +128,7 @@ class Command(MigrateCommand):
             app_label, migration_name = options['app_label'], options['migration_name']
             if app_label not in executor.loader.migrated_apps:
                 raise CommandError(
-                    "App '{}' does not have migrations (you cannot selectively "
-                    "sync unmigrated apps)".format(app_label)
+                    "App '{}' does not have migrations (you cannot selectively sync unmigrated apps)".format(app_label)
                 )
             if migration_name == 'zero':
                 return False, [(app_label, None)]
@@ -126,20 +137,21 @@ class Command(MigrateCommand):
                 migration = executor.loader.get_migration_by_prefix(app_label, migration_name)
             except AmbiguityError:
                 raise CommandError(
-                    "More than one migration matches '{}' in app '{}'. "
-                    "Please be more specific.".format(migration_name, app_label)
+                    "More than one migration matches '{}' in app '{}'. Please be more specific.".format(
+                        migration_name, app_label
+                    )
                 )
             except KeyError:
-                raise CommandError("Cannot find a migration matching '{}' from app '{}'.".format(migration_name,
-                                                                                                 app_label))
+                raise CommandError(
+                    "Cannot find a migration matching '{}' from app '{}'.".format(migration_name, app_label)
+                )
             return False, [(app_label, migration.name)]
 
         if options.get('app_label'):
             app_label = options['app_label']
             if app_label not in executor.loader.migrated_apps:
                 raise CommandError(
-                    "App '{}' does not have migrations (you cannot selectively "
-                    "sync unmigrated apps)".format(app_label)
+                    "App '{}' does not have migrations (you cannot selectively sync unmigrated apps)".format(app_label)
                 )
             return False, [key for key in executor.loader.graph.leaf_nodes() if key[0] == app_label]
 
@@ -152,12 +164,9 @@ class Command(MigrateCommand):
         """
         conflicts = executor.loader.detect_conflicts()
         if conflicts:
-            name_str = '; '.join(
-                '{} in {}'.format(', '.join(names), app)
-                for app, names in conflicts.items()
-            )
+            name_str = '; '.join('{} in {}'.format(', '.join(names), app) for app, names in conflicts.items())
             raise CommandError(
-                "Conflicting migrations detected ({}).\nTo fix them run "
+                'Conflicting migrations detected ({}).\nTo fix them run '
                 "'python manage.py makemigrations --merge'".format(name_str)
             )
 
@@ -210,15 +219,18 @@ class Command(MigrateCommand):
         )
         changes = autodetector.changes(graph=executor.loader.graph)
         if changes:
-            self.stdout.write(self.style.NOTICE(
-                "  Your models have changes that are not yet reflected "
-                "in a migration, and so won't be applied."
-            ))
-            self.stdout.write(self.style.NOTICE(
-                "  Run 'manage.py makemigrations' to make new "
-                "migrations, and then re-run 'manage.py migrate' to "
-                "apply them."
-            ))
+            self.stdout.write(
+                self.style.NOTICE(
+                    "  Your models have changes that are not yet reflected in a migration, and so won't be applied."
+                )
+            )
+            self.stdout.write(
+                self.style.NOTICE(
+                    "  Run 'manage.py makemigrations' to make new "
+                    "migrations, and then re-run 'manage.py migrate' to "
+                    'apply them.'
+                )
+            )
 
     def perform_migration(self, plan, databases, schema_name, fake, fake_initial):
         if schema_name:  # If we have a targeted shard, just migrate that shard
@@ -247,9 +259,9 @@ class Command(MigrateCommand):
 
             # If one or more migrations failed, don't move to the next.
             if stop:
-                self.stdout.write(self.style.ERROR(
-                    'Migration stopped due to errors after completing {}.'.format(node[0])
-                ))
+                self.stdout.write(
+                    self.style.ERROR('Migration stopped due to errors after completing {}.'.format(node[0]))
+                )
                 break
         return stop
 
@@ -264,10 +276,12 @@ class Command(MigrateCommand):
                 if self.verbosity >= 2:
                     if backwards:
                         self.stdout.write(
-                            '    {}|{} does not have {} applied yet.\n'.format(database, schema_name, migration))
+                            '    {}|{} does not have {} applied yet.\n'.format(database, schema_name, migration)
+                        )
                     else:
                         self.stdout.write(
-                            '    {}|{} has {} already applied.\n'.format(database, schema_name, migration))
+                            '    {}|{} has {} already applied.\n'.format(database, schema_name, migration)
+                        )
 
             else:
                 if self.verbosity >= 2:
@@ -278,8 +292,9 @@ class Command(MigrateCommand):
                     executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
                 except Exception as exception:  # When an error occurs, continue this migration for other shards.
                     self.stderr.write(
-                        '    {}|{}: {} - {}: {}'.format(database, schema_name, migration, type(exception).__name__,
-                                                        exception)
+                        '    {}|{}: {} - {}: {}'.format(
+                            database, schema_name, migration, type(exception).__name__, exception
+                        )
                     )
                     return True  # report failure
         return False  # report migration went without troubles
@@ -295,29 +310,33 @@ class Command(MigrateCommand):
                 if self.verbosity >= 2:
                     if backwards:
                         self.stdout.write(
-                            '    {}|{} does not have {} applied yet.\n'.format(shard.node_name, shard.alias, migration))
+                            '    {}|{} does not have {} applied yet.\n'.format(shard.node_name, shard.alias, migration)
+                        )
                     else:
                         self.stdout.write(
-                            '    {}|{} has {} already applied.\n'.format(shard.node_name, shard.alias, migration))
+                            '    {}|{} has {} already applied.\n'.format(shard.node_name, shard.alias, migration)
+                        )
 
             else:
                 if self.verbosity >= 2:
                     self.stdout.write(
-                        '    {} {} to {}|{}\n'.format('Unapplying' if backwards else 'Applying', migration,
-                                                      shard.node_name, shard.alias)
+                        '    {} {} to {}|{}\n'.format(
+                            'Unapplying' if backwards else 'Applying', migration, shard.node_name, shard.alias
+                        )
                     )
                 try:
                     shard_executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
                 except Exception as exception:  # When an error occurs, continue this migration for other shards.
                     self.stderr.write(
-                        '    {}|{}: {} - {}: {}'.format(shard.node_name, shard.alias, migration,
-                                                        type(exception).__name__, exception)
+                        '    {}|{}: {} - {}: {}'.format(
+                            shard.node_name, shard.alias, migration, type(exception).__name__, exception
+                        )
                     )
                     return True  # report failure
         return False  # report migration went without troubles
 
     def migration_progress_callback(self, action, migration=None, fake=False):
-        """ Appends the current shard details to the migration output """
+        """Appends the current shard details to the migration output"""
 
         if self.verbosity >= 1:
             if action in ('apply_start', 'unapply_start', 'render_start'):

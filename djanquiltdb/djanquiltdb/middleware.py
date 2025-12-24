@@ -5,18 +5,19 @@ from django.db import OperationalError
 from django.http import HttpResponse
 from django.utils.module_loading import import_string
 
-from djanquiltdb.utils import StateException, use_shard, get_shard_class, use_shard_for
-
+from djanquiltdb.utils import StateException, get_shard_class, use_shard, use_shard_for
 
 logger = logging.getLogger(__name__)
 
 
 class ExceptionProcessor(object):
     exception = NotImplementedError('ExceptionMiddlewareMixin must have `exception` defined on the implementing class')
-    view_setting = NotImplementedError('ExceptionMiddlewareMixin must have `view_setting` defined on the implementing '
-                                       'class')
-    status_code = NotImplementedError('ExceptionMiddlewareMixin must have `status_code` defined on the implementing'
-                                      'class')
+    view_setting = NotImplementedError(
+        'ExceptionMiddlewareMixin must have `view_setting` defined on the implementing class'
+    )
+    status_code = NotImplementedError(
+        'ExceptionMiddlewareMixin must have `status_code` defined on the implementingclass'
+    )
 
     @classmethod
     def process_exception(cls, request, exception):

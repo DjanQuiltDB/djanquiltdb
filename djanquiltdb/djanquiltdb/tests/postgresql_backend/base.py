@@ -1,21 +1,25 @@
 from contextlib import contextmanager
 from unittest import mock
 
-from django.db import connections, IntegrityError, InterfaceError, DatabaseError
-from django.db.utils import OperationalError
+from django.db import DatabaseError, IntegrityError, InterfaceError, connections
 from django.db.backends.base.base import BaseDatabaseWrapper
+from django.db.utils import OperationalError
 from django.test import override_settings
+from example.models import Organization, Shard, Statement, Type, User
 from psycopg.errors import InternalError
 
-from example.models import Type, Organization, User, Statement, Shard
 from djanquiltdb import State
 from djanquiltdb.db import connection
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.postgresql_backend.base import get_validated_schema_name, PUBLIC_SCHEMA_NAME, \
-    DatabaseWrapper, ShardDatabaseWrapper
+from djanquiltdb.postgresql_backend.base import (
+    PUBLIC_SCHEMA_NAME,
+    DatabaseWrapper,
+    ShardDatabaseWrapper,
+    get_validated_schema_name,
+)
 from djanquiltdb.postgresql_backend.utils import LockCursorWrapperMixin
-from djanquiltdb.tests import ShardingTransactionTestCase, ShardingTestCase, disable_db_reconnect
-from djanquiltdb.utils import create_schema_on_node, create_template_schema, use_shard, get_template_name
+from djanquiltdb.tests import ShardingTestCase, ShardingTransactionTestCase, disable_db_reconnect
+from djanquiltdb.utils import create_schema_on_node, create_template_schema, get_template_name, use_shard
 
 
 class GetValidatedSchemaNameTestCase(ShardingTestCase):
@@ -149,20 +153,23 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             self.assertTrue(cursor.fetchall()[0][0])
         except InternalError:
             # we need to rollback in case of a pSQL error, since we are in a transaction.
-            cursor.execute("ROLLBACK;")
-            self.fail("PostgreSQL internal error")
+            cursor.execute('ROLLBACK;')
+            self.fail('PostgreSQL internal error')
 
     @staticmethod
     def get_oid(schema_name, table_name, cursor):
         """
         Return internal id for tables to use in queries to gather metadata for them
         """
-        cursor.execute("""SELECT c.oid
+        cursor.execute(
+            """SELECT c.oid
                           FROM pg_catalog.pg_class c
                           JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
                           WHERE n.nspname = %s
                           AND c.relname = %s
-                          AND c.relkind = 'r' -- only tables;""", [schema_name, table_name])
+                          AND c.relkind = 'r' -- only tables;""",
+            [schema_name, table_name],
+        )
         return cursor.fetchall()[0][0]
 
     def test_clone_schema_table_attributes(self):
@@ -186,16 +193,14 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         # These queries are based on the queries ran by Postgres when executing '\d table_name'. You can reveal
         # these by running `psql -E`.
         info_queries = {
-            'table info':
-                """SELECT c.relchecks, c.relkind, c.relhasindex, c.relhasrules,
+            'table info': """SELECT c.relchecks, c.relkind, c.relhasindex, c.relhasrules,
                        c.relrowsecurity, c.relforcerowsecurity, '', c.reltablespace,
                      CASE WHEN c.reloftype = 0 THEN ''
                        ELSE c.reloftype::pg_catalog.regtype::pg_catalog.text END, c.relpersistence, c.relreplident
                    FROM pg_catalog.pg_class c
                      LEFT JOIN pg_catalog.pg_class tc ON (c.reltoastrelid = tc.oid)
                    WHERE c.oid = %s""",
-            'field info':
-                """SELECT a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod),
+            'field info': """SELECT a.attname, pg_catalog.format_type(a.atttypid, a.atttypmod),
                      (SELECT substring(pg_catalog.pg_get_expr(d.adbin, d.adrelid) for 128)
                         FROM pg_catalog.pg_attrdef d
                         WHERE d.adrelid = a.attrelid AND d.adnum = a.attnum AND a.atthasdef),
@@ -208,8 +213,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
                    FROM pg_catalog.pg_attribute a
                      WHERE a.attrelid = %s AND a.attnum > 0 AND NOT a.attisdropped
                    ORDER BY a.attnum;""",
-            'field constraints':
-                """SELECT c2.relname, i.indisprimary, i.indisunique, i.indisclustered, i.indisvalid,
+            'field constraints': """SELECT c2.relname, i.indisprimary, i.indisunique, i.indisclustered, i.indisvalid,
                      pg_catalog.pg_get_indexdef(i.indexrelid, 0, true), pg_catalog.pg_get_constraintdef(con.oid, true),
                      contype, condeferrable, condeferred, i.indisreplident, c2.reltablespace
                    FROM pg_catalog.pg_class c, pg_catalog.pg_class c2, pg_catalog.pg_index i
@@ -217,14 +221,12 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
                        AND contype IN ('p','u','x')) --- primary key constraint, unique constraint and exclusion constr.
                    WHERE c.oid = %s AND c.oid = i.indrelid AND i.indexrelid = c2.oid
                    ORDER BY i.indisprimary DESC, i.indisunique DESC, c2.relname;""",
-            'unknown constraints':
-                """SELECT r.conname, pg_catalog.pg_get_constraintdef(r.oid, true)
+            'unknown constraints': """SELECT r.conname, pg_catalog.pg_get_constraintdef(r.oid, true)
                    FROM pg_catalog.pg_constraint r
                    WHERE r.conrelid = %s AND r.contype = 'c' ORDER BY 1;""",
-            'foreign key constraints':
-                """SELECT conname, pg_catalog.pg_get_constraintdef(r.oid, true) as condef
+            'foreign key constraints': """SELECT conname, pg_catalog.pg_get_constraintdef(r.oid, true) as condef
                    FROM pg_catalog.pg_constraint r
-                   WHERE r.conrelid = %s AND r.contype = 'f' ORDER BY 1;"""
+                   WHERE r.conrelid = %s AND r.contype = 'f' ORDER BY 1;""",
         }
 
         for table_name in template_tables:
@@ -243,11 +245,15 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
 
                 # Replace schema names to a generic name, so they can be compared.
                 self.assertCountEqual(
-                    list(map(lambda i: i.replace('test_schema', 'schema') if type(i) == 'string' else i,
-                             test_schema_result)),
-                    list(map(lambda i: i.replace('template', 'schema') if type(i) == 'string' else i,
-                             template_result)),
-                    '{} does not appear to be cloned successfully'.format(name))
+                    list(
+                        map(
+                            lambda i: i.replace('test_schema', 'schema') if isinstance(i, str) else i,
+                            test_schema_result,
+                        )
+                    ),
+                    list(map(lambda i: i.replace('template', 'schema') if isinstance(i, str) else i, template_result)),
+                    '{} does not appear to be cloned successfully'.format(name),
+                )
 
     def test_clone_schema_sequences(self):
         """
@@ -279,8 +285,9 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             WHERE nsp.nspname = 'test_schema'
         """)
         new_sequences = cursor.fetchall()
-        self.assertCountEqual(new_sequences,
-                              [('{}_id_seq'.format(table_name), '1') for table_name in new_schema_tables])
+        self.assertCountEqual(
+            new_sequences, [('{}_id_seq'.format(table_name), '1') for table_name in new_schema_tables]
+        )
 
         # Check if the new tables have the new sequences assigned to their id columns
         # The clone_schema function (lines 64-71 in base.py) attempts to update column defaults to reference
@@ -290,7 +297,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         #
         # The primary test (sequences exist with correct start values) is already verified above.
         # Here we verify column defaults if they exist, but don't fail if they don't (due to the limitation).
-        
+
         # Try to get actual default expressions using pg_catalog (not affected by search_path)
         cursor.execute("""
             SELECT c.relname::text, pg_get_expr(d.adbin, d.adrelid, true)::text
@@ -305,7 +312,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             ORDER BY c.relname
         """)
         new_schema_defaults = cursor.fetchall()
-        
+
         # If defaults exist, verify they reference the correct schema
         # Note: Due to the information_schema limitation in clone_schema, defaults may not be updated
         # and may still reference the template schema. This is acceptable - the sequences themselves
@@ -314,28 +321,35 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             new_schema_defaults_dict = dict(new_schema_defaults)
             for table_name, default_expr in new_schema_defaults:
                 # Verify it's a nextval call (the main thing we care about)
-                self.assertIn('nextval', default_expr.lower(),
-                             f"Default for {table_name}.id should be a nextval call, got: {default_expr}")
-                
+                self.assertIn(
+                    'nextval',
+                    default_expr.lower(),
+                    f'Default for {table_name}.id should be a nextval call, got: {default_expr}',
+                )
+
                 # If the expression contains a schema reference, prefer test_schema over template
                 # (but don't fail if template is referenced due to the known limitation)
                 if 'template' in default_expr.lower() and 'test_schema' not in default_expr.lower():
                     # This indicates the clone_schema function didn't update the default
                     # This is a known limitation but doesn't break functionality since sequences exist
                     pass  # Don't fail, just note it
-            
+
             # Verify we found defaults for at least some tables
-            self.assertGreater(len(new_schema_defaults), 0,
-                             "Should find some column defaults if clone_schema updated them")
-            
+            self.assertGreater(
+                len(new_schema_defaults), 0, 'Should find some column defaults if clone_schema updated them'
+            )
+
             # Verify key tables have defaults if defaults exist at all
             expected_tables = ['example_organization', 'example_user', 'example_statement']
             found_tables = set(new_schema_defaults_dict.keys())
             found_expected = [t for t in expected_tables if t in found_tables]
             # If we found any defaults, we should find at least some example tables
             if len(new_schema_defaults) > 0:
-                self.assertGreater(len(found_expected), 0,
-                                 f"Should find defaults for at least some example tables. Found: {found_expected}")
+                self.assertGreater(
+                    len(found_expected),
+                    0,
+                    f'Should find defaults for at least some example tables. Found: {found_expected}',
+                )
         else:
             # No defaults found - this is acceptable due to the information_schema limitation
             # The sequences themselves are correctly cloned (verified above), which is sufficient
@@ -347,10 +361,12 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         Expected: Each schema to have their own sequences and thus we get the same ids across shards.
         """
         create_template_schema('default')
-        shard_1 = Shard.objects.create(alias='org_1_shard', schema_name='org_1_shard', node_name='default',
-                                       state=State.ACTIVE)
-        shard_2 = Shard.objects.create(alias='org_2_shard', schema_name='org_2_shard', node_name='default',
-                                       state=State.ACTIVE)
+        shard_1 = Shard.objects.create(
+            alias='org_1_shard', schema_name='org_1_shard', node_name='default', state=State.ACTIVE
+        )
+        shard_2 = Shard.objects.create(
+            alias='org_2_shard', schema_name='org_2_shard', node_name='default', state=State.ACTIVE
+        )
         with use_shard(shard_1):
             organization_1 = Organization.objects.create(name='The Boris Corp')
             user_1 = User.objects.create(name='Boris', email='boris@gast.bv', organization=organization_1)
@@ -430,7 +446,8 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             'SELECT setval(\'example_organization_id_seq\', coalesce(max("id"), 1), max("id") IS NOT null) '
             'FROM "example_organization";\n'
             'SELECT setval(\'example_statement_id_seq\', coalesce(max("id"), 1), max("id") IS NOT null) '
-            'FROM "example_statement"')
+            'FROM "example_statement"'
+        )
 
     def test_reset_sequence_for_m2m_field(self):
         """
@@ -441,8 +458,8 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         mock_cursor.execute = mock.Mock()
         connection.reset_sequence(_cursor=mock_cursor, model_list=[User])
         mock_cursor.execute.assert_called_once_with(
-            'SELECT setval(\'example_user_id_seq\', coalesce(max("id"), 1), max("id") IS NOT null) '
-            'FROM "example_user"')
+            'SELECT setval(\'example_user_id_seq\', coalesce(max("id"), 1), max("id") IS NOT null) FROM "example_user"'
+        )
 
     def test_is_public_schema(self):
         """
@@ -523,26 +540,30 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         Case: Forcefully disconnect the database connection and perform a query.
         Expected: Database connection to be remade and the query executed without a problem.
         """
+
         def disconnect():
             """
             Perform a SQL query that will disconnect all current connections to this database.
             """
-            from psycopg.errors import OperationalError as OperationalError1
             from django.db.utils import OperationalError as OperationalError2
+            from psycopg.errors import OperationalError as OperationalError1
 
             with use_shard(node_name='default', schema_name='public') as env:
                 cursor = env.connection._get_cursor()  # Force the creation of a new cursor
                 try:
-                    cursor.execute('select pg_terminate_backend(pid) from pg_stat_activity where '
-                                   'datname=%s;', [env.connection.settings_dict['NAME']])
+                    cursor.execute(
+                        'select pg_terminate_backend(pid) from pg_stat_activity where datname=%s;',
+                        [env.connection.settings_dict['NAME']],
+                    )
                 except (InterfaceError, OperationalError1, OperationalError2):
                     # We know this will raise errors.
                     # Disconnecting the connection from a connection does not pass silently.
                     pass
 
         create_template_schema('default')
-        shard = Shard.objects.create(alias='org_1_shard', schema_name='org_1_shard', node_name='default',
-                                     state=State.ACTIVE)
+        shard = Shard.objects.create(
+            alias='org_1_shard', schema_name='org_1_shard', node_name='default', state=State.ACTIVE
+        )
 
         with self.subTest('With reconnecting logic enabled'):
             with use_shard(shard):
@@ -565,13 +586,12 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
 
                 # Tell the connectionwrapper the connection is always usuable, so it won't see it is disconnected,
                 # and thus will no reconnecting when needed.
-                with mock.patch('django.db.backends.postgresql.base.DatabaseWrapper.is_usable',
-                                return_value=True):
+                with mock.patch('django.db.backends.postgresql.base.DatabaseWrapper.is_usable', return_value=True):
                     disconnect()
 
                     with self.assertRaises(OperationalError) as cm:
                         organization.refresh_from_db()
-                    
+
                     error_msg = str(cm.exception).lower()
                     self.assertIn('connection', error_msg)
                     self.assertIn('closed', error_msg)
@@ -606,15 +626,17 @@ class CursorTestCase(ShardingTestCase):
         the correct arguments to change the search path in the database.
         """
         self.assertEqual(connection_.current_search_paths, old_search_paths)
-        with mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema, \
-                mock.patch.object(connection_, 'connection') as mock_connection:
+        with (
+            mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema,
+            mock.patch.object(connection_, 'connection') as mock_connection,
+        ):
             yield
 
         self.assertTrue(mock_get_ps_schema.called)
         self.assertEqual(connection_.current_search_paths, new_search_paths)
 
         execute_calls = mock_connection.cursor.return_value.execute.call_args_list
-        
+
         def get_sql_from_call(call_args):
             if not call_args:
                 return None
@@ -625,26 +647,24 @@ class CursorTestCase(ShardingTestCase):
                 sql_obj = call_args[1]['sql']
             else:
                 return None
-            
+
             if isinstance(sql_obj, str):
                 return sql_obj
-            
+
             return str(sql_obj)
-        
+
         # Find all SQL calls and check for search_path
         # psycopg3 Composed objects stringify to "Composed([SQL('SET search_path = '), ...])"
         # so we check if the string contains "SET search_path" (case-insensitive)
         all_sql_calls = [get_sql_from_call(call_args) for call_args in execute_calls]
         set_search_path_calls = [
-            sql_str for sql_str in all_sql_calls
-            if sql_str and "set search_path" in sql_str.lower()
+            sql_str for sql_str in all_sql_calls if sql_str and 'set search_path' in sql_str.lower()
         ]
-        
+
         self.assertTrue(
-            set_search_path_calls,
-            f"No SQL execute call found for setting search_path. All calls: {all_sql_calls}"
+            set_search_path_calls, f'No SQL execute call found for setting search_path. All calls: {all_sql_calls}'
         )
-        
+
         # Only consider the first set search_path call for new_search_paths check
         if set_search_path_calls:
             set_path_sql = set_search_path_calls[0]
@@ -652,11 +672,13 @@ class CursorTestCase(ShardingTestCase):
                 self.assertIn(path, set_path_sql, f"Search path '{path}' should be in SQL: {set_path_sql}")
 
         self.assertEqual(mock_connection.cursor.return_value.close.call_count, 3)
-        mock_connection.cursor.return_value.close.assert_has_calls([
-            mock.call(),  # Cursor for get_ps_schema
-            mock.call(),  # Cursor for setting the search path
-            mock.call(),  # Actual cursor inside the context manager
-        ])
+        mock_connection.cursor.return_value.close.assert_has_calls(
+            [
+                mock.call(),  # Cursor for get_ps_schema
+                mock.call(),  # Cursor for setting the search path
+                mock.call(),  # Actual cursor inside the context manager
+            ]
+        )
 
     @contextmanager
     def assertSearchPathNotChanged(self, connection_, old_search_paths):
@@ -665,8 +687,10 @@ class CursorTestCase(ShardingTestCase):
         called to change the search path in the database.
         """
         self.assertEqual(connection_.current_search_paths, old_search_paths)
-        with mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema, \
-                mock.patch.object(connection_, 'connection') as mock_connection:
+        with (
+            mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.get_ps_schema') as mock_get_ps_schema,
+            mock.patch.object(connection_, 'connection') as mock_connection,
+        ):
             yield
 
         self.assertFalse(mock_get_ps_schema.called)
@@ -845,7 +869,8 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.connection1.acquire_advisory_lock(key='test', shared=True)
 
         mock_execute.assert_called_once_with(
-            'SELECT pg_advisory_lock_shared(%s);', [LockCursorWrapperMixin.get_int_from_key('test')])
+            'SELECT pg_advisory_lock_shared(%s);', [LockCursorWrapperMixin.get_int_from_key('test')]
+        )
 
     @mock.patch('django.db.backends.utils.CursorWrapper.execute')
     def test_acquire_exclusive_lock(self, mock_execute):
@@ -856,7 +881,8 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.connection1.acquire_advisory_lock(key='test', shared=False)
 
         mock_execute.assert_called_once_with(
-            'SELECT pg_advisory_lock(%s);', [LockCursorWrapperMixin.get_int_from_key('test')])
+            'SELECT pg_advisory_lock(%s);', [LockCursorWrapperMixin.get_int_from_key('test')]
+        )
 
     @mock.patch('django.db.backends.utils.CursorWrapper.execute')
     def test_release_shard_lock(self, mock_execute):
@@ -867,7 +893,8 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.connection1.release_advisory_lock(key='test', shared=True)
 
         mock_execute.assert_called_once_with(
-            'SELECT pg_advisory_unlock_shared(%s);', [LockCursorWrapperMixin.get_int_from_key('test')])
+            'SELECT pg_advisory_unlock_shared(%s);', [LockCursorWrapperMixin.get_int_from_key('test')]
+        )
 
     @mock.patch('django.db.backends.utils.CursorWrapper.execute')
     def test_release_exclusive_lock(self, mock_execute):
@@ -878,7 +905,8 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.connection1.release_advisory_lock(key='test', shared=False)
 
         mock_execute.assert_called_once_with(
-            'SELECT pg_advisory_unlock(%s);', [LockCursorWrapperMixin.get_int_from_key('test')])
+            'SELECT pg_advisory_unlock(%s);', [LockCursorWrapperMixin.get_int_from_key('test')]
+        )
 
     def test_shared_blocks_exclusive_lock(self):
         """
@@ -932,8 +960,9 @@ class AdvisoryLockingIntegrationTestCase(ShardingTestCase):
         super().setUp()
 
         create_template_schema()
-        self.shard = Shard.objects.create(node_name='default', schema_name='test_schema', alias='test',
-                                          state=State.ACTIVE)
+        self.shard = Shard.objects.create(
+            node_name='default', schema_name='test_schema', alias='test', state=State.ACTIVE
+        )
 
     @mock.patch.object(LockCursorWrapperMixin, 'acquire_advisory_lock')
     @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock')
@@ -975,8 +1004,9 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
 
         create_template_schema()
 
-        self.shard = Shard.objects.create(node_name='default', schema_name='test_schema', alias='test',
-                                          state=State.ACTIVE)
+        self.shard = Shard.objects.create(
+            node_name='default', schema_name='test_schema', alias='test', state=State.ACTIVE
+        )
 
         # Create a new connection that we can safely play with
         self.connection = DatabaseWrapper(connections['default'].settings_dict, connections['default'].alias)
@@ -1019,8 +1049,16 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
         Note: if in future versions of Django the fields we define in BaseDatabaseWrapper changes, this test will tell
               us. We want to proxy all those fields (except for the alias).
         """
-        exclude_classes = ['client', 'creation', 'features', 'introspection', 'ops', 'validation',
-                           '_thread_sharing_lock', '_thread_sharing_count']
+        exclude_classes = [
+            'client',
+            'creation',
+            'features',
+            'introspection',
+            'ops',
+            'validation',
+            '_thread_sharing_lock',
+            '_thread_sharing_count',
+        ]
 
         class DummyDatabaseWrapper(BaseDatabaseWrapper):
             pass
@@ -1103,15 +1141,18 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
         Case: Acquire lock on a ShardDatabaseWrapper while having a shard_id and a mapping value set on ShardOptions
         Expected: Lock keys from the ShardOptions used to call acquire_advisory_lock
         """
-        shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name, shard_id=self.shard.id,
-                                     mapping_value=42)
+        shard_options = ShardOptions(
+            node_name='default', schema_name=self.shard.schema_name, shard_id=self.shard.id, mapping_value=42
+        )
         connection_ = ShardDatabaseWrapper(self.connection, shard_options)
         connection_.acquire_locks()
         self.assertEqual(mock_acquire_advisory_lock.call_count, 2)
-        mock_acquire_advisory_lock.assert_has_calls([
-            mock.call('shard_{}'.format(self.shard.id), shared=True),
-            mock.call('mapping_42', shared=True),
-        ])
+        mock_acquire_advisory_lock.assert_has_calls(
+            [
+                mock.call('shard_{}'.format(self.shard.id), shared=True),
+                mock.call('mapping_42', shared=True),
+            ]
+        )
 
     @mock.patch.object(ShardDatabaseWrapper, 'release_advisory_lock')
     def test_release_locks(self, mock_release_advisory_lock):
@@ -1130,15 +1171,18 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
         Case: Release lock on a ShardDatabaseWrapper while having a shard_id and a mapping value set on ShardOptions
         Expected: Lock keys from the ShardOptions used to call release_advisory_lock
         """
-        shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name, shard_id=self.shard.id,
-                                     mapping_value=42)
+        shard_options = ShardOptions(
+            node_name='default', schema_name=self.shard.schema_name, shard_id=self.shard.id, mapping_value=42
+        )
         connection_ = ShardDatabaseWrapper(self.connection, shard_options)
         connection_.release_locks()
         self.assertEqual(mock_release_advisory_lock.call_count, 2)
-        mock_release_advisory_lock.assert_has_calls([
-            mock.call('shard_{}'.format(self.shard.id), shared=True),
-            mock.call('mapping_42', shared=True),
-        ])
+        mock_release_advisory_lock.assert_has_calls(
+            [
+                mock.call('shard_{}'.format(self.shard.id), shared=True),
+                mock.call('mapping_42', shared=True),
+            ]
+        )
 
     def test_lock_on_execute(self):
         """
@@ -1159,13 +1203,11 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
         ]
 
         for options in dont_lock_on_execute:
-            shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                         **options)
+            shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name, **options)
             connection_ = ShardDatabaseWrapper(self.connection, shard_options)
             self.assertFalse(connection_.lock_on_execute)
 
         for options in lock_on_execute:
-            shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name,
-                                         **options)
+            shard_options = ShardOptions(node_name=self.shard.node_name, schema_name=self.shard.schema_name, **options)
             connection_ = ShardDatabaseWrapper(self.connection, shard_options)
             self.assertTrue(connection_.lock_on_execute)

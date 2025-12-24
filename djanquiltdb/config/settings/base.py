@@ -1,8 +1,8 @@
-import os
+import functools
 import json
+import os
 
 import dj_database_url
-import functools
 
 from config.secret import get as get_secret
 from djanquiltdb import ShardingMode
@@ -14,7 +14,7 @@ BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 try:
     # Build paths inside the project like this: os.path.join(BASE_DIR, ...)
     BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
-    with open(os.path.join(BASE_DIR, "secrets.json")) as f:
+    with open(os.path.join(BASE_DIR, 'secrets.json')) as f:
         secrets_from_file = json.loads(f.read())
 except OSError:
     secrets_from_file = {}
@@ -77,8 +77,10 @@ TEMPLATES = [
 WSGI_APPLICATION = 'config.wsgi.application'
 
 
-DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine='djanquiltdb.postgresql_backend'),
-             'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='djanquiltdb.postgresql_backend')}
+DATABASES = {
+    'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine='djanquiltdb.postgresql_backend'),
+    'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='djanquiltdb.postgresql_backend'),
+}
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
@@ -90,7 +92,7 @@ SHARDING = {
     'OVERRIDE_SHARDING_MODE': {
         ('auth',): ShardingMode.MIRRORED,
         ('contenttypes',): ShardingMode.MIRRORED,
-    }
+    },
 }
 
 DATABASE_ROUTERS = ['djanquiltdb.router.DynamicDbRouter']

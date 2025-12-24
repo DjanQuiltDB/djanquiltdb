@@ -12,10 +12,16 @@ from django.core.exceptions import ValidationError
 from django.core.management import BaseCommand, CommandError
 from django.db import IntegrityError, connections
 
-from djanquiltdb import State, ShardingMode
+from djanquiltdb import ShardingMode, State
 from djanquiltdb.collector import SimpleCollector
-from djanquiltdb.utils import use_shard, get_shard_class, get_all_sharded_models, get_mapping_class, \
-    get_model_sharding_mode, transaction_for_nodes
+from djanquiltdb.utils import (
+    get_all_sharded_models,
+    get_mapping_class,
+    get_model_sharding_mode,
+    get_shard_class,
+    transaction_for_nodes,
+    use_shard,
+)
 
 
 def indent(text, indentation=1):
@@ -38,36 +44,66 @@ class Command(BaseCommand):
 
     Both the source and target shard are put into maintenance mode during the migration.
     """
+
     help = 'Move all data belonging to a single root_object from one shard to another.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--source-shard-alias', '-n', action='store', dest='source_shard_alias',
-                            help='Name of the shard where the root_object will be migrated from.', required=True)
-        parser.add_argument('--target-shard-alias', '-t', action='store', dest='target_shard_alias',
-                            help='Name of the shard which will receive the data.', required=True)
-        parser.add_argument('--model-name', action='store', dest='model_name', required=True,
-                            help='app_label.model_name of the root object.')
-        parser.add_argument('--root-object-id', action='store', dest='root_object_id', help='ID of the root object.',
-                            required=True)
-        parser.add_argument('--reuse-simple-collector-for-delete',
-                            action='store_true',
-                            dest='reuse_simple_collector_for_delete',
-                            help="Do not use Django's original delete collector to determine what needs to be "
-                                 "deleted from the source_shard, but reuse the data collector for copy.",
-                            default=False)
-        parser.add_argument('-q', '--quiet', '--silent', action='store_true', dest='quiet', help='Suppress output.',
-                            default=False)
-        parser.add_argument('--noinput', '--no-input', action='store_true', dest='no_input', help='Skip confirmation.',
-                            default=False)
-        parser.add_argument('--nodelete', '--no-delete',
-                            action='store_true',
-                            dest='no_delete',
-                            help='Skip deleting data from the old shard.',
-                            default=False)
-        parser.add_argument('--keep-validation-files', action='store_true', dest='keep_validation_files',
-                            help='Keep the two artifacts the validation step creates in /tmp/ containing the postgres '
-                                 'dump of all collected and written data.',
-                            default=False)
+        parser.add_argument(
+            '--source-shard-alias',
+            '-n',
+            action='store',
+            dest='source_shard_alias',
+            help='Name of the shard where the root_object will be migrated from.',
+            required=True,
+        )
+        parser.add_argument(
+            '--target-shard-alias',
+            '-t',
+            action='store',
+            dest='target_shard_alias',
+            help='Name of the shard which will receive the data.',
+            required=True,
+        )
+        parser.add_argument(
+            '--model-name',
+            action='store',
+            dest='model_name',
+            required=True,
+            help='app_label.model_name of the root object.',
+        )
+        parser.add_argument(
+            '--root-object-id', action='store', dest='root_object_id', help='ID of the root object.', required=True
+        )
+        parser.add_argument(
+            '--reuse-simple-collector-for-delete',
+            action='store_true',
+            dest='reuse_simple_collector_for_delete',
+            help="Do not use Django's original delete collector to determine what needs to be "
+            'deleted from the source_shard, but reuse the data collector for copy.',
+            default=False,
+        )
+        parser.add_argument(
+            '-q', '--quiet', '--silent', action='store_true', dest='quiet', help='Suppress output.', default=False
+        )
+        parser.add_argument(
+            '--noinput', '--no-input', action='store_true', dest='no_input', help='Skip confirmation.', default=False
+        )
+        parser.add_argument(
+            '--nodelete',
+            '--no-delete',
+            action='store_true',
+            dest='no_delete',
+            help='Skip deleting data from the old shard.',
+            default=False,
+        )
+        parser.add_argument(
+            '--keep-validation-files',
+            action='store_true',
+            dest='keep_validation_files',
+            help='Keep the two artifacts the validation step creates in /tmp/ containing the postgres '
+            'dump of all collected and written data.',
+            default=False,
+        )
 
     def handle(self, *args, **options):
         """
@@ -86,9 +122,11 @@ class Command(BaseCommand):
         source_shard_alias = options['source_shard_alias']
 
         if not self.no_input:
-            confirm = input("This command will move data from one shard to another. This will start with putting the "
-                            "shards (and if applicable, mapping objects) in maintenance and acquiring an exclusive "
-                            "lock. Type 'yes' if you want to continue: ")
+            confirm = input(
+                'This command will move data from one shard to another. This will start with putting the '
+                'shards (and if applicable, mapping objects) in maintenance and acquiring an exclusive '
+                "lock. Type 'yes' if you want to continue: "
+            )
             if confirm != 'yes':
                 return
 
@@ -96,10 +134,12 @@ class Command(BaseCommand):
         self.target_shard = self.get_target_shard(options=options)
 
         if self.source_shard.node_name != self.target_shard.node_name:
-            raise ValidationError(f'The source shard {self.source_shard} and target shard {self.target_shard} are on '
-                                  'different database nodes. This command does not work across nodes.'
-                                  'Move data to a shard on the same node as the source, then use the '
-                                  'move_shard_to_node command to migrate the data to a different node.')
+            raise ValidationError(
+                f'The source shard {self.source_shard} and target shard {self.target_shard} are on '
+                'different database nodes. This command does not work across nodes.'
+                'Move data to a shard on the same node as the source, then use the '
+                'move_shard_to_node command to migrate the data to a different node.'
+            )
 
         objects = self.get_objects(self.source_shard)
 
@@ -132,8 +172,11 @@ class Command(BaseCommand):
                 if not options.get('no_delete'):
                     # Delete the data. Pick the current collector if we reuse the data and pick Django's nested
                     # collector if we want to use the original collector.
-                    delete_collector = collector if self.reuse_data else \
-                        self.get_data_collector(objects=objects, use_original_collector=True)
+                    delete_collector = (
+                        collector
+                        if self.reuse_data
+                        else self.get_data_collector(objects=objects, use_original_collector=True)
+                    )
                     self.delete_data(collector=delete_collector)
                 else:
                     self.print('Skipped deleting data from the source shard.')
@@ -158,8 +201,11 @@ class Command(BaseCommand):
                 print(indent('{} datapoints'.format(len(instances))))
 
             if not self.no_input:
-                confirm = input("Type 'yes' if you are sure if you want to move this data from {} to {}: "
-                                .format(bold(self.source_shard), bold(self.target_shard)))
+                confirm = input(
+                    "Type 'yes' if you are sure if you want to move this data from {} to {}: ".format(
+                        bold(self.source_shard), bold(self.target_shard)
+                    )
+                )
                 if confirm != 'yes':
                     return False
 
@@ -209,9 +255,11 @@ class Command(BaseCommand):
             # And make sure we only collect data from sharded models
             for model in list(collector.data.keys()):
                 if model not in sharded_models:
-                    self.print('There might be something wrong with your data structure, because the collector '
-                               'collected mirrored models. Check your data points closely to see if no unexpected '
-                               'model instances are collected.')
+                    self.print(
+                        'There might be something wrong with your data structure, because the collector '
+                        'collected mirrored models. Check your data points closely to see if no unexpected '
+                        'model instances are collected.'
+                    )
                     del collector.data[model]
 
             return collector
@@ -225,9 +273,12 @@ class Command(BaseCommand):
         if not self.quiet:
             bar = progressbar.ProgressBar(
                 max_value=progressbar.UnknownLength,
-                widgets=[progressbar.RotatingMarker(),
-                         ' Moving data from {} to {}; '.format(self.source_shard, self.target_shard),
-                         progressbar.Timer()])
+                widgets=[
+                    progressbar.RotatingMarker(),
+                    ' Moving data from {} to {}; '.format(self.source_shard, self.target_shard),
+                    progressbar.Timer(),
+                ],
+            )
         for model, pk_set in pk_set.items():
             # Export
             io = StringIO()
@@ -235,9 +286,11 @@ class Command(BaseCommand):
                 cursor = env.connection.cursor()
                 query = cursor.mogrify(
                     'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) '  # nosec
-                    'TO STDOUT WITH CSV DELIMITER \';\' HEADER'.format(  # nosec
-                        t=model._meta.db_table),
-                    [list(pk_set)])
+                    "TO STDOUT WITH CSV DELIMITER ';' HEADER".format(  # nosec
+                        t=model._meta.db_table
+                    ),
+                    [list(pk_set)],
+                )
                 self.copy_data_stream(cursor, query.decode() if isinstance(query, bytes) else query, io)
 
             # Read the csv headers from the output, and save them as a list of field names.
@@ -253,7 +306,8 @@ class Command(BaseCommand):
             with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
                 cursor = env.connection.cursor()
                 copy_sql = 'COPY "{t}" ({f}) FROM STDIN WITH CSV DELIMITER \';\' HEADER'.format(  # nosec
-                    t=model._meta.db_table, f=fields)
+                    t=model._meta.db_table, f=fields
+                )
                 self.copy_data_stream(cursor, copy_sql, io)
 
             if not self.quiet:
@@ -283,10 +337,7 @@ class Command(BaseCommand):
 
         try:
             subprocess.run(  # nosec
-                ['sort', source_file_name, '-o', source_file_sorted_name],
-                shell=False,
-                check=True,
-                timeout=60
+                ['sort', source_file_name, '-o', source_file_sorted_name], shell=False, check=True, timeout=60
             )
         except (RuntimeError, FileNotFoundError):
             raise CommandError("'sort' command is not available on your system")
@@ -305,17 +356,19 @@ class Command(BaseCommand):
         if not self.quiet:
             bar = progressbar.ProgressBar(
                 max_value=progressbar.UnknownLength,
-                widgets=[progressbar.RotatingMarker(),
-                         ' Confirming data integrity; ',
-                         progressbar.Timer()])
+                widgets=[progressbar.RotatingMarker(), ' Confirming data integrity; ', progressbar.Timer()],
+            )
 
-        with NamedTemporaryFile(dir=temp_dir, prefix='source_', delete=False) as source_file, \
-                NamedTemporaryFile(dir=temp_dir, prefix='target_', delete=False) as target_file:
+        with (
+            NamedTemporaryFile(dir=temp_dir, prefix='source_', delete=False) as source_file,
+            NamedTemporaryFile(dir=temp_dir, prefix='target_', delete=False) as target_file,
+        ):
             for model, keys in pk_set.items():
                 fields = model_fields.get(model)
                 # Export
                 query_string = 'COPY (SELECT {f} FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(  # nosec
-                    t=model._meta.db_table, f=fields)
+                    t=model._meta.db_table, f=fields
+                )
 
                 # We let the copy functions just append to the output file
                 with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
@@ -376,10 +429,10 @@ class Command(BaseCommand):
         mapping_model = get_mapping_class()
 
         if not self.quiet:
-            bar = progressbar.ProgressBar(max_value=progressbar.UnknownLength,
-                                          widgets=[progressbar.RotatingMarker(),
-                                                   ' Acquiring lock; ',
-                                                   progressbar.Timer()])
+            bar = progressbar.ProgressBar(
+                max_value=progressbar.UnknownLength,
+                widgets=[progressbar.RotatingMarker(), ' Acquiring lock; ', progressbar.Timer()],
+            )
 
         if mapping_model:
             for root_object in root_objects:

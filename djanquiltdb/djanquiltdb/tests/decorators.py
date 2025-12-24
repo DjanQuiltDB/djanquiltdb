@@ -2,11 +2,16 @@ from unittest import mock
 
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
-
 from example.models import Shard
-from djanquiltdb import ShardingMode, State, STATES
-from djanquiltdb.decorators import sharded_model, shard_mapping_model, mirrored_model, _reset_shard_mapping_models, \
-    class_method_use_shard_from_db_arg
+
+from djanquiltdb import STATES, ShardingMode, State
+from djanquiltdb.decorators import (
+    _reset_shard_mapping_models,
+    class_method_use_shard_from_db_arg,
+    mirrored_model,
+    shard_mapping_model,
+    sharded_model,
+)
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.tests import ShardingTestCase
 from djanquiltdb.utils import create_template_schema
@@ -69,6 +74,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
         Case: Check if decorated model has shard_mapping_model set.
         Expected: It to not have one set.
         """
+
         @shard_mapping_model('map_field')
         class MappingDummyModel1(models.Model):
             test_model = True
@@ -88,6 +94,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
         Expected: ImproperlyConfigured to be raised.
         """
         with self.assertRaises(ImproperlyConfigured):
+
             @shard_mapping_model('map_field')
             class MappingDummyModel2(models.Model):
                 test_model = True
@@ -104,6 +111,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
         Expected: ImproperlyConfigured to be raised.
         """
         with self.assertRaises(ImproperlyConfigured):
+
             @shard_mapping_model('map_field')
             class MappingDummyModel3(models.Model):
                 test_model = True
@@ -121,6 +129,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
         Expected: ImproperlyConfigured to be raised.
         """
         with self.assertRaises(ImproperlyConfigured):
+
             @shard_mapping_model('map_field')
             class MappingDummyModel4(models.Model):
                 test_model = True
@@ -138,6 +147,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
         Case: Use shard_mapping_model on two models
         Expected: ImproperlyConfigured to be raised.
         """
+
         @shard_mapping_model('map_field')  # first time goes without error.
         class MappingDummyModel5(models.Model):
             test_model = True
@@ -150,6 +160,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
                 app_label = 'djanquiltdb'
 
         with self.assertRaises(ImproperlyConfigured):
+
             @shard_mapping_model('map_field')
             class MappingDummyModel6(models.Model):
                 test_model = True
@@ -167,6 +178,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
         Expected: TypeError to be raised.
         """
         with self.assertRaises(TypeError):
+
             @shard_mapping_model()
             class MappingDummyModel7(models.Model):
                 test_model = True
@@ -185,6 +197,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
         Expected: ImproperlyConfigured to be raised.
         """
         with self.assertRaises(ImproperlyConfigured):
+
             @shard_mapping_model('no_field')
             class MappingDummyModel7(models.Model):
                 test_model = True
@@ -202,6 +215,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
         Expected: ImproperlyConfigured to be raised.
         """
         with self.assertRaises(ImproperlyConfigured):
+
             @shard_mapping_model('map_field')
             class MappingDummyModel9(models.Model):
                 test_model = True
@@ -218,6 +232,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
         Expected: ImproperlyConfigured to be raised.
         """
         with self.assertRaises(ImproperlyConfigured):
+
             @shard_mapping_model('map_field')
             class MappingDummyModel10(models.Model):
                 test_model = True
@@ -235,6 +250,7 @@ class MappingModelDecoratorTestCase(ModelTestCase):
         Expected: ImproperlyConfigured to be raised.
         """
         with self.assertRaises(ImproperlyConfigured):
+
             @shard_mapping_model('map_field')
             class MappingDummyModel11(models.Model):
                 test_model = True
@@ -252,14 +268,14 @@ class UseShardFromDbArgDecoratorTestCase(ShardingTestCase):
         super().setUp()
         create_template_schema()
 
-        self.shard = Shard.objects.create(alias='M84', schema_name='outro', node_name='default',
-                                          state=State.ACTIVE)
+        self.shard = Shard.objects.create(alias='M84', schema_name='outro', node_name='default', state=State.ACTIVE)
 
     def test_decorated_with(self):
         """
         Case: Check if the function is decorator with a specific decorator
         Expected: The function is decorated and called with the expected argument
         """
+
         @class_method_use_shard_from_db_arg
         def test_function(db, arg):
             pass
@@ -282,6 +298,7 @@ class UseShardFromDbArgDecoratorTestCase(ShardingTestCase):
         mock_get_active_connection.return_value = default_shard_options
 
         with mock.patch.object(mock_from_alias.return_value, 'use') as mock_shardoptions_use:
+
             @class_method_use_shard_from_db_arg
             def test_function(db, arg):
                 self.assertEqual(arg, 'cake')
@@ -305,6 +322,7 @@ class UseShardFromDbArgDecoratorTestCase(ShardingTestCase):
         mock_get_active_connection.return_value = ShardOptions.from_shard(self.shard)
 
         with mock.patch.object(mock_from_alias.return_value, 'use') as mock_shardoptions_use:
+
             @class_method_use_shard_from_db_arg
             def test_function(db, arg):
                 self.assertEqual(arg, 'cake')
@@ -330,6 +348,7 @@ class UseShardFromDbArgDecoratorTestCase(ShardingTestCase):
         mock_get_active_connection.return_value = default_shard_options
 
         with mock.patch.object(mock_from_alias.return_value, 'use') as mock_shardoptions_use:
+
             @class_method_use_shard_from_db_arg
             def test_function(db, arg):
                 self.assertEqual(arg, 'cake')
@@ -353,6 +372,7 @@ class UseShardFromDbArgDecoratorTestCase(ShardingTestCase):
         mock_get_active_connection.return_value = ShardOptions(node_name='default', schema_name='public')
 
         with mock.patch.object(mock_from_alias.return_value, 'use') as mock_shardoptions_use:
+
             @class_method_use_shard_from_db_arg
             def test_function(db, arg):
                 self.assertEqual(arg, 'cake')
