@@ -11,21 +11,22 @@ services:
       - .:/app:z
       - /app/.ruff_cache
       - /app/.tox
-    environment:
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/test_db}
-      - DATABASE_URL2=${DATABASE_URL2:-postgresql://postgres:postgres@postgres2:5432/test_db2}
     command: tox
     depends_on:
-      postgres:
+      postgres17:
         condition: service_healthy
-      postgres2:
+      postgres17-2:
+        condition: service_healthy
+      postgres18:
+        condition: service_healthy
+      postgres18-2:
         condition: service_healthy
     networks:
       - test-network
 
-  postgres:
+  postgres17:
     image: postgres:17
-    container_name: djanquiltdb-postgres
+    container_name: djanquiltdb-postgres17
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -33,7 +34,7 @@ services:
     ports:
       - "5433:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres17-data:/var/lib/postgresql/data
     networks:
       - test-network
     healthcheck:
@@ -42,9 +43,9 @@ services:
       timeout: 5s
       retries: 5
 
-  postgres2:
+  postgres17-2:
     image: postgres:17
-    container_name: djanquiltdb-postgres2
+    container_name: djanquiltdb-postgres17-2
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
@@ -52,7 +53,45 @@ services:
     ports:
       - "5434:5432"
     volumes:
-      - postgres-data2:/var/lib/postgresql/data
+      - postgres17-data2:/var/lib/postgresql/data
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres18:
+    image: postgres:18
+    container_name: djanquiltdb-postgres18
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=test_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres18-data:/var/lib/postgresql
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres18-2:
+    image: postgres:18
+    container_name: djanquiltdb-postgres18-2
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=test_db2
+    ports:
+      - "5436:5432"
+    volumes:
+      - postgres18-data2:/var/lib/postgresql
     networks:
       - test-network
     healthcheck:
@@ -64,8 +103,10 @@ services:
 volumes:
   tox-cache:
   tox-env-cache:
-  postgres-data:
-  postgres-data2:
+  postgres17-data:
+  postgres17-data2:
+  postgres18-data:
+  postgres18-data2:
 
 networks:
   test-network:
