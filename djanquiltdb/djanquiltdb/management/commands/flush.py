@@ -25,6 +25,13 @@ class Command(FlushCommand):
             help='Nominates a schema to flush. When empty all schemas will be flushed.',
         )
 
+        parser.add_argument(
+            '--ignore-maintenance',
+            action='store_true',
+            dest='ignore_maintenance',
+            help='Allow flushing shards that are in maintenance mode.',
+        )
+
     def handle(self, **options):
         interactive = options['interactive']
 
@@ -70,7 +77,10 @@ class Command(FlushCommand):
                 if shard_table_exists(node_name):
                     for shard in get_shard_class().objects.filter(node_name__in=node_names):
                         shard_options = options.copy()
-                        shard_options['database'] = ShardOptions.from_shard(shard)
+                        if options.get('ignore_maintenance'):
+                            shard_options['database'] = ShardOptions.from_shard(shard, active_only_schemas=False)
+                        else:
+                            shard_options['database'] = ShardOptions.from_shard(shard)
                         super().handle(**shard_options)
 
                 # And finally do the public schema. We do this as last, to make sure we don't face constraints for
