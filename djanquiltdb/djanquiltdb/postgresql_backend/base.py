@@ -200,7 +200,7 @@ def get_validated_schema_name(schema_name, is_template=False):
 
 def get_database_creation_class():
     return import_string(
-        settings.SHARDING.get('DATABASE_CREATION_CLASS', 'djanquiltdb.postgresql_backend.creation.DatabaseCreation')
+        settings.QUILT_DB.get('DATABASE_CREATION_CLASS', 'djanquiltdb.postgresql_backend.creation.DatabaseCreation')
     )
 
 

@@ -1037,7 +1037,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         self.command.delete_data(collector=mock_collector)
         mock_collector.delete.assert_called_once_with()
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
     def test_pre_execution_non_mapping(self, mock_acquire_lock):
         """
@@ -1057,7 +1057,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_acquire_lock.assert_called_once_with(key='shard_{}'.format(self.source_shard.id), shared=False)
 
     @override_settings(
-        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
+        QUILT_DB={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
     )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
     def test_pre_execution_with_mapping(self, mock_acquire_lock):
@@ -1073,7 +1073,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_acquire_lock.assert_called_once_with(key='mapping_{}'.format(self.organization_1.id), shared=False)
 
     @override_settings(
-        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
+        QUILT_DB={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
     )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
     def test_pre_execution_with_mapping_multiple_objects(self, mock_acquire_lock):
@@ -1095,7 +1095,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_acquire_lock.assert_any_call(key='mapping_{}'.format(self.organization_1.id), shared=False)
         mock_acquire_lock.assert_any_call(key='mapping_{}'.format(self.organization_2.id), shared=False)
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_post_execution_non_mapping(self, mock_release_lock):
         """
@@ -1113,7 +1113,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_release_lock.assert_called_once_with(key='shard_{}'.format(self.source_shard.id), shared=False)
 
     @override_settings(
-        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
+        QUILT_DB={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
     )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_post_execution_with_mapping(self, mock_release_lock):
@@ -1136,7 +1136,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_release_lock.assert_called_once_with(key='mapping_{}'.format(self.organization_1.id), shared=False)
 
     @override_settings(
-        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
+        QUILT_DB={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
     )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_post_execution_with_mapping_multiple_objects(self, mock_release_lock):

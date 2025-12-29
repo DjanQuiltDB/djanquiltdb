@@ -13,7 +13,7 @@ from djanquiltdb.utils import create_schema_on_node, create_template_schema, get
 
 
 class GetShardTestCase(SimpleTestCase):
-    @override_settings(SHARDING={'SHARD_CLASS': 'djanquiltdb.tests.app_config.DummyShard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'djanquiltdb.tests.app_config.DummyShard'})
     def test_get_shard(self):
         """
         Case: Get shard class.
@@ -118,7 +118,7 @@ class BaseShardTestCase(ShardingTestCase):
 
     @mock.patch('djanquiltdb.utils.create_schema_on_node')
     @mock.patch('djanquiltdb.models.models.Model.save')
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'NEW_SHARD_NODE': 'other'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'NEW_SHARD_NODE': 'other'})
     def test_use_settings_node(self, mock_save, mock_create_schema):
         """
         Case: Call the save method without setting a node_name.
@@ -132,7 +132,7 @@ class BaseShardTestCase(ShardingTestCase):
         self.assertTrue(mock_save.called)
 
     @mock.patch('djanquiltdb.utils.create_schema_on_node')
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     def test_no_node_and_no_settings_node(self, mock_create_schema):
         """
         Case: Call the save method without setting a node_name and without one defined in settings.
@@ -153,7 +153,7 @@ class BaseShardTestCase(ShardingTestCase):
         self.assertEqual(use_shard_context_manager.options.shard_id, shard.id)
 
     @mock.patch('djanquiltdb.models.delete_schema')
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     def test_delete_from_db(self, mock_delete_schema):
         """
         Case: Delete a Shard with delete_from_db=True
@@ -167,7 +167,7 @@ class BaseShardTestCase(ShardingTestCase):
         mock_delete_schema.assert_called_with(schema_name='test_schema', node_name='default')
 
     @mock.patch('djanquiltdb.models.delete_schema')
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     def test_delete(self, mock_delete_schema):
         """
         Case: Delete a Shard with delete_from_db=False

@@ -13,7 +13,7 @@ from djanquiltdb.utils import State, create_template_schema, use_shard
 
 
 @override_settings(
-    SHARDING={
+    QUILT_DB={
         'SHARD_CLASS': 'example.models.Shard',
         'MAPPING_MODEL': 'example.models.OrganizationShard',
     },

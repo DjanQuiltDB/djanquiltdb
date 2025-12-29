@@ -51,7 +51,7 @@ class ExceptionMiddlewareMixinIntegrationTestCase(ShardingTransactionTestCase):
         Case: Request a view that contains use_shard on a inactive shard.
         Expected: 503 status received.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
         create_template_schema('other')
@@ -61,7 +61,7 @@ class ExceptionMiddlewareMixinIntegrationTestCase(ShardingTransactionTestCase):
 
         mock_get_shard_id.return_value = shard.id
 
-        with override_settings(SHARDING=sharding_settings):
+        with override_settings(QUILT_DB=sharding_settings):
             # Call the view, that uses use_shard on an nonexistent shard.
             # 503 is raised and caught by the middleware.
             response = self.client.get('/')
@@ -76,7 +76,7 @@ class ExceptionMiddlewareMixinIntegrationTestCase(ShardingTransactionTestCase):
         Case: Request a view that uses the middleware to get an inactive shard.
         Expected: 503 status received.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
         create_template_schema('other')
@@ -86,7 +86,7 @@ class ExceptionMiddlewareMixinIntegrationTestCase(ShardingTransactionTestCase):
 
         mock_get_shard_id.return_value = shard.id
 
-        with override_settings(SHARDING=sharding_settings):
+        with override_settings(QUILT_DB=sharding_settings):
             # Call the view, the BaseUseShardMiddleware will use use_shard on an nonexistent shard.
             # And the middleware will return 503 instead.
             response = self.client.get('/')
@@ -100,7 +100,7 @@ class ExceptionMiddlewareMixinIntegrationTestCase(ShardingTransactionTestCase):
         Case: Request a view that raises a connection error for accessing a node that is down.
         Expected: 503 status received.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings.pop('CONNECTION_EXCEPTION_VIEW', False)
 
         create_template_schema('other')
@@ -110,7 +110,7 @@ class ExceptionMiddlewareMixinIntegrationTestCase(ShardingTransactionTestCase):
 
         mock_get_shard_id.return_value = shard.id
 
-        with override_settings(SHARDING=sharding_settings):
+        with override_settings(QUILT_DB=sharding_settings):
             with mock.patch('psycopg.connect', side_effect=OperationalError):
                 # Close the connection. With `connect` being mocked no new connection can be started,
                 # making the node effectively unavailable
@@ -133,10 +133,10 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         Case: Call the process_exception of the ExceptionMiddlewareMixin with a StateException.
         Expected: process_exception to be called on StateExceptionProcessor.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'djanquiltdb.tests.middleware.StateExceptionTestView'
 
-        with override_settings(SHARDING=sharding_settings):
+        with override_settings(QUILT_DB=sharding_settings):
             ExceptionMiddlewareMixin(lambda x: None).process_exception(
                 RequestFactory().get('/'), StateException('Shard is not in available state!', 'M')
             )
@@ -152,10 +152,10 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         Case: Call the process_exception of the ExceptionMiddlewareMixin with a OperationalError.
         Expected: process_exception to be called on ConnectionExceptionProcessor.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'djanquiltdb.tests.middleware.StateExceptionTestView'
 
-        with override_settings(SHARDING=sharding_settings):
+        with override_settings(QUILT_DB=sharding_settings):
             ExceptionMiddlewareMixin(lambda x: None).process_exception(
                 RequestFactory().get('/'), OperationalError('Node is not available')
             )
@@ -171,10 +171,10 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         Case: Call the process_exception of the StateOrConnectionExceptionMiddleware with a different exception
         Expected: No process_exception to be called.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'djanquiltdb.tests.middleware.StateExceptionTestView'
 
-        with override_settings(SHARDING=sharding_settings):
+        with override_settings(QUILT_DB=sharding_settings):
             ExceptionMiddlewareMixin(lambda x: None).process_exception(
                 RequestFactory().get('/'), ValueError('Generic Error')
             )
@@ -186,10 +186,10 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         Case: Call the process_exception of the UseShardMiddleware with a view set.
         Expected: The view as response, no render function called for it.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'djanquiltdb.tests.middleware.StateExceptionTestView'
 
-        with override_settings(SHARDING=sharding_settings):
+        with override_settings(QUILT_DB=sharding_settings):
             with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
                     UseShardMiddleware(lambda x: None).process_exception(
@@ -208,10 +208,10 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         Case: Call the process_exception of the UseShardMiddleware with a TemplateView set.
         Expected: The view is rendered and return as response.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings['STATE_EXCEPTION_VIEW'] = 'djanquiltdb.tests.middleware.StateExceptionTestTemplateView'
 
-        with override_settings(SHARDING=sharding_settings):
+        with override_settings(QUILT_DB=sharding_settings):
             with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
                     UseShardMiddleware(lambda x: None).process_exception(
@@ -230,10 +230,10 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         Case: Call the process_exception of the UseShardMiddleware, with no view set.
         Expected: 503 status received.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
-        with override_settings(SHARDING=sharding_settings):
+        with override_settings(QUILT_DB=sharding_settings):
             response = UseShardMiddleware(lambda x: None).process_exception(
                 RequestFactory().get('/'), StateException('Shard is not in available state!', 'M')
             )
@@ -244,10 +244,10 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         Case: Call the process_exception of the UseShardMiddleware with a view set.
         Expected: The view as response, no render function called for it.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings['CONNECTION_EXCEPTION_VIEW'] = 'djanquiltdb.tests.middleware.ConnectionExceptionTestView'
 
-        with override_settings(SHARDING=sharding_settings):
+        with override_settings(QUILT_DB=sharding_settings):
             with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
                     UseShardMiddleware(lambda x: None).process_exception(
@@ -266,12 +266,12 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         Case: Call the process_exception of the UseShardMiddleware with a TemplateView set.
         Expected: The view is rendered and return as response.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings['CONNECTION_EXCEPTION_VIEW'] = (
             'djanquiltdb.tests.middleware.ConnectionExceptionTestTemplateView'
         )
 
-        with override_settings(SHARDING=sharding_settings):
+        with override_settings(QUILT_DB=sharding_settings):
             with self.subTest('Test renderer call'):
                 with mock.patch('django.template.response.TemplateResponse.render') as mock_render:
                     UseShardMiddleware(lambda x: None).process_exception(
@@ -290,10 +290,10 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
         Case: Call the process_exception of the UseShardMiddleware, with no view set.
         Expected: 503 status received.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings.pop('CONNECTION_EXCEPTION_VIEW', False)
 
-        with override_settings(SHARDING=sharding_settings):
+        with override_settings(QUILT_DB=sharding_settings):
             response = UseShardMiddleware(lambda x: None).process_exception(
                 RequestFactory().get('/'), OperationalError('Node is not available')
             )
@@ -398,7 +398,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
         Case: Call the process_exception of the UseShardMiddleware, with the wrong exception.
         Expected: Context manager is disabled and Process_state_exception not called.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
         with mock.patch(
@@ -411,7 +411,7 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
             with mock.patch(
                 'djanquiltdb.middleware.ExceptionMiddlewareMixin.process_exception'
             ) as mock_process_exception:
-                with override_settings(SHARDING=sharding_settings):
+                with override_settings(QUILT_DB=sharding_settings):
                     UseShardMiddleware(lambda x: None).process_exception(
                         RequestFactory().get('/'), ValueError('Generic error.')
                     )
@@ -551,7 +551,7 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
         Case: Call the process_exception of the UseShardForMiddleware, with the wrong exception.
         Expected: Context manager is disabled and process_exception not called.
         """
-        sharding_settings = settings.SHARDING
+        sharding_settings = settings.QUILT_DB
         sharding_settings.pop('STATE_EXCEPTION_VIEW', False)
 
         with mock.patch(
@@ -564,7 +564,7 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
             with mock.patch(
                 'djanquiltdb.middleware.ExceptionMiddlewareMixin.process_exception'
             ) as mock_process_exception:
-                with override_settings(SHARDING=sharding_settings):
+                with override_settings(QUILT_DB=sharding_settings):
                     UseShardForMiddleware(lambda x: None).process_exception(
                         RequestFactory().get('/'), ValueError('Generic error.')
                     )

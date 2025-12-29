@@ -18,7 +18,7 @@ def get_active_connection():
     """
     Get the active connection name. Fall back to the PRIMARY_DB_ALIAS setting, or to DEFAULT_DB_ALIAS if that fails too.
     """
-    return getattr(_active_connection, 'connection', settings.SHARDING.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS))
+    return getattr(_active_connection, 'connection', settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS))
 
 
 def set_active_connection(connection):
@@ -36,7 +36,7 @@ class DynamicDbRouter:
         already retrieved objects or when explicitly provide directions (i.e. `.using()`).
         """
         if getattr(get_model_definition(model), 'route_to_primary_db', None):
-            return settings.SHARDING.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
+            return settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
         shard_options = hints.get('_shard_options')
         instance_options = hints.get('instance') is not None and hints['instance']._state.db
         return instance_options or shard_options or get_active_connection()
@@ -47,7 +47,7 @@ class DynamicDbRouter:
         Otherwise, refer to normal behavior of db_for_read.
         """
         if get_model_sharding_mode(model) is ShardingMode.MIRRORED:
-            default_node_name = settings.SHARDING.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
+            default_node_name = settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
             db = self.db_for_read(model, **hints)
             if not isinstance(db, ShardOptions) or db.node_name != default_node_name:
                 return default_node_name

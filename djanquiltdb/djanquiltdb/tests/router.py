@@ -189,7 +189,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         set_active_connection('test_node')
         self.assertEqual(self.router.db_for_read(model=DummyNonShardedModel), 'test_node')
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     @mock.patch('djanquiltdb.router.get_model_definition')
     def test_db_for_read_for_routing_to_primary_db(self, mock_get_model_definition):
         """
@@ -214,7 +214,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
             self.assertEqual(self.router.db_for_read(model=OrganizationShard), 'default')
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     @mock.patch('djanquiltdb.router.get_model_sharding_mode')
     @mock.patch('djanquiltdb.router.DynamicDbRouter.db_for_read', return_value='read_answer')
     def test_db_for_write(self, mock_db_for_read, mock_get_model_sharding_mode):
@@ -317,7 +317,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             self.assertEqual(call_args[4], node_name)
         self.assertFalse(call_args[5])  # update_fields
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     @mock.patch('django.db.models.base.Model._save_table')
     def test_db_for_write_system_with_sharding_context(self, mock_save_table):
         """
@@ -374,7 +374,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
                 # cleanup
                 OrganizationShard.route_to_primary_db = True
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     @mock.patch('django.db.models.base.Model._save_table')
     def test_db_for_write_system_without_sharding_context(self, mock_save_table):
         """
@@ -427,7 +427,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             # cleanup
             OrganizationShard.route_to_primary_db = True
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     def test_db_for_write_end_to_end(self):
         """
         Case: Call a write for various types of models.
@@ -481,7 +481,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
         with self.subTest('route_to_primary_db=True'):
             # the 'other' database does not even have OrganizationShard as a table.
-            with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'default'}):
+            with override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'default'}):
                 with use_shard(self.test_shard):
                     organization = Organization.objects.create(name='stay')
 
@@ -496,7 +496,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
 
         with self.subTest('route_to_primary_db=False'):
             # the 'other' database does not even have OrganizationShard as a table.
-            with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'default'}):
+            with override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'default'}):
                 with use_shard(self.test_shard):
                     organization = Organization.objects.create(name='stay')
 
@@ -541,7 +541,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
                 self.assertEqual(self.router.allow_relation(model_to(), model_from()), result)
 
     @override_settings(
-        SHARDING={
+        QUILT_DB={
             'SHARD_CLASS': 'example.models.Shard',
             'OVERRIDE_SHARDING_MODE': {
                 ('djanquiltdb', 'simplemodel'): ShardingMode.SHARDED,
@@ -561,7 +561,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         self.assertTrue(self.router.allow_relation(Organization(), SimpleModel()))
 
     @override_settings(
-        SHARDING={
+        QUILT_DB={
             'SHARD_CLASS': 'example.models.Shard',
             'OVERRIDE_SHARDING_MODE': {
                 ('djanquiltdb',): ShardingMode.SHARDED,
@@ -682,7 +682,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         self.assertEqual(mock_logger_warning.call_count, 1)
 
     @override_settings(
-        SHARDING={
+        QUILT_DB={
             'SHARD_CLASS': 'example.models.Shard',
             'MAPPING_MODEL': 'example.models.OrganizationShard',
             'NEW_SHARD_NODE': 'other',

@@ -32,7 +32,7 @@ class Command(LoadDataCommand):
             database = '{}|{}'.format(shard_options.node_name, shard_options.schema_name)
         else:
             # Parse the database string to get node_name and schema_name
-            shard_options = ShardOptions.from_alias(settings.SHARDING['PRIMARY_DB_ALIAS'])
+            shard_options = ShardOptions.from_alias(settings.QUILT_DB['PRIMARY_DB_ALIAS'])
 
         # Store shard_options for use in load_label
         self._shard_options = shard_options

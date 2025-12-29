@@ -1192,7 +1192,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         mock_get_all_models.assert_called_once_with()
         mock_reset_sequence.assert_called_once_with(model_list=['app', 'noot', 'mies'])
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_post_execution_non_mapping(self, mock_release_lock):
         """
@@ -1214,7 +1214,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         mock_release_lock.assert_called_once_with(key='shard_{}'.format(self.source_shard.id), shared=False)
 
     @override_settings(
-        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
+        QUILT_DB={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
     )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_post_execution_with_mapping(self, mock_release_lock):

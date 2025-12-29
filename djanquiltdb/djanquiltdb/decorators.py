@@ -242,11 +242,11 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
                 else f'{related_to.__module__.replace(".models", "")}.{related_to.__name__}'
             )
 
-            if related_to != settings.SHARDING['SHARD_CLASS'].replace('.models', ''):
+            if related_to != settings.QUILT_DB['SHARD_CLASS'].replace('.models', ''):
                 raise ImproperlyConfigured(
                     "The shard field of model {} is points to '{}' instead of '{}'. "
                     'The @shard_mapping_model decorator requires this.'.format(
-                        cls.__name__, related_to, settings.SHARDING['SHARD_CLASS'].replace('.models', '')
+                        cls.__name__, related_to, settings.QUILT_DB['SHARD_CLASS'].replace('.models', '')
                     )
                 )
 
@@ -398,7 +398,7 @@ class override_sharding_setting(override_settings):
     SENTINEL = object()  # Indicator for the absence of a value
 
     def __init__(self, name, value=SENTINEL):
-        sharding = copy.deepcopy(settings.SHARDING)  # Important: use a deepcopy, don't modify the reference
+        sharding = copy.deepcopy(settings.QUILT_DB)  # Important: use a deepcopy, don't modify the reference
 
         if value is self.SENTINEL:
             # If we didn't provide a value, then we delete the value from the settings
@@ -406,4 +406,4 @@ class override_sharding_setting(override_settings):
         else:
             sharding[name] = value
 
-        super().__init__(SHARDING=sharding)
+        super().__init__(QUILT_DB=sharding)

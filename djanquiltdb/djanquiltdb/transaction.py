@@ -37,7 +37,7 @@ def atomic(using=None, savepoint=True, durable=False):
         # If we specify which node to use, do not cascade with the primary node
         return Atomic(using, savepoint, durable=durable)
 
-    primary_connection_name = settings.SHARDING.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
+    primary_connection_name = settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
     current_connection = get_connection(using)
     if get_connection_alias(current_connection) == primary_connection_name:
         # If we are on the default connection already, no need to do anything fancy

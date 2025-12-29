@@ -22,8 +22,8 @@ class ExceptionProcessor(object):
 
     @classmethod
     def process_exception(cls, request, exception):
-        if settings.SHARDING.get(cls.view_setting, None):  # call custom view
-            response = import_string(settings.SHARDING[cls.view_setting]).as_view()(request)
+        if settings.QUILT_DB.get(cls.view_setting, None):  # call custom view
+            response = import_string(settings.QUILT_DB[cls.view_setting]).as_view()(request)
             # If we get a TemplateView that is not yet rendered, call for that here. Otherwise, just pass it.
             if getattr(response, 'is_rendered', True):
                 return response
@@ -156,7 +156,7 @@ class UseShardMiddleware(BaseUseShardMiddleware, ExceptionMiddlewareMixin):
     """
 
     def get_shard_id(self, request):
-        return getattr(request.session, settings.SHARDING.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector'))
+        return getattr(request.session, settings.QUILT_DB.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector'))
 
 
 class UseShardForMiddleware(BaseUseShardForMiddleware, ExceptionMiddlewareMixin):
@@ -165,4 +165,4 @@ class UseShardForMiddleware(BaseUseShardForMiddleware, ExceptionMiddlewareMixin)
     """
 
     def get_mapping_value(self, request):
-        return getattr(request.session, settings.SHARDING.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector'))
+        return getattr(request.session, settings.QUILT_DB.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector'))

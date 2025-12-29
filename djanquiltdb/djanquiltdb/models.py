@@ -55,9 +55,9 @@ class BaseShard(models.Model):
         unique_together = ('schema_name', 'node_name')
 
     def save(self, using=None, **kwargs):
-        self.node_name = self.node_name or settings.SHARDING.get('NEW_SHARD_NODE', None)
+        self.node_name = self.node_name or settings.QUILT_DB.get('NEW_SHARD_NODE', None)
         if not self.node_name:
-            raise ValueError('No node_name given, or no NEW_SHARD_NODE set in the SHARDING settings.')
+            raise ValueError('No node_name given, or no NEW_SHARD_NODE set in the QUILT_DB settings.')
 
         # If this is an update, no need to create a schema
         if self.pk and get_shard_class().objects.filter(pk=self.pk).exists():

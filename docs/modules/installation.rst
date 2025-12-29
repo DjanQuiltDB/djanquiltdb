@@ -59,14 +59,14 @@ Make migrations
 Configuration settings
 ----------------------
 
-There are several settings to make for sharding. All of them live in the ``SHARDING`` variable.
+There are several settings to make for sharding. All of them live in the ``QUILT_DB`` variable.
 
 SHARD_CLASS
 ~~~~~~~~~~~
 You must set ``SHARD_CLASS`` with the dot path to the ``shard`` classes in your
 project settings e.g.::
 
-    SHARDING = {
+    QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
     }
 
@@ -80,7 +80,7 @@ the wanted shard from mapping table automatically.
 .. code-block:: python
 
     # settings
-    SHARDING = {
+    QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
         'MAPPING_MODEL': 'myapp.models.MyMappingModel',
     }
@@ -110,7 +110,7 @@ Optionally you can tell DjanQuiltDB on which node new shards (schemas) will be c
     DATABASES = {'default': name='primary', engine='djanquiltdb.postgresql_backend'),
                  'node_2': name='db_2, engine='djanquiltdb.postgresql_backend')}
 
-    SHARDING = {
+    QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
         'NEW_SHARD_NODE': 'node_2',
     }
@@ -130,7 +130,7 @@ unavailable shards. It is not required, but recommended to add it to the middlew
 
 The middleware raises a 503 error when a shard availability error pops up during view processing.
 You can also tell it to render a specific view instead.
-To do that set ``STATE_EXCEPTION_VIEW`` in the ``SHARDING`` setting to a view of your choice e.g.::
+To do that set ``STATE_EXCEPTION_VIEW`` in the ``QUILT_DB`` setting to a view of your choice e.g.::
 
     MIDDLEWARE_CLASSES = (
         (...)
@@ -138,7 +138,7 @@ To do that set ``STATE_EXCEPTION_VIEW`` in the ``SHARDING`` setting to a view of
         (...)
     )
 
-    SHARDING = {
+    QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
         'STATE_EXCEPTION_VIEW': 'myapp.views.ShardExceptionView'
     }
@@ -165,7 +165,7 @@ Don't forget you can assign your own view as error page like in `STATE_EXCEPTION
         (...)
     )
 
-    SHARDING = {
+    QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
         'STATE_EXCEPTION_VIEW': 'myapp.views.ShardExceptionView'
     }
@@ -205,7 +205,7 @@ fashion as the ``BaseUseShardMiddleware``. The only difference is that you now h
         (...)
     )
 
-    SHARDING = {
+    QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
         'MAPPING_MODEL': 'myapp.models.ShardMappingModel',
         'STATE_EXCEPTION_VIEW': 'myapp.views.ShardExceptionView',
@@ -239,7 +239,7 @@ the following changes (assuming here that the session storage is under an app ca
     }
     
     # Optional: Customize the session key used by middleware to store shard selector (default: 'shard_selector')
-    SHARDING = {
+    QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
         'SESSION_SHARD_SELECTOR_KEY': 'shard_selector',  # Optional, defaults to 'shard_selector'
     }
@@ -264,14 +264,14 @@ You would only need to change the SHARD_SELECTOR_REGEX if the primary key of you
 OVERRIDE_SHARDING_MODE
 ~~~~~~~~~~~~~~~~~~~~~~
 If you want to override the sharding_mode for a specific model or application you can use
-``SHARDING['OVERRIDE_SHARDING_MODE']`` configuration setting. The setting is a dictionary with tuple or list as a key
+``QUILT_DB['OVERRIDE_SHARDING_MODE']`` configuration setting. The setting is a dictionary with tuple or list as a key
 and ShardingMode enum as value. The key is composed from one or two lowercase strings and it is used as a lookup for
 an app or a model in an app.
 
 .. code-block:: python
 
     # settings
-    SHARDING = {
+    QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
         'MAPPING_MODEL': 'myapp.models.MyMappingModel',
         'OVERRIDE_SHARDING_MODE': {
@@ -293,7 +293,7 @@ If the migration is required, and the model is missing, simply mention it here s
 .. code-block:: python
 
     # settings
-    SHARDING = {
+    QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
         'MAPPING_MODEL': 'myapp.models.MyMappingModel',
         'OVERRIDE_SHARDING_MODE': {
@@ -331,7 +331,7 @@ It's value is a connection name of the node which is writable for MIRRORED data.
   DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine='djanquiltdb.postgresql_backend'),
                'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='djanquiltdb.postgresql_backend')}
 
-  SHARDING = {
+  QUILT_DB = {
       'PRIMARY_DB_ALIAS': 'default',
       'NEW_SHARD_NODE': 'other',
   }
@@ -345,7 +345,7 @@ So we alter 'PRIMARY_DB_ALIAS' to tell that 'other' is now writable.
   DATABASES = {'default': dj_database_url.parse(get_secret('DATABASE_URL'), engine='djanquiltdb.postgresql_backend'),
                'other': dj_database_url.parse(get_secret('DATABASE_URL2'), engine='djanquiltdb.postgresql_backend')}
 
-  SHARDING = {
+  QUILT_DB = {
       'PRIMARY_DB_ALIAS': 'other',
       'NEW_SHARD_NODE': 'other',
   }

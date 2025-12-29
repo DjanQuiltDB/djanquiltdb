@@ -21,7 +21,7 @@ class AtomicTestCase(SimpleTestCase):
         self.assertFalse(mock_transaction_for_nodes.called)
         mock_atomic.assert_called_once_with(None, True, durable=False)
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     def test_primary_node_sharded(self, mock_transaction_for_nodes, mock_atomic):
         """
         Case: Call atomic from a sharded context that is not the same as the primary.
@@ -33,7 +33,7 @@ class AtomicTestCase(SimpleTestCase):
             mock_transaction_for_nodes.assert_called_once_with(nodes=['other', env.connection])
             self.assertFalse(mock_atomic.called)
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     def test_primary_node(self, mock_transaction_for_nodes, mock_atomic):
         """
         Case: Call atomic from the default connection, which is not the same as the primary.

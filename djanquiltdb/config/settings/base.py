@@ -84,7 +84,7 @@ DATABASES = {
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
-SHARDING = {
+QUILT_DB = {
     'SHARD_CLASS': 'example.models.Shard',
     'MAPPING_MODEL': 'example.models.OrganizationShard',
     'PRIMARY_DB_ALIAS': 'default',

@@ -1121,7 +1121,7 @@ class RemoveModelMigrationTestCase(MigrationTestCase):
 
     @override_settings(
         MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_remove_non_existent_model'},
-        SHARDING={
+        QUILT_DB={
             'SHARD_CLASS': 'example.models.Shard',
             'OVERRIDE_SHARDING_MODE': {('migration_tests', 'nonexistingmodel'): ShardingMode.SHARDED},
         },

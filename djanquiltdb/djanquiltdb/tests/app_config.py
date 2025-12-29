@@ -59,23 +59,23 @@ class ShardingSettingsTestCase(SimpleTestCase):
 
     def test_no_settings(self):
         """
-        Case: None or empty SHARDING setting
+        Case: None or empty QUILT_DB setting
         Expected: ImproperlyConfigured raised
         """
-        with override_settings(SHARDING=None):
+        with override_settings(QUILT_DB=None):
             with self.assertRaises(ImproperlyConfigured):
                 self.sharding_app.ready()
 
-        with override_settings(SHARDING=''):
+        with override_settings(QUILT_DB=''):
             with self.assertRaises(ImproperlyConfigured):
                 self.sharding_app.ready()
 
     def test_incomplete_models_settings(self):
         """
-        Case: Given incomplete SHARDING setting
+        Case: Given incomplete QUILT_DB setting
         Expected: ImproperlyConfigured raised
         """
-        with override_settings(SHARDING={}):
+        with override_settings(QUILT_DB={}):
             with self.assertRaises(ImproperlyConfigured):
                 self.sharding_app.ready()
 
@@ -85,17 +85,17 @@ class ShardingSettingsTestCase(SimpleTestCase):
         Expected: ImproperlyConfigured raised
         """
         with override_settings(
-            SHARDING={'SHARD_CLASS': 'djanquiltdb.tests.app_config.DummyShardedShard', 'PRIMARY_DB_ALIAS': 'default'}
+            QUILT_DB={'SHARD_CLASS': 'djanquiltdb.tests.app_config.DummyShardedShard', 'PRIMARY_DB_ALIAS': 'default'}
         ):
             with self.assertRaises(ImproperlyConfigured):
                 self.sharding_app.ready()
 
     def test_correct_settings(self):
         """
-        Case: Correct SHARDING setting
+        Case: Correct QUILT_DB setting
         Expected: ImproperlyConfigured NOT raised
         """
-        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'default'}):
+        with override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'default'}):
             try:
                 self.sharding_app.ready()
             except ImproperlyConfigured:
@@ -103,11 +103,11 @@ class ShardingSettingsTestCase(SimpleTestCase):
 
     def test_invalid_override_shard_mode_list(self):
         """
-        Case: Pass a list instead of a dict to SHARDING["OVERRIDE_SHARDING_MODE"].
+        Case: Pass a list instead of a dict to QUILT_DB["OVERRIDE_SHARDING_MODE"].
         Expected: ImproperlyConfigured raised
         """
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'SHARD_CLASS': 'example.models.Shard',
                 'PRIMARY_DB_ALIAS': 'default',
                 'OVERRIDE_SHARDING_MODE': [],
@@ -118,11 +118,11 @@ class ShardingSettingsTestCase(SimpleTestCase):
 
     def test_invalid_override_shard_mode_invalid_value_type(self):
         """
-        Case: Pass an object that is not ShardingMode enum as a value to the dict SHARDING["OVERRIDE_SHARDING_MODE"].
+        Case: Pass an object that is not ShardingMode enum as a value to the dict QUILT_DB["OVERRIDE_SHARDING_MODE"].
         Expected: ImproperlyConfigured raised
         """
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'SHARD_CLASS': 'example.models.Shard',
                 'PRIMARY_DB_ALIAS': 'default',
                 'OVERRIDE_SHARDING_MODE': {
@@ -135,11 +135,11 @@ class ShardingSettingsTestCase(SimpleTestCase):
 
     def test_invalid_override_shard_mode_invalid_key_type(self):
         """
-        Case: Pass an object that is not a tuple or list as a key to the dict SHARDING["OVERRIDE_SHARDING_MODE"].
+        Case: Pass an object that is not a tuple or list as a key to the dict QUILT_DB["OVERRIDE_SHARDING_MODE"].
         Expected: ImproperlyConfigured raised
         """
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'SHARD_CLASS': 'example.models.Shard',
                 'PRIMARY_DB_ALIAS': 'default',
                 'OVERRIDE_SHARDING_MODE': {
@@ -152,11 +152,11 @@ class ShardingSettingsTestCase(SimpleTestCase):
 
     def test_override_shard_mode_nonexistent_app(self):
         """
-        Case: Pass a non-existent app to SHARDING["OVERRIDE_SHARDING_MODE"].
+        Case: Pass a non-existent app to QUILT_DB["OVERRIDE_SHARDING_MODE"].
         Expected: ImproperlyConfigured NOT raised
         """
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'SHARD_CLASS': 'example.models.Shard',
                 'PRIMARY_DB_ALIAS': 'default',
                 'OVERRIDE_SHARDING_MODE': {
@@ -168,11 +168,11 @@ class ShardingSettingsTestCase(SimpleTestCase):
 
     def test_override_shard_mode_nonexistent_model(self):
         """
-        Case: Pass a non-existent model to SHARDING["OVERRIDE_SHARDING_MODE"].
+        Case: Pass a non-existent model to QUILT_DB["OVERRIDE_SHARDING_MODE"].
         Expected: ImproperlyConfigured NOT raised
         """
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'SHARD_CLASS': 'example.models.Shard',
                 'PRIMARY_DB_ALIAS': 'default',
                 'OVERRIDE_SHARDING_MODE': {
@@ -184,11 +184,11 @@ class ShardingSettingsTestCase(SimpleTestCase):
 
     def test_override_shard_mode_case_insensitive(self):
         """
-        Case: Pass an upcase app and model name to SHARDING["OVERRIDE_SHARDING_MODE"].
+        Case: Pass an upcase app and model name to QUILT_DB["OVERRIDE_SHARDING_MODE"].
         Expected:
         """
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'SHARD_CLASS': 'example.models.Shard',
                 'PRIMARY_DB_ALIAS': 'default',
                 'OVERRIDE_SHARDING_MODE': {
@@ -202,7 +202,7 @@ class ShardingSettingsTestCase(SimpleTestCase):
                 self.fail('It should not trigger an exception')
 
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'SHARD_CLASS': 'example.models.Shard',
                 'PRIMARY_DB_ALIAS': 'default',
                 'OVERRIDE_SHARDING_MODE': {
@@ -217,13 +217,13 @@ class ShardingSettingsTestCase(SimpleTestCase):
 
     def test_override_model_shard_mode_setting(self):
         """
-        Case: A valid configuration value for SHARDING["OVERRIDE_SHARDING_MODE"] is provided.
+        Case: A valid configuration value for QUILT_DB["OVERRIDE_SHARDING_MODE"] is provided.
         Expected: No ImproperlyConfigured is raised
         """
         sharding_app = apps.get_app_config(app_label='djanquiltdb')
 
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'SHARD_CLASS': 'example.models.Shard',
                 'PRIMARY_DB_ALIAS': 'default',
                 'OVERRIDE_SHARDING_MODE': {
@@ -238,13 +238,13 @@ class ShardingSettingsTestCase(SimpleTestCase):
 
     def test_override_app_shard_mode_setting(self):
         """
-        Case: A valid configuration value for SHARDING["OVERRIDE_SHARDING_MODE"] is provided.
+        Case: A valid configuration value for QUILT_DB["OVERRIDE_SHARDING_MODE"] is provided.
         Expected: No ImproperlyConfigured is raised
         """
         sharding_app = apps.get_app_config(app_label='djanquiltdb')
 
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'SHARD_CLASS': 'example.models.Shard',
                 'PRIMARY_DB_ALIAS': 'default',
                 'OVERRIDE_SHARDING_MODE': {
@@ -266,7 +266,7 @@ class PrimaryDbAliasTestCase(SimpleTestCase):
         """
         sharding_app = apps.get_app_config(app_label='djanquiltdb')
 
-        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'}):
+        with override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'}):
             sharding_app.ready()
 
     def test_no_primary_db_setting(self):
@@ -276,21 +276,21 @@ class PrimaryDbAliasTestCase(SimpleTestCase):
         """
         sharding_app = apps.get_app_config(app_label='djanquiltdb')
 
-        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'}):
+        with override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'}):
             with self.assertRaisesMessage(
-                ImproperlyConfigured, "There are MIRRORED models, but SHARDING['PRIMARY_DB_ALIAS'] is not set."
+                ImproperlyConfigured, "There are MIRRORED models, but QUILT_DB['PRIMARY_DB_ALIAS'] is not set."
             ):
                 sharding_app.ready()
 
-        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': None}):
+        with override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': None}):
             with self.assertRaisesMessage(
-                ImproperlyConfigured, "There are MIRRORED models, but SHARDING['PRIMARY_DB_ALIAS'] is not set."
+                ImproperlyConfigured, "There are MIRRORED models, but QUILT_DB['PRIMARY_DB_ALIAS'] is not set."
             ):
                 sharding_app.ready()
 
-        with override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': ''}):
+        with override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': ''}):
             with self.assertRaisesMessage(
-                ImproperlyConfigured, "There are MIRRORED models, but SHARDING['PRIMARY_DB_ALIAS'] is not set."
+                ImproperlyConfigured, "There are MIRRORED models, but QUILT_DB['PRIMARY_DB_ALIAS'] is not set."
             ):
                 sharding_app.ready()
 
@@ -303,7 +303,7 @@ class PrimaryDbAliasTestCase(SimpleTestCase):
 
         # Mark all models of all apps as SHARDED.
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'SHARD_CLASS': 'example.models.Shard',
                 'PRIMARY_DB_ALIAS': None,
                 'OVERRIDE_SHARDING_MODE': {
@@ -318,7 +318,7 @@ class PrimaryDbAliasTestCase(SimpleTestCase):
             sharding_app.ready()
 
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'SHARD_CLASS': 'example.models.Shard',
                 'PRIMARY_DB_ALIAS': '',
                 'OVERRIDE_SHARDING_MODE': {
@@ -333,7 +333,7 @@ class PrimaryDbAliasTestCase(SimpleTestCase):
             sharding_app.ready()
 
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'SHARD_CLASS': 'example.models.Shard',
                 'OVERRIDE_SHARDING_MODE': {
                     ('auth',): ShardingMode.SHARDED,

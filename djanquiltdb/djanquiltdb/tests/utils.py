@@ -84,7 +84,7 @@ class GetShardClass(SimpleTestCase):
     For we will give an error on run in that case.
     """
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     def test_get_shard_class_set(self):
         """
         Case: Call get_shard_class while it is set in the settings.
@@ -94,7 +94,7 @@ class GetShardClass(SimpleTestCase):
 
 
 class GetTemplateName(SimpleTestCase):
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     def test_get_template_unset(self):
         """
         Case: Call get_template_name when it is not set in the settings.
@@ -102,7 +102,7 @@ class GetTemplateName(SimpleTestCase):
         """
         self.assertEqual(get_template_name(), 'template')
 
-    @override_settings(SHARDING={'TEMPLATE_NAME': 'new-template', 'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'TEMPLATE_NAME': 'new-template', 'SHARD_CLASS': 'example.models.Shard'})
     def test_get_template_set(self):
         """
         Case: Call get_template_name while it is set in the settings.
@@ -112,7 +112,7 @@ class GetTemplateName(SimpleTestCase):
 
 
 class GetMappingClass(SimpleTestCase):
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     def test_get_mapping_class_unset(self):
         """
         Case: Call get_mapping_class when it is not set in the settings.
@@ -121,7 +121,7 @@ class GetMappingClass(SimpleTestCase):
         self.assertIsNone(get_mapping_class())
 
     @override_settings(
-        SHARDING={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
+        QUILT_DB={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
     )
     def test_get_mapping_class_set(self):
         """
@@ -351,7 +351,7 @@ class UseShardTestCase(ShardingTestCase):
                 pass
         self.assertFalse(mock_set_active_connection.called)
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     def test_use_shard_check_active_mapping_values_no_mapping_model(self):
         """
         Case: Set check_active_mapping_values to True on use_shard while not having a mapping model defined.
@@ -367,7 +367,7 @@ class UseShardTestCase(ShardingTestCase):
             with use_shard(shard, check_active_mapping_values=True):
                 pass
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('djanquiltdb.router.set_active_connection')
     def test_use_shard_for_inactive_schemas(self, mock_set_active_connection):
         """
@@ -611,7 +611,7 @@ class GetShardForTestCase(ShardingTestCase):
         """
         self.assertEqual(get_shard_for(1), self.shard1)
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     def test_get_shard_for_without_setting(self):
         """
         Case: Use get_shard_for while not having MAPPING_MODEL set.
@@ -690,7 +690,7 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
         self.assertTrue(_connection.get_ps_schema('test_schema'))
         mock_clone_schema.assert_called_once_with('template', 'test_schema')
 
-    @override_settings(SHARDING={'TEMPLATE_NAME': 'other-template', 'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'TEMPLATE_NAME': 'other-template', 'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_migration_with_different_template_name(self, mock_clone_schema):
         """
@@ -703,7 +703,7 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
         self.assertTrue(_connection.get_ps_schema('test_schema'))
         mock_clone_schema.assert_called_once_with('other-template', 'test_schema')
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard', 'NEW_SHARD_NODE': 'other'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'NEW_SHARD_NODE': 'other'})
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_without_node_name_with_setting(self, mock_clone_schema):
         """
@@ -720,7 +720,7 @@ class CreateSchemaOnNodeTestCase(ShardingTestCase):
         self.assertTrue(_connection.get_ps_schema('test_schema'))
         self.assertTrue(mock_clone_schema.called)
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.clone_schema')
     def test_create_schema_without_node_name_without_setting(self, mock_clone_schema):
         """
@@ -900,7 +900,7 @@ class GetShardingModeTestCase(SimpleTestCase):
         Expected: The router should return the overriden setting for the model.
         """
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'OVERRIDE_SHARDING_MODE': {
                     ('example', 'organization'): ShardingMode.MIRRORED,
                 }
@@ -909,7 +909,7 @@ class GetShardingModeTestCase(SimpleTestCase):
             self.assertEqual(get_sharding_mode('example', 'organization'), ShardingMode.MIRRORED)
 
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'OVERRIDE_SHARDING_MODE': {
                     ('example',): ShardingMode.MIRRORED,
                 }
@@ -924,7 +924,7 @@ class GetShardingModeTestCase(SimpleTestCase):
         Expected: The router should return the class setting for the model.
         """
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'OVERRIDE_SHARDING_MODE': {
                     ('example', 'user'): ShardingMode.MIRRORED,
                 }
@@ -945,7 +945,7 @@ class GetShardingModeTestCase(SimpleTestCase):
         Expected: Mode returned as defined by the settings override.
         """
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'OVERRIDE_SHARDING_MODE': {
                     ('example',): ShardingMode.PUBLIC,
                 }
@@ -971,7 +971,7 @@ class GetAllShardedModels(ShardingTestCase):
         Note: System test
         """
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'OVERRIDE_SHARDING_MODE': {
                     ('example', 'organization'): ShardingMode.MIRRORED,
                 }
@@ -1055,7 +1055,7 @@ class GetAllMirroredModels(ShardingTestCase):
                   the rest is sharded and/or not mirrored.
         Note: System test
         """
-        with override_settings(SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'type'): ShardingMode.SHARDED}}):
+        with override_settings(QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example', 'type'): ShardingMode.SHARDED}}):
             self.assertCountEqual(get_all_mirrored_models(), [MirroredUser, Shard])
 
     def test_with_override_archived_models(self):
@@ -1065,7 +1065,7 @@ class GetAllMirroredModels(ShardingTestCase):
         Note: System test
         """
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'OVERRIDE_SHARDING_MODE': {
                     ('non-existing-app', 'long_gone_model'): ShardingMode.MIRRORED,
                     ('example', 'mirroreduser'): ShardingMode.SHARDED,
@@ -1130,7 +1130,7 @@ class GetAllPublicModels(ShardingTestCase):
                   The rest is sharded and/or not mirrored.
         Note: System test
         """
-        with override_settings(SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
+        with override_settings(QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
             self.assertCountEqual(get_all_public_models(), [SuperType, MirroredUser, CakeType, CoatingType])
 
     def test_with_override_archived_models(self):
@@ -1141,7 +1141,7 @@ class GetAllPublicModels(ShardingTestCase):
         Note: System test
         """
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'OVERRIDE_SHARDING_MODE': {
                     ('non-existing-app', 'long_gone_model'): ShardingMode.PUBLIC,
                     ('example', 'type'): ShardingMode.SHARDED,
@@ -1207,7 +1207,7 @@ class GetAllPublicSchemaModels(ShardingTestCase):
                   The rest is sharded and/or not mirrored.
         Note: System test
         """
-        with override_settings(SHARDING={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
+        with override_settings(QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
             self.assertCountEqual(
                 get_all_public_schema_models(), [Shard, SuperType, Type, MirroredUser, CakeType, CoatingType]
             )
@@ -1220,7 +1220,7 @@ class GetAllPublicSchemaModels(ShardingTestCase):
         Note: System test
         """
         with override_settings(
-            SHARDING={
+            QUILT_DB={
                 'OVERRIDE_SHARDING_MODE': {
                     ('non-existing-app', 'long_gone_model'): ShardingMode.PUBLIC,
                     ('example', 'type'): ShardingMode.SHARDED,
@@ -1362,7 +1362,7 @@ class ForEachShardTestCase(ShardingTestCase):
         else:
             self.shards.append((shard_id, kwargs) if kwargs else shard_id)
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     def test_for_each_shard(self):
         """
         Case: Call self.repeatable_function for every shard.
@@ -1372,7 +1372,7 @@ class ForEachShardTestCase(ShardingTestCase):
         for_each_shard(self.repeatable_function)
         self.assertEqual(self.shards, [self.shard1])
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     def test_for_each_shard_with_kwargs(self):
         """
         Case: Call self.repeatable_function for every shard and pass keyword arguments to the function.
@@ -1382,7 +1382,7 @@ class ForEachShardTestCase(ShardingTestCase):
         for_each_shard(self.repeatable_function, kwargs={'organization_id': 1})
         self.assertEqual(self.shards, [(self.shard1, {'organization_id': 1})])
 
-    @override_settings(SHARDING={'SHARD_CLASS': 'example.models.Shard'})
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     def test_for_each_shard_as_id(self):
         """
         Case: Call self.repeatable_function for every shard and get shards as ids.

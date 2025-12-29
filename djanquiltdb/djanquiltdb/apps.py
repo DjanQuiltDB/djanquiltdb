@@ -23,31 +23,31 @@ class DjanQuiltDBConfig(AppConfig):
     def ready(self):
         from .models import BaseShard
 
-        if 'SHARDING' not in dir(settings) or not isinstance(settings.SHARDING, dict):
-            raise ImproperlyConfigured('Missing or incorrect type of a setting SHARDING.')
+        if 'QUILT_DB' not in dir(settings) or not isinstance(settings.QUILT_DB, dict):
+            raise ImproperlyConfigured('Missing or incorrect type of a setting QUILT_DB.')
 
         # Validate shard and node class settings
-        if 'SHARD_CLASS' not in settings.SHARDING:
-            raise ImproperlyConfigured('Missing or incorrect type of a setting SHARDING["{}"].'.format('SHARD_CLASS'))
-        class_ = import_string(settings.SHARDING['SHARD_CLASS'])
+        if 'SHARD_CLASS' not in settings.QUILT_DB:
+            raise ImproperlyConfigured('Missing or incorrect type of a setting QUILT_DB["{}"].'.format('SHARD_CLASS'))
+        class_ = import_string(settings.QUILT_DB['SHARD_CLASS'])
         if not issubclass(class_, BaseShard):
             raise ImproperlyConfigured(
-                'The type {} should inherit from {}.'.format(settings.SHARDING['SHARD_CLASS'], BaseShard.__name__)
+                'The type {} should inherit from {}.'.format(settings.QUILT_DB['SHARD_CLASS'], BaseShard.__name__)
             )
         if hasattr(class_, '__sharding_mode') and getattr(class_, '__sharding_mode') == ShardingMode.SHARDED:
             raise ImproperlyConfigured(
                 'The Shard model cannot itself be sharded. It can only be non-sharded or mirrored.'
             )
 
-        override_sharding_mode = settings.SHARDING.setdefault('OVERRIDE_SHARDING_MODE', {})
+        override_sharding_mode = settings.QUILT_DB.setdefault('OVERRIDE_SHARDING_MODE', {})
         if not isinstance(override_sharding_mode, dict):
-            raise ImproperlyConfigured("Incorrect setting value of SHARDING['OVERRIDE_SHARDING_MODE'].")
+            raise ImproperlyConfigured("Incorrect setting value of QUILT_DB['OVERRIDE_SHARDING_MODE'].")
 
         for key, value in override_sharding_mode.items():
             _validate_override_sharding_mode_entry(key, value)
 
         # Convert app and model names to lowercase
-        settings.SHARDING['OVERRIDE_SHARDING_MODE'] = dict(
+        settings.QUILT_DB['OVERRIDE_SHARDING_MODE'] = dict(
             (tuple(x.lower() for x in k), v) for k, v in override_sharding_mode.items()
         )
 
@@ -70,9 +70,9 @@ class DjanQuiltDBConfig(AppConfig):
             )
 
         if (
-            'PRIMARY_DB_ALIAS' not in settings.SHARDING or not settings.SHARDING.get('PRIMARY_DB_ALIAS', None)
+            'PRIMARY_DB_ALIAS' not in settings.QUILT_DB or not settings.QUILT_DB.get('PRIMARY_DB_ALIAS', None)
         ) and get_all_mirrored_models():
-            raise ImproperlyConfigured("There are MIRRORED models, but SHARDING['PRIMARY_DB_ALIAS'] is not set.")
+            raise ImproperlyConfigured("There are MIRRORED models, but QUILT_DB['PRIMARY_DB_ALIAS'] is not set.")
 
         _validate_public_models()
         _patch_connections()

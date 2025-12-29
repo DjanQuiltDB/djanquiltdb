@@ -7,7 +7,7 @@ def admin_shard_context(request):
     Context processor to provide shard information to admin templates.
     Adds shard switcher context to admin templates.
 
-    If a mapping model is configured (SHARDING["MAPPING_MODEL"]), the selector lists
+    If a mapping model is configured (QUILT_DB["MAPPING_MODEL"]), the selector lists
     mapping entries (by mapping value) instead of shards (by shard id).
     """
     context = {

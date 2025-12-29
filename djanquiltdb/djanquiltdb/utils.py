@@ -35,20 +35,20 @@ class StateException(Exception):
 
 def get_shard_class():
     """Helper function to get implemented Shard class"""
-    return import_string(settings.SHARDING['SHARD_CLASS'])
+    return import_string(settings.QUILT_DB['SHARD_CLASS'])
 
 
 def get_template_name():
-    return settings.SHARDING.get('TEMPLATE_NAME', 'template')
+    return settings.QUILT_DB.get('TEMPLATE_NAME', 'template')
 
 
 def get_mapping_class():
     """
     Helper function to get implemented Mapping model, if the project has one.
     """
-    if 'MAPPING_MODEL' not in settings.SHARDING:
+    if 'MAPPING_MODEL' not in settings.QUILT_DB:
         return None
-    return import_string(settings.SHARDING['MAPPING_MODEL'])
+    return import_string(settings.QUILT_DB['MAPPING_MODEL'])
 
 
 def _node_exists(node_name):
@@ -187,7 +187,7 @@ def get_shard_for(target_value, active_only=True, field=None):
         .. code-block:: python
 
             # settings
-            SHARDING = {
+            QUILT_DB = {
                 'SHARD_CLASS': 'myapp.models.Shard',
                 'MAPPING_MODEL': 'myapp.models.MyMappingModel',
             }
@@ -226,7 +226,7 @@ def get_shard_for(target_value, active_only=True, field=None):
     """
     mapping_model = get_mapping_class()
     if not mapping_model:
-        raise ImproperlyConfigured('Missing or incorrect type of a setting SHARDING["{}"].'.format('MAPPING_MODEL'))
+        raise ImproperlyConfigured('Missing or incorrect type of a setting QUILT_DB["{}"].'.format('MAPPING_MODEL'))
 
     mapping_object = mapping_model.objects.select_related('shard').for_target(target_value, field)
     if active_only:
@@ -266,7 +266,7 @@ class use_shard_for(use_shard):
         .. code-block:: python
 
             # Settings
-            SHARDING = {
+            QUILT_DB = {
                 'SHARD_CLASS': 'myapp.models.Shard',
                 'MAPPING_MODEL': 'myapp.models.MyMappingModel',
             }
@@ -307,12 +307,12 @@ class use_shard_for(use_shard):
 
 
 def get_new_shard_node():
-    return settings.SHARDING.get('NEW_SHARD_NODE', None)
+    return settings.QUILT_DB.get('NEW_SHARD_NODE', None)
 
 
 def create_schema_on_node(schema_name, node_name=None, migrate=True):
     """
-    Create a schema on a given node. If no node is given, it will take the node set in SHARDING.NEW_SHARD_NODE settings.
+    Create a schema on a given node. If no node is given, it will take the node set in QUILT_DB.NEW_SHARD_NODE settings.
     By default it will also call a migration to the newly made schema.
 
     :note: This will be called automatically when you make a Shard model object and save it.
@@ -340,7 +340,7 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
     """
     node_name = node_name or get_new_shard_node()
     if not node_name:
-        raise ValueError('Neither a node_name given, nor a NEW_SHARD_NODE set in the SHARING settings.')
+        raise ValueError('Neither a node_name given, nor a NEW_SHARD_NODE set in the QUILT_DB settings.')
     _node_exists(node_name)
     connections[node_name].create_schema(schema_name)
 
@@ -357,7 +357,7 @@ def create_template_schema(node_name='default', interactive=False, verbosity=0, 
     """
     Each node needs to have a template schema. This is cloned for each new shard on the node.
     This function creates a new schema on a given node that is named 'template', or what you have set under
-    settings.SHARDING.TEMPLATE_NAME.
+    settings.QUILT_DB.TEMPLATE_NAME.
     It then migrates only the sharded tables to this schema, by calling sharding.utils.migrate_schema.
 
     Since this only needs to happen once on each node, you can just run it in the shell.
@@ -481,7 +481,7 @@ def get_model_sharding_mode(model):
 
 
 def get_sharding_mode(app_label, model_name):
-    override_sharding_mode = settings.SHARDING.get('OVERRIDE_SHARDING_MODE', {})
+    override_sharding_mode = settings.QUILT_DB.get('OVERRIDE_SHARDING_MODE', {})
 
     if override_sharding_mode:
         if (app_label, model_name) in override_sharding_mode:
