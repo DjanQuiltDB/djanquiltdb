@@ -46,13 +46,22 @@ DECLARE
   seq_name TEXT;
   tbl_name TEXT;
   max_id_val BIGINT;
+  trigger_def TEXT;
+  trigger_name TEXT;
+  adapted_trigger_def TEXT;
+  func_name TEXT;
+  func_schema TEXT;
+  func_def TEXT;
+  adapted_func_def TEXT;
 
 BEGIN
-  /* Set search_path to include source_schema and public so information_schema queries work correctly. */
-  /* We need source_schema in search_path so that column_default expressions referencing sequences in source_schema are visible. */
+  /* Set search_path to include source_schema and public so information_schema queries work correctly.
+   * We need source_schema in search_path so that column_default expressions referencing sequences
+   * in source_schema are visible.
+   */
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema) || ',public,pg_catalog';
 
-  /* Create all sequences that exist on the source schema on the target schema.  */
+  /* Create all sequences that exist on the source schema on the target schema. */
   FOR dest_table IN
     SELECT sequence_name::text FROM information_schema.SEQUENCES WHERE sequence_schema = source_schema
   LOOP
@@ -68,7 +77,7 @@ BEGIN
     SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
   LOOP
     dest_table_path := dest_schema || '.' || dest_table;
-    /* Create all table on the target schema. */
+    /* Create all tables on the target schema. */
     EXECUTE 'CREATE TABLE ' || dest_table_path || ' (LIKE ' || source_schema || '.' || dest_table || ' INCLUDING ALL)';
     EXECUTE 'INSERT INTO ' || dest_table_path || '(SELECT * FROM ' || source_schema || '.' || dest_table || ')';
 
@@ -83,11 +92,11 @@ BEGIN
   END LOOP;
 
   /* For all tables, create their foreign key constraints.
-     Do not use the information_schema for this. The views there are very slow. We use pg_catalog directly.
-     This endeavor has two sources:
-     hielkehoeve on feb 2014 - for the constraint cloning loop: https://gist.github.com/hielkehoeve/8818562 .
-     Cervo on may 2015 - for the pg_catalog query: https://stackoverflow.com/a/30178351 .
-     */
+   * Do not use the information_schema for this. The views there are very slow. We use pg_catalog directly.
+   * This endeavor has two sources:
+   * hielkehoeve on feb 2014 - for the constraint cloning loop: https://gist.github.com/hielkehoeve/8818562 .
+   * Cervo on may 2015 - for the pg_catalog query: https://stackoverflow.com/a/30178351 .
+   */
   FOR dest_table IN
     SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
   LOOP
@@ -96,7 +105,7 @@ BEGIN
       SELECT
         con.constraint_name AS "name_",
         pg_attribute2.attname AS "child_column_",
-        /* Replace the source schema with destination schema. Keep others schema's (like 'public') in tact. */
+        /* Replace the source schema with destination schema. Keep others schema's (like 'public') intact. */
         REPLACE (pg_namespace_outer.nspname, source_schema, dest_schema) AS "parent_schema_",
         pg_class.relname AS "parent_table_",
         pg_attribute1.attname AS "parent_column_"
@@ -110,10 +119,10 @@ BEGIN
           FROM pg_catalog.pg_class AS pg_class
             JOIN pg_catalog.pg_namespace AS pg_namespace_inner ON pg_namespace_inner.oid = pg_class.relnamespace
             JOIN pg_catalog.pg_constraint AS pg_constraint ON pg_constraint.conrelid = pg_class.oid
-          WHERE  pg_constraint.contype = 'f'  /* foreign key */
+          WHERE pg_constraint.contype = 'f'  /* foreign key */
             AND pg_namespace_inner.nspname = source_schema
             AND pg_class.relname = dest_table  /* child_table */
-            AND pg_class.relkind = 'r' /* ordinary table, */
+            AND pg_class.relkind = 'r'  /* ordinary table */
         ) AS con
         JOIN pg_catalog.pg_attribute AS pg_attribute1 ON pg_attribute1.attrelid = con.confrelid
                                                       AND pg_attribute1.attnum = con.child
@@ -126,6 +135,115 @@ BEGIN
         FOREIGN KEY (' || child_column_ || ')
         REFERENCES ' || parent_schema_ || '.' || parent_table_ || ' (' || parent_column_ || ')
         DEFERRABLE INITIALLY DEFERRED';
+    END LOOP;
+  END LOOP;
+
+  /* Clone all functions from the source schema to the destination schema.
+   * This must be done after tables are cloned, because functions may reference tables.
+   * This is also necessary because triggers (cloned next) may reference functions in the same schema.
+   */
+  FOR func_name, func_def IN
+    SELECT
+      p.proname::text AS func_name,
+      pg_get_functiondef(p.oid) AS func_def
+    FROM pg_catalog.pg_proc p
+    JOIN pg_catalog.pg_namespace n ON p.pronamespace = n.oid
+    WHERE n.nspname = source_schema
+  LOOP
+    /* Replace schema names in the function definition */
+    adapted_func_def := REPLACE(func_def, source_schema || '.', dest_schema || '.');
+    /* Replace the function name and schema in CREATE FUNCTION statement */
+    adapted_func_def := REPLACE(adapted_func_def,
+      'CREATE FUNCTION ' || source_schema || '.' || func_name,
+      'CREATE FUNCTION ' || dest_schema || '.' || func_name);
+    adapted_func_def := REPLACE(adapted_func_def,
+      'CREATE OR REPLACE FUNCTION ' || source_schema || '.' || func_name,
+      'CREATE OR REPLACE FUNCTION ' || dest_schema || '.' || func_name);
+    /* Execute the adapted function definition */
+    EXECUTE adapted_func_def;
+  END LOOP;
+
+  /* For all tables, clone their triggers.
+   * We query pg_trigger to get all triggers from the source schema tables,
+   * then use pg_get_triggerdef to get the CREATE TRIGGER statement and adapt it for the destination schema.
+   */
+  FOR dest_table IN
+    SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
+  LOOP
+    dest_table_path := dest_schema || '.' || dest_table;
+    FOR trigger_name, trigger_def, func_schema, func_name IN
+      SELECT
+        tg.tgname::text AS trigger_name,
+        pg_get_triggerdef(tg.oid) AS trigger_def,
+        nsp_func.nspname::text AS func_schema,
+        p.proname::text AS func_name
+      FROM pg_catalog.pg_trigger tg
+      JOIN pg_catalog.pg_class cls ON tg.tgrelid = cls.oid
+      JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+      JOIN pg_catalog.pg_proc p ON tg.tgfoid = p.oid
+      JOIN pg_catalog.pg_namespace nsp_func ON p.pronamespace = nsp_func.oid
+      WHERE nsp.nspname = source_schema
+        AND cls.relname = dest_table
+        AND NOT tg.tgisinternal  /* Exclude internal triggers (e.g., for foreign keys) */
+    LOOP
+      /* Replace schema names in the trigger definition.
+       * pg_get_triggerdef returns a CREATE TRIGGER statement that may include schema-qualified names.
+       * We need to replace:
+       * 1. Schema-qualified table names in ON clause
+       * 2. Function names in EXECUTE FUNCTION clause (with or without schema qualification)
+       * 3. Any other schema references
+       */
+      adapted_trigger_def := trigger_def;
+      /* Replace schema-qualified table name in ON clause (with and without quotes) */
+      adapted_trigger_def := REPLACE(adapted_trigger_def,
+        'ON ' || source_schema || '.' || dest_table || ' ',
+        'ON ' || dest_table_path || ' ');
+      adapted_trigger_def := REPLACE(adapted_trigger_def,
+        'ON ' || quote_ident(source_schema) || '.' || quote_ident(dest_table) || ' ',
+        'ON ' || dest_table_path || ' ');
+
+      /* Replace function name in EXECUTE FUNCTION clause.
+       * pg_get_triggerdef may or may not include schema qualification, so we handle both cases:
+       * 1. If function is in source_schema, replace with dest_schema (whether qualified or not)
+       * 2. If function is in another schema (like public), keep it as is
+       */
+      IF func_schema = source_schema THEN
+        /* Function is in source schema - replace with dest schema */
+        /* First, replace schema-qualified function name (with and without quotes) */
+        adapted_trigger_def := REPLACE(adapted_trigger_def,
+          'EXECUTE FUNCTION ' || source_schema || '.' || func_name || '()',
+          'EXECUTE FUNCTION ' || dest_schema || '.' || func_name || '()');
+        adapted_trigger_def := REPLACE(adapted_trigger_def,
+          'EXECUTE FUNCTION ' || quote_ident(source_schema) || '.' || quote_ident(func_name) || '()',
+          'EXECUTE FUNCTION ' || dest_schema || '.' || func_name || '()');
+        /* Replace unqualified function name (when function is in same schema, pg_get_triggerdef may omit schema).
+         * We need to be careful to match the exact function name, not a substring.
+         * Use a regex-like approach: match 'EXECUTE FUNCTION ' followed by func_name and '()'
+         */
+        adapted_trigger_def := regexp_replace(adapted_trigger_def,
+          'EXECUTE FUNCTION ' || quote_ident(func_name) || '\\(\\)',
+          'EXECUTE FUNCTION ' || dest_schema || '.' || func_name || '()',
+          'g');
+        /* Also handle unquoted function name */
+        adapted_trigger_def := regexp_replace(adapted_trigger_def,
+          'EXECUTE FUNCTION ' || func_name || '\\(\\)',
+          'EXECUTE FUNCTION ' || dest_schema || '.' || func_name || '()',
+          'g');
+      ELSE
+        /* Function is in another schema (like public) - only replace if it incorrectly references source_schema */
+        adapted_trigger_def := REPLACE(adapted_trigger_def,
+          'EXECUTE FUNCTION ' || source_schema || '.' || func_name || '()',
+          'EXECUTE FUNCTION ' || func_schema || '.' || func_name || '()');
+        adapted_trigger_def := REPLACE(adapted_trigger_def,
+          'EXECUTE FUNCTION ' || quote_ident(source_schema) || '.' || quote_ident(func_name) || '()',
+          'EXECUTE FUNCTION ' || func_schema || '.' || func_name || '()');
+      END IF;
+
+      /* Replace any remaining schema references */
+      adapted_trigger_def := REPLACE(adapted_trigger_def, source_schema || '.', dest_schema || '.');
+
+      /* Execute the adapted trigger definition */
+      EXECUTE adapted_trigger_def;
     END LOOP;
   END LOOP;
 
@@ -142,7 +260,7 @@ BEGIN
       /* Check if table has an id column and get max ID */
       EXECUTE format('SELECT COALESCE(MAX(id), 0) FROM %I.%I WHERE id IS NOT NULL',
         dest_schema, dest_table) INTO max_id_val;
-      
+
       IF max_id_val > 0 THEN
         /* Try to get the sequence/identity sequence name */
         DECLARE

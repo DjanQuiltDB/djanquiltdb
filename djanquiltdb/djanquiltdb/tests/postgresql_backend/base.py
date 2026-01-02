@@ -1718,3 +1718,207 @@ class IdentityColumnTestCase(ShardingTransactionTestCase):
                 )
                 if max_id > 0:
                     self.assertTrue(is_called, 'Sequence should be marked as called when max_id > 0')
+
+
+class TriggersTestCase(ShardingTransactionTestCase):
+    def test_clone_schema_with_triggers(self):
+        """
+        Case: Clone a schema containing triggers.
+        Expected: Triggers should be cloned correctly to the destination schema and function correctly.
+        """
+        create_template_schema('default')
+
+        # Create a test schema
+        connection.create_schema('source_schema')
+        connection.clone_schema('template', 'source_schema')
+
+        with use_shard(node_name='default', schema_name='source_schema') as env:
+            cursor = env.connection.cursor()
+            # First check if example_organization table exists
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT 1 FROM information_schema.tables 
+                    WHERE table_schema = 'source_schema' 
+                    AND table_name = 'example_organization'
+                )
+            """)
+            self.assertTrue(cursor.fetchone()[0])
+
+            # Create log tables to track updates
+            cursor.execute("""
+                CREATE TABLE update_log (
+                    id SERIAL PRIMARY KEY,
+                    table_name TEXT NOT NULL,
+                    record_id INTEGER,
+                    trigger_type INTEGER,
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+
+            # Create a simple trigger function that inserts into the log table with a fully qualified reference
+            cursor.execute("""
+                CREATE OR REPLACE FUNCTION log_update_trigger_1()
+                RETURNS TRIGGER AS $$
+                BEGIN
+                    INSERT INTO source_schema.update_log (table_name, record_id, trigger_type)
+                    VALUES (TG_TABLE_NAME, NEW.id, 1);
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+            """)
+            # Create a simple trigger function that inserts into the log table with a reference that relies on
+            # search_path being set correctly.
+            cursor.execute("""
+                CREATE OR REPLACE FUNCTION log_update_trigger_2()
+                RETURNS TRIGGER AS $$
+                BEGIN
+                    INSERT INTO update_log (table_name, record_id, trigger_type)
+                    VALUES (TG_TABLE_NAME, NEW.id, 2);
+                    RETURN NEW;
+                    END;
+                $$ LANGUAGE plpgsql;
+            """)
+
+            # Create triggers on example_organization that fires on UPDATE
+            cursor.execute("""
+                CREATE TRIGGER update_log_trigger_1
+                    AFTER UPDATE ON example_organization
+                    FOR EACH ROW
+                    EXECUTE FUNCTION log_update_trigger_1();
+                """)
+            cursor.execute("""
+                CREATE TRIGGER update_log_trigger_2
+                AFTER UPDATE ON example_organization
+                FOR EACH ROW
+                EXECUTE FUNCTION log_update_trigger_2();
+            """)
+
+        # Clone the schema
+        connection.create_schema('dest_schema')
+        connection.clone_schema('source_schema', 'dest_schema')
+
+        # Verify triggers are cloned
+        cursor = connection.cursor()
+        # Get triggers from source schema
+        cursor.execute("""
+            SELECT tg.tgname::text, pg_get_triggerdef(tg.oid)::text
+            FROM pg_catalog.pg_trigger tg
+            JOIN pg_catalog.pg_class cls ON tg.tgrelid = cls.oid
+            JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+            WHERE nsp.nspname = 'source_schema'
+              AND cls.relname = 'example_organization'
+              AND NOT tg.tgisinternal
+        """)
+        source_triggers = cursor.fetchall()
+
+        self.assertGreaterEqual(len(source_triggers), 2, 'Source schema should have at least two triggers')
+
+        # Get triggers from dest schema
+        cursor.execute("""
+            SELECT tg.tgname::text, pg_get_triggerdef(tg.oid)::text
+            FROM pg_catalog.pg_trigger tg
+            JOIN pg_catalog.pg_class cls ON tg.tgrelid = cls.oid
+            JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+            WHERE nsp.nspname = 'dest_schema'
+              AND cls.relname = 'example_organization'
+              AND NOT tg.tgisinternal
+        """)
+        dest_triggers = cursor.fetchall()
+
+        # Verify we have the same number of triggers
+        self.assertEqual(
+            len(dest_triggers), len(source_triggers), 'Number of triggers should match between source and dest schemas'
+        )
+
+        # Verify trigger names match
+        source_trigger_names = {t[0] for t in source_triggers}
+        dest_trigger_names = {t[0] for t in dest_triggers}
+        self.assertEqual(
+            source_trigger_names, dest_trigger_names, 'Trigger names should match between source and dest schemas'
+        )
+
+        # Verify trigger definitions reference the correct schema
+        for dest_trigger_name, dest_trigger_def in dest_triggers:
+            # The trigger definition should reference dest_schema for the table, not source_schema
+            self.assertIn(
+                'dest_schema.example_organization',
+                dest_trigger_def,
+                f'Trigger {dest_trigger_name} definition should reference dest_schema table',
+            )
+            self.assertNotIn(
+                'source_schema.example_organization',
+                dest_trigger_def,
+                f'Trigger {dest_trigger_name} definition should not reference source_schema table',
+            )
+
+        # Test that the trigger actually works by performing an UPDATE and checking the log table
+        with use_shard(node_name='default', schema_name='dest_schema') as env:
+            cursor = env.connection.cursor()
+            # Insert a test record
+            cursor.execute(
+                'INSERT INTO dest_schema.example_organization (name, created_at) VALUES (%s, %s) RETURNING id',
+                ['Test Org', '2024-01-01 00:00:00'],
+            )
+            org_id = cursor.fetchone()[0]
+
+            # Verify log table is empty before update
+            cursor.execute('SELECT COUNT(*) FROM dest_schema.update_log')
+            log_count_before = cursor.fetchone()[0]
+            self.assertEqual(log_count_before, 0, 'Log table should be empty before update')
+
+            # Update the record - trigger should fire and insert into log table
+            cursor.execute(
+                'UPDATE dest_schema.example_organization SET name = %s WHERE id = %s', ['Updated Org', org_id]
+            )
+
+            # Verify a row was inserted into the log table
+            cursor.execute('SELECT COUNT(*) FROM dest_schema.update_log')
+            log_count_after = cursor.fetchone()[0]
+            self.assertEqual(log_count_after, 2, 'Trigger should have inserted two rows into log table after update')
+
+            # Update the record - trigger should fire and insert into log table
+            cursor.execute('SET search_path = dest_schema,public')
+            cursor.execute('UPDATE example_organization SET name = %s WHERE id = %s', ['Updated Org', org_id])
+
+            # Verify a row was inserted into the log table
+            cursor.execute('SELECT COUNT(*) FROM dest_schema.update_log')
+            log_count_after = cursor.fetchone()[0]
+            self.assertEqual(
+                log_count_after, 4, 'Trigger should have inserted two more rows into log table after update'
+            )
+
+            # Verify the log entry has correct data
+            cursor.execute(
+                """
+                SELECT table_name, record_id
+                FROM dest_schema.update_log 
+                WHERE record_id = %s
+                AND trigger_type = 1
+            """,
+                [org_id],
+            )
+            log_entry = cursor.fetchone()
+            self.assertIsNotNone(log_entry, 'Log entry should exist for updated record')
+            self.assertEqual(log_entry[0], 'example_organization', 'Log entry should have correct table name')
+            self.assertEqual(log_entry[1], org_id, 'Log entry should have correct record id')
+            log_entry = cursor.fetchone()
+            self.assertIsNotNone(log_entry, 'Log entry should exist for updated record')
+            self.assertEqual(log_entry[0], 'example_organization', 'Log entry should have correct table name')
+            self.assertEqual(log_entry[1], org_id, 'Log entry should have correct record id')
+            cursor.execute(
+                """
+                SELECT table_name, record_id
+                FROM dest_schema.update_log
+                WHERE record_id = %s
+                  AND trigger_type = 2
+                """,
+                [org_id],
+            )
+            log_entry = cursor.fetchone()
+            self.assertIsNotNone(log_entry, 'Log entry should exist for updated record')
+            self.assertEqual(log_entry[0], 'example_organization', 'Log entry should have correct table name')
+            self.assertEqual(log_entry[1], org_id, 'Log entry should have correct record id')
+            log_entry = cursor.fetchone()
+            self.assertIsNotNone(log_entry, 'Log entry should exist for updated record')
+            self.assertEqual(log_entry[0], 'example_organization', 'Log entry should have correct table name')
+            self.assertEqual(log_entry[1], org_id, 'Log entry should have correct record id')
