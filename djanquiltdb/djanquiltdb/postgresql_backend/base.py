@@ -530,6 +530,7 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         'rollback_exc',
         'health_check_enabled',
         'health_check_done',
+        'execute_wrappers',
     )
 
     def __init__(self, main_connection, options):
@@ -556,14 +557,6 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         # we activated this connection in a context manager, meaning that we already activated the lock and we don't
         # have to do that in the cursor's execute method.
         self.lock_on_execute = bool(options.lock and not options.use_shard and options.lock_keys)
-
-        # Django < 2.2 #30171
-        if not hasattr(self._main_connection, '_thread_sharing_lock'):
-            self._PROXY_FIELDS = self._PROXY_FIELDS + ('allow_thread_sharing',)
-
-        # Django > 2.0
-        if hasattr(self._main_connection, 'execute_wrappers'):
-            self._PROXY_FIELDS = self._PROXY_FIELDS + ('execute_wrappers',)
 
     @property
     def alias(self):
