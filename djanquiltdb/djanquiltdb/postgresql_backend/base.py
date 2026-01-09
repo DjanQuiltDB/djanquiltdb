@@ -651,6 +651,8 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         'execute_wrappers',
     )
 
+    _present_shard_options_as_alias = False
+
     def __init__(self, main_connection, options):
         self._main_connection = main_connection
         self.shard_options = options
@@ -678,6 +680,10 @@ class ShardDatabaseWrapper(DatabaseWrapper):
 
     @property
     def alias(self):
+        # See postgresql_backend.operations.patch_in_lookup() for information on this switch
+        if self._present_shard_options_as_alias:
+            return self.shard_options
+
         return '{}|{}'.format(self._main_connection.alias, self.schema_name)
 
     @alias.setter

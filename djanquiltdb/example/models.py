@@ -173,13 +173,28 @@ class CakeQuerySet(models.QuerySet):
         return super().delete()
 
 
+class FilteredCakeManager(models.Manager):
+    """
+    Manager that always adds a default filter to the queryset.
+    This mimics the behavior of SoftDeleteManager which adds deleted_at__isnull=True,
+    ensuring that _has_filters() always returns True. This is necessary to reproduce
+    the bug where Django's _remove_items() creates a queryset with _db set to ShardOptions.
+    """
+
+    def get_queryset(self):
+        # Add a filter that's always true but ensures _has_filters() returns True
+        # This replicates the behavior of SoftDeleteManager which adds deleted_at__isnull=True
+        # We use CakeQuerySet to preserve the custom methods like chocolate() and delete()
+        return CakeQuerySet(self.model, using=self._db).filter(name__isnull=False)
+
+
 @sharded_model()
 class Cake(models.Model):
     name = models.CharField('name', max_length=128)
     type = models.ForeignKey('CakeType', on_delete=models.DO_NOTHING, verbose_name='type', null=True)
     coating_type = models.ForeignKey('CoatingType', on_delete=models.DO_NOTHING, verbose_name='Coating Type', null=True)
 
-    objects = CakeQuerySet.as_manager()
+    objects = FilteredCakeManager.from_queryset(CakeQuerySet)()
 
     class Meta:
         app_label = 'example'

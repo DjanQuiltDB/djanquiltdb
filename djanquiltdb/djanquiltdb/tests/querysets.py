@@ -1,7 +1,7 @@
 import pickle  # nosec
 
 from django.db import IntegrityError
-from example.models import Cake, Organization, Shard, Suborganization, SuperType
+from example.models import Cake, Organization, Shard, Suborganization, SuperType, User
 
 from djanquiltdb import State
 from djanquiltdb.options import ShardOptions
@@ -111,6 +111,72 @@ class QuerySetTestCase(ShardingTestCase):
             suborganizations = organization1.parent.prefetch_related('child').all()
 
         self.assertCountEqual(list(map(lambda x: x.child, suborganizations)), [organization2, organization3])
+
+    def test_m2m_with_manager_filter(self):
+        """
+        Case: Add and remove Cakes to a User's cake property, it being M2M with a filter pre-applied by the Manager
+        Expected: Cakes are successfully added to the user's cake relation, and then successfully removed
+        """
+        with use_shard(self.shard):
+            # Create a user and a couple of cakes
+            user = User.objects.create(name='Test User', email='test@example.com')
+            cake1 = Cake.objects.create(name='Chocolate cake')
+            cake2 = Cake.objects.create(name='Vanilla cake')
+
+            # Initially, user should have no cakes
+            self.assertEqual(user.cake.count(), 0)
+            self.assertCountEqual(list(user.cake.all()), [])
+
+        # Add both cakes to the user's M2M relation
+        user.cake.add(cake1, cake2)
+
+        # Verify both cakes were added
+        self.assertEqual(user.cake.count(), 2)
+        self.assertCountEqual(list(user.cake.all()), [cake1, cake2])
+        self.assertCountEqual(list(user.cake.values_list('id', flat=True)), [cake1.id, cake2.id])
+
+        # Remove one cake from the relation
+        user.cake.remove(cake1)
+
+        # Verify only cake2 remains
+        self.assertEqual(user.cake.count(), 1)
+        self.assertCountEqual(list(user.cake.all()), [cake2])
+        self.assertEqual(list(user.cake.values_list('id', flat=True)), [cake2.id])
+
+        # Remove the remaining cake
+        user.cake.remove(cake2)
+
+        # Verify no cakes remain
+        self.assertEqual(user.cake.count(), 0)
+        self.assertCountEqual(list(user.cake.all()), [])
+
+        # Add both cakes to the user's M2M relation
+        user.cake.add(cake1, cake2)
+
+        # Verify both cakes were added
+        self.assertEqual(user.cake.count(), 2)
+        self.assertCountEqual(list(user.cake.all()), [cake1, cake2])
+        self.assertCountEqual(list(user.cake.values_list('id', flat=True)), [cake1.id, cake2.id])
+
+        user.cake.remove(cake1.id, cake2.id)
+
+        # Verify no cakes remain
+        self.assertEqual(user.cake.count(), 0)
+        self.assertCountEqual(list(user.cake.all()), [])
+
+        # Add both cakes to the user's M2M relation
+        user.cake.add(cake1, cake2)
+
+        # Verify both cakes were added
+        self.assertEqual(user.cake.count(), 2)
+        self.assertCountEqual(list(user.cake.all()), [cake1, cake2])
+        self.assertCountEqual(list(user.cake.values_list('id', flat=True)), [cake1.id, cake2.id])
+
+        user.cake.clear()
+
+        # Verify no cakes remain
+        self.assertEqual(user.cake.count(), 0)
+        self.assertCountEqual(list(user.cake.all()), [])
 
 
 class UsingTestCase(ShardingTestCase):

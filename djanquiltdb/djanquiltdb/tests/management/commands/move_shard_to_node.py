@@ -867,22 +867,22 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         queries = [i['sql'] for i in connections['other'].queries]
         self.assertIn(
             'SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
-            '"example_cake" WHERE ("example_cake"."id" >= 1 AND "example_cake"."id" < 4)',
+            '"example_cake" WHERE ("example_cake"."name" IS NOT NULL AND "example_cake"."id" >= 1 AND "example_cake"."id" < 4)',
             queries,
         )
         self.assertIn(
             'SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
-            '"example_cake" WHERE ("example_cake"."id" >= 4 AND "example_cake"."id" < 7)',
+            '"example_cake" WHERE ("example_cake"."name" IS NOT NULL AND "example_cake"."id" >= 4 AND "example_cake"."id" < 7)',
             queries,
         )
         self.assertIn(
             'SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
-            '"example_cake" WHERE ("example_cake"."id" >= 7 AND "example_cake"."id" < 10)',
+            '"example_cake" WHERE ("example_cake"."name" IS NOT NULL AND "example_cake"."id" >= 7 AND "example_cake"."id" < 10)',
             queries,
         )
         self.assertIn(
             'SELECT "example_cake"."id", "example_cake"."type_id", "example_cake"."coating_type_id" FROM '
-            '"example_cake" WHERE ("example_cake"."id" >= 10 AND "example_cake"."id" < 13)',
+            '"example_cake" WHERE ("example_cake"."name" IS NOT NULL AND "example_cake"."id" >= 10 AND "example_cake"."id" < 13)',
             queries,
         )
 
