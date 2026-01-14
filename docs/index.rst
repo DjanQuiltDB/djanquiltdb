@@ -1,5 +1,5 @@
-Patchman Django Sharding
-========================
+DjanQuiltDB - Django Database Sharding
+======================================
 Easy horizontal database sharding that allows for scaling and faster queries.
 
 
@@ -22,6 +22,7 @@ The User Guide
     modules/utils
     modules/connection
     modules/migrations
+    modules/fixtures
     modules/celery
     modules/commands
     modules/contrib

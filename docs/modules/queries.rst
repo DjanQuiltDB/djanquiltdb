@@ -9,7 +9,7 @@ All others will result in a a form of 'table does not exist' error.
 Overriding a connection
 -----------------------
 Database connections are overridden by the library. This happens by monkeypatching them upon startup.
-(See sharding.apps._patch_connections). Remember that there is always an open connection to each node Django knows.
+(See djanquiltdb.apps._patch_connections). Remember that there is always an open connection to each node Django knows.
 For each of those connection we set our current active shard, if there is any.
 There are various ways to influence the active shard, and there are ways to route queries specifically,
 if you want to bypass this.
@@ -20,7 +20,7 @@ The most common way to set the active shard on a connection is by setting a shar
 
 .. code-block:: python
 
-  from sharding.utils import use_shard
+  from djanquiltdb.utils import use_shard
 
   with use_shard(shard_object):
       User.objects.all()

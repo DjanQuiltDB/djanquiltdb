@@ -1,0 +1,143 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Docker: Build Test Image",
+            "type": "shell",
+            "command": "docker-compose",
+            "args": [
+                "build"
+            ],
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": false
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Docker: Run All Tox Tests",
+            "type": "shell",
+            "command": "docker-compose",
+            "args": [
+                "run",
+                "--rm",
+                "test",
+                "tox"
+            ],
+            "problemMatcher": [],
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Docker: Run Tox Tests (Python 3.14, Django 6.0)",
+            "type": "shell",
+            "command": "docker-compose",
+            "args": [
+                "run",
+                "--rm",
+                "test",
+                "tox",
+                "-e",
+                "py314-dj60"
+            ],
+            "problemMatcher": [],
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Docker: Run Coverage Report",
+            "type": "shell",
+            "command": "docker-compose",
+            "args": [
+                "run",
+                "--rm",
+                "test",
+                "tox",
+                "-e",
+                "coverage"
+            ],
+            "problemMatcher": [],
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Docker: Start Services",
+            "type": "shell",
+            "command": "docker-compose",
+            "args": [
+                "up",
+                "-d",
+                "postgres"
+            ],
+            "problemMatcher": [],
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Docker: Stop Services",
+            "type": "shell",
+            "command": "docker-compose",
+            "args": [
+                "down"
+            ],
+            "problemMatcher": [],
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Docker: Clean Up (Remove containers, volumes)",
+            "type": "shell",
+            "command": "docker-compose",
+            "args": [
+                "down",
+                "-v",
+                "--rmi",
+                "local"
+            ],
+            "problemMatcher": [],
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            }
+        },
+        {
+            "label": "Docker: Shell into Test Container",
+            "type": "shell",
+            "command": "docker-compose",
+            "args": [
+                "run",
+                "--rm",
+                "test",
+                "/bin/bash"
+            ],
+            "problemMatcher": [],
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "focus": true
+            }
+        }
+    ]
+}
+

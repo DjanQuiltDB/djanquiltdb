@@ -15,10 +15,10 @@ It is not supplied as standard by this library for we don't want to add celery a
 
     from celery import shared_task
     from celery.exceptions import MaxRetriesExceededError
-    from sharding.utils import use_shard, StateException
+    from djanquiltdb.utils import use_shard, StateException
 
     from example.models import User
-    from example.models import OrganizationShards  # organization->shard mapping model
+    from example.models import OrganizationShard  # organization->shard mapping model
 
 
     class HandleStateException(object):
@@ -52,7 +52,7 @@ It is not supplied as standard by this library for we don't want to add celery a
     @HandleStateException(retry_delay=2)
     @shared_task()
     def do_something(organization_id):
-        shard = OrganizationShards.objects.get(organization_id=organization_id).shard
+        shard = OrganizationShard.objects.get(organization_id=organization_id).shard
         with use_shard(shard):
             for user in User.objects.filter(organization_id=organization_id):
                 print("user:", user)

@@ -1,3 +1,0 @@
-[bandit]
-; (B322) Input is unsafe in Python 2, but it _is_ in python 3. The sharding library does not support Python 2.
-skips: B322

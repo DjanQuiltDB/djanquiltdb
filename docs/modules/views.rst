@@ -10,7 +10,7 @@ The ``UseShardMiddleware`` will enable a use_shard context manager in ``process_
 
 .. image:: view_flow.svg
    :scale: 100 %
-   :alt: Patchman Django Sharding request flow
+   :alt: DjanQuiltDB request flow
    :align: center
 
 Since it inherits ``StateExceptionMiddleware`` It will raise a 503 error if the shard required is in a non-active state.

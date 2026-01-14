@@ -53,8 +53,8 @@ To solve this, you can easily extend the command and override the function it ca
 .. code-block:: python
 
     from example.models import Shard
-    from sharding.management.commands.move_data_to_shard import Command as BaseCommand
-    from sharding.utils import get_new_shard_node
+    from djanquiltdb.management.commands.move_data_to_shard import Command as BaseCommand
+    from djanquiltdb.utils import get_new_shard_node
 
 
     class Command(BaseCommand):

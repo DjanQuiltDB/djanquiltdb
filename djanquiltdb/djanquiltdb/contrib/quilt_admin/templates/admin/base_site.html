@@ -1,0 +1,72 @@
+{% extends "admin/base_site.html" %}
+{% load static %}
+
+{% block extrahead %}
+    {{ block.super }}
+    <style>
+        .shard-switcher {
+            display: inline-block;
+            margin-left: 20px;
+        }
+        .shard-switcher form {
+            display: inline-block;
+        }
+        .shard-switcher select {
+            padding: 5px 10px;
+            border: 1px solid #417690;
+            border-radius: 3px;
+            background-color: #417690;
+            color: white;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .shard-switcher select:hover {
+            background-color: #205067;
+        }
+        .shard-switcher select:focus {
+            outline: none;
+            border-color: #79aec8;
+        }
+        .shard-maintenance-banner {
+            background-color: #ffc107;
+            color: #856404;
+            padding: 10px 15px;
+            margin: 0;
+            border-bottom: 2px solid #ff9800;
+            text-align: center;
+            font-weight: bold;
+        }
+    </style>
+{% endblock %}
+
+{% block pretitle %}
+    {% if shard_maintenance_mode %}
+    <div class="shard-maintenance-banner" style="position: sticky; top: 0; z-index: 1000;">
+        This shard is read-only because it's in maintenance mode
+    </div>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    {{ block.super }}
+{% endblock %}
+
+{% block userlinks %}
+    {{ block.super }}
+    {% if available_shards %}
+    <div class="shard-switcher">
+        <form method="post" action="{% url 'djanquiltdb_switch_shard' %}" id="shard-switcher-form">
+            {% csrf_token %}
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <select name="{{ shard_switcher_field_name }}" id="shard-select" onchange="this.form.submit()">
+                <option value="">-- Override Shard --</option>
+                {% for opt in shard_switcher_options %}
+                    <option value="{{ opt.value }}" {% if current_shard_switcher_value == opt.value %}selected{% endif %}>
+                        {{ opt.label }}
+                    </option>
+                {% endfor %}
+            </select>
+        </form>
+    </div>
+    {% endif %}
+{% endblock %}

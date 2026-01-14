@@ -1,0 +1,114 @@
+version: '3.8'
+
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: djanquiltdb-test
+    volumes:
+      # Mount the entire project directory for live updates
+      - .:/app:z
+      - /app/.ruff_cache
+      - /app/.tox
+    command: tox
+    depends_on:
+      postgres17:
+        condition: service_healthy
+      postgres17-2:
+        condition: service_healthy
+      postgres18:
+        condition: service_healthy
+      postgres18-2:
+        condition: service_healthy
+    networks:
+      - test-network
+
+  postgres17:
+    image: postgres:17
+    container_name: djanquiltdb-postgres17
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=test_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres17-data:/var/lib/postgresql/data
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres17-2:
+    image: postgres:17
+    container_name: djanquiltdb-postgres17-2
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=test_db2
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres17-data2:/var/lib/postgresql/data
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres18:
+    image: postgres:18
+    container_name: djanquiltdb-postgres18
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=test_db
+    ports:
+      - "5435:5432"
+    volumes:
+      - postgres18-data:/var/lib/postgresql
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres18-2:
+    image: postgres:18
+    container_name: djanquiltdb-postgres18-2
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=test_db2
+    ports:
+      - "5436:5432"
+    volumes:
+      - postgres18-data2:/var/lib/postgresql
+    networks:
+      - test-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  tox-cache:
+  tox-env-cache:
+  postgres17-data:
+  postgres17-data2:
+  postgres18-data:
+  postgres18-data2:
+
+networks:
+  test-network:
+    driver: bridge
+
