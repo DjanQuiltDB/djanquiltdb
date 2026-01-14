@@ -9,17 +9,17 @@ Installing djanquiltdb
 
 If you want to install stable version, you can do so doing::
 
-    pip install git+ssh://git@github.com/sectigo/djanquiltdb.git@stable#egg=djanquiltdb
+    pip install git+ssh://git@github.com/djanquiltdb/djanquiltdb.git@stable#egg=djanquiltdb
 
 If you want to install development version (unstable), you can do so doing::
 
-    pip install git+ssh://git@github.com/sectigo/djanquiltdb.git@master#egg=djanquiltdb
+    pip install git+ssh://git@github.com/djanquiltdb/djanquiltdb.git@master#egg=djanquiltdb
 
 Or, if you'd like to install the development version as a git repository (so
 you can ``git pull`` updates, use the ``-e`` flag with ``pip install``, like
 so::
 
-    pip install -e git+ssh://git@github.com/sectigo/djanquiltdb.git@master#egg=djanquiltdb
+    pip install -e git+ssh://git@github.com/djanquiltdb/djanquiltdb.git@master#egg=djanquiltdb
 
 Add ``djanquiltdb`` to your ``INSTALLED_APPS`` in settings.py::
 
@@ -28,6 +28,26 @@ Add ``djanquiltdb`` to your ``INSTALLED_APPS`` in settings.py::
         'djanquiltdb',
         ...
     )
+
+You will need to have a template schema on every node, which only has to be created once. For production purposes you
+really only need to run it once at initialization, and once whenever a new node is added, but for local development and
+testing purposes there can be a reason to run it more frequently. How you choose to set this up is considered up to
+personal preference, but an example implementation you can use to ensure that it is always present, including in test
+scenarios given default runners, is the following::
+
+   from djanquiltdb.utils import create_template_schema, for_each_node
+
+   def create_template_schema_before_migrations(sender, **kwargs):
+       if sender.name != '<app in which you register this signal>':
+           # emit_pre_migrate_signal runs once per app; we only need it once total.
+           # Simply only run it for this app.
+           return
+
+       def _create_template_schema(node_name):
+           create_template_schema(node_name=node_name, migrate=False)
+
+       for_each_node(_create_template_schema)
+
 
 Creating models
 ---------------

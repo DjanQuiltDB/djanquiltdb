@@ -1,3 +1,26 @@
+v 3.0.0
+-------
+Altered:
+ * Renamed from 'patchman-django-sharding' to 'djanquiltdb' due to shift in project stewardship.
+ * Updated settings and models to match rename, breaking backwards compatibility.
+ * Switched to ruff for linting and static checks, reformatted to match.
+ * `flushdb` management command now allows flushing shards in maintenance state.
+ * `loaddata` management command now supports schema-aware fixture JSON/YAML files (also used during tests).
+ * Fixed a typo in the `OrganizationShard` model name in the example app.
+
+Added:
+ * Standardized implementation of database-backed session backend (djanquiltdb.sessions).
+ * Django admin extension for switching shards (djanquiltdb.contrib.quilt_admin).
+ * Explicit tests for different PostgreSQL versions, supporting PostgreSQL 17 and 18.
+ * Cloning of functions and triggers from the template schema when creating a new shard, for compatibility with e.g.
+   django-pgtrigger
+ * Support for Django 6.0.
+ * Support for Python 3.14.
+
+Dropped:
+ * Support for Django 3.2 and 4.0.
+ * Support for Python 3.6 and 3.11.
+
 v 2.0.0
 -------
 Added:
