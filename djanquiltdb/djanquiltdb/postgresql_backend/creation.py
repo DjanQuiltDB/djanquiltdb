@@ -1,8 +1,11 @@
-import functools
 import json
 from collections import defaultdict
+from io import StringIO
 
+from django.apps import apps
 from django.conf import settings
+from django.core import serializers
+from django.db import router, transaction
 from django.db.backends.postgresql.creation import DatabaseCreation as BaseDatabaseCreation
 
 from djanquiltdb.management.base import shard_table_exists
@@ -11,33 +14,75 @@ from djanquiltdb.utils import create_template_schema, get_shard_class, get_templ
 
 
 class DatabaseCreation(BaseDatabaseCreation):
+    def _serialize_for_schema(self, schema_alias):
+        """
+        Serialize all models that belong to a specific schema.
+
+        Uses the schema's full alias (e.g. 'default|org_1_schema') for both allow_migrate_model and queryset routing so
+        the router correctly includes sharded models for shard schemas and queries read from the correct schema's
+        tables.
+        """
+        from django.db.migrations.loader import MigrationLoader
+
+        loader = MigrationLoader(self.connection)
+
+        def get_objects():
+            for app_config in apps.get_app_configs():
+                if (
+                    app_config.models_module is not None
+                    and app_config.label in loader.migrated_apps
+                    and app_config.name not in settings.TEST_NON_SERIALIZED_APPS
+                ):
+                    for model in app_config.get_models():
+                        if model._meta.can_migrate(self.connection) and router.allow_migrate_model(schema_alias, model):
+                            queryset = model._base_manager.using(schema_alias).order_by(model._meta.pk.name)
+                            yield from queryset
+
+        out = StringIO()
+        serializers.serialize('json', get_objects(), indent=None, stream=out)
+        return out.getvalue()
+
     def serialize_db_to_string(self):
-        _use_shard = functools.partial(use_shard, node_name=self.connection.alias)
+        """
+        Serialize all schemas into a single JSON string.
+
+        Uses each schema's full alias (e.g. 'default|org_1_schema') for both allow_migrate_model checks and queryset
+        routing, so sharded models are correctly included when serializing shard and template schemas.
+        """
+        node_name = self.connection.alias
 
         data = defaultdict(list)
 
-        # Public schema
-        with _use_shard(schema_name=PUBLIC_SCHEMA_NAME):
-            data[PUBLIC_SCHEMA_NAME] = json.loads(super().serialize_db_to_string())
+        # Public schema: mirrored and public models
+        data[PUBLIC_SCHEMA_NAME] = json.loads(self._serialize_for_schema(node_name))
 
-        # Template schema
+        # Template schema: sharded models
         template_name = get_template_name()
         if self.connection.get_ps_schema(template_name):
-            with _use_shard(schema_name=template_name, include_public=False):
-                data[template_name] = json.loads(super().serialize_db_to_string())
+            data[template_name] = json.loads(self._serialize_for_schema(f'{node_name}|{template_name}'))
 
-        # Shards
+        # Shards: sharded models
         if shard_table_exists():
-            for shard in get_shard_class().objects.filter(node_name=self.connection.alias):
-                with _use_shard(shard, active_only_schemas=False, include_public=False):
-                    data[shard.schema_name] = json.loads(super().serialize_db_to_string())
+            for shard in get_shard_class().objects.filter(node_name=node_name):
+                data[shard.schema_name] = json.loads(self._serialize_for_schema(f'{node_name}|{shard.schema_name}'))
 
         return json.dumps(data)
 
     def deserialize_db_from_string(self, data):
-        for schema_name, data_ in json.loads(data).items():
+        """
+        Restore serialized DB state per-schema.
+
+        Uses use_shard to set the active connection so the DynamicDbRouter routes saves to the correct schema. Wraps
+        each schema's restore in a deferred-constraints transaction so model ordering (e.g. auth_permission before
+        contenttypes_contenttype) doesn't cause FK violations.
+        """
+        for schema_name, schema_data in json.loads(data).items():
             with use_shard(node_name=self.connection.alias, schema_name=schema_name, active_only_schemas=False):
-                super().deserialize_db_from_string(json.dumps(data_))
+                with transaction.atomic(using=self.connection.alias):
+                    with self.connection.cursor() as cursor:
+                        cursor.execute('SET CONSTRAINTS ALL DEFERRED')
+                    for obj in serializers.deserialize('json', json.dumps(schema_data), using=self.connection.alias):
+                        obj.save()
 
 
 class TemplateDatabaseCreation(DatabaseCreation):
