@@ -58,7 +58,7 @@
         <form method="post" action="{% url 'djanquiltdb_switch_shard' %}" id="shard-switcher-form">
             {% csrf_token %}
             <input type="hidden" name="next" value="{{ request.get_full_path }}">
-            <select name="{{ shard_switcher_field_name }}" id="shard-select" onchange="this.form.submit()">
+            <select name="{{ shard_switcher_field_name }}" id="shard-select">
                 <option value="">-- Override Shard --</option>
                 {% for opt in shard_switcher_options %}
                     <option value="{{ opt.value }}" {% if current_shard_switcher_value == opt.value %}selected{% endif %}>
@@ -67,6 +67,11 @@
                 {% endfor %}
             </select>
         </form>
+        <script{% if use_csp_nonce %} nonce="{{ csp_nonce }}"{% endif %}>
+            document.getElementById('shard-select').addEventListener('change', function () {
+                this.form.submit();
+            });
+        </script>
     </div>
     {% endif %}
 {% endblock %}
