@@ -4,7 +4,10 @@ Tests for djanquiltdb.sessions.SessionStore
 Basic test to verify sessions are stored in the appropriate shard.
 """
 
-from django.test import override_settings
+from unittest import mock
+
+from django.core import signing
+from django.test import SimpleTestCase, override_settings
 from example.models import Organization, OrganizationShard, QuiltSession, Shard
 
 from djanquiltdb.sessions import SessionStore
@@ -58,3 +61,42 @@ class SessionStoreShardRoutingTestCase(ShardingTestCase):
         store2 = SessionStore(session_key=store.session_key, shard_selector=self.org.id)
         store2.load()
         self.assertEqual(store2.get('test_key'), 'test_value')
+
+
+@override_settings(
+    QUILT_DB={
+        'SHARD_CLASS': 'example.models.Shard',
+        'MAPPING_MODEL': 'example.models.OrganizationShard',
+    },
+    QUILT_SESSIONS={
+        'SESSION_MODEL': 'example.models.QuiltSession',
+    },
+)
+class SessionStoreShardSelectorSignatureTestCase(SimpleTestCase):
+    """SessionStore.shard_selector must not raise on expired or tampered session keys."""
+
+    # Any value long enough to pass SessionBase's minimum-length validation; the
+    # actual content is irrelevant because signing.loads is mocked to fail.
+    INVALID_SESSION_KEY = 'x' * 32
+
+    def test_shard_selector_returns_none_when_signature_expired(self):
+        """
+        Case: session cookie is older than SESSION_COOKIE_AGE so signing.loads raises SignatureExpired.
+        Expected: shard_selector returns None, session_key is cleared, no exception.
+        """
+        store = SessionStore(session_key=self.INVALID_SESSION_KEY)
+        with mock.patch.object(
+            signing, 'loads', side_effect=signing.SignatureExpired('Signature age 1211225 > 1209600 seconds')
+        ):
+            self.assertIsNone(store.shard_selector)
+        self.assertIsNone(store.session_key)
+
+    def test_shard_selector_returns_none_when_signature_invalid(self):
+        """
+        Case: session cookie signature is tampered so signing.loads raises BadSignature.
+        Expected: shard_selector returns None, session_key is cleared, no exception.
+        """
+        store = SessionStore(session_key=self.INVALID_SESSION_KEY)
+        with mock.patch.object(signing, 'loads', side_effect=signing.BadSignature('bad signature')):
+            self.assertIsNone(store.shard_selector)
+        self.assertIsNone(store.session_key)
