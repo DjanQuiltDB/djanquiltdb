@@ -1,3 +1,8 @@
+v 3.1.1
+-------
+Altered:
+ * Fixed a bug in the search path reset per transaction for PgBouncer transaction mode.
+
 v 3.1.0
 -------
 Altered:

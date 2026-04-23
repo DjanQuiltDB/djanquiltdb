@@ -356,17 +356,21 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         super().close()
 
     def rollback(self):
-        super().rollback()
-        self.current_search_paths = [PUBLIC_SCHEMA_NAME]
+        try:
+            super().rollback()
+        finally:
+            self.current_search_paths = None
 
     def commit(self):
-        # Reset current_search_paths so the next _cursor() call re-issues SET search_path. This is necessary for
-        # PgBouncer in transaction-pooling mode: after a commit, the next transaction may be handed a different physical
-        # connection that has no search_path set, so we must not skip the SET even if the schema hasn't changed.
+        # Invalidate current_search_paths so the next _cursor() call re-issues SET search_path. Required for PgBouncer
+        # transaction pooling (the next transaction may be handed a different physical connection with no search_path
+        # set) and for direct connections (SET search_path is session-level, not transactional, so we cannot pretend the
+        # session was reset just because the transaction ended). None as sentinel never compares equal to a list, so the
+        # early-exit in _cursor() always falls through.
         try:
             super().commit()
         finally:
-            self.current_search_paths = [PUBLIC_SCHEMA_NAME]
+            self.current_search_paths = None
 
     def get_schema(self):
         return self.schema_name
