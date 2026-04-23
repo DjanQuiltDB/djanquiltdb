@@ -67,9 +67,17 @@ class SessionStore(BaseSessionStore):
         if not self.session_key:
             return
 
-        deserialized_key = signing.loads(
-            self.session_key, serializer=self.serializer, max_age=settings.SESSION_COOKIE_AGE, salt=self.salt
-        )
+        try:
+            deserialized_key = signing.loads(
+                self.session_key, serializer=self.serializer, max_age=settings.SESSION_COOKIE_AGE, salt=self.salt
+            )
+        except signing.BadSignature:
+            # Expired or tampered session key — treat as anonymous and discard the
+            # key so SessionBase mints a fresh one on next write. Matches Django's
+            # signed_cookies backend, which also returns an empty session here.
+            self._session_key = None
+            return None
+
         match = _get_session_key_regex().search(deserialized_key)
         self.__shard_selector = match.group(1) if match else None
         return self.__shard_selector

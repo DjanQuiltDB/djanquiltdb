@@ -1,3 +1,12 @@
+v 3.1.0
+-------
+Altered:
+ * Set search paths per transaction instead of per session for compatibility with PgBouncer transaction mode.
+ * `dumpdata` management command now supports schema-aware fixture JSON/YAML files.
+ * Django admin extension (djanquiltdb.contrib.quilt_admin) is now compatible with CSP-enforced applications.
+ * Database serialization now includes sharded data.
+ * Database-backed session backend (djanquiltdb.sessions) now cleanly clears a session if its signature is expired.
+
 v 3.0.0
 -------
 Altered:

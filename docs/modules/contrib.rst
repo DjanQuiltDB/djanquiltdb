@@ -129,6 +129,13 @@ If you are not using a default `UseShardMiddleware`/`UseShardForMiddleware` or h
 `django_sharding.contrib.admin.shard_selector.BaseAdminShardSelector`. If this is required, refer to the code for
 more details and reference implementations.
 
+If your project serves the Django admin under a strict Content Security Policy (e.g. ``script-src 'nonce-…'``
+without ``'unsafe-inline'``), set ``QUILT_ADMIN['USE_CSP_NONCE'] = True``. The shard switcher will then emit
+``<script nonce="{{ csp_nonce }}">`` for the small inline script that wires up the dropdown, relying on the
+``csp_nonce`` template context variable provided by Django 6.0+'s ``django.template.context_processors.csp`` or
+the ``django-csp`` package. The default is ``False``, which emits a plain ``<script>`` tag without a ``nonce``
+attribute; this is the right choice for projects that don't use CSP or that allow ``'unsafe-inline'``.
+
 Please be aware that if you run a multi-node setup and are relying on Python logic in your application to propagate
 changes to each node individually, and you are exposing mirrored models in the admin, you need to make sure that your
 admin classes use this custom save logic so that they keep the nodes consistent.

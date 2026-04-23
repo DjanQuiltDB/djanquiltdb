@@ -50,7 +50,7 @@ setup(
         'dev': dev_requirements,
     },
     classifiers=[
-        'Development Status :: 5 - Production/Stable ',
+        'Development Status :: 5 - Production/Stable',
         'Environment :: Web Environment',
         'Intended Audience :: Developers',
         'Operating System :: OS Independent',

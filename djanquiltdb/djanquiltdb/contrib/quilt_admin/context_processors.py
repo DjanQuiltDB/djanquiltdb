@@ -1,3 +1,5 @@
+from django.conf import settings
+
 from djanquiltdb.contrib.quilt_admin.apps import ADMIN_SHARD_SELECTOR_CLASS
 from djanquiltdb.utils import get_mapping_class, get_shard_class
 
@@ -19,6 +21,7 @@ def admin_shard_context(request):
         'shard_switcher_mode': 'shard',  # or 'mapping'
         'shard_maintenance_mode': False,
         'shard_maintenance_message': None,
+        'use_csp_nonce': getattr(settings, 'QUILT_ADMIN', {}).get('USE_CSP_NONCE', False),
     }
     # Add maintenance status if available
     if hasattr(request, '_shard_maintenance_mode'):
