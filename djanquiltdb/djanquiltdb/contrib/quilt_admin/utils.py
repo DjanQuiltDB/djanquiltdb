@@ -1,3 +1,5 @@
+import functools
+
 from djanquiltdb.utils import get_shard_for, use_shard
 
 """
@@ -66,3 +68,25 @@ class CrossShardMappingUserProxy(_BaseCrossShardUserProxy):
             self._home_shard = get_shard_for(self._selector)
         # Pass mapping_value through so the advisory lock keys match the previous use_shard_for behaviour.
         return use_shard(self._home_shard, mapping_value=self._selector)
+
+
+def route_admin_log_to_home_shard(func):
+    """
+    Decorator for Django's ``ModelAdmin.log_*`` methods. While the admin is switched to another shard,
+    ``request.user`` is wrapped in a cross-shard proxy and the active connection points at the viewed shard.
+    Django's admin logging then tries to write a ``LogEntry`` into that shard's ``django_admin_log``, whose
+    ``user_id`` foreign key references that shard's user table - where the admin user does not exist - so the
+    write fails at COMMIT. When the user is a cross-shard proxy, run the wrapped method inside the user's home
+    shard so the ``LogEntry`` (and its valid ``user_id`` FK) lands there instead. For a regular user this is a
+    no-op.
+    """
+
+    @functools.wraps(func)
+    def wrapper(self, request, *args, **kwargs):
+        user = getattr(request, 'user', None)
+        if isinstance(user, _BaseCrossShardUserProxy):
+            with user._enter_home_shard():
+                return func(self, request, *args, **kwargs)
+        return func(self, request, *args, **kwargs)
+
+    return wrapper

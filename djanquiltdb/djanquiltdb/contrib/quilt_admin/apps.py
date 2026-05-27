@@ -32,3 +32,24 @@ class ShardedAdminAppConfig(AppConfig):
             raise ImproperlyConfigured(
                 f"Shard selector class {ADMIN_SHARD_SELECTOR_CLASS} doesn't subclass BaseAdminShardSelector"
             )
+
+        self._patch_admin_logging()
+
+    @staticmethod
+    def _patch_admin_logging():
+        """
+        Make Django's admin logging shard-aware. While an admin is switched to another shard, the LogEntry write
+        must go to the admin user's home shard (where the user_id FK is valid), not the viewed shard. See
+        djanquiltdb.contrib.quilt_admin.utils.route_admin_log_to_home_shard.
+        """
+        from django.contrib.admin.options import ModelAdmin
+
+        from djanquiltdb.contrib.quilt_admin.utils import route_admin_log_to_home_shard
+
+        for name in ('log_addition', 'log_change', 'log_deletions'):
+            method = getattr(ModelAdmin, name)
+            if getattr(method, '_quilt_home_shard_wrapped', False):
+                continue
+            wrapped = route_admin_log_to_home_shard(method)
+            wrapped._quilt_home_shard_wrapped = True
+            setattr(ModelAdmin, name, wrapped)

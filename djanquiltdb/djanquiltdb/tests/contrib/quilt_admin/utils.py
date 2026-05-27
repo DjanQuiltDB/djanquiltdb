@@ -2,7 +2,11 @@ from unittest import mock
 
 from django.test import SimpleTestCase
 
-from djanquiltdb.contrib.quilt_admin.utils import CrossShardMappingUserProxy, CrossShardUserProxy
+from djanquiltdb.contrib.quilt_admin.utils import (
+    CrossShardMappingUserProxy,
+    CrossShardUserProxy,
+    route_admin_log_to_home_shard,
+)
 
 
 class _ShardActivationRecorder:
@@ -202,3 +206,70 @@ class CrossShardProxyIdentityTests(SimpleTestCase):
         self.assertNotIsInstance(id_proxy, CrossShardMappingUserProxy)
         self.assertIsInstance(mapping_proxy, CrossShardMappingUserProxy)
         self.assertNotIsInstance(mapping_proxy, CrossShardUserProxy)
+
+
+class RouteAdminLogToHomeShardTests(SimpleTestCase):
+    """
+    The admin log_* wrapper must run the LogEntry write inside the user's home shard when (and only when)
+    request.user is a cross-shard proxy, so the user_id FK resolves on the home shard instead of the viewed one.
+    """
+
+    def setUp(self):
+        self.recorder = _ShardActivationRecorder()
+        patcher = mock.patch('djanquiltdb.contrib.quilt_admin.utils.use_shard', self.recorder)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.shard = object()  # sentinel home Shard object
+
+        recorder = self.recorder
+        self.observed_active = []
+        observed_active = self.observed_active
+
+        @route_admin_log_to_home_shard
+        def log_change(model_admin, request, obj, message):
+            # Stand-in for a ModelAdmin.log_* method; record whether a shard context was active when it ran.
+            observed_active.append(recorder.active)
+            return 'log-entry'
+
+        self.log_change = log_change
+        self.model_admin = object()  # stand-in for a ModelAdmin instance
+
+    def test_proxied_user_runs_log_in_home_shard(self):
+        request = mock.Mock(user=CrossShardUserProxy(mock.Mock(pk=7), self.shard))
+
+        result = self.log_change(self.model_admin, request, mock.Mock(), 'changed')
+
+        self.assertEqual(result, 'log-entry')
+        self.assertEqual(self.observed_active, [1])  # home shard active during the write
+        self.assertEqual(self.recorder.call_count, 1)  # home shard activated exactly once
+        self.assertEqual(self.recorder.active, 0)  # and exited afterwards
+        (args, _kwargs) = self.recorder.calls[0]
+        self.assertIs(args[0], self.shard)  # activated the user's home shard
+
+    def test_mapping_proxied_user_runs_log_in_home_shard(self):
+        with mock.patch('djanquiltdb.contrib.quilt_admin.utils.get_shard_for', return_value=self.shard):
+            request = mock.Mock(user=CrossShardMappingUserProxy(mock.Mock(pk=7), 42))
+
+            self.log_change(self.model_admin, request, mock.Mock(), 'changed')
+
+        self.assertEqual(self.observed_active, [1])
+        (args, kwargs) = self.recorder.calls[0]
+        self.assertIs(args[0], self.shard)
+        self.assertEqual(kwargs.get('mapping_value'), 42)
+
+    def test_plain_user_does_not_activate_any_shard(self):
+        request = mock.Mock(user=mock.Mock(pk=7))  # a regular, non-proxied user
+
+        result = self.log_change(self.model_admin, request, mock.Mock(), 'changed')
+
+        self.assertEqual(result, 'log-entry')
+        self.assertEqual(self.observed_active, [0])  # ran without any shard context
+        self.assertEqual(self.recorder.call_count, 0)
+
+    def test_request_without_user_does_not_activate_any_shard(self):
+        request = mock.Mock(spec=[])  # request object with no `.user`
+
+        self.log_change(self.model_admin, request, mock.Mock(), 'changed')
+
+        self.assertEqual(self.observed_active, [0])
+        self.assertEqual(self.recorder.call_count, 0)
