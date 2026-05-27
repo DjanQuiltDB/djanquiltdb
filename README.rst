@@ -36,22 +36,19 @@ Tox can be used to run the test suite against multiple Python and Django version
 Building
 --------
 
-To build the library, simply run::
+Building a distribution requires the ``build`` package (``pip install build``).
+To build both the source distribution and the wheel, simply run::
 
-    python setup.py build
+    python -m build
 
-And to make a distribution, run ::
-
-    python setup.py sdist
-
-The result is then bound in the /dist folder
+The results are then placed in the /dist folder
 
 Documentation
 -------------
 
 Documentation can be found in the `/docs` directory. Build the documentation with::
 
-    python setup.py build_sphinx
+    make -C docs html
 
 Attribution
 ===========
