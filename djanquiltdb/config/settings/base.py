@@ -40,7 +40,9 @@ INSTALLED_APPS = (
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.admin',
     'djanquiltdb',
+    'djanquiltdb.contrib.quilt_admin',
     'example',
     'migration_tests',
 )
@@ -92,6 +94,8 @@ QUILT_DB = {
     'OVERRIDE_SHARDING_MODE': {
         ('auth',): ShardingMode.MIRRORED,
         ('contenttypes',): ShardingMode.MIRRORED,
+        # django_admin_log holds a FK to the (sharded) user table, so it must live per-schema too.
+        ('admin',): ShardingMode.SHARDED,
     },
 }
 

@@ -1,3 +1,12 @@
+v 3.1.2
+-------
+Added:
+ * PEP 621 metadata
+
+Altered:
+ * Sped up attribute lookups in quilt_admin while switched to another shard
+ * Fixed a bug where modifications in a shard-switched quilt_admin would raise IntegrityError on admin audit log
+
 v 3.1.1
 -------
 Altered:
