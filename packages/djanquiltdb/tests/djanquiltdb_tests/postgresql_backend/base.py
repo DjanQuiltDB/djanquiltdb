@@ -109,7 +109,8 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
     def test_close(self, mock_close):
         """
         Case: Call connection.close().
-        Expected: connection.search_path_set to be set to false.
+        Expected: connection.current_search_paths reset to the public schema, matching the search_path a
+                  freshly opened connection starts out with.
         """
         connection.close()
         self.assertTrue(mock_close.called)
@@ -119,11 +120,23 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
     def test_rollback(self, mock_rollback):
         """
         Case: Call connection.rollback().
-        Expected: connection.search_path_set to be set to false.
+        Expected: connection.current_search_paths invalidated to None, so the next _cursor() call re-issues
+                  SET search_path (required for PgBouncer transaction pooling).
         """
         connection.rollback()
         self.assertTrue(mock_rollback.called)
-        self.assertEqual(connection.current_search_paths, [PUBLIC_SCHEMA_NAME])
+        self.assertIsNone(connection.current_search_paths)
+
+    @mock.patch('django.db.backends.postgresql.base.DatabaseWrapper.commit')
+    def test_commit(self, mock_commit):
+        """
+        Case: Call connection.commit().
+        Expected: connection.current_search_paths invalidated to None, so the next _cursor() call re-issues
+                  SET search_path (required for PgBouncer transaction pooling).
+        """
+        connection.commit()
+        self.assertTrue(mock_commit.called)
+        self.assertIsNone(connection.current_search_paths)
 
     def test_get_ps_schema_with_existing_schema(self):
         """
