@@ -1,0 +1,17 @@
+[run]
+branch = True
+source = djanquiltdb
+
+; Data is recorded against the editable install under src/; map any install location back onto it so reports combine.
+[paths]
+source =
+    ../src/djanquiltdb
+    */src/djanquiltdb
+    */site-packages/djanquiltdb
+
+[report]
+omit =
+    */.tox/*
+
+[html]
+directory = ../coverage/

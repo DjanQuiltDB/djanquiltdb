@@ -1,0 +1,89 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "djanquiltdb"
+dynamic = ["version"]
+description = "Library to shard a database on the hierarchy's top level table."
+readme = "README.rst"
+requires-python = ">=3.14"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [
+    { name = "DjanQuiltDB Project", email = "djanquiltdb@portal42.net" },
+    { name = "Cloud Linux Software, Inc.", email = "info@cloudlinux.com" },
+    { name = "Patchman B.V.", email = "hello@patchman.co" },
+]
+keywords = [
+    "django",
+    "database",
+    "sharding",
+    "postgresql",
+    "multi-tenant",
+    "horizontal-scaling",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Framework :: Django",
+    "Framework :: Django :: 6.0",
+]
+dependencies = [
+    "django>=6.0,<7.0",
+    "psycopg[binary]>=3.0.0",
+    "progressbar2",
+]
+
+[project.optional-dependencies]
+test = [
+    "tox==4.12.1",
+    "pluggy",
+    "dj-database-url==2.1.0",
+    "django-braces==1.15.0",
+    "tblib",
+    "filelock",
+    "coverage",
+    "PyYAML",
+]
+dev = [
+    "djanquiltdb[test]",
+    "sphinx>=8,<10",
+]
+
+[project.urls]
+Homepage = "https://github.com/DjanQuiltDB/djanquiltdb"
+Repository = "https://github.com/DjanQuiltDB/djanquiltdb"
+Documentation = "https://github.com/DjanQuiltDB/djanquiltdb/tree/master/docs"
+Changelog = "https://github.com/DjanQuiltDB/djanquiltdb/blob/master/packages/djanquiltdb/CHANGELOG.rst"
+Issues = "https://github.com/DjanQuiltDB/djanquiltdb/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "djanquiltdb.__version__" }
+
+# src/ holds only shippable code; the test suite lives outside the package under tests/.
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["*.html"]
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+extend-select = [
+    # isort
+    "I",
+]
+
+[tool.ruff.format]
+quote-style = "single"
+indent-style = "space"
+docstring-code-format = true
+skip-magic-trailing-comma = false
