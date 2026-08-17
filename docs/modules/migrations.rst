@@ -114,7 +114,11 @@ with a hint to remove the tables from the database.
                ],
                database_operations=[
                    migrations.RunSQL('DROP TABLE example_knights CASCADE;',
-                   sharding_mode=ShardingMode.SHARDED)
+                   hints={'sharding_mode': ShardingMode.SHARDED})
                ]
            )
        ]
+
+Note that the sharding mode goes in the ``hints`` dictionary. ``RunSQL`` and ``RunPython`` pass it straight to the
+router's ``allow_migrate``, and without it the router cannot tell where the operation belongs and raises a
+``ProgrammingError``.
