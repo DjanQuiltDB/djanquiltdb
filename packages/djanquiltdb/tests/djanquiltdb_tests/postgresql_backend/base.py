@@ -462,6 +462,21 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         """
         self.assertEqual(connection.get_schema_for_model(Type), [('public',)])
 
+    def test_get_schema_for_model_finds_a_view_backed_relation(self):
+        """
+        Case: A schema relies on a view as db_name for a model instead of a regular table.
+        Expected: Both the base table and the view schema are reported for the model.
+        """
+        cursor = connection.cursor()
+        connection.create_schema('view_backed_schema')
+        cursor.execute(
+            'CREATE VIEW view_backed_schema.{} AS SELECT * FROM public.{}'.format(
+                Type._meta.db_table, Type._meta.db_table
+            )
+        )
+
+        self.assertEqual(sorted(connection.get_schema_for_model(Type)), [('public',), ('view_backed_schema',)])
+
     def test_get_schema_for_sequence(self):
         """
         Case: Call get_schema_for_sequence for a sequence name.
@@ -2154,3 +2169,505 @@ class VirtualGeneratedColumnsTestCase(ShardingTransactionTestCase):
         columns = connection.get_copyable_column_names('virtual_source', schema_name='virtual_source_schema')
 
         self.assertEqual(columns, ['id', 'body'])
+
+
+
+class ViewsTestCase(ShardingTransactionTestCase):
+    def setUp(self):
+        super().setUp()
+        create_template_schema('default')
+        connection.create_schema('view_source_schema')
+        connection.clone_schema('template', 'view_source_schema')
+        connection.create_schema('view_dest_schema')
+
+    @contextmanager
+    def _source(self):
+        with use_shard(node_name='default', schema_name='view_source_schema') as env:
+            yield env.connection.cursor()
+
+    @contextmanager
+    def _dest(self):
+        with use_shard(node_name='default', schema_name='view_dest_schema') as env:
+            yield env.connection.cursor()
+
+    def _clone(self):
+        connection.clone_schema('view_source_schema', 'view_dest_schema')
+
+    def _relkind(self, name, schema_name='view_dest_schema'):
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT cls.relkind::text
+            FROM pg_catalog.pg_class cls
+            JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+            WHERE nsp.nspname = %s AND cls.relname = %s
+        """,
+            [schema_name, name],
+        )
+        result = cursor.fetchone()
+        return result[0] if result else None
+
+    def _add_organization(self, cursor, name):
+        cursor.execute(
+            'INSERT INTO view_dest_schema.example_organization (name, created_at) VALUES (%s, %s) RETURNING id',
+            [name, '2024-01-01 00:00:00'],
+        )
+        return cursor.fetchone()[0]
+
+    def test_clone_schema_keeps_a_view_a_view(self):
+        """
+        Case: Clone a schema with a view.
+        Expected: The destination has a view (not a table), which references the table in the destination schema.
+        """
+        with self._source() as cursor:
+            cursor.execute('CREATE VIEW example_organization_view AS SELECT id, name FROM example_organization')
+
+        self._clone()
+
+        self.assertEqual(self._relkind('example_organization_view'), 'v')
+
+        cursor = connection.cursor()
+        cursor.execute("SELECT pg_get_viewdef('view_dest_schema.example_organization_view'::regclass, true)")
+        definition = cursor.fetchone()[0]
+        self.assertIn('view_dest_schema.example_organization', definition)
+        self.assertNotIn('view_source_schema', definition)
+
+    def test_a_cloned_view_tracks_its_base_table(self):
+        """
+        Case: Insert into the base table of a cloned view, after the clone.
+        Expected: The new row is visible through the view.
+        """
+        with self._source() as cursor:
+            cursor.execute('CREATE VIEW example_organization_view AS SELECT id, name FROM example_organization')
+            cursor.execute(
+                'INSERT INTO example_organization (name, created_at) VALUES (%s, %s)',
+                ['Cloned Org', '2024-01-01 00:00:00'],
+            )
+
+        self._clone()
+
+        with self._dest() as cursor:
+            self._add_organization(cursor, 'Added After Cloning')
+
+            cursor.execute('SELECT name FROM view_dest_schema.example_organization_view ORDER BY name')
+            self.assertEqual([row[0] for row in cursor.fetchall()], ['Added After Cloning', 'Cloned Org'])
+
+    def test_a_cloned_view_stays_writable(self):
+        """
+        Case: Write through an auto-updatable view in the cloned schema.
+        Expected: The writes reach the cloned base table and fire its row triggers.
+        """
+        with self._source() as cursor:
+            # A column alias keeps the view auto-updatable; the restriction is on expressions, not on renamed
+            # plain column references.
+            cursor.execute("""
+                CREATE VIEW example_organization_bridge AS
+                SELECT id, name AS organization_name, created_at FROM example_organization
+            """)
+            cursor.execute("""
+                CREATE TABLE write_log (id SERIAL PRIMARY KEY, record_id INTEGER, action TEXT)
+            """)
+            cursor.execute("""
+                CREATE OR REPLACE FUNCTION log_write() RETURNS TRIGGER AS $$
+                BEGIN
+                    INSERT INTO write_log (record_id, action) VALUES (COALESCE(NEW.id, OLD.id), TG_OP);
+                    RETURN NULL;
+                END;
+                $$ LANGUAGE plpgsql;
+            """)
+            cursor.execute("""
+                CREATE TRIGGER log_write_trigger
+                AFTER INSERT OR UPDATE OR DELETE ON example_organization
+                FOR EACH ROW EXECUTE FUNCTION log_write();
+            """)
+
+        self._clone()
+
+        with self._dest() as cursor:
+            cursor.execute(
+                'INSERT INTO view_dest_schema.example_organization_bridge (organization_name, created_at) '
+                'VALUES (%s, %s) RETURNING id',
+                ['Through The View', '2024-01-01 00:00:00'],
+            )
+            organization_id = cursor.fetchone()[0]
+
+            cursor.execute('SELECT name FROM view_dest_schema.example_organization WHERE id = %s', [organization_id])
+            self.assertEqual(cursor.fetchone(), ('Through The View',))
+
+            cursor.execute(
+                'UPDATE view_dest_schema.example_organization_bridge SET organization_name = %s WHERE id = %s',
+                ['Renamed Through The View', organization_id],
+            )
+            cursor.execute('SELECT name FROM view_dest_schema.example_organization WHERE id = %s', [organization_id])
+            self.assertEqual(cursor.fetchone(), ('Renamed Through The View',))
+
+            cursor.execute('DELETE FROM view_dest_schema.example_organization_bridge WHERE id = %s', [organization_id])
+            cursor.execute(
+                'SELECT COUNT(*) FROM view_dest_schema.example_organization WHERE id = %s', [organization_id]
+            )
+            self.assertEqual(cursor.fetchone(), (0,))
+
+            cursor.execute(
+                'SELECT action FROM view_dest_schema.write_log WHERE record_id = %s ORDER BY id', [organization_id]
+            )
+            self.assertEqual(
+                [row[0] for row in cursor.fetchall()],
+                ['INSERT', 'UPDATE', 'DELETE'],
+                'Row triggers on the base table should fire for writes made through the cloned view',
+            )
+
+    def test_clone_schema_preserves_string_literals_matching_the_schema_name(self):
+        """
+        Case: Clone a view whose body contains the source schema's name inside string literals.
+        Expected: The literals survive verbatim.
+        """
+        with self._source() as cursor:
+            cursor.execute("""
+                CREATE VIEW literal_view AS
+                SELECT id, name, 'view_source_schema.marker' AS marker
+                FROM example_organization
+                WHERE name LIKE 'view_source_schema.%'
+            """)
+            cursor.execute(
+                'INSERT INTO example_organization (name, created_at) VALUES (%s, %s)',
+                ['view_source_schema.a', '2024-01-01 00:00:00'],
+            )
+
+        self._clone()
+
+        cursor = connection.cursor()
+        cursor.execute("SELECT pg_get_viewdef('view_dest_schema.literal_view'::regclass, true)")
+        definition = cursor.fetchone()[0]
+        self.assertIn("'view_source_schema.%'", definition)
+        self.assertIn("'view_source_schema.marker'", definition)
+        self.assertIn('view_dest_schema.example_organization', definition)
+
+        with self._dest() as cursor:
+            cursor.execute('SELECT name, marker FROM view_dest_schema.literal_view')
+            self.assertEqual(cursor.fetchall(), [('view_source_schema.a', 'view_source_schema.marker')])
+
+    def test_clone_schema_preserves_literals_in_matview_indexes_and_view_defaults(self):
+        """
+        Case: Clone a materialized view with a partial index whose predicate contains the source schema's name, and
+              a view with a column default that is such a literal.
+        Expected: Both literals survive verbatim.
+        """
+        with self._source() as cursor:
+            cursor.execute('CREATE MATERIALIZED VIEW literal_matview AS SELECT id, name FROM example_organization')
+            cursor.execute(
+                'CREATE INDEX literal_matview_partial ON literal_matview (name) '
+                "WHERE name <> 'view_source_schema.reserved'"
+            )
+            cursor.execute('CREATE VIEW defaulted_literal_view AS SELECT id, name FROM example_organization')
+            cursor.execute(
+                "ALTER VIEW defaulted_literal_view ALTER COLUMN name SET DEFAULT 'view_source_schema.default'"
+            )
+
+        self._clone()
+
+        cursor = connection.cursor()
+        cursor.execute(
+            'SELECT pg_get_indexdef(i.indexrelid) FROM pg_catalog.pg_index i '
+            "WHERE i.indrelid = 'view_dest_schema.literal_matview'::regclass"
+        )
+        index_definitions = [row[0] for row in cursor.fetchall()]
+        self.assertTrue(
+            any("'view_source_schema.reserved'" in definition for definition in index_definitions),
+            index_definitions,
+        )
+
+        cursor.execute(
+            'SELECT pg_get_expr(d.adbin, d.adrelid) FROM pg_catalog.pg_attrdef d '
+            "WHERE d.adrelid = 'view_dest_schema.defaulted_literal_view'::regclass"
+        )
+        self.assertIn("'view_source_schema.default'", cursor.fetchone()[0])
+
+    def test_materialized_view_helpers_report_population_and_dependency_order(self):
+        """
+        Case: Clone a schema with a materialized view, a second one stacked on it (named to sort out of dependency
+              order), and an unpopulated one.
+        Expected: The dependency order lists the base before its dependent regardless of names, and the populated
+                  set leaves out the WITH NO DATA view.
+        """
+        with self._source() as cursor:
+            cursor.execute('CREATE MATERIALIZED VIEW z_base AS SELECT id, name FROM example_organization')
+            cursor.execute('CREATE MATERIALIZED VIEW a_dependent AS SELECT id, name FROM z_base')
+            cursor.execute('CREATE MATERIALIZED VIEW n_unpopulated AS SELECT id FROM example_organization WITH NO DATA')
+
+        with use_shard(node_name='default', schema_name='view_source_schema') as env:
+            order = env.connection.get_materialized_views_in_dependency_order()
+            populated = env.connection.get_populated_materialized_views()
+
+        self.assertEqual(set(order), {'z_base', 'a_dependent', 'n_unpopulated'})
+        self.assertLess(order.index('z_base'), order.index('a_dependent'))
+        self.assertEqual(populated, {'z_base', 'a_dependent'})
+
+    def test_materialized_view_dependency_order_reaches_through_a_plain_view(self):
+        """
+        Case: A materialized view reading a plain view that reads another materialized view, named so the dependent
+              sorts first alphabetically.
+        Expected: The base is still listed before the dependent, and the plain view carrying the edge between them is
+                  not listed at all, since only a materialized view can be refreshed.
+        """
+        with self._source() as cursor:
+            cursor.execute('CREATE MATERIALIZED VIEW z_stacked_base AS SELECT id, name FROM example_organization')
+            cursor.execute('CREATE VIEW m_stacked_bridge AS SELECT id, name FROM z_stacked_base')
+            cursor.execute('CREATE MATERIALIZED VIEW a_stacked_dependent AS SELECT id, name FROM m_stacked_bridge')
+
+        with use_shard(node_name='default', schema_name='view_source_schema') as env:
+            order = env.connection.get_materialized_views_in_dependency_order()
+
+        self.assertEqual(set(order), {'z_stacked_base', 'a_stacked_dependent'})
+        self.assertLess(order.index('z_stacked_base'), order.index('a_stacked_dependent'))
+
+    def test_refresh_materialized_views_brings_the_stored_rows_up_to_date(self):
+        """
+        Case: Insert a row after building a materialized view, a plain view over it and a second materialized view
+              over that, then refresh the schema.
+        Expected: Both materialized views serve the new row, so the one reading through the plain view was refreshed
+                  after the one it depends on. A view left WITH NO DATA stays unpopulated.
+        """
+        with self._source() as cursor:
+            cursor.execute('CREATE MATERIALIZED VIEW z_stacked_base AS SELECT id, name FROM example_organization')
+            cursor.execute('CREATE VIEW m_stacked_bridge AS SELECT id, name FROM z_stacked_base')
+            cursor.execute('CREATE MATERIALIZED VIEW a_stacked_dependent AS SELECT id, name FROM m_stacked_bridge')
+            cursor.execute('CREATE MATERIALIZED VIEW n_unpopulated AS SELECT id FROM example_organization WITH NO DATA')
+            cursor.execute(
+                'INSERT INTO example_organization (name, created_at) VALUES (%s, %s)',
+                ['Refreshed Org', '2024-01-01 00:00:00'],
+            )
+
+        with use_shard(node_name='default', schema_name='view_source_schema') as env:
+            env.connection.refresh_materialized_views()
+
+            cursor = env.connection.cursor()
+            cursor.execute('SELECT name FROM z_stacked_base')
+            self.assertEqual(cursor.fetchall(), [('Refreshed Org',)])
+            cursor.execute('SELECT name FROM a_stacked_dependent')
+            self.assertEqual(cursor.fetchall(), [('Refreshed Org',)])
+            self.assertNotIn('n_unpopulated', env.connection.get_populated_materialized_views())
+
+    def test_refresh_materialized_views_can_be_limited_to_the_views_named(self):
+        """
+        Case: Refresh with only one of two populated materialized views named.
+        Expected: Only that one catches up, which is what lets a caller hold back the views another schema keeps
+                  unpopulated.
+        """
+        with self._source() as cursor:
+            cursor.execute('CREATE MATERIALIZED VIEW named_view AS SELECT id, name FROM example_organization')
+            cursor.execute('CREATE MATERIALIZED VIEW held_back_view AS SELECT id, name FROM example_organization')
+            cursor.execute(
+                'INSERT INTO example_organization (name, created_at) VALUES (%s, %s)',
+                ['Named Org', '2024-01-01 00:00:00'],
+            )
+
+        with use_shard(node_name='default', schema_name='view_source_schema') as env:
+            env.connection.refresh_materialized_views(names={'named_view'})
+
+            cursor = env.connection.cursor()
+            cursor.execute('SELECT name FROM named_view')
+            self.assertEqual(cursor.fetchall(), [('Named Org',)])
+            cursor.execute('SELECT name FROM held_back_view')
+            self.assertEqual(cursor.fetchall(), [])
+
+    def test_clone_schema_with_instead_of_triggers_on_views(self):
+        """
+        Case: A view that is not auto-updatable (an expression column), made writable by an INSTEAD OF INSERT
+        trigger whose function lives in the source schema.
+        Expected: Inserting through the cloned view works and lands in the destination's base table.
+        """
+        with self._source() as cursor:
+            cursor.execute('CREATE VIEW writable_org AS SELECT id, UPPER(name) AS name FROM example_organization')
+            cursor.execute("""
+                CREATE FUNCTION writable_org_insert() RETURNS trigger AS $$
+                BEGIN
+                    INSERT INTO example_organization (name, created_at) VALUES (NEW.name, '2024-01-01 00:00:00');
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql
+            """)
+            cursor.execute("""
+                CREATE TRIGGER writable_org_ins INSTEAD OF INSERT ON writable_org
+                FOR EACH ROW EXECUTE FUNCTION writable_org_insert()
+            """)
+
+        self._clone()
+
+        with self._dest() as cursor:
+            cursor.execute('INSERT INTO view_dest_schema.writable_org (name) VALUES (%s)', ['through the view'])
+            cursor.execute('SELECT name FROM view_dest_schema.example_organization')
+            self.assertEqual(cursor.fetchall(), [('through the view',)])
+
+    def test_failed_view_cloning_reports_every_failure(self):
+        """
+        Case: Clone a schema with two source views whose names collide with tables pre-created in the destination
+              schema.
+        Expected: The raised error names both failed views.
+        """
+        with self._source() as cursor:
+            cursor.execute('CREATE VIEW collide_a AS SELECT id, name FROM example_organization')
+            cursor.execute('CREATE VIEW collide_b AS SELECT id, name FROM example_organization')
+
+        with self._dest() as cursor:
+            cursor.execute('CREATE TABLE view_dest_schema.collide_a (id INTEGER)')
+            cursor.execute('CREATE TABLE view_dest_schema.collide_b (id INTEGER)')
+
+        with self.assertRaises(DatabaseError) as caught:
+            self._clone()
+
+        message = str(caught.exception)
+        self.assertIn('could not create all views', message)
+        self.assertIn('collide_a', message)
+        self.assertIn('collide_b', message)
+
+    def test_clone_schema_orders_dependent_views(self):
+        """
+        Case: Clone a schema where one view selects from another, named so the dependent sorts first.
+        Expected: Both views are cloned, with the dependency relationship intact.
+        """
+        with self._source() as cursor:
+            cursor.execute('CREATE VIEW b_organization_view AS SELECT id, name FROM example_organization')
+            # Sorts before the view it depends on, so a naive alphabetical pass would fail on it.
+            cursor.execute('CREATE VIEW a_view_on_b AS SELECT id, name FROM b_organization_view')
+            cursor.execute(
+                'INSERT INTO example_organization (name, created_at) VALUES (%s, %s)',
+                ['Dependent', '2024-01-01 00:00:00'],
+            )
+
+        self._clone()
+
+        self.assertEqual(self._relkind('b_organization_view'), 'v')
+        self.assertEqual(self._relkind('a_view_on_b'), 'v')
+
+        with self._dest() as cursor:
+            cursor.execute('SELECT name FROM view_dest_schema.a_view_on_b')
+            self.assertEqual(cursor.fetchall(), [('Dependent',)])
+
+    def test_clone_schema_carries_the_check_option_of_a_view(self):
+        """
+        Case: Clone a view declared WITH CASCADED CHECK OPTION.
+        Expected: The cloned view carries the option.
+        """
+        with self._source() as cursor:
+            cursor.execute("""
+                CREATE VIEW checked_organization_view AS
+                SELECT id, name, created_at FROM example_organization WHERE name LIKE 'ok%'
+                WITH CASCADED CHECK OPTION
+            """)
+
+        self._clone()
+
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT cls.reloptions
+            FROM pg_catalog.pg_class cls
+            JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+            WHERE nsp.nspname = 'view_dest_schema' AND cls.relname = 'checked_organization_view'
+        """
+        )
+        self.assertEqual(cursor.fetchone()[0], ['check_option=cascaded'])
+
+        with self._dest() as cursor:
+            with self.assertRaises(DatabaseError):
+                cursor.execute(
+                    'INSERT INTO view_dest_schema.checked_organization_view (name, created_at) VALUES (%s, %s)',
+                    ['not allowed', '2024-01-01 00:00:00'],
+                )
+
+    def test_clone_schema_carries_the_column_defaults_of_a_view(self):
+        """
+        Case: Clone a view with a column default set through ALTER VIEW.
+        Expected: The default is set on the cloned view.
+        """
+        with self._source() as cursor:
+            cursor.execute("""
+                CREATE VIEW defaulted_organization_view AS
+                SELECT id, name, created_at FROM example_organization
+            """)
+            cursor.execute("ALTER VIEW defaulted_organization_view ALTER COLUMN name SET DEFAULT 'defaulted name'")
+
+        self._clone()
+
+        with self._dest() as cursor:
+            cursor.execute(
+                'INSERT INTO view_dest_schema.defaulted_organization_view (created_at) VALUES (%s) RETURNING id',
+                ['2024-01-01 00:00:00'],
+            )
+            organization_id = cursor.fetchone()[0]
+            cursor.execute('SELECT name FROM view_dest_schema.example_organization WHERE id = %s', [organization_id])
+            self.assertEqual(cursor.fetchone(), ('defaulted name',))
+
+    def test_clone_schema_clones_materialized_views(self):
+        """
+        Case: Clone a schema with a materialized view with a unique index.
+        Expected: The clone is a populated materialized view referencing the correct table in the destination schema,
+                  with an appropriately cloned index.
+        """
+        with self._source() as cursor:
+            cursor.execute(
+                'INSERT INTO example_organization (name, created_at) VALUES (%s, %s)',
+                ['Materialized', '2024-01-01 00:00:00'],
+            )
+            cursor.execute('CREATE MATERIALIZED VIEW organization_summary AS SELECT id, name FROM example_organization')
+            cursor.execute('CREATE UNIQUE INDEX organization_summary_id_key ON organization_summary (id)')
+
+        self._clone()
+
+        self.assertEqual(self._relkind('organization_summary'), 'm')
+
+        with self._dest() as cursor:
+            cursor.execute('SELECT name FROM view_dest_schema.organization_summary')
+            self.assertEqual(cursor.fetchall(), [('Materialized',)])
+
+            # A concurrent refresh is only possible when the unique index was cloned along with the view.
+            self._add_organization(cursor, 'Added After Cloning')
+            cursor.execute('REFRESH MATERIALIZED VIEW CONCURRENTLY view_dest_schema.organization_summary')
+
+            cursor.execute('SELECT name FROM view_dest_schema.organization_summary ORDER BY name')
+            self.assertEqual([row[0] for row in cursor.fetchall()], ['Added After Cloning', 'Materialized'])
+
+    def test_clone_schema_without_views_creates_no_views(self):
+        """
+        Case: Clone a schema without views at all.
+        Expected: The destination schema gets tables, no views.
+        """
+        self._clone()
+
+        self.assertEqual(connection.get_all_views(schema_name='view_dest_schema'), [])
+        self.assertCountEqual(
+            connection.get_all_table_headers(schema_name='view_dest_schema'),
+            connection.get_all_table_headers(schema_name='view_source_schema'),
+        )
+
+    def test_get_all_views_reports_views_and_materialized_views(self):
+        """
+        Case: Ask for the views of a schema holding a view and a materialized view.
+        Expected: Both are reported.
+        """
+        with self._source() as cursor:
+            cursor.execute('CREATE VIEW an_organization_view AS SELECT id, name FROM example_organization')
+            cursor.execute(
+                'CREATE MATERIALIZED VIEW an_organization_matview AS SELECT id, name FROM example_organization'
+            )
+
+        self.assertCountEqual(
+            connection.get_all_views(schema_name='view_source_schema'),
+            [('an_organization_view', 'v'), ('an_organization_matview', 'm')],
+        )
+
+    def test_flush_schema_drops_views_and_materialized_views(self):
+        """
+        Case: Flush a schema holding a view and a materialized view.
+        Expected: The views are dropped.
+        """
+        with self._source() as cursor:
+            cursor.execute('CREATE VIEW an_organization_view AS SELECT id, name FROM example_organization')
+            cursor.execute(
+                'CREATE MATERIALIZED VIEW an_organization_matview AS SELECT id, name FROM example_organization'
+            )
+
+        connection.flush_schema(schema_name='view_source_schema')
+
+        self.assertEqual(connection.get_all_views(schema_name='view_source_schema'), [])
+        self.assertEqual(connection.get_all_table_headers(schema_name='view_source_schema'), [])

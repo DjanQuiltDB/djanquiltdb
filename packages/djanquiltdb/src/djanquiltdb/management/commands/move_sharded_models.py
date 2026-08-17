@@ -92,7 +92,9 @@ class Command(BaseCommand):
 
             self.move_models(target_shard=self.shard, sharded_models=sharded_models)
             self.copy_migration_table(target_shard=self.shard)
+            self.clone_template_views(target_shard=self.shard)
             self.validate(target_shard=self.shard)
+            self.refresh_materialized_views(target_shard=self.shard)
 
             self.shard.state = State.ACTIVE
             self.shard.save(update_fields=['state'])
@@ -162,6 +164,34 @@ class Command(BaseCommand):
             """.format(target_schema=target_shard.schema_name, table_name='django_migrations')
             )
 
+    def clone_template_views(self, target_shard):
+        """
+        Recreate the template's views and materialized views on the target schema.
+
+        move_models flushes the target, which drops whatever views it had, and then moves base tables in. A view is not
+        a table, so nothing carries the sharded ones along with them. Recreating them from the template binds each to
+        the tables that just arrived, which is what a freshly cloned shard gets.
+        """
+        with use_shard(target_shard, lock=False, active_only_schemas=False) as env:
+            env.connection.set_clone_function()
+            env.connection.cursor().execute(
+                'SELECT public.clone_schema_views(%s, %s);', [get_template_name(), target_shard.schema_name]
+            )
+
+    def refresh_materialized_views(self, target_shard):
+        """
+        Repopulate the materialized views of the shard the tables landed on, and then of the public schema.
+
+        No rows change in this command: the tables move whole, and a materialized view left in public over one of them
+        keeps working, since the dependency is by oid and it simply reads across schemas now. In other words, this is
+        a consistency fix.
+        """
+        with use_shard(target_shard, lock=False, active_only_schemas=False) as env:
+            env.connection.refresh_materialized_views()
+
+        with use_shard(node_name=target_shard.node_name, schema_name=PUBLIC_SCHEMA_NAME) as env:
+            env.connection.refresh_materialized_views()
+
     def validate(self, target_shard):
         """Validate against template schema"""
 
@@ -170,13 +200,25 @@ class Command(BaseCommand):
             node_name=target_shard.node_name, schema_name=template_schema_name, lock=False, include_public=False
         ) as env:
             template_tables = sorted(env.connection.get_all_table_headers())
+            template_views = sorted(env.connection.get_all_views())
 
         with use_shard(target_shard, lock=False, active_only_schemas=False, include_public=False) as env:
             target_tables = sorted(env.connection.get_all_table_headers())
+            target_views = sorted(env.connection.get_all_views())
 
         if target_tables != template_tables:
             raise (
                 ValidationError(
                     'The following tables are not moved: {}'.format(set(template_tables) - set(target_tables))
+                )
+            )
+
+        # Compared as (name, relkind) pairs, so a view arriving as the wrong kind is caught as well as one missing.
+        if target_views != template_views:
+            raise (
+                ValidationError(
+                    'The following views did not arrive on the target: {}'.format(
+                        set(template_views) - set(target_views)
+                    )
                 )
             )

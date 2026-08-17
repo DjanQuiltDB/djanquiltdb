@@ -148,6 +148,52 @@ class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
             )
             self.assertEqual(user_new.id, self.user.id + 1)
 
+    def _add_materialized_views(self):
+        """
+        Give both shards a materialized view over the organizations, a second one stacked on the first through a plain
+        view, and a third one that is deliberately left unpopulated.
+        """
+        table = Organization._meta.db_table
+        for shard in (self.source_shard, self.target_shard):
+            with use_shard(shard, active_only_schemas=False, lock=False) as env:
+                cursor = env.connection.cursor()
+                cursor.execute('CREATE MATERIALIZED VIEW z_org_names AS SELECT id, name FROM "{t}"'.format(t=table))
+                cursor.execute('CREATE VIEW m_org_bridge AS SELECT id, name FROM z_org_names')
+                cursor.execute(
+                    'CREATE MATERIALIZED VIEW a_names_upper AS SELECT id, upper(name) AS name FROM m_org_bridge'
+                )
+                cursor.execute(
+                    'CREATE MATERIALIZED VIEW n_unpopulated AS SELECT id FROM "{t}" WITH NO DATA'.format(t=table)
+                )
+
+    def _stored_names(self, shard, view):
+        with use_shard(shard, active_only_schemas=False, lock=False) as env:
+            cursor = env.connection.cursor()
+            cursor.execute('SELECT name FROM {}'.format(view))
+            return [name for (name,) in cursor.fetchall()]
+
+    def test_moving_data_refreshes_the_materialized_views_of_both_shards(self):
+        """
+        Case: Move an organization between two shards that each carry the set of views.
+        Expected: The row leaves the source's stored views and arrives in the target's, including the stacked view. Both
+                  deliberately unpopulated views stay unpopulated.
+        """
+        self._add_materialized_views()
+
+        self.assertEqual(self._stored_names(self.source_shard, 'z_org_names'), ['Ace'])
+        self.assertEqual(self._stored_names(self.target_shard, 'z_org_names'), [])
+
+        call_command('move_data_to_shard', *map(str, self.options))
+
+        self.assertEqual(self._stored_names(self.source_shard, 'z_org_names'), [])
+        self.assertEqual(self._stored_names(self.source_shard, 'a_names_upper'), [])
+        self.assertEqual(self._stored_names(self.target_shard, 'z_org_names'), ['Ace'])
+        self.assertEqual(self._stored_names(self.target_shard, 'a_names_upper'), ['ACE'])
+
+        for shard in (self.source_shard, self.target_shard):
+            with use_shard(shard, active_only_schemas=False, lock=False) as env:
+                self.assertNotIn('n_unpopulated', env.connection.get_populated_materialized_views())
+
 
 class MoveDataToShardTestCase(ShardingTestCase):
     maxDiff = None
@@ -505,10 +551,12 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_data')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.confirm_data_integrity')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.delete_data')
+    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.refresh_materialized_views')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.post_execution')
     def test_handle(
         self,
         mock_post_execution,
+        mock_refresh_materialized_views,
         mock_delete_data,
         mock_confirm,
         mock_copy_data,
@@ -545,6 +593,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
             pk_set=pk_set, model_fields=mock_copy_data.return_value, options=self.options
         )
         mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
+        mock_refresh_materialized_views.assert_called_once_with()
         mock_post_execution.assert_called_once_with(succeeded=True)
 
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.get_target_shard')
@@ -555,10 +604,12 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_data')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.confirm_data_integrity')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.delete_data')
+    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.refresh_materialized_views')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.post_execution')
     def test_handle_reuse_data(
         self,
         mock_post_execution,
+        mock_refresh_materialized_views,
         mock_delete_data,
         mock_confirm,
         mock_copy_data,
@@ -606,12 +657,14 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_data')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.confirm_data_integrity')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.delete_data')
+    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.refresh_materialized_views')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.post_execution')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.print')
     def test_handle_no_delete(
         self,
         mock_print,
         mock_post_execution,
+        mock_refresh_materialized_views,
         mock_delete_data,
         mock_confirm,
         mock_copy_data,
@@ -660,12 +713,14 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_data')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.confirm_data_integrity')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.delete_data')
+    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.refresh_materialized_views')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.post_execution')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.print')
     def test_handle_keep_validating_files(
         self,
         mock_print,
         mock_post_execution,
+        mock_refresh_materialized_views,
         mock_delete_data,
         mock_confirm,
         mock_copy_data,
@@ -713,10 +768,12 @@ class MoveDataToShardTestCase(ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.copy_data')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.confirm_data_integrity')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.delete_data')
+    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.refresh_materialized_views')
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.post_execution')
     def test_handle_trans_node(
         self,
         mock_post_execution,
+        mock_refresh_materialized_views,
         mock_delete_data,
         mock_confirm,
         mock_copy_data,

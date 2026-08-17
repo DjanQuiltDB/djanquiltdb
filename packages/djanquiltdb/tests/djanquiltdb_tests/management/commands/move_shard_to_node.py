@@ -230,6 +230,50 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
             self.assertEqual(Statement.objects.get(id=self.statement_1.id).content, "'Luke'!")
             self.assertEqual(Statement.objects.get(id=self.statement_2.id).content, 'Try to; solve this "puzzle."')
 
+    def test_moving_a_shard_refreshes_materialized_views(self):
+        """
+        Case: Move a shard carrying our set of views (alphabetically sorted out of dependency order).
+        Expected: The target's materialized views serve the moved rows. The unpopulated view stays unpopulated.
+        """
+        table = Organization._meta.db_table
+        statements = [
+            'CREATE MATERIALIZED VIEW z_org_names AS SELECT id, name FROM "{}"'.format(table),
+            'CREATE MATERIALIZED VIEW a_names_upper AS SELECT id, upper(name) AS name FROM z_org_names',
+            'CREATE MATERIALIZED VIEW n_unpopulated AS SELECT id, name FROM "{}" WITH NO DATA'.format(table),
+        ]
+        with use_shard(
+            node_name='default', schema_name=self.source_shard.schema_name, active_only_schemas=False, lock=False
+        ) as env:
+            cursor = env.connection.cursor()
+            for statement in statements:
+                cursor.execute(statement)
+        with use_shard(
+            node_name='other', schema_name=get_template_name(), active_only_schemas=False, lock=False
+        ) as env:
+            cursor = env.connection.cursor()
+            for statement in statements:
+                cursor.execute(statement)
+
+        call_command('move_shard_to_node', *self.format_options_to_args())
+
+        with use_shard(
+            node_name='other',
+            schema_name=self.source_shard.schema_name,
+            active_only_schemas=False,
+            include_public_schema=True,
+        ) as env:
+            cursor = env.connection.cursor()
+            cursor.execute('SELECT name FROM z_org_names ORDER BY name')
+            self.assertEqual([row[0] for row in cursor.fetchall()], ['Ace', 'Curious Village', 'Layton inc.'])
+            cursor.execute('SELECT name FROM a_names_upper ORDER BY name')
+            self.assertEqual([row[0] for row in cursor.fetchall()], ['ACE', 'CURIOUS VILLAGE', 'LAYTON INC.'])
+            cursor.execute(
+                'SELECT relispopulated FROM pg_catalog.pg_class '
+                "WHERE relname = 'n_unpopulated' AND relnamespace = %s::regnamespace",
+                [self.source_shard.schema_name],
+            )
+            self.assertEqual(cursor.fetchone(), (False,))
+
     def _add_generated_column(self, column_name, persistence):
         statement = 'ALTER TABLE "{t}" ADD COLUMN {c} TEXT GENERATED ALWAYS AS (upper(name)) {p}'.format(
             t=Organization._meta.db_table, c=column_name, p=persistence
@@ -476,8 +520,10 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.copy_data')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.retarget_relations')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.reset_sequences')
+    @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.refresh_materialized_views')
     def test_move_shard(
         self,
+        mock_refresh_materialized_views,
         mock_reset_sequences,
         mock_retarget_relations,
         mock_copy_data,
@@ -503,6 +549,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         mock_copy_data.assert_called_once_with()
         mock_retarget_relations.assert_called_once_with()
         mock_reset_sequences.assert_called_once_with()
+        mock_refresh_materialized_views.assert_called_once_with()
 
         self.assertEqual(self.command.target_shard_options.node_name, 'other')
         self.assertEqual(self.command.target_shard_options.schema_name, 'test_source')

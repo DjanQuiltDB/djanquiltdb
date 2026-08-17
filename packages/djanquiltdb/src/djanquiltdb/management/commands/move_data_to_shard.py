@@ -180,6 +180,10 @@ class Command(BaseCommand):
                     self.delete_data(collector=delete_collector)
                 else:
                     self.print('Skipped deleting data from the source shard.')
+
+                # After the delete, not before: refreshing the source while it still holds the rows it is about to
+                # lose would leave its stored views describing a state that no longer exists.
+                self.refresh_materialized_views()
         except Exception as error:
             self.post_execution(succeeded=False)
             raise error
@@ -331,6 +335,18 @@ class Command(BaseCommand):
         """
         with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
             env.connection.reset_sequence(model_list=list(data.keys()))
+
+    def refresh_materialized_views(self):
+        """
+        Repopulate the materialized views of both shards.
+
+        The rows moved left one schema and arrived at the other, so a stored view on either side still holds what its
+        tables said before the move. Unlike a shard move, both schemas were already there with rows of their own, so
+        each side's own populated set is the gate: a view either schema deliberately leaves unpopulated stays that way.
+        """
+        for shard in (self.source_shard, self.target_shard):
+            with use_shard(shard, active_only_schemas=False, lock=False) as env:
+                env.connection.refresh_materialized_views()
 
     def _sort(self, source_file_name):
         """

@@ -30,8 +30,8 @@ logger = logging.getLogger(__name__)
 
 # Clone function is from the PostgreSQL wiki by Emanuel '3manuek'.
 # Adjusted to set the value of the created sequences to the same value as those we clone.
-clone_function = """
-CREATE OR REPLACE FUNCTION clone_schema(source_schema TEXT, dest_schema TEXT) RETURNS VOID AS
+clone_schema_function = """
+CREATE OR REPLACE FUNCTION public.clone_schema(source_schema TEXT, dest_schema TEXT) RETURNS VOID AS
 $BODY$
 DECLARE
   default_ TEXT;
@@ -74,8 +74,10 @@ BEGIN
       dest_schema || '.' || dest_table, source_schema, dest_table, source_schema, dest_table);
   END LOOP;
 
+  /* Only base tables are copied here (views are handled separately below) */
   FOR dest_table IN
-    SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
+    SELECT TABLE_NAME::text FROM information_schema.TABLES
+      WHERE table_schema = source_schema AND table_type = 'BASE TABLE'
   LOOP
     dest_table_path := dest_schema || '.' || dest_table;
     /* Create all tables on the target schema. */
@@ -114,7 +116,8 @@ BEGIN
    * Cervo on may 2015 - for the pg_catalog query: https://stackoverflow.com/a/30178351 .
    */
   FOR dest_table IN
-    SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
+    SELECT TABLE_NAME::text FROM information_schema.TABLES
+      WHERE table_schema = source_schema AND table_type = 'BASE TABLE'
   LOOP
     dest_table_path := dest_schema || '.' || dest_table;
     FOR name_, child_column_, parent_schema_, parent_table_, parent_column_ IN
@@ -179,12 +182,61 @@ BEGIN
     EXECUTE adapted_func_def;
   END LOOP;
 
-  /* For all tables, clone their triggers.
-   * We query pg_trigger to get all triggers from the source schema tables,
-   * then use pg_get_triggerdef to get the CREATE TRIGGER statement and adapt it for the destination schema.
+  /* After cloning all tables, update sequences/identity columns to be higher than any existing IDs.
+   * This prevents ID conflicts when inserting new records after cloning.
+   * Handle both:
+   * - Sequences (older Django versions)
+   * - Identity columns (Django 6.0+)
    */
   FOR dest_table IN
-    SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = source_schema
+    SELECT TABLE_NAME::text FROM information_schema.TABLES
+      WHERE table_schema = dest_schema AND table_type = 'BASE TABLE'
+  LOOP
+    BEGIN
+      /* Check if table has an id column and get max ID */
+      EXECUTE format('SELECT COALESCE(MAX(id), 0) FROM %I.%I WHERE id IS NOT NULL',
+        dest_schema, dest_table) INTO max_id_val;
+
+      IF max_id_val > 0 THEN
+        /* Try to get the sequence/identity sequence name */
+        DECLARE
+          seq_name_val TEXT;
+        BEGIN
+          seq_name_val := pg_get_serial_sequence(dest_schema || '.' || dest_table, 'id');
+          IF seq_name_val IS NOT NULL THEN
+            /* Reset sequence/identity to continue from max_id_val + 1 */
+            EXECUTE format('SELECT setval(%L, %s, false)',
+              seq_name_val, max_id_val + 1);
+          END IF;
+        END;
+      END IF;
+    EXCEPTION
+      WHEN OTHERS THEN
+        /* If table doesn't have id column or other error, skip */
+        NULL;
+    END;
+  END LOOP;
+
+  /* Clone all views and materialized views from the source schema to the destination schema. Named with its schema,
+   * since the search_path here is the source schema's and both functions are installed on public.
+   */
+  PERFORM public.clone_schema_views(source_schema, dest_schema);
+
+  /* Reset the search path. clone_schema_views narrows it to read definitions, and a SET LOCAL issued inside a
+   * function is not guaranteed to survive its return, so set it here rather than rely on what it left behind.
+   */
+  EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema) || ',public,pg_catalog';
+
+  /* For all tables and views, clone their triggers. This runs after the views were created above, since a trigger needs
+   * its relation to exist, and after the data copy above, so no trigger fires during the copy. (Note that INSTEAD OF
+   * triggers are what make a non-auto-updatable view writable). We query pg_trigger to get all triggers from the source
+   * schema relations, then use pg_get_triggerdef to get the CREATE TRIGGER statement and adapt it for the destination
+   * schema.
+   */
+  FOR dest_table IN
+    SELECT c.relname::text FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = source_schema AND c.relkind IN ('r', 'p', 'v')
   LOOP
     dest_table_path := dest_schema || '.' || dest_table;
     FOR trigger_name, trigger_def, func_schema, func_name IN
@@ -262,44 +314,184 @@ BEGIN
       EXECUTE adapted_trigger_def;
     END LOOP;
   END LOOP;
-
-  /* After cloning all tables, update sequences/identity columns to be higher than any existing IDs.
-   * This prevents ID conflicts when inserting new records after cloning.
-   * Handle both:
-   * - Sequences (older Django versions)
-   * - Identity columns (Django 6.0+)
-   */
-  FOR dest_table IN
-    SELECT TABLE_NAME::text FROM information_schema.TABLES WHERE table_schema = dest_schema
-  LOOP
-    BEGIN
-      /* Check if table has an id column and get max ID */
-      EXECUTE format('SELECT COALESCE(MAX(id), 0) FROM %I.%I WHERE id IS NOT NULL',
-        dest_schema, dest_table) INTO max_id_val;
-
-      IF max_id_val > 0 THEN
-        /* Try to get the sequence/identity sequence name */
-        DECLARE
-          seq_name_val TEXT;
-        BEGIN
-          seq_name_val := pg_get_serial_sequence(dest_schema || '.' || dest_table, 'id');
-          IF seq_name_val IS NOT NULL THEN
-            /* Reset sequence/identity to continue from max_id_val + 1 */
-            EXECUTE format('SELECT setval(%L, %s, false)',
-              seq_name_val, max_id_val + 1);
-          END IF;
-        END;
-      END IF;
-    EXCEPTION
-      WHEN OTHERS THEN
-        /* If table doesn't have id column or other error, skip */
-        NULL;
-    END;
-  END LOOP;
 END;
 $BODY$
 LANGUAGE plpgsql VOLATILE;
 """
+
+clone_views_function = """
+CREATE OR REPLACE FUNCTION public.clone_schema_views(source_schema TEXT, dest_schema TEXT) RETURNS VOID AS
+$VIEWS$
+DECLARE
+  view_names_ TEXT[];
+  view_defs_ TEXT[];
+  view_opts_ TEXT[];
+  view_kinds_ TEXT[];
+  view_populated_ BOOLEAN[];
+  view_done_ BOOLEAN[];
+  view_count_ INT;
+  view_created_ INT;
+  view_idx_ INT;
+  view_progress_ BOOLEAN;
+  view_errors_ TEXT;
+  view_index_def_ TEXT;
+  view_index_defs_ TEXT[];
+  view_stmt_ TEXT;
+  view_stmts_ TEXT[];
+  view_default_columns_ TEXT[];
+  view_defaults_ TEXT[];
+  view_default_idx_ INT;
+  adapted_view_def TEXT;
+
+BEGIN
+  /* Recreate every view and materialized view of the source schema on the destination schema, rather than copy them,
+   * to keep proper view semantics.
+   *
+   * Read the definitions with only the source schema on the search_path: pg_get_viewdef() and related functions
+   * schema-qualify a reference when invisible on the current path, so same-schema references print unqualified while
+   * references into other schemas print qualified. That is what rebinds a cloned view to the tables of its own schema.
+   */
+  EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema);
+
+  SELECT
+      array_agg(v.relname ORDER BY v.relname),
+      array_agg(v.viewdef ORDER BY v.relname),
+      array_agg(v.reloptions ORDER BY v.relname),
+      array_agg(v.relkind ORDER BY v.relname),
+      array_agg(v.relispopulated ORDER BY v.relname)
+    INTO view_names_, view_defs_, view_opts_, view_kinds_, view_populated_
+    FROM (
+      SELECT
+        c.relname::text AS relname,
+        pg_catalog.pg_get_viewdef(c.oid, true) AS viewdef,
+        coalesce(array_to_string(c.reloptions, ', '), '') AS reloptions,
+        c.relkind::text AS relkind,
+        c.relispopulated AS relispopulated
+      FROM pg_catalog.pg_class c
+      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+      WHERE n.nspname = source_schema AND c.relkind IN ('v', 'm')
+    ) AS v;
+
+  view_count_ := coalesce(array_length(view_names_, 1), 0);
+
+  IF view_count_ > 0 THEN
+    EXECUTE 'SET LOCAL search_path = ' || quote_ident(dest_schema) || ',public,pg_catalog';
+
+    /* Build every CREATE statement exactly once; the retry loop below may visit a view many times. */
+    view_stmts_ := ARRAY[]::text[];
+    FOR view_idx_ IN 1 .. view_count_ LOOP
+      /* pg_get_viewdef() terminates its output with a semicolon. */
+      adapted_view_def := regexp_replace(view_defs_[view_idx_], ';\\s*$', '');
+
+      IF view_kinds_[view_idx_] = 'm' THEN
+        view_stmt_ := 'CREATE MATERIALIZED VIEW ';
+      ELSE
+        view_stmt_ := 'CREATE VIEW ';
+      END IF;
+
+      view_stmt_ := view_stmt_ || quote_ident(dest_schema) || '.' || quote_ident(view_names_[view_idx_]);
+
+      IF view_opts_[view_idx_] <> '' THEN
+        view_stmt_ := view_stmt_ || ' WITH (' || view_opts_[view_idx_] || ')';
+      END IF;
+
+      view_stmt_ := view_stmt_ || ' AS ' || adapted_view_def;
+
+      IF view_kinds_[view_idx_] = 'm' AND NOT view_populated_[view_idx_] THEN
+        view_stmt_ := view_stmt_ || ' WITH NO DATA';
+      END IF;
+
+      view_stmts_ := view_stmts_ || view_stmt_;
+    END LOOP;
+
+    view_done_ := array_fill(false, ARRAY[view_count_]);
+    view_created_ := 0;
+
+    /* A view may select from another view, and a materialized view may select from a view, so the dependency order is
+     * hard to determine. Rather than try to decude it, simply trial-and-error-retry until a full round creates nothing
+     * new.
+     */
+    LOOP
+      view_progress_ := false;
+      view_errors_ := '';
+
+      FOR view_idx_ IN 1 .. view_count_ LOOP
+        CONTINUE WHEN view_done_[view_idx_];
+
+        BEGIN
+          EXECUTE view_stmts_[view_idx_];
+
+          view_done_[view_idx_] := true;
+          view_created_ := view_created_ + 1;
+          view_progress_ := true;
+        EXCEPTION
+          WHEN OTHERS THEN
+            /* If we create this view out of order and haven't fulfilled a dependency yet, this will error. Keep
+             * every error of the round around, so that when a round only produces errors and no progress, each
+             * genuine failure is reported rather than just whichever view happened to error last.
+             */
+            view_errors_ := view_errors_ || E'\n  ' || SQLERRM || ' -- while running: ' || view_stmts_[view_idx_];
+        END;
+      END LOOP;
+
+      EXIT WHEN view_created_ = view_count_;
+
+      IF NOT view_progress_ THEN
+        RAISE EXCEPTION 'clone_schema could not create all views on schema %:%', dest_schema, view_errors_;
+      END IF;
+    END LOOP;
+
+    FOR view_idx_ IN 1 .. view_count_ LOOP
+      IF view_kinds_[view_idx_] = 'm' THEN
+        /* CREATE MATERIALIZED VIEW copies no indexes, and without a unique index a materialized view cannot be
+         * refreshed concurrently. Materialize the definitions with only the source schema visible (same principle
+         * as the view definitions above), then execute them against the destination.
+         */
+        EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema);
+        /* The pretty form respects path visibility, so use that instead of the plain form. */
+        SELECT coalesce(array_agg(pg_catalog.pg_get_indexdef(i.indexrelid, 0, true)), ARRAY[]::text[])
+          INTO view_index_defs_
+          FROM pg_catalog.pg_index i
+          WHERE i.indrelid = format('%I.%I', source_schema, view_names_[view_idx_])::regclass;
+
+        EXECUTE 'SET LOCAL search_path = ' || quote_ident(dest_schema) || ',public,pg_catalog';
+        FOREACH view_index_def_ IN ARRAY view_index_defs_ LOOP
+          EXECUTE view_index_def_;
+        END LOOP;
+      ELSE
+        /* Column defaults set with ALTER VIEW ... SET DEFAULT are not part of the view definition, so restore those
+         * manually to the cloned view.
+         */
+        EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema);
+        SELECT
+          coalesce(array_agg(a.attname::text ORDER BY a.attnum), ARRAY[]::text[]),
+          coalesce(array_agg(pg_catalog.pg_get_expr(d.adbin, d.adrelid, true) ORDER BY a.attnum), ARRAY[]::text[])
+          INTO view_default_columns_, view_defaults_
+          FROM pg_catalog.pg_attrdef d
+          JOIN pg_catalog.pg_attribute a ON a.attrelid = d.adrelid AND a.attnum = d.adnum
+          WHERE d.adrelid = format('%I.%I', source_schema, view_names_[view_idx_])::regclass;
+
+        EXECUTE 'SET LOCAL search_path = ' || quote_ident(dest_schema) || ',public,pg_catalog';
+        FOR view_default_idx_ IN 1 .. coalesce(array_length(view_default_columns_, 1), 0) LOOP
+          EXECUTE 'ALTER VIEW ' || quote_ident(dest_schema) || '.' || quote_ident(view_names_[view_idx_])
+            || ' ALTER COLUMN ' || quote_ident(view_default_columns_[view_default_idx_]) || ' SET DEFAULT '
+            || view_defaults_[view_default_idx_];
+        END LOOP;
+      END IF;
+    END LOOP;
+
+  END IF;
+
+  /* Reset the search path (the definition load above narrowed it even if there were no views to create). */
+  EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema) || ',public,pg_catalog';
+END;
+$VIEWS$
+LANGUAGE plpgsql VOLATILE;
+"""
+
+# Both functions are installed together: clone_schema calls clone_schema_views, and move_sharded_models calls the
+# latter on its own to bring the template's views onto a schema whose tables arrived some other way.
+clone_function = clone_views_function + clone_schema_function
 
 PUBLIC_SCHEMA_NAME = 'public'
 
@@ -462,6 +654,86 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         )
         return {table: columns for table, columns in cursor.fetchall()}
 
+    def get_populated_materialized_views(self, schema_name=None, _cursor=None):
+        cursor = _cursor or self.cursor()
+        schema = schema_name or self.get_schema()
+        cursor.execute(
+            """
+            SELECT cls.relname::text
+            FROM pg_catalog.pg_class cls
+            JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+            WHERE nsp.nspname = %s AND cls.relkind = 'm' AND cls.relispopulated
+        """,
+            [schema],
+        )
+        return {name for (name,) in cursor.fetchall()}
+
+    def get_materialized_views_in_dependency_order(self, schema_name=None, _cursor=None):
+        """
+        Return the schema's materialized views, each listed after every materialized view it reads.
+
+        The order is worked out over the whole view graph, plain views included, because a materialized view may read
+        a plain view. Only the materialized ends of such a chain can be refreshed, but leaving the plain view out of the
+        graph loses the edge between them and lets the dependent refresh first, against rows that are still stale.
+        """
+        cursor = _cursor or self.cursor()
+        schema = schema_name or self.get_schema()
+        relkinds = dict(self.get_all_views(schema_name=schema, _cursor=cursor))
+        cursor.execute(
+            """
+            SELECT DISTINCT dependent.relname::text, referenced.relname::text
+            FROM pg_catalog.pg_depend dep
+            JOIN pg_catalog.pg_rewrite rew ON dep.objid = rew.oid
+            JOIN pg_catalog.pg_class dependent ON rew.ev_class = dependent.oid
+            JOIN pg_catalog.pg_namespace nsp ON dependent.relnamespace = nsp.oid
+            JOIN pg_catalog.pg_class referenced ON dep.refobjid = referenced.oid
+            JOIN pg_catalog.pg_namespace refnsp ON referenced.relnamespace = refnsp.oid
+            WHERE nsp.nspname = %s AND refnsp.nspname = %s
+              AND dependent.relkind IN ('v', 'm') AND referenced.relkind IN ('v', 'm')
+              AND dependent.oid <> referenced.oid
+        """,
+            [schema, schema],
+        )
+        depends_on = {}
+        for dependent, referenced in cursor.fetchall():
+            depends_on.setdefault(dependent, set()).add(referenced)
+
+        ordered = []
+        # Both sides of the query above stay inside the one schema. A refresh is per-schema, so a view reaching
+        # through another schema is not something this ordering could act on anyway.
+        remaining = set(relkinds)
+        while remaining:
+            ready = sorted(name for name in remaining if not (depends_on.get(name, set()) & remaining))
+            if not ready:
+                # Views cannot form a dependency cycle; guard against an infinite loop anyway.
+                ordered.extend(sorted(remaining))
+                break
+            ordered.extend(ready)
+            remaining.difference_update(ready)
+        # The plain views were only in the graph to carry the edges between materialized ones through.
+        return [name for name in ordered if relkinds[name] == 'm']
+
+    def refresh_materialized_views(self, names=None, schema_name=None, _cursor=None):
+        """
+        Repopulate the schema's materialized views, each after the ones it reads.
+
+        `names` limits the refresh to the views named, which is how a caller keeps a view unpopulated if it was left
+        that way on purpose. The default is every populated view of the schema.
+        """
+        cursor = _cursor or self.cursor()
+        schema = schema_name or self.get_schema()
+        if names is None:
+            names = self.get_populated_materialized_views(schema_name=schema, _cursor=cursor)
+
+        quote_name = self.ops.quote_name
+        for name in self.get_materialized_views_in_dependency_order(schema_name=schema, _cursor=cursor):
+            if name in names:
+                # Schema-qualified: a shard's search path covers the public schema too, so an unqualified refresh
+                # could reach whichever copy the path finds first rather than the one asked for.
+                cursor.execute(
+                    'REFRESH MATERIALIZED VIEW "{schema}".{name}'.format(schema=schema, name=quote_name(name))  # nosec
+                )
+
     def get_all_table_sequences(self, schema_name=None, _cursor=None):
         cursor = _cursor or self.cursor()
         schema = schema_name or self.get_schema()
@@ -477,6 +749,24 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         )
         return [x[0] for x in cursor.fetchall()]  # We get a list of single tuples
 
+    def get_all_views(self, schema_name=None, _cursor=None):
+        """
+        Return a (name, relkind) tuple for every view ('v') and materialized view ('m') on the given schema.
+        """
+        cursor = _cursor or self.cursor()
+        schema = schema_name or self.get_schema()
+        cursor.execute(
+            """
+            SELECT cls.relname::text, cls.relkind::text
+            FROM pg_catalog.pg_class cls
+            JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+            WHERE nsp.nspname = %s
+              AND cls.relkind IN ('v', 'm')
+        """,
+            [schema],
+        )
+        return cursor.fetchall()
+
     def truncate_all_tables(self, schema_name=None, _cursor=None):
         cursor = _cursor or self.cursor()
         table_headers = self.get_all_table_headers(schema_name, cursor)
@@ -490,6 +780,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         schema = schema_name or self.get_schema()
         # Get all sequences first, before dropping tables
         sequences = self.get_all_table_sequences(schema_name=schema)
+        # Drop views before the tables they read from. Dropping one view cascades to anything built on top of it, so
+        # the next one in the list may already be gone by the time we get to it.
+        for view, relkind in self.get_all_views(schema_name=schema):
+            statement = 'DROP MATERIALIZED VIEW IF EXISTS' if relkind == 'm' else 'DROP VIEW IF EXISTS'
+            cursor.execute(
+                '{statement} "{schema}"."{view}" CASCADE'.format(statement=statement, schema=schema, view=view)
+            )
         # Drop tables with CASCADE (this will also drop sequences owned by tables)
         # Use schema-qualified table names to ensure we drop from the correct schema
         for table in self.get_all_table_headers(schema_name=schema):
@@ -506,8 +803,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         Returns the schema the given model lives on.
         """
         cursor = _cursor or self.cursor()
+        # Note: read from pg_class rather than information_schema.tables: a model's db_table may be a view, and
+        # materialized views do not appear in information_schema.tables at all.
         cursor.execute(
-            'SELECT table_schema FROM information_schema.tables WHERE table_name=%s;', [model._meta.db_table]
+            'SELECT n.nspname FROM pg_catalog.pg_class c'
+            ' JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace'
+            " WHERE c.relname = %s AND c.relkind IN ('r', 'p', 'v', 'm');",
+            [model._meta.db_table],
         )
         return cursor.fetchall()
 

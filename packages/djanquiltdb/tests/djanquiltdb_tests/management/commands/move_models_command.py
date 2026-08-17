@@ -36,12 +36,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
                   And have a proper template schema.
         Note: System test.
         """
-        # Create a situation where the sharded models are on the public schema
-        # We do this by flushing the public schema, and migrating it with the router disabled
-        with use_shard(node_name='default', schema_name='public') as env:
-            env.connection.flush_schema(schema_name='public')
-        with mock.patch('djanquiltdb.router.DynamicDbRouter.allow_migrate', side_effect=self.fake_allow_migrate):
-            migrate_schema(node_name='default', schema_name='public')
+        self._publish_models_on_public()
 
         all_models = [m for m in apps.get_models(include_auto_created=True) if not m._meta.proxy]
         sharded_models = get_all_sharded_models(include_auto_created=True)
@@ -87,6 +82,103 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
                     connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
                 )
 
+    def _publish_models_on_public(self):
+        """
+        Put every model on the public schema, the way a previously unsharded project looks, by flushing the public
+        schema and migrating it with the router disabled.
+        """
+        with use_shard(node_name='default', schema_name='public') as env:
+            env.connection.flush_schema(schema_name='public')
+        with mock.patch('djanquiltdb.router.DynamicDbRouter.allow_migrate', side_effect=self.fake_allow_migrate):
+            migrate_schema(node_name='default', schema_name='public')
+
+    def _relkind(self, name, schema_name):
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT cls.relkind::text
+            FROM pg_catalog.pg_class cls
+            JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+            WHERE nsp.nspname = %s AND cls.relname = %s
+        """,
+            [schema_name, name],
+        )
+        result = cursor.fetchone()
+        return result[0] if result else None
+
+    def test_the_views_of_the_template_arrive_on_the_target(self):
+        """
+        Case: Run the command with a view and a materialized view over a sharded table declared on the template.
+        Expected: Both views are recreated on the target schema with their own kind, and the materialized one keeps its
+                  index.
+        """
+        self._publish_models_on_public()
+
+        # The command creates the template itself, but the views have to be on it before it runs. Creating it here is
+        # a no-op for the command, which leaves an existing template alone.
+        create_template_schema('default')
+
+        table = Organization._meta.db_table
+        with use_shard(node_name='default', schema_name=get_template_name(), include_public=False) as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE VIEW template_org_view AS SELECT id, name FROM "{t}"'.format(t=table))
+            cursor.execute('CREATE MATERIALIZED VIEW template_org_stored AS SELECT id, name FROM "{t}"'.format(t=table))
+            cursor.execute('CREATE UNIQUE INDEX template_org_stored_id ON template_org_stored (id)')
+
+        MoveCommand().handle(database='default', target_schema_name='test_target_schema', no_input=True)
+
+        self.assertEqual(self._relkind('template_org_view', 'test_target_schema'), 'v')
+        self.assertEqual(self._relkind('template_org_stored', 'test_target_schema'), 'm')
+
+        cursor = connection.cursor()
+        cursor.execute(
+            'SELECT indexname FROM pg_indexes WHERE schemaname = %s AND tablename = %s',
+            ['test_target_schema', 'template_org_stored'],
+        )
+        self.assertEqual(cursor.fetchall(), [('template_org_stored_id',)])
+
+    def test_validate_reports_a_view_that_did_not_arrive(self):
+        """
+        Case: Validate a target schema that is missing a view the template has.
+        Expected: ValidationError.
+        """
+        self._publish_models_on_public()
+
+        MoveCommand().handle(database='default', target_schema_name='test_target_schema', no_input=True)
+
+        shard = Shard.objects.get(alias='test_target_schema')
+        with use_shard(node_name='default', schema_name=get_template_name(), include_public=False) as env:
+            env.connection.cursor().execute('CREATE VIEW left_behind_view AS SELECT 1 AS one')
+
+        with self.assertRaises(ValidationError) as caught:
+            MoveCommand().validate(target_shard=shard)
+
+        self.assertIn('left_behind_view', str(caught.exception))
+
+    def test_moving_the_models_refreshes_the_materialized_views_of_both_schemas(self):
+        """
+        Case: Run the command with a materialized view left in public over a sharded table, stale by a row.
+        Expected: The view is still there and now serves both rows.
+        """
+        self._publish_models_on_public()
+
+        table = Organization._meta.db_table
+        Organization.objects.create(name='Ace')
+        cursor = connection.cursor()
+        cursor.execute('CREATE MATERIALIZED VIEW public.org_names AS SELECT id, name FROM public."{t}"'.format(t=table))
+        self.addCleanup(connection.cursor().execute, 'DROP MATERIALIZED VIEW IF EXISTS public.org_names CASCADE')
+        Organization.objects.create(name='Luke')
+
+        cursor.execute('SELECT name FROM public.org_names')
+        self.assertEqual(cursor.fetchall(), [('Ace',)])
+
+        MoveCommand().handle(database='default', target_schema_name='test_target_schema', no_input=True)
+
+        self.assertEqual(self._relkind('org_names', 'public'), 'm')
+        cursor = connection.cursor()
+        cursor.execute('SELECT name FROM public.org_names ORDER BY name')
+        self.assertEqual(cursor.fetchall(), [('Ace',), ('Luke',)])
+
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.validate')
     def test_rollback_on_validation(self, mock_validate):
         """
@@ -99,12 +191,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
 
         mock_validate.side_effect = fake_validate
 
-        # Create a situation where the sharded models are on the public schema
-        # We do this by flushing the public schema, and migrating it with the router disabled
-        with use_shard(node_name='default', schema_name='public') as env:
-            env.connection.flush_schema(schema_name='public')
-        with mock.patch('djanquiltdb.router.DynamicDbRouter.allow_migrate', side_effect=self.fake_allow_migrate):
-            migrate_schema(node_name='default', schema_name='public')
+        self._publish_models_on_public()
 
         all_models = apps.get_models(include_auto_created=True)
 
@@ -149,12 +236,7 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
 
         mock_move_model_to_schema.side_effect = fake_move_model
 
-        # Create a situation where the sharded models are on the public schema
-        # We do this by flushing the public schema, and migrating it with the router disabled
-        with use_shard(node_name='default', schema_name='public') as env:
-            env.connection.flush_schema(schema_name='public')
-        with mock.patch('djanquiltdb.router.DynamicDbRouter.allow_migrate', side_effect=self.fake_allow_migrate):
-            migrate_schema(node_name='default', schema_name='public')
+        self._publish_models_on_public()
 
         all_models = apps.get_models(include_auto_created=True)
 
@@ -192,8 +274,18 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
     )
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.move_models')
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.copy_migration_table')
+    @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.clone_template_views')
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.validate')
-    def test_handle(self, mock_validate, mock_copy_migration_table, mock_move_models, mock_create_schema):
+    @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.refresh_materialized_views')
+    def test_handle(
+        self,
+        mock_refresh_materialized_views,
+        mock_validate,
+        mock_clone_template_views,
+        mock_copy_migration_table,
+        mock_move_models,
+        mock_create_schema,
+    ):
         """
         Case: Call the handle function of the command.
         Expected: Various functions to be called with the correct arguments.
@@ -215,9 +307,13 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
             target_shard=shard, sharded_models=get_all_sharded_models(include_auto_created=True)
         )
         mock_copy_migration_table.assert_called_once_with(target_shard=shard)
+        mock_clone_template_views.assert_called_once_with(target_shard=shard)
         mock_validate.assert_called_once_with(target_shard=shard)
+        mock_refresh_materialized_views.assert_called_once_with(target_shard=shard)
 
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.copy_migration_table', mock.Mock())
+    @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.clone_template_views', mock.Mock())
+    @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.refresh_materialized_views', mock.Mock())
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.Command.validate', mock.Mock())
     @mock.patch('djanquiltdb.management.commands.move_sharded_models.move_model_to_schema', mock.Mock())
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.flush_schema')

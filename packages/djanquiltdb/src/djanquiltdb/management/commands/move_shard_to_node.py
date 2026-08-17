@@ -192,6 +192,7 @@ class Command(BaseCommand):
             self.copy_data()
             self.retarget_relations()
             self.reset_sequences()
+            self.refresh_materialized_views()
 
     def copy_data(self):
         """
@@ -246,6 +247,20 @@ class Command(BaseCommand):
             self.bar_update(bar)
 
         self.bar_finish(bar)
+
+    def refresh_materialized_views(self):
+        """
+        Re-populate the target's materialized views from the copied rows.
+
+        clone_schema 'populates' them while the base tables are still empty, so we need to manually update them based on
+        the complete newly formed destination schema. Views the source keeps unpopulated stay unpopulated. Dependencies
+        refresh before any view depending on them.
+        """
+        with self.source_shard.use(include_public=False, active_only_schemas=False, lock=False) as env:
+            populated = env.connection.get_populated_materialized_views()
+
+        with self.target_shard_options.use() as env:
+            env.connection.refresh_materialized_views(names=populated)
 
     @staticmethod
     def get_related_model(field):
