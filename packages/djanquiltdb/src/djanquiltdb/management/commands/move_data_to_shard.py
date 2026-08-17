@@ -279,15 +279,22 @@ class Command(BaseCommand):
                     progressbar.Timer(),
                 ],
             )
+
+        with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
+            columns_by_table = env.connection.get_copyable_column_names_by_table()
+
         for model, pk_set in pk_set.items():
             # Export
             io = StringIO()
             with use_shard(self.source_shard, active_only_schemas=False, lock=False) as env:
                 cursor = env.connection.cursor()
+                # Name columns instead of using SELECT * so we omit generated columns
+                quote_name = env.connection.ops.quote_name
+                columns = ', '.join(quote_name(column) for column in columns_by_table[model._meta.db_table])
                 query = cursor.mogrify(
-                    'COPY (SELECT * FROM "{t}" WHERE "id" = ANY(%s)) '  # nosec
+                    'COPY (SELECT {columns} FROM "{t}" WHERE "id" = ANY(%s)) '  # nosec
                     "TO STDOUT WITH CSV DELIMITER ';' HEADER".format(  # nosec
-                        t=model._meta.db_table
+                        columns=columns, t=model._meta.db_table
                     ),
                     [list(pk_set)],
                 )

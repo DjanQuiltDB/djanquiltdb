@@ -21,8 +21,14 @@ from example.models import (
 )
 
 from djanquiltdb.collector import SimpleCollector
+from djanquiltdb.db import connection
 from djanquiltdb.management.commands.move_data_to_shard import Command as MoveCommand
-from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
+from djanquiltdb_tests import (
+    ShardingTestCase,
+    ShardingTransactionTestCase,
+    skip_without_virtual_generated_column_support,
+)
+from djanquiltdb_tests.sql import CREATE_ALLUPPERCASE, DROP_ALLUPPERCASE
 from djanquiltdb.utils import State, create_template_schema, use_shard
 
 
@@ -60,6 +66,64 @@ class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
             '--no-input',
             '--quiet',
         ]
+
+    def _drop_generation_function(self):
+        # CASCADE: cleanup may run while generated columns still depend on the function.
+        connection.cursor().execute(DROP_ALLUPPERCASE)
+
+    def _add_generated_column(self):
+        connection.cursor().execute(CREATE_ALLUPPERCASE)
+        self.addCleanup(self._drop_generation_function)
+
+        for shard in (self.source_shard, self.target_shard):
+            with use_shard(shard, active_only_schemas=False, lock=False) as env:
+                env.connection.cursor().execute(
+                    'ALTER TABLE "{t}" ADD COLUMN name_alluppercased TEXT '
+                    'GENERATED ALWAYS AS (public.alluppercase(name)) STORED'.format(t=Organization._meta.db_table)
+                )
+
+    def test_moving_a_table_with_a_stored_generated_column(self):
+        """
+        Case: Move an organization with a table with a generated column.
+        Expected: The move succeeds, the generated column functions correctly.
+        """
+        self._add_generated_column()
+
+        call_command('move_data_to_shard', *map(str, self.options))
+
+        with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
+            cursor = env.connection.cursor()
+            cursor.execute(
+                'SELECT name_alluppercased FROM "{t}" WHERE id = %s'.format(t=Organization._meta.db_table),
+                [self.organization.pk],
+            )
+            self.assertEqual(cursor.fetchone(), ('ACE',))
+
+    def _add_virtual_generated_column(self):
+        for shard in (self.source_shard, self.target_shard):
+            with use_shard(shard, active_only_schemas=False, lock=False) as env:
+                env.connection.cursor().execute(
+                    'ALTER TABLE "{t}" ADD COLUMN name_uppercased TEXT '
+                    'GENERATED ALWAYS AS (upper(name)) VIRTUAL'.format(t=Organization._meta.db_table)
+                )
+
+    @skip_without_virtual_generated_column_support
+    def test_moving_a_table_with_a_virtual_generated_column(self):
+        """
+        Case: Move a table with a virtual generated column.
+        Expected: The move succeeds. The generated column functions correctly.
+        """
+        self._add_virtual_generated_column()
+
+        call_command('move_data_to_shard', *map(str, self.options))
+
+        with use_shard(self.target_shard, active_only_schemas=False, lock=False) as env:
+            cursor = env.connection.cursor()
+            cursor.execute(
+                'SELECT name_uppercased FROM "{t}" WHERE id = %s'.format(t=Organization._meta.db_table),
+                [self.organization.pk],
+            )
+            self.assertEqual(cursor.fetchone(), ('ACE',))
 
     def test_sequencer_on_same_node(self):
         """

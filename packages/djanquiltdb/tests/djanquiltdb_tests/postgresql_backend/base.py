@@ -18,7 +18,13 @@ from djanquiltdb.postgresql_backend.base import (
     get_validated_schema_name,
 )
 from djanquiltdb.postgresql_backend.utils import LockCursorWrapperMixin
-from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase, disable_db_reconnect
+from djanquiltdb_tests import (
+    ShardingTestCase,
+    ShardingTransactionTestCase,
+    disable_db_reconnect,
+    skip_without_virtual_generated_column_support,
+)
+from djanquiltdb_tests.sql import CREATE_ALLUPPERCASE, DROP_ALLUPPERCASE
 from djanquiltdb.utils import create_schema_on_node, create_template_schema, get_template_name, use_shard
 
 
@@ -584,7 +590,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
                         'select pg_terminate_backend(pid) from pg_stat_activity where datname=%s;',
                         [env.connection.settings_dict['NAME']],
                     )
-                except (InterfaceError, OperationalError1, OperationalError2):
+                except InterfaceError, OperationalError1, OperationalError2:
                     # We know this will raise errors.
                     # Disconnecting the connection from a connection does not pass silently.
                     pass
@@ -1935,3 +1941,216 @@ class TriggersTestCase(ShardingTransactionTestCase):
             self.assertIsNotNone(log_entry, 'Log entry should exist for updated record')
             self.assertEqual(log_entry[0], 'example_organization', 'Log entry should have correct table name')
             self.assertEqual(log_entry[1], org_id, 'Log entry should have correct record id')
+
+
+class GeneratedColumnsTestCase(ShardingTransactionTestCase):
+    def setUp(self):
+        super().setUp()
+        connection.create_schema('generated_source_schema')
+        connection.create_schema('generated_dest_schema')
+        self.addCleanup(self._drop_generation_function)
+
+    def _drop_generation_function(self):
+        connection.cursor().execute(DROP_ALLUPPERCASE)
+
+    def _create_generation_function(self):
+        connection.cursor().execute(CREATE_ALLUPPERCASE)
+
+    def _create_generated_column_table(self, table_name='generated_source', with_rows=True):
+        self._create_generation_function()
+        with use_shard(node_name='default', schema_name='generated_source_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE {table} (
+                    id SERIAL PRIMARY KEY,
+                    body TEXT NOT NULL DEFAULT '',
+                    body_alluppercased TEXT GENERATED ALWAYS AS (public.alluppercase(body)) STORED
+                )
+                """.format(table=table_name)
+            )
+            if with_rows:
+                cursor.execute(
+                    'INSERT INTO {table} (body) VALUES (%s), (%s)'.format(table=table_name),
+                    ['first', 'second'],
+                )
+
+    def test_get_copyable_column_names_by_table_matches_the_single_table_lookup(self):
+        """
+        Case: Ask for the copyable columns of a whole schema at once.
+        Expected: One entry per table in declaration order, generated columns excluded.
+        """
+        self._create_generated_column_table()
+
+        by_table = connection.get_copyable_column_names_by_table(schema_name='generated_source_schema')
+
+        self.assertEqual(by_table['generated_source'], ['id', 'body'])
+        for table, columns in by_table.items():
+            self.assertEqual(
+                columns, connection.get_copyable_column_names(table, schema_name='generated_source_schema')
+            )
+
+    def test_clone_schema_with_generated_columns(self):
+        """
+        Case: Clone a schema with a stored generated column and read pre-existing rows.
+        Expected: The values are correctly function-generated.
+        """
+        self._create_generated_column_table()
+
+        connection.clone_schema('generated_source_schema', 'generated_dest_schema')
+
+        with use_shard(node_name='default', schema_name='generated_dest_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('SELECT body, body_alluppercased FROM generated_source ORDER BY id')
+            self.assertEqual(cursor.fetchall(), [('first', 'FIRST'), ('second', 'SECOND')])
+
+    def test_clone_schema_keeps_the_column_generated(self):
+        """
+        Case: Clone a schema with a stored generated column and insert new rows.
+        Expected: The generated column gets an appropriately function-created value for each new row.
+        """
+        self._create_generated_column_table()
+
+        connection.clone_schema('generated_source_schema', 'generated_dest_schema')
+
+        with use_shard(node_name='default', schema_name='generated_dest_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute("INSERT INTO generated_source (body) VALUES ('third')")
+            cursor.execute("SELECT body_alluppercased FROM generated_source WHERE body = 'third'")
+            self.assertEqual(cursor.fetchone(), ('THIRD',))
+
+    def test_clone_schema_with_an_empty_generated_column_table(self):
+        """
+        Case: Clone a schema whose table has a generated column but no rows.
+        Expected: The clone succeeds (no parser error triggers on INSERT on a generated row, even on an empty table).
+        """
+        self._create_generated_column_table(table_name='generated_empty', with_rows=False)
+
+        connection.clone_schema('generated_source_schema', 'generated_dest_schema')
+
+        with use_shard(node_name='default', schema_name='generated_dest_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('SELECT COUNT(*) FROM generated_empty')
+            self.assertEqual(cursor.fetchone(), (0,))
+
+    def test_get_copyable_column_names_leaves_out_generated_columns(self):
+        """
+        Case: Request the schema for a table that has a stored generated column.
+        Expected: The schema excludes the stored generated columns.
+        """
+        self._create_generated_column_table()
+
+        columns = connection.get_copyable_column_names('generated_source', schema_name='generated_source_schema')
+
+        self.assertEqual(columns, ['id', 'body'])
+
+
+class VirtualGeneratedColumnsTestCase(ShardingTransactionTestCase):
+    """
+    A virtual generated column is computed on read and never stored. PostgreSQL only offers them from version 18
+    onwards, so these tests are skipped on earlier versions.
+    """
+
+    @skip_without_virtual_generated_column_support
+    def setUp(self):
+        super().setUp()
+        connection.create_schema('virtual_source_schema')
+        connection.create_schema('virtual_dest_schema')
+
+    def _create_virtual_column_table(self, table_name='virtual_source', with_rows=True):
+        with use_shard(node_name='default', schema_name='virtual_source_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE {table} (
+                    id SERIAL PRIMARY KEY,
+                    body TEXT NOT NULL DEFAULT '',
+                    body_uppercased TEXT GENERATED ALWAYS AS (upper(body)) VIRTUAL
+                )
+                """.format(table=table_name)
+            )
+            if with_rows:
+                cursor.execute(
+                    'INSERT INTO {table} (body) VALUES (%s), (%s)'.format(table=table_name),
+                    ['first', 'second'],
+                )
+
+    def _get_attgenerated(self, schema_name, table_name, column_name):
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT att.attgenerated::text
+            FROM pg_catalog.pg_attribute att
+            JOIN pg_catalog.pg_class cls ON att.attrelid = cls.oid
+            JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+            WHERE nsp.nspname = %s AND cls.relname = %s AND att.attname = %s
+            """,
+            [schema_name, table_name, column_name],
+        )
+        return cursor.fetchone()[0]
+
+    def test_clone_schema_with_virtual_generated_columns(self):
+        """
+        Case: Clone a schema with a virtual generated column and read pre-existing rows.
+        Expected: The values are correctly generated.
+        """
+        self._create_virtual_column_table()
+
+        connection.clone_schema('virtual_source_schema', 'virtual_dest_schema')
+
+        with use_shard(node_name='default', schema_name='virtual_dest_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('SELECT body, body_uppercased FROM virtual_source ORDER BY id')
+            self.assertEqual(cursor.fetchall(), [('first', 'FIRST'), ('second', 'SECOND')])
+
+    def test_clone_schema_keeps_the_column_generated(self):
+        """
+        Case: Clone a schema with a virtual generated column and insert new rows.
+        Expected: The generated column computes a value for each new row.
+        """
+        self._create_virtual_column_table()
+
+        connection.clone_schema('virtual_source_schema', 'virtual_dest_schema')
+
+        with use_shard(node_name='default', schema_name='virtual_dest_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute("INSERT INTO virtual_source (body) VALUES ('third')")
+            cursor.execute("SELECT body_uppercased FROM virtual_source WHERE body = 'third'")
+            self.assertEqual(cursor.fetchone(), ('THIRD',))
+
+    def test_clone_schema_keeps_the_column_virtual(self):
+        """
+        Case: Clone a schema with a virtual generated column and inspect the clone's column definition.
+        Expected: The column is still virtual, not silently materialised as stored.
+        """
+        self._create_virtual_column_table()
+
+        connection.clone_schema('virtual_source_schema', 'virtual_dest_schema')
+
+        self.assertEqual(self._get_attgenerated('virtual_source_schema', 'virtual_source', 'body_uppercased'), 'v')
+        self.assertEqual(self._get_attgenerated('virtual_dest_schema', 'virtual_source', 'body_uppercased'), 'v')
+
+    def test_clone_schema_with_an_empty_virtual_generated_column_table(self):
+        """
+        Case: Clone a schema whose table has a virtual generated column but no rows.
+        Expected: The clone succeeds.
+        """
+        self._create_virtual_column_table(table_name='virtual_empty', with_rows=False)
+
+        connection.clone_schema('virtual_source_schema', 'virtual_dest_schema')
+
+        with use_shard(node_name='default', schema_name='virtual_dest_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('SELECT COUNT(*) FROM virtual_empty')
+            self.assertEqual(cursor.fetchone(), (0,))
+
+    def test_get_copyable_column_names_leaves_out_virtual_generated_columns(self):
+        """
+        Case: Request the copyable columns for a table that has a virtual generated column.
+        Expected: The virtual generated column is excluded, just as a stored one is.
+        """
+        self._create_virtual_column_table()
+
+        columns = connection.get_copyable_column_names('virtual_source', schema_name='virtual_source_schema')
+
+        self.assertEqual(columns, ['id', 'body'])

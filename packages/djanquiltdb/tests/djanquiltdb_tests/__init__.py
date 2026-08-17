@@ -92,6 +92,17 @@ class ShardingTransactionTestCase(ResetConnectionTestCaseMixin, CleanShardingArt
     databases = '__all__'  # To make sure cleanup will be done on all databases
 
 
+def skip_without_virtual_generated_column_support(func):
+    @functools.wraps(func)
+    def inner(self, *args, **kwargs):
+        if not connections[DEFAULT_DB_ALIAS].features.supports_virtual_generated_columns:
+            self.skipTest('Virtual generated columns require PostgreSQL 18 or later.')
+
+        return func(self, *args, **kwargs)
+
+    return inner
+
+
 def disable_db_reconnect():
     def outer(func):
         @functools.wraps(func)

@@ -23,12 +23,18 @@ from example.models import (
 
 from djanquiltdb.management.commands.move_shard_to_node import Command as MoveCommand
 from djanquiltdb.options import ShardOptions
-from djanquiltdb_tests import OverrideMirroredRoutingMixin, ShardingTestCase, ShardingTransactionTestCase
+from djanquiltdb_tests import (
+    OverrideMirroredRoutingMixin,
+    ShardingTestCase,
+    ShardingTransactionTestCase,
+    skip_without_virtual_generated_column_support,
+)
 from djanquiltdb.utils import (
     State,
     create_schema_on_node,
     create_template_schema,
     get_shard_for,
+    get_template_name,
     use_shard,
     use_shard_for,
 )
@@ -223,6 +229,58 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
             # Check if the content is still intact, due to escaping and what not.
             self.assertEqual(Statement.objects.get(id=self.statement_1.id).content, "'Luke'!")
             self.assertEqual(Statement.objects.get(id=self.statement_2.id).content, 'Try to; solve this "puzzle."')
+
+    def _add_generated_column(self, column_name, persistence):
+        statement = 'ALTER TABLE "{t}" ADD COLUMN {c} TEXT GENERATED ALWAYS AS (upper(name)) {p}'.format(
+            t=Organization._meta.db_table, c=column_name, p=persistence
+        )
+
+        with use_shard(
+            node_name='default', schema_name=self.source_shard.schema_name, active_only_schemas=False, lock=False
+        ) as env:
+            env.connection.cursor().execute(statement)
+
+        with use_shard(
+            node_name='other', schema_name=get_template_name(), active_only_schemas=False, lock=False
+        ) as env:
+            env.connection.cursor().execute(statement)
+
+    def _assert_generated_column_survived_the_move(self, column_name):
+        with use_shard(
+            node_name='other',
+            schema_name=self.source_shard.schema_name,
+            active_only_schemas=False,
+            include_public_schema=True,
+        ) as env:
+            cursor = env.connection.cursor()
+            cursor.execute(
+                'SELECT {c} FROM "{t}" WHERE id = %s'.format(c=column_name, t=Organization._meta.db_table),
+                [self.organization_1.pk],
+            )
+            self.assertEqual(cursor.fetchone(), ('LAYTON INC.',))
+
+    def test_moving_a_shard_with_a_stored_generated_column(self):
+        """
+        Case: Move a table with a stored generated column.
+        Expected: The move succeeds. The column behaves correctly.
+        """
+        self._add_generated_column('name_uppercased', 'STORED')
+
+        call_command('move_shard_to_node', *self.format_options_to_args())
+
+        self._assert_generated_column_survived_the_move('name_uppercased')
+
+    @skip_without_virtual_generated_column_support
+    def test_moving_a_shard_with_a_virtual_generated_column(self):
+        """
+        Case: Move a table with a virtual generated column.
+        Expected: The move succeeds. The column behaves correctly.
+        """
+        self._add_generated_column('name_uppercased', 'VIRTUAL')
+
+        call_command('move_shard_to_node', *self.format_options_to_args())
+
+        self._assert_generated_column_survived_the_move('name_uppercased')
 
     def test_sequences_after_moving(self):
         """

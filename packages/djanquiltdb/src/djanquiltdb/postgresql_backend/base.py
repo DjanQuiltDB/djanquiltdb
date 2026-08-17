@@ -53,6 +53,7 @@ DECLARE
   func_schema TEXT;
   func_def TEXT;
   adapted_func_def TEXT;
+  copyable_columns_ TEXT;
 
 BEGIN
   /* Set search_path to include source_schema and public so information_schema queries work correctly.
@@ -79,7 +80,22 @@ BEGIN
     dest_table_path := dest_schema || '.' || dest_table;
     /* Create all tables on the target schema. */
     EXECUTE 'CREATE TABLE ' || dest_table_path || ' (LIKE ' || source_schema || '.' || dest_table || ' INCLUDING ALL)';
-    EXECUTE 'INSERT INTO ' || dest_table_path || '(SELECT * FROM ' || source_schema || '.' || dest_table || ')';
+
+    /* Copy over rows naming each column explicitly to avoid errors on generated columns (i.e. without SELECT *). Keep
+     * this predicate in sync with DatabaseWrapper.get_copyable_column_names and get_copyable_column_names_by_table.
+     */
+    SELECT string_agg(quote_ident(attname), ', ' ORDER BY attnum)
+      INTO copyable_columns_
+      FROM pg_catalog.pg_attribute
+      WHERE attrelid = format('%I.%I', source_schema, dest_table)::regclass
+        AND attnum > 0
+        AND NOT attisdropped
+        AND attgenerated = '';
+
+    IF copyable_columns_ IS NOT NULL THEN
+      EXECUTE 'INSERT INTO ' || dest_table_path || ' (' || copyable_columns_ || ')'
+        || ' SELECT ' || copyable_columns_ || ' FROM ' || source_schema || '.' || dest_table;
+    END IF;
 
     /* For all tables, link the fields default value to their respective sequences made earlier. */
     FOR column_, default_ IN
@@ -395,6 +411,56 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             [schema],
         )
         return [x[0] for x in cursor.fetchall()]  # We get a list of single tuples
+
+    def get_copyable_column_names(self, table_name, schema_name=None, _cursor=None):
+        """
+        Return writable column names for a table (i.e. excluding generated columns) in declaration order.
+
+        Must be kept in sync with the row-copy block in clone_schema's plpgsql body.
+        """
+        cursor = _cursor or self.cursor()
+        schema = schema_name or self.get_schema()
+        cursor.execute(
+            """
+            SELECT att.attname::text
+            FROM pg_catalog.pg_attribute att
+            JOIN pg_catalog.pg_class cls ON att.attrelid = cls.oid
+            JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+            WHERE nsp.nspname = %s
+              AND cls.relname = %s
+              AND att.attnum > 0
+              AND NOT att.attisdropped
+              AND att.attgenerated = ''
+            ORDER BY att.attnum
+        """,
+            [schema, table_name],
+        )
+        return [x[0] for x in cursor.fetchall()]  # We get a list of single tuples
+
+    def get_copyable_column_names_by_table(self, schema_name=None, _cursor=None):
+        """
+        Writable column names for every table in the schema. Same rules as get_copyable_column_names.
+
+        Must be kept in sync with the row-copy block in clone_schema's plpgsql body.
+        """
+        cursor = _cursor or self.cursor()
+        schema = schema_name or self.get_schema()
+        cursor.execute(
+            """
+            SELECT cls.relname::text, array_agg(att.attname::text ORDER BY att.attnum)
+            FROM pg_catalog.pg_attribute att
+            JOIN pg_catalog.pg_class cls ON att.attrelid = cls.oid
+            JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+            WHERE nsp.nspname = %s
+              AND cls.relkind IN ('r', 'p')
+              AND att.attnum > 0
+              AND NOT att.attisdropped
+              AND att.attgenerated = ''
+            GROUP BY cls.relname
+        """,
+            [schema],
+        )
+        return {table: columns for table, columns in cursor.fetchall()}
 
     def get_all_table_sequences(self, schema_name=None, _cursor=None):
         cursor = _cursor or self.cursor()

@@ -211,15 +211,22 @@ class Command(BaseCommand):
             tables = env.connection.get_all_table_headers()
             tables.remove('django_migrations')  # No need to copy this one. It's already done by clone_schema
 
+            columns_by_table = env.connection.get_copyable_column_names_by_table()
+
         for table in tables:
             # Export
             io = StringIO()
             with self.source_shard.use(include_public=False, active_only_schemas=False, lock=False) as env:
                 cursor = env.connection.cursor()
+                # Name the columns rather than selecting everything: a generated column cannot be written by COPY, and
+                # the header line of this export is what the import below names on its own COPY. Leaving one out here
+                # keeps it out of both.
+                quote_name = env.connection.ops.quote_name
+                columns = ', '.join(quote_name(column) for column in columns_by_table[table])
                 query = cursor.mogrify(
-                    'COPY (SELECT * FROM "{t}") '  # nosec
+                    'COPY (SELECT {columns} FROM "{t}") '  # nosec
                     "TO STDOUT WITH (FORMAT CSV, DELIMITER ';', HEADER, FORCE_QUOTE *)".format(  # nosec
-                        t=table
+                        columns=columns, t=table
                     )
                 )
                 self.copy_data_stream(cursor, query.decode() if isinstance(query, bytes) else query, io)
