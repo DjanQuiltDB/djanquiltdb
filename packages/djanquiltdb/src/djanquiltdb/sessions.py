@@ -72,9 +72,8 @@ class SessionStore(BaseSessionStore):
                 self.session_key, serializer=self.serializer, max_age=settings.SESSION_COOKIE_AGE, salt=self.salt
             )
         except signing.BadSignature:
-            # Expired or tampered session key — treat as anonymous and discard the
-            # key so SessionBase mints a fresh one on next write. Matches Django's
-            # signed_cookies backend, which also returns an empty session here.
+            # Expired or tampered session key; treat as anonymous and discard the key so SessionBase mints a fresh one
+            # on next write. Matches Django's signed_cookies backend, which also returns an empty session here.
             self._session_key = None
             return None
 

@@ -964,7 +964,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 sql_ = sql.SQL('SET search_path = {}').format(sql.SQL(', ').join(identifiers))
                 cursor_for_search_path.execute(sql_)
                 logger.debug(str(sql_))
-            except (DatabaseError, InternalError):
+            except DatabaseError, InternalError:
                 logger.warning('Something went wrong with setting the search path.', exc_info=True)
             else:
                 self.current_search_paths = search_paths

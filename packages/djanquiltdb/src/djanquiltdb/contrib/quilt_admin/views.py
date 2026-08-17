@@ -21,7 +21,7 @@ def _coerce_value(raw_value, field):
     try:
         if isinstance(field, (models.AutoField, models.BigAutoField, models.IntegerField, models.BigIntegerField)):
             return int(raw_value)
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return raw_value
 
     return raw_value
@@ -80,7 +80,7 @@ class SwitchShardView(View):
                     shard = shard_class.objects.using('default').get(id=shard_id)
                     ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, shard_id)
                     messages.success(request, f'Switched to shard: {shard.alias}')
-                except (ValueError, TypeError):
+                except ValueError, TypeError:
                     messages.error(request, 'Selected shard id is invalid.')
                 except shard_class.DoesNotExist:
                     messages.error(request, 'Selected shard does not exist.')
