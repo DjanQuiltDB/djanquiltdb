@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from unittest import mock
 
-from django.db import DatabaseError, IntegrityError, InterfaceError, connections
+from django.db import DatabaseError, IntegrityError, InterfaceError, connections, transaction
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.utils import OperationalError
 from django.test import override_settings
@@ -191,6 +191,21 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         )
         return cursor.fetchall()[0][0]
 
+    def test_clone_schema_in_transaction_restores_search_path(self):
+        """
+        Case: connection.clone_schema runs inside an open transaction, as it does when a Shard is saved
+              under transaction.atomic().
+        Expected: statements after the clone resolve unqualified names against the search path from before
+                  the clone, not against the template schema the clone function switched to internally.
+        """
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+        with transaction.atomic():
+            connection.clone_schema('template', 'test_schema')
+            cursor = connection.cursor()
+            cursor.execute('SELECT current_schema()')
+            self.assertEqual(cursor.fetchone()[0], PUBLIC_SCHEMA_NAME)
+
     def test_clone_schema_table_attributes(self):
         """
         Case: Call connection.migrate_schema.
@@ -324,71 +339,28 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
 
         self.assertCountEqual(new_sequences, [('{}_id_seq'.format(table_name), '1') for table_name in tables_with_id])
 
-        # Check if the new tables have the new sequences assigned to their id columns
-        # The clone_schema function (lines 64-71 in base.py) attempts to update column defaults to reference
-        # the new schema's sequences. However, it uses information_schema.COLUMNS which can return NULL
-        # for column_default when the default expression references objects not in the search_path.
-        # This is a known limitation: the function may not update defaults if information_schema can't see them.
-        #
-        # The primary test (sequences exist with correct start values) is already verified above.
-        # Here we verify column defaults if they exist, but don't fail if they don't (due to the limitation).
+        # Every id column must draw from the sequence of its own schema rather than from the template's, whether it
+        # gets its values from a default or from an identity. pg_get_serial_sequence covers both.
+        for table_name in tables_with_id:
+            cursor.execute('SELECT pg_get_serial_sequence(%s, %s)', ['test_schema.{}'.format(table_name), 'id'])
+            self.assertEqual(cursor.fetchone()[0], 'test_schema.{}_id_seq'.format(table_name))
 
-        # Try to get actual default expressions using pg_catalog (not affected by search_path)
+        # Any default that an id column does carry has to name that same sequence. This connection sits on the public
+        # schema, so test_schema is off the search path and pg_get_expr spells the sequence out in full.
         cursor.execute("""
             SELECT c.relname::text, pg_get_expr(d.adbin, d.adrelid, true)::text
             FROM pg_catalog.pg_attribute a
             JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
             JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
             JOIN pg_catalog.pg_attrdef d ON a.attrelid = d.adrelid AND a.attnum = d.adnum
-            WHERE n.nspname = 'test_schema' 
+            WHERE n.nspname = 'test_schema'
             AND a.attname = 'id'
-            AND a.attnum > 0 
+            AND a.attnum > 0
             AND NOT a.attisdropped
             ORDER BY c.relname
         """)
-        new_schema_defaults = cursor.fetchall()
-
-        # If defaults exist, verify they reference the correct schema
-        # Note: Due to the information_schema limitation in clone_schema, defaults may not be updated
-        # and may still reference the template schema. This is acceptable - the sequences themselves
-        # are correctly cloned (verified above), which is the primary requirement.
-        if new_schema_defaults:
-            new_schema_defaults_dict = dict(new_schema_defaults)
-            for table_name, default_expr in new_schema_defaults:
-                # Verify it's a nextval call (the main thing we care about)
-                self.assertIn(
-                    'nextval',
-                    default_expr.lower(),
-                    f'Default for {table_name}.id should be a nextval call, got: {default_expr}',
-                )
-
-                # If the expression contains a schema reference, prefer test_schema over template
-                # (but don't fail if template is referenced due to the known limitation)
-                if 'template' in default_expr.lower() and 'test_schema' not in default_expr.lower():
-                    # This indicates the clone_schema function didn't update the default
-                    # This is a known limitation but doesn't break functionality since sequences exist
-                    pass  # Don't fail, just note it
-
-            # Verify we found defaults for at least some tables
-            self.assertGreater(
-                len(new_schema_defaults), 0, 'Should find some column defaults if clone_schema updated them'
-            )
-
-            # Verify key tables have defaults if defaults exist at all
-            expected_tables = ['example_organization', 'example_user', 'example_statement']
-            found_tables = set(new_schema_defaults_dict.keys())
-            found_expected = [t for t in expected_tables if t in found_tables]
-            # If we found any defaults, we should find at least some example tables
-            if len(new_schema_defaults) > 0:
-                self.assertGreater(
-                    len(found_expected),
-                    0,
-                    f'Should find defaults for at least some example tables. Found: {found_expected}',
-                )
-        else:
-            # No defaults found - this is acceptable due to the information_schema limitation
-            # The sequences themselves are correctly cloned (verified above), which is sufficient
-            pass
+        for table_name, default_expr in cursor.fetchall():
+            self.assertEqual(default_expr, "nextval('test_schema.{}_id_seq'::regclass)".format(table_name))
 
     def test_sequences_of_cloned_schema(self):
         """
@@ -2058,6 +2030,259 @@ class GeneratedColumnsTestCase(ShardingTransactionTestCase):
         columns = connection.get_copyable_column_names('generated_source', schema_name='generated_source_schema')
 
         self.assertEqual(columns, ['id', 'body'])
+
+
+class ExpressionRebindTestCase(ShardingTransactionTestCase):
+    """
+    Postgres stores an expression with the OID of the function it calls, and cloning a table with
+    CREATE TABLE ... (LIKE ... INCLUDING ALL) copies those OIDs verbatim. Every expression a table can carry therefore
+    has to be rebound by name onto the schema it was cloned into, or the shard keeps calling the template's copy of a
+    sharded function and stops working the moment that template is dropped.
+    """
+
+    SOURCE_SCHEMA = 'rebind_source_schema'
+    DEST_SCHEMA = 'rebind_dest_schema'
+
+    def setUp(self):
+        super().setUp()
+        connection.create_schema(self.SOURCE_SCHEMA)
+        connection.create_schema(self.DEST_SCHEMA)
+
+    def _create_sharded_function(self, schema_name):
+        """
+        Create a function under its bare name in the given schema, the way a ShardingMode.SHARDED declaration does.
+        """
+        with use_shard(node_name='default', schema_name=schema_name) as env:
+            env.connection.cursor().execute(
+                """
+                CREATE FUNCTION shard_upper(input TEXT) RETURNS TEXT AS $function$
+                    BEGIN
+                        RETURN UPPER(input);
+                    END;
+                $function$ LANGUAGE plpgsql IMMUTABLE STRICT;
+                """
+            )
+
+    def _create_table_using(self, function_reference, table_name='rebind_example'):
+        """
+        Create a table calling the given function from a default, a generated column, a check constraint, an expression
+        index and a partial index, so one clone exercises every expression kind LIKE copies by OID.
+        """
+        with use_shard(node_name='default', schema_name=self.SOURCE_SCHEMA) as env:
+            cursor = env.connection.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE {table} (
+                    id SERIAL PRIMARY KEY,
+                    body TEXT NOT NULL DEFAULT '',
+                    label TEXT DEFAULT {function}('fresh'),
+                    body_upper TEXT GENERATED ALWAYS AS ({function}(body)) STORED,
+                    CONSTRAINT rebind_body_check CHECK ({function}(body) <> 'FORBIDDEN')
+                )
+                """.format(table=table_name, function=function_reference)
+            )
+            cursor.execute(
+                'CREATE INDEX rebind_expr_idx ON {table} ({function}(body))'.format(
+                    table=table_name, function=function_reference
+                )
+            )
+            cursor.execute(
+                "CREATE INDEX rebind_partial_idx ON {table} (body) WHERE {function}(body) <> 'SKIP'".format(
+                    table=table_name, function=function_reference
+                )
+            )
+            cursor.execute('INSERT INTO {table} (body) VALUES (%s), (%s)'.format(table=table_name), ['first', 'second'])
+
+    def _expressions(self, schema_name, table_name='rebind_example'):
+        """
+        Return every expression the given table carries, as rendered from a connection that has neither schema on its
+        search path, so that each function and sequence prints with the schema it is actually bound to.
+        """
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT att.attname::text, pg_get_expr(def.adbin, def.adrelid, true)::text
+            FROM pg_catalog.pg_attrdef def
+            JOIN pg_catalog.pg_attribute att ON att.attrelid = def.adrelid AND att.attnum = def.adnum
+            JOIN pg_catalog.pg_class cls ON cls.oid = def.adrelid
+            JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+            WHERE nsp.nspname = %s AND cls.relname = %s
+            """,
+            [schema_name, table_name],
+        )
+        expressions = {'column {}'.format(column): expression for column, expression in cursor.fetchall()}
+
+        cursor.execute(
+            """
+            SELECT con.conname::text, pg_get_constraintdef(con.oid, true)::text
+            FROM pg_catalog.pg_constraint con
+            JOIN pg_catalog.pg_class cls ON cls.oid = con.conrelid
+            JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+            WHERE nsp.nspname = %s AND cls.relname = %s AND con.contype = 'c'
+            """,
+            [schema_name, table_name],
+        )
+        expressions.update({'constraint {}'.format(name): definition for name, definition in cursor.fetchall()})
+
+        cursor.execute(
+            """
+            SELECT idx_cls.relname::text, pg_get_indexdef(idx.indexrelid, 0, true)::text
+            FROM pg_catalog.pg_index idx
+            JOIN pg_catalog.pg_class idx_cls ON idx_cls.oid = idx.indexrelid
+            JOIN pg_catalog.pg_class cls ON cls.oid = idx.indrelid
+            JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+            WHERE nsp.nspname = %s AND cls.relname = %s
+            """,
+            [schema_name, table_name],
+        )
+        expressions.update({'index {}'.format(name): definition for name, definition in cursor.fetchall()})
+
+        return expressions
+
+    def test_clone_schema_rebinds_expressions_to_the_functions_of_the_new_schema(self):
+        """
+        Case: Clone a schema whose table calls a function of that same schema from every kind of expression.
+        Expected: Each expression on the clone calls the clone's own copy of the function, never the source's.
+        """
+        self._create_sharded_function(self.SOURCE_SCHEMA)
+        self._create_table_using('shard_upper')
+
+        connection.clone_schema(self.SOURCE_SCHEMA, self.DEST_SCHEMA)
+
+        expressions = self._expressions(self.DEST_SCHEMA)
+        self.assertCountEqual(
+            expressions,
+            [
+                'column id',
+                'column body',
+                'column label',
+                'column body_upper',
+                'constraint rebind_body_check',
+                'index rebind_example_pkey',
+                'index rebind_expr_idx',
+                'index rebind_partial_idx',
+            ],
+        )
+        for name in ('column label', 'column body_upper', 'constraint rebind_body_check'):
+            self.assertIn('{}.shard_upper'.format(self.DEST_SCHEMA), expressions[name])
+        for name in ('index rebind_expr_idx', 'index rebind_partial_idx'):
+            self.assertIn('{}.shard_upper'.format(self.DEST_SCHEMA), expressions[name])
+        for name, expression in expressions.items():
+            self.assertNotIn(self.SOURCE_SCHEMA, expression, 'Expression of {} still binds the source'.format(name))
+
+    def test_clone_schema_rebinds_serial_defaults_to_the_sequence_of_the_new_schema(self):
+        """
+        Case: Clone a schema whose table has a serial primary key.
+        Expected: The clone's default draws from the sequence cloned alongside it, not from the source's sequence.
+        """
+        self._create_sharded_function(self.SOURCE_SCHEMA)
+        self._create_table_using('shard_upper')
+
+        connection.clone_schema(self.SOURCE_SCHEMA, self.DEST_SCHEMA)
+
+        self.assertEqual(
+            self._expressions(self.DEST_SCHEMA)['column id'],
+            "nextval('{}.rebind_example_id_seq'::regclass)".format(self.DEST_SCHEMA),
+        )
+
+    def test_clone_schema_leaves_the_clone_working_after_the_source_schema_is_dropped(self):
+        """
+        Case: Clone a schema, drop the source schema outright, then write to the clone.
+        Expected: Every expression still works, because none of them reaches back into the schema just dropped. Were
+                  they still bound to the source, dropping it would cascade them away or fail outright.
+        """
+        self._create_sharded_function(self.SOURCE_SCHEMA)
+        self._create_table_using('shard_upper')
+        connection.clone_schema(self.SOURCE_SCHEMA, self.DEST_SCHEMA)
+
+        connection.cursor().execute('DROP SCHEMA {} CASCADE'.format(self.SOURCE_SCHEMA))
+
+        with use_shard(node_name='default', schema_name=self.DEST_SCHEMA) as env:
+            cursor = env.connection.cursor()
+            cursor.execute("INSERT INTO rebind_example (body) VALUES ('third')")
+            cursor.execute("SELECT label, body_upper FROM rebind_example WHERE body = 'third'")
+            self.assertEqual(cursor.fetchone(), ('FRESH', 'THIRD'))
+
+        self.assertCountEqual(
+            self._expressions(self.DEST_SCHEMA),
+            [
+                'column id',
+                'column body',
+                'column label',
+                'column body_upper',
+                'constraint rebind_body_check',
+                'index rebind_example_pkey',
+                'index rebind_expr_idx',
+                'index rebind_partial_idx',
+            ],
+        )
+
+    def test_clone_schema_keeps_the_check_constraint_enforced(self):
+        """
+        Case: Insert a row the check constraint forbids, into a clone whose source schema is gone.
+        Expected: The insert is refused, so the constraint is rebound and enforced rather than merely present.
+        """
+        self._create_sharded_function(self.SOURCE_SCHEMA)
+        self._create_table_using('shard_upper')
+        connection.clone_schema(self.SOURCE_SCHEMA, self.DEST_SCHEMA)
+        connection.cursor().execute('DROP SCHEMA {} CASCADE'.format(self.SOURCE_SCHEMA))
+
+        with use_shard(node_name='default', schema_name=self.DEST_SCHEMA) as env:
+            with self.assertRaises(IntegrityError):
+                env.connection.cursor().execute("INSERT INTO rebind_example (body) VALUES ('forbidden')")
+
+    def test_clone_schema_keeps_public_functions_bound_to_public(self):
+        """
+        Case: Clone a schema whose expressions call a function living in public rather than in the schema itself.
+        Expected: The clone keeps calling public's function. Only a reference into the schema being cloned may move;
+                  rebinding a shared function onto each shard would look for a copy that is never made.
+        """
+        connection.cursor().execute(CREATE_ALLUPPERCASE)
+        self.addCleanup(connection.cursor().execute, DROP_ALLUPPERCASE)
+        self._create_table_using('public.alluppercase')
+
+        connection.clone_schema(self.SOURCE_SCHEMA, self.DEST_SCHEMA)
+
+        expressions = self._expressions(self.DEST_SCHEMA)
+        for name in (
+            'column label',
+            'column body_upper',
+            'constraint rebind_body_check',
+            'index rebind_expr_idx',
+            'index rebind_partial_idx',
+        ):
+            self.assertIn('alluppercase', expressions[name])
+            self.assertNotIn('{}.alluppercase'.format(self.DEST_SCHEMA), expressions[name])
+            self.assertNotIn('{}.alluppercase'.format(self.SOURCE_SCHEMA), expressions[name])
+
+    def test_clone_schema_preserves_string_literals_matching_the_schema_name(self):
+        """
+        Case: Clone a schema whose expressions hold string literals that read like a reference into that schema.
+        Expected: The literals survive verbatim, since rebinding re-resolves names through the search path rather than
+                  rewriting the text of a definition.
+        """
+        literal = '{}.reserved'.format(self.SOURCE_SCHEMA)
+        with use_shard(node_name='default', schema_name=self.SOURCE_SCHEMA) as env:
+            cursor = env.connection.cursor()
+            cursor.execute(
+                """
+                CREATE TABLE rebind_literals (
+                    id SERIAL PRIMARY KEY,
+                    body TEXT NOT NULL DEFAULT '{literal}',
+                    CONSTRAINT rebind_literal_check CHECK (body <> '{literal}    ')
+                )
+                """.format(literal=literal)
+            )
+            cursor.execute(
+                "CREATE INDEX rebind_literal_idx ON rebind_literals (body) WHERE body <> '{}'".format(literal)
+            )
+
+        connection.clone_schema(self.SOURCE_SCHEMA, self.DEST_SCHEMA)
+
+        expressions = self._expressions(self.DEST_SCHEMA, table_name='rebind_literals')
+        self.assertIn("'{}'".format(literal), expressions['column body'])
+        self.assertIn("'{}    '".format(literal), expressions['constraint rebind_literal_check'])
+        self.assertIn("'{}'".format(literal), expressions['index rebind_literal_idx'])
 
 
 class VirtualGeneratedColumnsTestCase(ShardingTransactionTestCase):

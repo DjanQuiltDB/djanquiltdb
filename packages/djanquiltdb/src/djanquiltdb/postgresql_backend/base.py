@@ -34,8 +34,6 @@ clone_schema_function = """
 CREATE OR REPLACE FUNCTION public.clone_schema(source_schema TEXT, dest_schema TEXT) RETURNS VOID AS
 $BODY$
 DECLARE
-  default_ TEXT;
-  column_ TEXT;
   name_ TEXT;
   child_column_ TEXT;
   dest_table TEXT;
@@ -54,11 +52,21 @@ DECLARE
   func_def TEXT;
   adapted_func_def TEXT;
   copyable_columns_ TEXT;
+  rebind_stmts_ TEXT[];
+  rebind_drops_ TEXT[];
+  rebind_adds_ TEXT[];
+  rebind_stmt_ TEXT;
+  entry_search_path_ TEXT;
 
 BEGIN
-  /* Set search_path to include source_schema and public so information_schema queries work correctly.
-   * We need source_schema in search_path so that column_default expressions referencing sequences
-   * in source_schema are visible.
+  /* SET LOCAL survives function return until the transaction ends, so remember the caller's search_path: a caller
+   * running inside an open transaction (a Shard saved under transaction.atomic()) must not keep resolving unqualified
+   * names against the schemas this function switches to.
+   */
+  entry_search_path_ := current_setting('search_path');
+
+  /* Set search_path to include source_schema and public, so that unqualified references in the statements below
+   * resolve against the schema being cloned and then against public, the same way the application sees them.
    */
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema) || ',public,pg_catalog';
 
@@ -98,15 +106,6 @@ BEGIN
       EXECUTE 'INSERT INTO ' || dest_table_path || ' (' || copyable_columns_ || ')'
         || ' SELECT ' || copyable_columns_ || ' FROM ' || source_schema || '.' || dest_table;
     END IF;
-
-    /* For all tables, link the fields default value to their respective sequences made earlier. */
-    FOR column_, default_ IN
-      SELECT column_name::TEXT, regexp_replace(column_default::TEXT, source_schema, dest_schema)
-        FROM information_schema.COLUMNS WHERE table_schema = dest_schema AND TABLE_NAME = dest_table
-        AND column_default LIKE 'nextval(%' || source_schema || '%)'
-    LOOP
-      EXECUTE 'ALTER TABLE ' || dest_table_path || ' ALTER COLUMN ' || column_ || ' SET DEFAULT ' || default_;
-    END LOOP;
   END LOOP;
 
   /* For all tables, create their foreign key constraints.
@@ -181,6 +180,122 @@ BEGIN
     /* Execute the adapted function definition */
     EXECUTE adapted_func_def;
   END LOOP;
+
+  /* CREATE TABLE ... (LIKE ... INCLUDING ALL) above copies parsed expression trees, so every expression that calls a
+   * function keeps the source schema's function OID, and every default reading a sequence keeps the source schema's
+   * sequence OID. Column defaults, generated columns, CHECK constraints and expression or partial indexes on the
+   * clone would therefore keep using the source schema's objects rather than the copies made for this schema.
+   *
+   * Rebind them by name. Render each expression with only the source schema on the search_path: pg_get_expr() and
+   * friends schema-qualify a reference when it is invisible on the current path, so same-schema references print
+   * unqualified while references into other schemas (public, most notably) print qualified. Re-applying that text
+   * with the destination schema first on the path then resolves the unqualified names against this schema's own
+   * copies while leaving the qualified ones alone. This is the same principle the view cloning below relies on, and
+   * like it, it never rewrites the definition text, so string literals holding a schema name survive untouched.
+   *
+   * This must run after the functions were cloned above, since the copies have to exist to be bound to, and before
+   * the triggers and views are created below, so nothing fires or depends on the columns while they are altered.
+   * Every rendering below is a single statement, so the search_path cannot change midway through evaluating it.
+   */
+  EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema);
+
+  /* Plain column defaults. This is also what re-points a nextval() default at the sequence created for this schema:
+   * a regclass literal prints schema-qualified only when the sequence is not visible on the path. Identity columns
+   * stay clear of this by themselves, since an identity is not a default and has no pg_attrdef row.
+   */
+  SELECT coalesce(array_agg(
+      format('ALTER TABLE %I.%I ALTER COLUMN %I SET DEFAULT %s',
+             dest_schema, cls.relname, att.attname, pg_catalog.pg_get_expr(def.adbin, def.adrelid, true))
+      ORDER BY cls.relname, att.attnum), ARRAY[]::text[])
+    INTO rebind_stmts_
+    FROM pg_catalog.pg_attrdef def
+    JOIN pg_catalog.pg_attribute att ON att.attrelid = def.adrelid AND att.attnum = def.adnum
+    JOIN pg_catalog.pg_class cls ON cls.oid = def.adrelid
+    JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND att.attgenerated = '';
+
+  /* Generated columns. SET EXPRESSION swaps in the re-rendered expression and rewrites the table to recompute the
+   * stored values, which is harmless: the rows were copied above through the source schema's copy of the function,
+   * whose body is identical to the copy made for this schema.
+   *
+   * Only stored columns are rebound. PostgreSQL 18 rejects user-defined functions in a virtual generation
+   * expression, so a virtual column can only call built-ins out of pg_catalog, which are never cloned and so never
+   * left pointing at the wrong schema.
+   */
+  SELECT rebind_stmts_ || coalesce(array_agg(
+      format('ALTER TABLE %I.%I ALTER COLUMN %I SET EXPRESSION AS (%s)',
+             dest_schema, cls.relname, att.attname, pg_catalog.pg_get_expr(def.adbin, def.adrelid, true))
+      ORDER BY cls.relname, att.attnum), ARRAY[]::text[])
+    INTO rebind_stmts_
+    FROM pg_catalog.pg_attrdef def
+    JOIN pg_catalog.pg_attribute att ON att.attrelid = def.adrelid AND att.attnum = def.adnum
+    JOIN pg_catalog.pg_class cls ON cls.oid = def.adrelid
+    JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND att.attgenerated = 's';
+
+  /* CHECK constraints have no ALTER ... SET form, so drop the copies LIKE made and add them back from the source's
+   * definition. The copies are dropped by the name they actually carry on the destination and added back under the
+   * name they have on the source, which keeps the clone's constraints named after the template's whatever LIKE
+   * decided to call them. Restrict this to contype 'c': PostgreSQL 18 also keeps NOT NULL constraints in
+   * pg_constraint, as contype 'n', and those must be left alone. pg_get_constraintdef() carries NOT VALID and
+   * NO INHERIT along.
+   */
+  SELECT coalesce(array_agg(format('ALTER TABLE %I.%I DROP CONSTRAINT %I', dest_schema, cls.relname, con.conname)
+      ORDER BY cls.relname, con.conname), ARRAY[]::text[])
+    INTO rebind_drops_
+    FROM pg_catalog.pg_constraint con
+    JOIN pg_catalog.pg_class cls ON cls.oid = con.conrelid
+    JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+    WHERE nsp.nspname = dest_schema AND cls.relkind = 'r' AND con.contype = 'c';
+
+  SELECT coalesce(array_agg(format('ALTER TABLE %I.%I ADD CONSTRAINT %I %s',
+      dest_schema, cls.relname, con.conname, pg_catalog.pg_get_constraintdef(con.oid, true))
+      ORDER BY cls.relname, con.conname), ARRAY[]::text[])
+    INTO rebind_adds_
+    FROM pg_catalog.pg_constraint con
+    JOIN pg_catalog.pg_class cls ON cls.oid = con.conrelid
+    JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND con.contype = 'c';
+  rebind_stmts_ := rebind_stmts_ || rebind_drops_ || rebind_adds_;
+
+  /* Indexes that do not back a constraint. An index owned by a primary key, unique or exclusion constraint cannot
+   * be dropped on its own, and a plain key index holds no expression to rebind anyway.
+   *
+   * LIKE names the indexes it creates by the default rules rather than after the originals, so the copies cannot be
+   * addressed by the source's names: drop whatever non-constraint indexes the destination table ended up with, then
+   * create the source's again from their own definitions. That restores the template's index names on the shard as
+   * well. The pretty form of pg_get_indexdef() respects path visibility (the materialized view index cloning below
+   * leans on the same property), and a recreated index lands in the destination schema because an index always
+   * follows the schema of its table.
+   */
+  SELECT coalesce(array_agg(format('DROP INDEX %I.%I', dest_schema, idx_cls.relname)
+      ORDER BY idx_cls.relname), ARRAY[]::text[])
+    INTO rebind_drops_
+    FROM pg_catalog.pg_index idx
+    JOIN pg_catalog.pg_class idx_cls ON idx_cls.oid = idx.indexrelid
+    JOIN pg_catalog.pg_class cls ON cls.oid = idx.indrelid
+    JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+    WHERE nsp.nspname = dest_schema AND cls.relkind = 'r'
+      AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint con WHERE con.conindid = idx.indexrelid);
+
+  SELECT coalesce(array_agg(pg_catalog.pg_get_indexdef(idx.indexrelid, 0, true)
+      ORDER BY idx_cls.relname), ARRAY[]::text[])
+    INTO rebind_adds_
+    FROM pg_catalog.pg_index idx
+    JOIN pg_catalog.pg_class idx_cls ON idx_cls.oid = idx.indexrelid
+    JOIN pg_catalog.pg_class cls ON cls.oid = idx.indrelid
+    JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+    WHERE nsp.nspname = source_schema AND cls.relkind = 'r'
+      AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint con WHERE con.conindid = idx.indexrelid);
+  rebind_stmts_ := rebind_stmts_ || rebind_drops_ || rebind_adds_;
+
+  EXECUTE 'SET LOCAL search_path = ' || quote_ident(dest_schema) || ',public,pg_catalog';
+  FOREACH rebind_stmt_ IN ARRAY rebind_stmts_ LOOP
+    EXECUTE rebind_stmt_;
+  END LOOP;
+
+  /* Restore the path the surrounding phases run under. */
+  EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema) || ',public,pg_catalog';
 
   /* After cloning all tables, update sequences/identity columns to be higher than any existing IDs.
    * This prevents ID conflicts when inserting new records after cloning.
@@ -314,6 +429,9 @@ BEGIN
       EXECUTE adapted_trigger_def;
     END LOOP;
   END LOOP;
+
+  /* Restore the caller's search_path (see the note at the top). */
+  PERFORM set_config('search_path', entry_search_path_, true);
 END;
 $BODY$
 LANGUAGE plpgsql VOLATILE;
@@ -342,8 +460,14 @@ DECLARE
   view_defaults_ TEXT[];
   view_default_idx_ INT;
   adapted_view_def TEXT;
+  entry_search_path_ TEXT;
 
 BEGIN
+  /* SET LOCAL survives function return until the transaction ends, so remember the caller's search_path;
+   * move_sharded_models calls this function on its own inside an open transaction.
+   */
+  entry_search_path_ := current_setting('search_path');
+
   /* Recreate every view and materialized view of the source schema on the destination schema, rather than copy them,
    * to keep proper view semantics.
    *
@@ -482,8 +606,8 @@ BEGIN
 
   END IF;
 
-  /* Reset the search path (the definition load above narrowed it even if there were no views to create). */
-  EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema) || ',public,pg_catalog';
+  /* Restore the caller's search_path (the definition load above narrowed it even if there were no views to create). */
+  PERFORM set_config('search_path', entry_search_path_, true);
 END;
 $VIEWS$
 LANGUAGE plpgsql VOLATILE;
