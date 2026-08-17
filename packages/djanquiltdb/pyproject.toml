@@ -57,6 +57,7 @@ test = [
 dev = [
     "djanquiltdb[test,lint]",
     "sphinx>=8,<10",
+    "pre-commit>=4.0",
 ]
 
 [project.urls]

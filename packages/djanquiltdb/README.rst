@@ -26,12 +26,25 @@ Next, copy the example secrets file in the ``djanquiltdb`` directory and adjust 
 
     cp secrets.json.example secrets.json
 
+Code style
+----------
+
+Ruff handles both linting and formatting. Enable the git hook once per clone::
+
+    pre-commit install
+
+The same checks run over the whole tree with::
+
+    pre-commit run --all-files
+
 Tests
 -----
 
 Tox, run from the repository root, runs the test suite against multiple Python and Django versions::
 
     tox -m core
+
+The suite runs without any placement plugin installed: plugins carry suites of their own.
 
 Building
 --------

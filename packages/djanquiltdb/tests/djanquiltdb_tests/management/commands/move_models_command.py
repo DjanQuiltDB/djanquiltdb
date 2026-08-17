@@ -436,8 +436,8 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
             # Check if it's an identity column (Django 6.0) or has a sequence default (older Django)
             cursor.execute(
                 """
-                SELECT column_default, is_identity 
-                FROM information_schema.columns 
+                SELECT column_default, is_identity
+                FROM information_schema.columns
                 WHERE table_schema=%s AND table_name='django_migrations' AND column_name='id'
             """,
                 [shard.schema_name],

@@ -59,4 +59,3 @@ docs/_build/
 # Build artifacts
 build/
 *.egg-info/
-

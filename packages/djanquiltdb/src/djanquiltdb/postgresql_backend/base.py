@@ -863,7 +863,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         schema = schema_name or self.get_schema()
         cursor.execute(
             """
-            SELECT cls.relname::text 
+            SELECT cls.relname::text
             FROM pg_catalog.pg_sequence seq
             JOIN pg_catalog.pg_class cls ON seq.seqrelid = cls.oid
             JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
@@ -941,7 +941,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         cursor = _cursor or self.cursor()
         cursor.execute(
             """
-            SELECT nspname::text 
+            SELECT nspname::text
             FROM pg_catalog.pg_sequence seq
             JOIN pg_catalog.pg_class cls ON seq.seqrelid = cls.oid
             JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid

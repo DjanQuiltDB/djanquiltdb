@@ -326,10 +326,10 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         for table_name in new_schema_tables:
             cursor.execute(
                 """
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_schema = 'test_schema' 
-                AND table_name = %s 
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'test_schema'
+                AND table_name = %s
                 AND column_name = 'id'
             """,
                 [table_name],
@@ -1263,9 +1263,9 @@ class IdentityColumnTestCase(ShardingTransactionTestCase):
         # This is what the code should ideally use for identity columns
         cursor = connection.cursor()
         cursor.execute("""
-            SELECT TABLE_NAME::text 
-            FROM information_schema.TABLES 
-            WHERE table_schema = 'test_schema' 
+            SELECT TABLE_NAME::text
+            FROM information_schema.TABLES
+            WHERE table_schema = 'test_schema'
             AND table_type = 'BASE TABLE'
         """)
         tables = [row[0] for row in cursor.fetchall()]
@@ -1277,10 +1277,10 @@ class IdentityColumnTestCase(ShardingTransactionTestCase):
             # Check if table has an 'id' column before trying to get its sequence
             cursor.execute(
                 """
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_schema = 'test_schema' 
-                AND table_name = %s 
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'test_schema'
+                AND table_name = %s
                 AND column_name = 'id'
             """,
                 [table],
@@ -1363,7 +1363,7 @@ class IdentityColumnTestCase(ShardingTransactionTestCase):
 
         # Get standalone sequences from pg_sequence
         cursor.execute("""
-            SELECT cls.relname::text 
+            SELECT cls.relname::text
             FROM pg_catalog.pg_sequence seq
             JOIN pg_catalog.pg_class cls ON seq.seqrelid = cls.oid
             JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
@@ -1649,7 +1649,7 @@ class IdentityColumnTestCase(ShardingTransactionTestCase):
         # Verify sequences are gone (using direct query to catch identity sequences too)
         cursor = connection.cursor()
         cursor.execute("""
-            SELECT cls.relname::text 
+            SELECT cls.relname::text
             FROM pg_catalog.pg_sequence seq
             JOIN pg_catalog.pg_class cls ON seq.seqrelid = cls.oid
             JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
@@ -1660,7 +1660,7 @@ class IdentityColumnTestCase(ShardingTransactionTestCase):
         # Also check for identity column sequences that might not be in pg_sequence
         # but should be cleaned up when tables are dropped
         cursor.execute("""
-            SELECT COUNT(*) 
+            SELECT COUNT(*)
             FROM pg_catalog.pg_attribute a
             JOIN pg_catalog.pg_class c ON a.attrelid = c.oid
             JOIN pg_catalog.pg_namespace n ON c.relnamespace = n.oid
@@ -1743,8 +1743,8 @@ class TriggersTestCase(ShardingTransactionTestCase):
             # First check if example_organization table exists
             cursor.execute("""
                 SELECT EXISTS (
-                    SELECT 1 FROM information_schema.tables 
-                    WHERE table_schema = 'source_schema' 
+                    SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = 'source_schema'
                     AND table_name = 'example_organization'
                 )
             """)
@@ -1897,7 +1897,7 @@ class TriggersTestCase(ShardingTransactionTestCase):
             cursor.execute(
                 """
                 SELECT table_name, record_id
-                FROM dest_schema.update_log 
+                FROM dest_schema.update_log
                 WHERE record_id = %s
                 AND trigger_type = 1
             """,
@@ -2394,7 +2394,6 @@ class VirtualGeneratedColumnsTestCase(ShardingTransactionTestCase):
         columns = connection.get_copyable_column_names('virtual_source', schema_name='virtual_source_schema')
 
         self.assertEqual(columns, ['id', 'body'])
-
 
 
 class ViewsTestCase(ShardingTransactionTestCase):
