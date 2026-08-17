@@ -6,7 +6,6 @@ from django.core.management.base import CommandError
 from django.core.management.commands.migrate import Command as MigrateCommand
 from django.core.management.sql import emit_post_migrate_signal, emit_pre_migrate_signal
 from django.db import connections
-from django.db.migrations.autodetector import MigrationAutodetector
 from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import AmbiguityError
 from django.db.migrations.state import ProjectState
@@ -213,7 +212,7 @@ class Command(MigrateCommand):
     def check_for_changes(self, executor):
         self.stdout.write('  No migrations to apply.')
         # If there's changes that aren't in migrations yet, tell them how to fix it.
-        autodetector = MigrationAutodetector(
+        autodetector = self.autodetector(
             executor.loader.project_state(),
             ProjectState.from_apps(apps),
         )

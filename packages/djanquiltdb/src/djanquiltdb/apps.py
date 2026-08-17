@@ -12,6 +12,7 @@ from djanquiltdb import ShardingMode
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import class_method_use_shard, class_method_use_shard_from_db_arg
 from djanquiltdb.options import ShardOptions
+from djanquiltdb.plugins import load_plugins
 from djanquiltdb.postgresql_backend.base import ShardDatabaseWrapper
 from djanquiltdb.utils import get_all_mirrored_models, get_all_public_models, get_all_sharded_models
 
@@ -77,7 +78,13 @@ class DjanQuiltDBConfig(AppConfig):
         _validate_public_models()
         _patch_connections()
         _patch_transactions()
+        _install_plugins()
         _initialize_sharded_models()
+
+
+def _install_plugins():
+    for plugin in load_plugins():
+        plugin.install()
 
 
 def _validate_public_models():

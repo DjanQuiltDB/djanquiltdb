@@ -1,10 +1,13 @@
+import types
 from unittest import mock
 
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
+from django.test import SimpleTestCase
 from example.models import Shard
 
 from djanquiltdb import STATES, ShardingMode, State
+from djanquiltdb import decorators as djanquiltdb_decorators
 from djanquiltdb.decorators import (
     _reset_shard_mapping_models,
     class_method_use_shard_from_db_arg,
@@ -384,3 +387,30 @@ class UseShardFromDbArgDecoratorTestCase(ShardingTestCase):
         mock_from_alias.assert_called_once_with('db_argument')
         self.assertEqual(mock_get_active_connection.call_count, 1)
         self.assertTrue(mock_shardoptions_use.called)
+
+
+class PluginDecoratorReExportTestCase(SimpleTestCase):
+    def test_public_plugin_decorators_resolve_and_private_names_do_not(self):
+        """
+        Case: A plugin's decorators module exposes a public decorator and an underscore-private helper.
+        Expected: The public name resolves through djanquiltdb.decorators; the private helper stays private instead of
+                  leaking as public API of this module.
+        """
+        fake_decorators = types.SimpleNamespace(shiny_decorator=object(), _private_helper=object())
+        fake_plugin = types.SimpleNamespace(decorators=fake_decorators, install=lambda: None)
+
+        with mock.patch('djanquiltdb.plugins.load_plugins', return_value=(fake_plugin,)):
+            self.assertIs(djanquiltdb_decorators.shiny_decorator, fake_decorators.shiny_decorator)
+            with self.assertRaises(AttributeError):
+                djanquiltdb_decorators._private_helper
+
+    def test_unknown_names_still_raise(self):
+        """
+        Case: No loaded plugin's decorators module has the requested name.
+        Expected: AttributeError, as for any missing module attribute.
+        """
+        fake_plugin = types.SimpleNamespace(decorators=types.SimpleNamespace(), install=lambda: None)
+
+        with mock.patch('djanquiltdb.plugins.load_plugins', return_value=(fake_plugin,)):
+            with self.assertRaises(AttributeError):
+                djanquiltdb_decorators.does_not_exist_anywhere

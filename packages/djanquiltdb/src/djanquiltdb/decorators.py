@@ -407,3 +407,19 @@ class override_sharding_setting(override_settings):
             sharding[name] = value
 
         super().__init__(QUILT_DB=sharding)
+
+
+def __getattr__(name):
+    """
+    Serve decorators any plugin provides as members of this module. Underscore-prefixed names stay private
+    to the plugin module: only its public decorators become attributes here.
+    """
+    from djanquiltdb.plugins import load_plugins
+
+    if not name.startswith('_'):
+        for plugin in load_plugins():
+            decorators = getattr(plugin, 'decorators', None)
+            if decorators is not None and hasattr(decorators, name):
+                return getattr(decorators, name)
+
+    raise AttributeError(f'module {__name__!r} has no attribute {name!r}')

@@ -41,6 +41,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+lint = [
+    "ruff==0.15.21",
+]
 test = [
     "tox==4.12.1",
     "pluggy",
@@ -52,7 +55,7 @@ test = [
     "PyYAML",
 ]
 dev = [
-    "djanquiltdb[test]",
+    "djanquiltdb[test,lint]",
     "sphinx>=8,<10",
 ]
 
