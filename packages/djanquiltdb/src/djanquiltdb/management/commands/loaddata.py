@@ -23,16 +23,17 @@ class Command(LoadDataCommand):
     def handle(self, *fixture_labels, **options):
         database = options.pop('database', None)
 
-        # The command expects `database` to be a string, and it doesn't work out-of-the-box with something else. So we
-        # cast the database options to a string here.
+        if database is None:
+            database = settings.QUILT_DB['PRIMARY_DB_ALIAS']
+
+        # `database` can be a string ('other' or 'node|schema'), a tuple, a shard or a ShardOptions instance.
+        # ShardOptions.from_alias() handles each of those and yields the node and schema the fixtures load into.
+        shard_options = ShardOptions.from_alias(database)
+
+        # The parent command expects `database` to be a string, and it doesn't work out-of-the-box with something
+        # else. So we cast the database option to a string here.
         if not isinstance(database, str):
-            # `database` could be a tuple, a shard or ShardOptions instance. So we pass it to ShardOptions.from_alias(),
-            # so we end up with a ShardOptions instance, from where we can get the node name and schema name.
-            shard_options = ShardOptions.from_alias(database)
             database = '{}|{}'.format(shard_options.node_name, shard_options.schema_name)
-        else:
-            # Parse the database string to get node_name and schema_name
-            shard_options = ShardOptions.from_alias(settings.QUILT_DB['PRIMARY_DB_ALIAS'])
 
         # Store shard_options for use in load_label
         self._shard_options = shard_options
@@ -247,21 +248,25 @@ class Command(LoadDataCommand):
                                 raise
                     else:
                         try:
-                            objects = deserializer(f, ignorenonexistent=self.ignore)
-                            # Deserialize and save objects
-                            # Convert to list to count, but iterate to save (preserves any counting in deserializer)
-                            objects_list = []
-                            for obj in objects:
-                                obj.save()
-                                objects_list.append(obj)
-                                # Track the model class for sequence resetting
-                                models_by_schema[schema_name].add(obj.object.__class__)
-                            total_objects_loaded += len(objects_list)
+                            # Route the saves through the named node's public schema; a bare save() would land on
+                            # the active (primary) connection whatever --database asked for.
+                            with use_shard(node_name=self._shard_options.node_name, schema_name=PUBLIC_SCHEMA_NAME):
+                                objects = deserializer(f, ignorenonexistent=self.ignore)
+                                # Deserialize and save objects
+                                # Convert to list to count, but iterate to save (preserves any counting in
+                                # deserializer)
+                                objects_list = []
+                                for obj in objects:
+                                    obj.save()
+                                    objects_list.append(obj)
+                                    # Track the model class for sequence resetting
+                                    models_by_schema[schema_name].add(obj.object.__class__)
+                                total_objects_loaded += len(objects_list)
 
-                            # Reset sequences for models loaded in public schema
-                            if models_by_schema[schema_name]:
-                                connection = connections[self._shard_options.node_name]
-                                connection.reset_sequence(model_list=list(models_by_schema[schema_name]))
+                                # Reset sequences for models loaded in public schema
+                                if models_by_schema[schema_name]:
+                                    connection = connections[self._shard_options.node_name]
+                                    connection.reset_sequence(model_list=list(models_by_schema[schema_name]))
                         except Exception as e:
                             if self.verbosity >= 1:
                                 self.stdout.write(

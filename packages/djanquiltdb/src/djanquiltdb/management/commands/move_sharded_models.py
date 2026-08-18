@@ -112,7 +112,7 @@ class Command(BaseCommand):
             for model in sharded_models:
                 move_model_to_schema(
                     model=model,
-                    node_name='default',
+                    node_name=target_shard.node_name,
                     from_schema_name=PUBLIC_SCHEMA_NAME,
                     to_schema_name=target_shard.schema_name,
                 )

@@ -82,15 +82,36 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
                     connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
                 )
 
-    def _publish_models_on_public(self):
+    def _publish_models_on_public(self, node_name='default'):
         """
         Put every model on the public schema, the way a previously unsharded project looks, by flushing the public
         schema and migrating it with the router disabled.
         """
-        with use_shard(node_name='default', schema_name='public') as env:
+        with use_shard(node_name=node_name, schema_name='public') as env:
             env.connection.flush_schema(schema_name='public')
         with mock.patch('djanquiltdb.router.DynamicDbRouter.allow_migrate', side_effect=self.fake_allow_migrate):
-            migrate_schema(node_name='default', schema_name='public')
+            migrate_schema(node_name=node_name, schema_name='public')
+
+    def test_moves_on_the_selected_database(self):
+        """
+        Case: Run the command with --database other while that node's public schema holds the models.
+        Expected: The sharded tables move into the new schema on the other node, and the default node is left untouched.
+        """
+        self._publish_models_on_public(node_name='other')
+
+        sharded_models = get_all_sharded_models(include_auto_created=True)
+        default_schemas_before = {model: sorted(connection.get_schema_for_model(model)) for model in sharded_models}
+
+        MoveCommand().handle(database='other', target_schema_name='test_target_schema', no_input=True)
+
+        with use_shard(node_name='other', schema_name='public') as env:
+            for model in sharded_models:
+                self.assertCountEqual(
+                    env.connection.get_schema_for_model(model), [('test_target_schema',), ('template',)]
+                )
+
+        for model, schemas_before in default_schemas_before.items():
+            self.assertCountEqual(connection.get_schema_for_model(model), schemas_before)
 
     def _relkind(self, name, schema_name):
         cursor = connection.cursor()

@@ -68,6 +68,22 @@ class LoadDataTestCase(ShardingTestCase):
         shard_options = ShardOptions(node_name='default', schema_name='test_schema')
         self.assertDatabaseString(database=shard_options)
 
+    def test_database_option_targets_the_named_node(self):
+        """
+        Case: Load a fixture with --database naming the other node.
+        Expected: The entries land on the other node's public schema, and the default node stays untouched.
+        """
+        fixture_data = [{'model': 'example.SuperType', 'pk': 1, 'fields': {'name': 'Elsewhere'}}]
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(fixture_data, f)
+            fixture_path = f.name
+        self.addCleanup(os.unlink, fixture_path)
+
+        call_command('loaddata', fixture_path, database='other', verbosity=0)
+
+        self.assertEqual(SuperType.objects.using('other').count(), 1)
+        self.assertEqual(SuperType.objects.count(), 0)
+
     def test_reset_sequences(self):
         """
         Case: Load fixtures into public and sharded schema using loaddata
