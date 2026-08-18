@@ -1281,3 +1281,59 @@ class StagesMigrationTestCase(ShardingTestCase):
         """
         self.assertFalse(schema_exists('default', get_template_name()))
         call_command('migrate_shards', 'example', database='default', verbosity=0)
+
+
+class ChangeWarningTestCase(ShardingTestCase):
+    """
+    The notice printed when there is nothing left to apply but the models have moved on.
+
+    Nothing else in the suite reaches it: it needs an empty plan and a verbosity of at least 1 together. It is also
+    the only autodetector the command builds, and it builds whichever one its command class carries rather than
+    naming a class of its own, which the last case pins.
+
+    The notice names no app and no change, so it cannot say which detected change produced it. Whether the right
+    autodetector was used is therefore asserted on the class itself rather than read out of the output.
+    """
+
+    available_apps = ['migration_tests', 'djanquiltdb', 'example']
+
+    NOTHING_TO_APPLY = 'No migrations to apply.'
+    HAS_CHANGES = 'not yet reflected in a migration'
+
+    def migrate(self):
+        """
+        Migrate everything with the database already up to date, so the plan is empty and the check runs.
+        """
+        out = StringIO()
+        call_command('migrate_shards', verbosity=1, stdout=out)
+
+        return out.getvalue()
+
+    def test_an_empty_plan_is_reported(self):
+        """
+        Case: Migrate a database that is already fully migrated.
+        Expected: It says so. This is the branch the check lives in, so nothing below runs without it.
+        """
+        self.assertIn(self.NOTHING_TO_APPLY, self.migrate())
+
+    @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_empty'})
+    def test_models_without_a_migration_are_reported(self):
+        """
+        Case: Migrate with an app whose models have no migrations at all.
+        Expected: The notice, and the hint naming makemigrations, so someone who has forgotten to write one is told.
+        """
+        output = self.migrate()
+
+        self.assertIn(self.HAS_CHANGES, output)
+        self.assertIn('makemigrations', output)
+
+    def test_the_autodetector_is_inherited_rather_than_declared(self):
+        """
+        Case: Read the autodetector class the command builds its unmigrated-changes check with.
+        Expected: Exactly the one Django's own migrate command carries. The command declares no autodetector of its
+                  own, so whatever a library has layered onto the migration commands is used here too; declaring one
+                  would silently drop every library that layers onto them, which is what this guards.
+        """
+        from django.core.management.commands.migrate import Command as DjangoMigrate
+
+        self.assertIs(MigrateShards.autodetector, DjangoMigrate.autodetector)
