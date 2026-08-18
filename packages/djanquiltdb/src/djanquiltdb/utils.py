@@ -113,6 +113,7 @@ class use_shard(object):
             raise ValueError('You need to provide at least a shard or a node name.')
 
         self._enabled = False
+        self._locks_are_xact = False
 
     def __enter__(self):
         return self.enable()
@@ -130,10 +131,14 @@ class use_shard(object):
         return inner
 
     def acquire_lock(self):
+        # Record how the locks are scoped: inside a transaction acquire_locks takes transaction-scoped locks,
+        # which the transaction's own commit or rollback releases.
+        self._locks_are_xact = self.connection.in_atomic_block
         self.connection.acquire_locks()
 
     def release_lock(self):
-        self.connection.release_locks()
+        if not self._locks_are_xact:
+            self.connection.release_locks()
 
     def enable(self):
         from djanquiltdb.router import get_active_connection, set_active_connection  # Prevent cyclic imports

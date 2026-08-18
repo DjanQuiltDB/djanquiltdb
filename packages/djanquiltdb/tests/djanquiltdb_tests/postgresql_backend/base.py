@@ -3,6 +3,7 @@ from unittest import mock
 
 from django.db import DatabaseError, IntegrityError, InterfaceError, connections, transaction
 from django.db.backends.base.base import BaseDatabaseWrapper
+from django.db.models.expressions import RawSQL
 from django.db.utils import OperationalError
 from django.test import override_settings
 from psycopg.errors import InternalError
@@ -977,6 +978,41 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         self.assertTrue(self.get_lock(self.connection1, 'test'))
         self.assertTrue(self.get_lock(self.connection2, 'test2'))
 
+    def test_failing_statement_under_use_shard_in_transaction(self):
+        """
+        Case: A statement fails inside transaction.atomic under a use_shard context, aborting the transaction before the
+              context releases the shard's advisory lock.
+        Expected: The original error surfaces rather than the release's own failure inside the aborted transaction, and
+                  the rollback releases the lock instead of stranding it on the session.
+        """
+        create_template_schema('default')
+        shard = Shard.objects.create(node_name='default', schema_name='test_schema', alias='test', state=State.ACTIVE)
+
+        with self.assertRaises(DatabaseError) as raised:
+            with transaction.atomic():
+                with use_shard(shard):
+                    self.connection1.cursor().execute('SELECT 1 FROM djanquiltdb_no_such_table')
+
+        self.assertIn('djanquiltdb_no_such_table', str(raised.exception))
+        self.assertTrue(self.get_lock(self.connection2, 'shard_{}'.format(shard.id)))
+
+    def test_failing_statement_with_using_in_transaction(self):
+        """
+        Case: a query routed with .using(shard) fails inside transaction.atomic, aborting the transaction
+              between the per-statement advisory lock's acquire and release.
+        Expected: the original error surfaces rather than the release's own failure inside the aborted
+                  transaction, and the rollback releases the lock instead of stranding it on the session.
+        """
+        create_template_schema('default')
+        shard = Shard.objects.create(node_name='default', schema_name='test_schema', alias='test', state=State.ACTIVE)
+
+        with self.assertRaises(DatabaseError) as raised:
+            with transaction.atomic():
+                list(Organization.objects.using(shard).annotate(x=RawSQL('djanquiltdb_no_such_column', ())))
+
+        self.assertIn('djanquiltdb_no_such_column', str(raised.exception))
+        self.assertTrue(self.get_lock(self.connection2, 'shard_{}'.format(shard.id)))
+
     def test_nested_locks(self):
         """
         Case: Have multiple advisory locks with the same key, release one, and release the other after
@@ -1015,26 +1051,30 @@ class AdvisoryLockingIntegrationTestCase(ShardingTestCase):
     @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock')
     def test_lock_use_shard(self, mock_release_advisory_lock, mock_acquire_advisory_lock):
         """
-        Case: Retrieve an object in a use_shard context
-        Expected: Acquiring and releasing an advisory lock only done once
+        Case: Retrieve an object in a use_shard context, inside the transaction the test case wraps around
+              each test.
+        Expected: The advisory lock acquired only once, transaction-scoped, with no explicit release: the
+                  surrounding transaction's commit or rollback releases it.
         """
         with self.shard.use():
             Organization.objects.create(name='Hogwarts')
 
-        mock_acquire_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
-        mock_release_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
+        mock_acquire_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True, xact=True)
+        mock_release_advisory_lock.assert_not_called()
 
     @mock.patch.object(LockCursorWrapperMixin, 'acquire_advisory_lock')
     @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock')
     def test_lock_on_execute(self, mock_release_advisory_lock, mock_acquire_advisory_lock):
         """
-        Case: Retrieve an object with the using method
-        Expected: Acquiring and releasing an advisory lock only done once
+        Case: Retrieve an object with the using method, inside the transaction the test case wraps around
+              each test.
+        Expected: The advisory lock acquired only once, transaction-scoped, with no explicit release: the
+                  surrounding transaction's commit or rollback releases it.
         """
         Organization.objects.using(self.shard).create(name='Hogwarts')
 
-        mock_acquire_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
-        mock_release_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
+        mock_acquire_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True, xact=True)
+        mock_release_advisory_lock.assert_not_called()
 
 
 class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
@@ -1180,7 +1220,7 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
         shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name, shard_id=self.shard.id)
         connection_ = ShardDatabaseWrapper(self.connection, shard_options)
         connection_.acquire_locks()
-        mock_acquire_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
+        mock_acquire_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True, xact=False)
 
     @mock.patch.object(ShardDatabaseWrapper, 'acquire_advisory_lock')
     def test_acquire_locks_with_mapping_value(self, mock_acquire_advisory_lock):
@@ -1196,8 +1236,8 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
         self.assertEqual(mock_acquire_advisory_lock.call_count, 2)
         mock_acquire_advisory_lock.assert_has_calls(
             [
-                mock.call('shard_{}'.format(self.shard.id), shared=True),
-                mock.call('mapping_42', shared=True),
+                mock.call('shard_{}'.format(self.shard.id), shared=True, xact=False),
+                mock.call('mapping_42', shared=True, xact=False),
             ]
         )
 

@@ -427,7 +427,7 @@ class UseShardTestCase(ShardingTestCase):
         env = use_shard(self.shard)
         env.connection = connections[env.options]
         env.acquire_lock()
-        mock_acquire_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
+        mock_acquire_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True, xact=True)
 
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_release_lock(self, mock_release_advisory_lock):
@@ -568,8 +568,8 @@ class UseShardForTestCase(ShardingTestCase):
 
         mock_acquire_lock.assert_has_calls(
             [
-                mock.call('shard_{}'.format(self.shard1.id), shared=True),
-                mock.call('mapping_{}'.format(self.org_shard1.organization_id), shared=True),
+                mock.call('shard_{}'.format(self.shard1.id), shared=True, xact=True),
+                mock.call('mapping_{}'.format(self.org_shard1.organization_id), shared=True, xact=True),
             ]
         )
 

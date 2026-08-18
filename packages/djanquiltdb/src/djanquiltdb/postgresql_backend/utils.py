@@ -20,14 +20,20 @@ class LockCursorWrapperMixin:
         # locking queries instead of the query we actually want to perform.
         cursor = self.db._get_cursor(skip_lock=True)
 
+        # Inside a transaction the locks are taken transaction-scoped: a failing statement aborts the transaction,
+        # which would make the unlock below fail as well, masking the statement's own error and stranding the
+        # session-level lock until the connection closes. A xact lock travels with the transaction instead and is
+        # released by its commit or rollback.
+        xact = self.db.in_atomic_block
         for key in self.db.shard_options.lock_keys:
-            cursor.acquire_advisory_lock(key, shared=True)
+            cursor.acquire_advisory_lock(key, shared=True, xact=xact)
 
         try:
             yield
         finally:
-            for key in self.db.shard_options.lock_keys:
-                cursor.release_advisory_lock(key, shared=True)
+            if not xact:
+                for key in self.db.shard_options.lock_keys:
+                    cursor.release_advisory_lock(key, shared=True)
 
             cursor.close()
 
@@ -39,12 +45,14 @@ class LockCursorWrapperMixin:
         with self._lock():
             return super().executemany(*args, **kwargs)
 
-    def acquire_advisory_lock(self, key, shared=True):
+    def acquire_advisory_lock(self, key, shared=True, xact=False):
         """
-        Set a shared or exclusive advisory lock on a given key.
+        Set a shared or exclusive advisory lock on a given key, session-scoped by default or, with xact=True,
+        scoped to the current transaction so its commit or rollback releases the lock.
         """
         return super().execute(
-            'SELECT pg_advisory_lock{}(%s);'.format('_shared' if shared else ''), [self.get_int_from_key(key)]
+            'SELECT pg_advisory{}_lock{}(%s);'.format('_xact' if xact else '', '_shared' if shared else ''),
+            [self.get_int_from_key(key)],
         )
 
     def release_advisory_lock(self, key, shared=True):

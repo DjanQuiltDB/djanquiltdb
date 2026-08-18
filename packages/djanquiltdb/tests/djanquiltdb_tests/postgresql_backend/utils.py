@@ -33,6 +33,7 @@ class LockCursorWrapperTestCase(SimpleTestCase):
     def _get_db(self):
         db = mock.Mock()
         db.lock_on_execute = False
+        db.in_atomic_block = False
         db.shard_options.lock_keys = []
         db._get_cursor.side_effect = self._get_cursor(db)
         return db
@@ -250,7 +251,7 @@ class LockCursorWrapperTestCase(SimpleTestCase):
 
         with self.cursor._lock():
             self._db._get_cursor.assert_called_once_with(skip_lock=True)
-            mock_acquire_advisory_lock.assert_called_once_with('foo', shared=True)
+            mock_acquire_advisory_lock.assert_called_once_with('foo', shared=True, xact=False)
             self.assertFalse(mock_release_advisory_lock.called)
             self.assertFalse(mock_close.called)
 

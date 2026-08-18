@@ -976,12 +976,12 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         """
         return CursorWrapper(cursor, self, lock=getattr(self, 'lock_on_execute', False) and not skip_lock)
 
-    def acquire_advisory_lock(self, key, shared=True, _cursor=None):
+    def acquire_advisory_lock(self, key, shared=True, xact=False, _cursor=None):
         """
-        Set a shared or exclusive advisory lock on a given key.
+        Set a shared or exclusive advisory lock on a given key, session-scoped or transaction-scoped.
         """
         cursor = _cursor or self.cursor()
-        cursor.acquire_advisory_lock(key, shared=shared)
+        cursor.acquire_advisory_lock(key, shared=shared, xact=xact)
 
     def release_advisory_lock(self, key, shared=True, _cursor=None):
         """
@@ -1163,8 +1163,11 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         return super().__setattr__(key, value)
 
     def acquire_locks(self, shared=True):
+        # Inside a transaction the locks are transaction-scoped, so the rollback a failure inside the context
+        # forces releases them; see LockCursorWrapperMixin._lock for the rationale.
+        xact = self.in_atomic_block
         for key in self.shard_options.lock_keys:
-            self.acquire_advisory_lock(key, shared=shared)
+            self.acquire_advisory_lock(key, shared=shared, xact=xact)
 
     def release_locks(self, shared=True):
         for key in self.shard_options.lock_keys:
