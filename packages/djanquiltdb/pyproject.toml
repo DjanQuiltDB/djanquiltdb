@@ -70,7 +70,8 @@ Issues = "https://github.com/DjanQuiltDB/djanquiltdb/issues"
 [tool.setuptools.dynamic]
 version = { attr = "djanquiltdb.__version__" }
 
-# src/ holds only shippable code; the test suite lives outside the package under tests/.
+# src/ holds only shippable code (djanquiltdb.testing, the harness plugin suites run on, deliberately ships);
+# the suite itself lives outside the package under tests/.
 [tool.setuptools.packages.find]
 where = ["src"]
 
