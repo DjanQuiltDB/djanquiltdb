@@ -34,13 +34,8 @@ clone_schema_function = """
 CREATE OR REPLACE FUNCTION public.clone_schema(source_schema TEXT, dest_schema TEXT) RETURNS VOID AS
 $BODY$
 DECLARE
-  name_ TEXT;
-  child_column_ TEXT;
   dest_table TEXT;
   dest_table_path TEXT;
-  parent_table_ TEXT;
-  parent_schema_ TEXT;
-  parent_column_ TEXT;
   seq_name TEXT;
   tbl_name TEXT;
   ident_rec_ RECORD;
@@ -110,54 +105,6 @@ BEGIN
       EXECUTE 'INSERT INTO ' || dest_table_path || ' (' || copyable_columns_ || ')'
         || ' SELECT ' || copyable_columns_ || ' FROM ' || source_schema || '.' || dest_table;
     END IF;
-  END LOOP;
-
-  /* For all tables, create their foreign key constraints.
-   * Do not use the information_schema for this. The views there are very slow. We use pg_catalog directly.
-   * This endeavor has two sources:
-   * hielkehoeve on feb 2014 - for the constraint cloning loop: https://gist.github.com/hielkehoeve/8818562 .
-   * Cervo on may 2015 - for the pg_catalog query: https://stackoverflow.com/a/30178351 .
-   */
-  FOR dest_table IN
-    SELECT TABLE_NAME::text FROM information_schema.TABLES
-      WHERE table_schema = source_schema AND table_type = 'BASE TABLE'
-  LOOP
-    dest_table_path := dest_schema || '.' || dest_table;
-    FOR name_, child_column_, parent_schema_, parent_table_, parent_column_ IN
-      SELECT
-        con.constraint_name AS "name_",
-        pg_attribute2.attname AS "child_column_",
-        /* Replace the source schema with destination schema. Keep others schema's (like 'public') intact. */
-        REPLACE (pg_namespace_outer.nspname, source_schema, dest_schema) AS "parent_schema_",
-        pg_class.relname AS "parent_table_",
-        pg_attribute1.attname AS "parent_column_"
-      FROM
-        ( SELECT
-            unnest(pg_constraint.conkey) as "parent",
-            unnest(pg_constraint.confkey) as "child",
-            pg_constraint.conname as constraint_name,
-            pg_constraint.confrelid,
-            pg_constraint.conrelid
-          FROM pg_catalog.pg_class AS pg_class
-            JOIN pg_catalog.pg_namespace AS pg_namespace_inner ON pg_namespace_inner.oid = pg_class.relnamespace
-            JOIN pg_catalog.pg_constraint AS pg_constraint ON pg_constraint.conrelid = pg_class.oid
-          WHERE pg_constraint.contype = 'f'  /* foreign key */
-            AND pg_namespace_inner.nspname = source_schema
-            AND pg_class.relname = dest_table  /* child_table */
-            AND pg_class.relkind = 'r'  /* ordinary table */
-        ) AS con
-        JOIN pg_catalog.pg_attribute AS pg_attribute1 ON pg_attribute1.attrelid = con.confrelid
-                                                      AND pg_attribute1.attnum = con.child
-        JOIN pg_catalog.pg_class AS pg_class ON pg_class.oid = con.confrelid
-        JOIN pg_catalog.pg_attribute AS pg_attribute2 ON pg_attribute2.attrelid = con.conrelid
-                                                      AND pg_attribute2.attnum = con.parent
-        JOIN pg_catalog.pg_namespace AS pg_namespace_outer ON pg_namespace_outer.oid = pg_class.relnamespace
-    LOOP
-      EXECUTE 'ALTER TABLE ' || dest_table_path || ' ADD CONSTRAINT ' || name_ || '
-        FOREIGN KEY (' || child_column_ || ')
-        REFERENCES ' || parent_schema_ || '.' || parent_table_ || ' (' || parent_column_ || ')
-        DEFERRABLE INITIALLY DEFERRED';
-    END LOOP;
   END LOOP;
 
   /* Clone all functions from the source schema to the destination schema.
@@ -261,6 +208,22 @@ BEGIN
     JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
     WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND con.contype = 'c';
   rebind_stmts_ := rebind_stmts_ || rebind_drops_ || rebind_adds_;
+
+  /* Foreign keys. LIKE copies none at all, so add each of the source's from its own definition, rendered under the
+   * source-only path like the CHECK constraints above: a parent in this schema prints unqualified and binds to the
+   * destination's copy at execution, while a parent in another schema (public) stays qualified. The definition
+   * carries composite column lists, MATCH, ON DELETE/ON UPDATE actions, deferrability and NOT VALID along, so the
+   * clone gets exactly what the source declared.
+   */
+  SELECT coalesce(array_agg(format('ALTER TABLE %I.%I ADD CONSTRAINT %I %s',
+      dest_schema, cls.relname, con.conname, pg_catalog.pg_get_constraintdef(con.oid, true))
+      ORDER BY cls.relname, con.conname), ARRAY[]::text[])
+    INTO rebind_adds_
+    FROM pg_catalog.pg_constraint con
+    JOIN pg_catalog.pg_class cls ON cls.oid = con.conrelid
+    JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND con.contype = 'f';
+  rebind_stmts_ := rebind_stmts_ || rebind_adds_;
 
   /* Indexes that do not back a constraint. An index owned by a primary key, unique or exclusion constraint cannot
    * be dropped on its own, and a plain key index holds no expression to rebind anyway.

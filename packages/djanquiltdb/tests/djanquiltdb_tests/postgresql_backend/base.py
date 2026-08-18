@@ -206,6 +206,31 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             cursor.execute('SELECT current_schema()')
             self.assertEqual(cursor.fetchone()[0], PUBLIC_SCHEMA_NAME)
 
+    def test_clone_schema_composite_and_action_bearing_foreign_keys(self):
+        """
+        Case: the template holds a composite foreign key that also declares ON DELETE CASCADE.
+        Expected: the clone succeeds, the composite key arrives whole, keeps its delete action and points at
+                  the clone's own parent table.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template.parent (a INT, b INT, PRIMARY KEY (a, b))')
+        cursor.execute(
+            'CREATE TABLE template.child (a INT, b INT, '
+            'FOREIGN KEY (a, b) REFERENCES template.parent (a, b) ON DELETE CASCADE)'
+        )
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        cursor.execute("""
+            SELECT con.confdeltype, array_length(con.conkey, 1), con.confrelid::regclass::text
+              FROM pg_catalog.pg_constraint con
+              JOIN pg_catalog.pg_class cls ON cls.oid = con.conrelid
+              JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+              WHERE nsp.nspname = 'test_schema' AND cls.relname = 'child' AND con.contype = 'f'
+        """)
+        self.assertEqual(cursor.fetchall(), [('c', 2, 'test_schema.parent')])
+
     def test_clone_schema_table_attributes(self):
         """
         Case: Call connection.migrate_schema.
