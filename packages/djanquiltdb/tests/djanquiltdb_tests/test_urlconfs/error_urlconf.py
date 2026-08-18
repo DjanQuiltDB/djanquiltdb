@@ -1,9 +1,9 @@
 from django.http import HttpResponse
 from django.urls import re_path
 from django.views import View
-from example.models import Shard
 
 from djanquiltdb.utils import use_shard
+from example.models import Shard
 
 
 class TestErrorView(View):

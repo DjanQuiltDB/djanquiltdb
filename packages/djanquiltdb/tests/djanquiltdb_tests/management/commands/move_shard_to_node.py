@@ -7,6 +7,24 @@ from django.conf import settings
 from django.core.management import CommandError, call_command
 from django.db import DatabaseError, connections, models
 from django.test import override_settings
+
+from djanquiltdb.management.commands.move_shard_to_node import Command as MoveCommand
+from djanquiltdb.options import ShardOptions
+from djanquiltdb.utils import (
+    State,
+    create_schema_on_node,
+    create_template_schema,
+    get_shard_for,
+    get_template_name,
+    use_shard,
+    use_shard_for,
+)
+from djanquiltdb_tests import (
+    OverrideMirroredRoutingMixin,
+    ShardingTestCase,
+    ShardingTransactionTestCase,
+    skip_without_virtual_generated_column_support,
+)
 from example.models import (
     Cake,
     CakeType,
@@ -19,24 +37,6 @@ from example.models import (
     SuperType,
     Type,
     User,
-)
-
-from djanquiltdb.management.commands.move_shard_to_node import Command as MoveCommand
-from djanquiltdb.options import ShardOptions
-from djanquiltdb_tests import (
-    OverrideMirroredRoutingMixin,
-    ShardingTestCase,
-    ShardingTransactionTestCase,
-    skip_without_virtual_generated_column_support,
-)
-from djanquiltdb.utils import (
-    State,
-    create_schema_on_node,
-    create_template_schema,
-    get_shard_for,
-    get_template_name,
-    use_shard,
-    use_shard_for,
 )
 
 

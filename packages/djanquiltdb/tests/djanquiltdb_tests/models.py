@@ -3,13 +3,13 @@ from unittest import mock
 from django.db.models.signals import post_init
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
-from example.models import Organization, ProxyCake, Shard, Type, User
 
 from djanquiltdb import State
 from djanquiltdb.options import ShardOptions
+from djanquiltdb.utils import create_schema_on_node, create_template_schema, get_shard_class, use_shard
 from djanquiltdb_tests import ShardingTestCase
 from djanquiltdb_tests.app_config import DummyShard
-from djanquiltdb.utils import create_schema_on_node, create_template_schema, get_shard_class, use_shard
+from example.models import Organization, ProxyCake, Shard, Type, User
 
 
 class GetShardTestCase(SimpleTestCase):

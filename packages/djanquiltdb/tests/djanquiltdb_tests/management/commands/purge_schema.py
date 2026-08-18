@@ -2,12 +2,12 @@ from unittest import mock
 
 from django.core.management import CommandError, call_command
 from django.db.utils import IntegrityError
-from example.models import Cake, CakeType, Organization, Shard, SuperType, Type, User
 
 from djanquiltdb.management.commands.purge_schema import Command
 from djanquiltdb.options import ShardOptions
-from djanquiltdb_tests import OverrideMirroredRoutingMixin, ShardingTestCase, ShardingTransactionTestCase
 from djanquiltdb.utils import create_schema_on_node, create_template_schema, use_shard
+from djanquiltdb_tests import OverrideMirroredRoutingMixin, ShardingTestCase, ShardingTransactionTestCase
+from example.models import Cake, CakeType, Organization, Shard, SuperType, Type, User
 
 
 class PurgeShardDataTransactionTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):

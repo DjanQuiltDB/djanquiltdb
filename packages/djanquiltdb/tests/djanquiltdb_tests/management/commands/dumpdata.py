@@ -3,11 +3,11 @@ import os
 import tempfile
 
 from django.core.management import call_command
-from example.models import Organization, Shard, Type
 
 from djanquiltdb import State
-from djanquiltdb_tests import ShardingTestCase
 from djanquiltdb.utils import create_template_schema, use_shard
+from djanquiltdb_tests import ShardingTestCase
+from example.models import Organization, Shard, Type
 
 
 class DumpDataTestCase(ShardingTestCase):

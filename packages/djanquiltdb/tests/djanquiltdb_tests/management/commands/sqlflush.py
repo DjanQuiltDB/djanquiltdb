@@ -1,12 +1,12 @@
 from unittest import mock
 
 from django.core.management import call_command
-from example.models import Organization, Shard, Type
 
 from djanquiltdb import State
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb_tests import ShardingTransactionTestCase
 from djanquiltdb.utils import create_template_schema, use_shard
+from djanquiltdb_tests import ShardingTransactionTestCase
+from example.models import Organization, Shard, Type
 
 
 @mock.patch('djanquiltdb.management.commands.sqlflush.sql_flush')

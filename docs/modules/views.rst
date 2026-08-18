@@ -9,7 +9,6 @@ The ``UseShardMiddleware`` will enable a use_shard context manager in ``process_
 ``process_response`` or ``process_exception``.
 
 .. image:: view_flow.svg
-   :scale: 100 %
    :alt: DjanQuiltDB request flow
    :align: center
 

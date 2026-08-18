@@ -8,9 +8,10 @@ from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.migration import Migration
 from django.db.migrations.recorder import MigrationRecorder
 from django.test import override_settings
+
+from djanquiltdb import ShardingMode
 from djanquiltdb.db import connection
 from djanquiltdb.management.commands.migrate import Command as ShardedMigrate
-from djanquiltdb_tests import ShardingTestCase, disable_db_reconnect
 from djanquiltdb.utils import (
     State,
     create_template_schema,
@@ -20,9 +21,8 @@ from djanquiltdb.utils import (
     schema_exists,
     use_shard,
 )
+from djanquiltdb_tests import ShardingTestCase, disable_db_reconnect
 from example.models import Shard
-
-from djanquiltdb import ShardingMode
 from migration_tests.models import MirroredModel, ShardedModel, SuperMirroredModel, SuperShardedModel
 from migration_tests.tests.migration_base import MigrationTestCase
 

@@ -6,7 +6,6 @@ from django.contrib.auth.models import AbstractBaseUser
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connections, models
 from django.test import SimpleTestCase, override_settings
-from example.models import Shard
 
 from djanquiltdb import ShardingMode, State
 from djanquiltdb.db import connection
@@ -14,8 +13,9 @@ from djanquiltdb.decorators import sharded_model
 from djanquiltdb.models import BaseShard
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME, DatabaseWrapper, ShardDatabaseWrapper
-from djanquiltdb_tests import ShardingTestCase
 from djanquiltdb.utils import create_template_schema
+from djanquiltdb_tests import ShardingTestCase
+from example.models import Shard
 
 
 class DummyShard(models.Model):

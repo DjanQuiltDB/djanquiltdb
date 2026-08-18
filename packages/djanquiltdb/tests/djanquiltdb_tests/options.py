@@ -1,14 +1,13 @@
 from unittest import mock
 
-from example.models import Organization, OrganizationShard, Shard
-
 from djanquiltdb import State
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import override_sharding_setting
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb_tests import ShardingTestCase
 from djanquiltdb.utils import StateException, create_template_schema
+from djanquiltdb_tests import ShardingTestCase
+from example.models import Organization, OrganizationShard, Shard
 
 
 class ShardOptionsTestCase(ShardingTestCase):

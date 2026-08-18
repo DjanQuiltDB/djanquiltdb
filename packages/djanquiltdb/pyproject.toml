@@ -45,8 +45,6 @@ lint = [
     "ruff==0.15.21",
 ]
 test = [
-    "tox==4.12.1",
-    "pluggy",
     "dj-database-url==2.1.0",
     "django-braces==1.15.0",
     "tblib",
@@ -54,10 +52,16 @@ test = [
     "coverage",
     "PyYAML",
 ]
-dev = [
-    "djanquiltdb[test,lint]",
+docs = [
     "sphinx>=8,<10",
+]
+dev = [
+    "djanquiltdb[test,lint,docs]",
     "pre-commit>=4.0",
+    # Native TOML configuration, so that tox.ini is not needed, landed in 4.21.
+    "tox>=4.21",
+    "build",
+    "twine",
 ]
 
 [project.urls]
@@ -76,10 +80,112 @@ version = { attr = "djanquiltdb.__version__" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-"*" = ["*.html"]
+djanquiltdb = ["**/*.html"]
+
+[tool.tox]
+requires = ["tox>=4.21"]
+env_list = ["py314-dj60-pg17", "py314-dj60-pg18", "ruff", "docs", "coverage"]
+
+[tool.tox.env_run_base]
+description = "Run the test suite against the Postgres pair named by DATABASE_URL and DATABASE_URL2"
+base_python = ["python3.14"]
+package = "editable"
+extras = ["test"]
+deps = [
+    "Django>=6.0,<7.0",
+    "psycopg[binary]>=3.0.0",
+]
+change_dir = "tests"
+pass_env = ["DATABASE_URL", "DATABASE_URL2"]
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.dev" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/pyproject.toml",
+        "manage.py",
+        "test",
+        "--noinput",
+        # The test modules are named after what they cover rather than test_*, so discovery needs the wider pattern.
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+        "--parallel",
+    ],
+]
+
+# The pg17/pg18 envs pick the pair of database servers from docker-compose.yml; either URL can still be overridden
+# from the outside.
+[tool.tox.env.py314-dj60-pg17]
+description = "Run the test suite against PostgreSQL 17"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.dev", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+
+[tool.tox.env.py314-dj60-pg18]
+description = "Run the test suite against PostgreSQL 18"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.dev", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+
+[tool.tox.env.ruff]
+description = "Lint and check formatting"
+skip_install = true
+extras = []
+deps = ["ruff==0.15.21"]
+change_dir = "{tox_root}"
+commands = [
+    ["ruff", "check", "src", "tests", "../../docs"],
+    ["ruff", "format", "--check", "src", "tests", "../../docs"],
+]
+
+[tool.tox.env.docs]
+description = "Build the documentation"
+extras = ["docs"]
+deps = ["Django>=6.0,<7.0"]
+change_dir = "{tox_root}"
+commands = [["sphinx-build", "-b", "html", "-W", "../../docs", "../../docs/_build/html"]]
+
+[tool.tox.env.coverage]
+description = "Render the HTML report and summary of the coverage the test envs recorded"
+skip_install = true
+extras = []
+deps = ["coverage"]
+change_dir = "tests"
+commands = [
+    ["coverage", "html", "--rcfile={tox_root}/pyproject.toml"],
+    ["coverage", "report", "--rcfile={tox_root}/pyproject.toml"],
+]
+
+[tool.tox.env.build]
+description = "Build the sdist and wheel and check the metadata"
+skip_install = true
+extras = []
+deps = ["build", "twine"]
+change_dir = "{tox_root}"
+commands = [
+    ["python", "-m", "build"],
+    ["twine", "check", "dist/*"],
+]
+
+[tool.coverage.run]
+branch = true
+source = ["djanquiltdb"]
+
+# Data is recorded against the editable install under src/, with tests/ as the working directory; map any install
+# location back onto it so reports combine.
+[tool.coverage.paths]
+source = [
+    "../src/djanquiltdb",
+    "*/src/djanquiltdb",
+    "*/site-packages/djanquiltdb",
+]
+
+[tool.coverage.report]
+omit = ["*/.tox/*"]
+
+[tool.coverage.html]
+directory = "../coverage"
 
 [tool.ruff]
 line-length = 120
+src = ["src", "tests"]
+extend-exclude = ["docs/_build"]
 
 [tool.ruff.lint]
 extend-select = [

@@ -18,32 +18,11 @@ from django.db.models.signals import (
 )
 from django.db.utils import ConnectionDoesNotExist, IntegrityError, OperationalError
 from django.test import SimpleTestCase, override_settings
-from example.models import (
-    Cake,
-    CakeType,
-    CoatingType,
-    MirroredUser,
-    Organization,
-    OrganizationShard,
-    QuiltSession,
-    Shard,
-    Statement,
-    Suborganization,
-    SuperType,
-    Type,
-    User,
-)
 
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import atomic_write_to_every_node
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.router import get_active_connection, set_active_connection
-from djanquiltdb_tests import (
-    OverrideMirroredRoutingMixin,
-    ResetConnectionTestCaseMixin,
-    ShardingTestCase,
-    ShardingTransactionTestCase,
-)
 from djanquiltdb.utils import (
     ShardingMode,
     State,
@@ -75,6 +54,27 @@ from djanquiltdb.utils import (
     transaction_for_nodes,
     use_shard,
     use_shard_for,
+)
+from djanquiltdb_tests import (
+    OverrideMirroredRoutingMixin,
+    ResetConnectionTestCaseMixin,
+    ShardingTestCase,
+    ShardingTransactionTestCase,
+)
+from example.models import (
+    Cake,
+    CakeType,
+    CoatingType,
+    MirroredUser,
+    Organization,
+    OrganizationShard,
+    QuiltSession,
+    Shard,
+    Statement,
+    Suborganization,
+    SuperType,
+    Type,
+    User,
 )
 
 

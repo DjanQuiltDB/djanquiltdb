@@ -1,6 +1,6 @@
 from django.forms import ModelForm
-from djanquiltdb.forms import ModelForm as ShardedModelForm
 
+from djanquiltdb.forms import ModelForm as ShardedModelForm
 from example.models import Statement, User
 
 

@@ -5,13 +5,13 @@ from unittest import mock
 
 from django.core.management import call_command
 from django.db import connection, models
-from example.models import Organization, Shard, Statement, SuperType, Type, User
 
 from djanquiltdb import State
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb_tests import ShardingTestCase
 from djanquiltdb.utils import create_template_schema, use_shard_for
+from djanquiltdb_tests import ShardingTestCase
+from example.models import Organization, Shard, Statement, SuperType, Type, User
 
 
 class LoadDataTestCase(ShardingTestCase):

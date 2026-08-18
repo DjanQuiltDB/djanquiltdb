@@ -6,12 +6,12 @@ from django.http import HttpResponse
 from django.test import SimpleTestCase, override_settings
 from django.test.client import RequestFactory
 from django.views.generic import TemplateView, View
-from example.models import Shard
 
 from djanquiltdb.db import connection
 from djanquiltdb.middleware import BaseUseShardForMiddleware, BaseUseShardMiddleware, ExceptionMiddlewareMixin
-from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
 from djanquiltdb.utils import State, StateException, create_template_schema
+from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
+from example.models import Shard
 
 
 class StateExceptionTestView(View):

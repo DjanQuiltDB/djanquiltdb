@@ -4,11 +4,9 @@ from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.core.management import CommandError
 from django.db import ProgrammingError
-from example.models import Organization, Shard, Statement
 
 from djanquiltdb.db import connection
 from djanquiltdb.management.commands.move_sharded_models import Command as MoveCommand
-from djanquiltdb_tests import ShardingTransactionTestCase
 from djanquiltdb.utils import (
     State,
     create_template_schema,
@@ -17,6 +15,8 @@ from djanquiltdb.utils import (
     migrate_schema,
     use_shard,
 )
+from djanquiltdb_tests import ShardingTransactionTestCase
+from example.models import Organization, Shard, Statement
 
 
 @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate': 'djanquiltdb'}))

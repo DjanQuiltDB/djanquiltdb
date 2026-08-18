@@ -8,11 +8,11 @@ from unittest import mock
 
 from django.core import signing
 from django.test import SimpleTestCase, override_settings
-from example.models import Organization, OrganizationShard, QuiltSession, Shard
 
 from djanquiltdb.sessions import SessionStore
-from djanquiltdb_tests import ShardingTestCase
 from djanquiltdb.utils import State, create_template_schema, use_shard
+from djanquiltdb_tests import ShardingTestCase
+from example.models import Organization, OrganizationShard, QuiltSession, Shard
 
 
 @override_settings(

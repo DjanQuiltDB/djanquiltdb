@@ -3,9 +3,8 @@ try:
 except ImportError:
     from django.urls import reverse
 
-from djanquiltdb_tests import ShardingTestCase
 from djanquiltdb.utils import State, create_template_schema, use_shard
-
+from djanquiltdb_tests import ShardingTestCase
 from example.models import Organization, Shard, Type, User
 
 

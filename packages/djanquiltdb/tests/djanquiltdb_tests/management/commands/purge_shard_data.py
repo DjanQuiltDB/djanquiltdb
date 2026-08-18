@@ -5,6 +5,10 @@ from django.contrib.admin.utils import NestedObjects
 from django.core.management import CommandError, call_command
 from django.db import DatabaseError
 from django.db.models.signals import post_delete, pre_delete
+
+from djanquiltdb.management.commands.purge_shard_data import Command
+from djanquiltdb.utils import State, create_template_schema, use_shard
+from djanquiltdb_tests import ShardingTestCase
 from example.models import (
     Cake,
     Organization,
@@ -16,10 +20,6 @@ from example.models import (
     Type,
     User,
 )
-
-from djanquiltdb.management.commands.purge_shard_data import Command
-from djanquiltdb_tests import ShardingTestCase
-from djanquiltdb.utils import State, create_template_schema, use_shard
 
 
 class PurgeShardDataTransactionTestCase(ShardingTestCase):

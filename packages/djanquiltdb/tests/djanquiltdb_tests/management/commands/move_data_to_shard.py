@@ -8,6 +8,17 @@ from django.core.exceptions import ValidationError
 from django.core.management import CommandError, call_command
 from django.db import DatabaseError, IntegrityError
 from django.test import override_settings
+
+from djanquiltdb.collector import SimpleCollector
+from djanquiltdb.db import connection
+from djanquiltdb.management.commands.move_data_to_shard import Command as MoveCommand
+from djanquiltdb.utils import State, create_template_schema, use_shard
+from djanquiltdb_tests import (
+    ShardingTestCase,
+    ShardingTransactionTestCase,
+    skip_without_virtual_generated_column_support,
+)
+from djanquiltdb_tests.sql import CREATE_ALLUPPERCASE, DROP_ALLUPPERCASE
 from example.models import (
     Cake,
     Organization,
@@ -19,17 +30,6 @@ from example.models import (
     Type,
     User,
 )
-
-from djanquiltdb.collector import SimpleCollector
-from djanquiltdb.db import connection
-from djanquiltdb.management.commands.move_data_to_shard import Command as MoveCommand
-from djanquiltdb_tests import (
-    ShardingTestCase,
-    ShardingTransactionTestCase,
-    skip_without_virtual_generated_column_support,
-)
-from djanquiltdb_tests.sql import CREATE_ALLUPPERCASE, DROP_ALLUPPERCASE
-from djanquiltdb.utils import State, create_template_schema, use_shard
 
 
 class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):

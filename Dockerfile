@@ -32,8 +32,8 @@ RUN curl https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py && \
 # Set working directory
 WORKDIR /app
 
-# Copy requirements and setup files first for better caching
-COPY packages/djanquiltdb/pyproject.toml packages/djanquiltdb/tox.ini packages/djanquiltdb/MANIFEST.in ./
+# Copy the packaging metadata first for better caching
+COPY packages/djanquiltdb/pyproject.toml ./
 COPY packages/djanquiltdb/src ./src
 COPY packages/djanquiltdb/tests ./tests
 

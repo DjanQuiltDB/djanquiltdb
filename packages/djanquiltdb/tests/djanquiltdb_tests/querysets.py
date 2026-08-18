@@ -1,12 +1,12 @@
 import pickle  # nosec
 
 from django.db import IntegrityError
-from example.models import Cake, Organization, Shard, Suborganization, SuperType, User
 
 from djanquiltdb import State
 from djanquiltdb.options import ShardOptions
-from djanquiltdb_tests import ShardingTestCase
 from djanquiltdb.utils import create_template_schema, use_shard
+from djanquiltdb_tests import ShardingTestCase
+from example.models import Cake, Organization, Shard, Suborganization, SuperType, User
 
 
 class QuerySetTestCase(ShardingTestCase):

@@ -5,6 +5,13 @@ from unittest import mock
 from django.apps import apps
 from django.db import DEFAULT_DB_ALIAS, ProgrammingError, connections, models
 from django.test import override_settings
+
+from djanquiltdb import State
+from djanquiltdb.decorators import mirrored_model, override_sharding_setting, public_model, sharded_model
+from djanquiltdb.options import ShardOptions
+from djanquiltdb.router import DynamicDbRouter, _active_connection, get_active_connection, set_active_connection
+from djanquiltdb.utils import ShardingMode, create_schema_on_node, create_template_schema, migrate_schema, use_shard
+from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
 from example.models import (
     CakeType,
     DefaultUser,
@@ -17,13 +24,6 @@ from example.models import (
     Type,
     Unrelated,
 )
-
-from djanquiltdb import State
-from djanquiltdb.decorators import mirrored_model, override_sharding_setting, public_model, sharded_model
-from djanquiltdb.options import ShardOptions
-from djanquiltdb.router import DynamicDbRouter, _active_connection, get_active_connection, set_active_connection
-from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
-from djanquiltdb.utils import ShardingMode, create_schema_on_node, create_template_schema, migrate_schema, use_shard
 
 
 @sharded_model()

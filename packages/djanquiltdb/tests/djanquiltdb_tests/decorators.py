@@ -4,7 +4,6 @@ from unittest import mock
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 from django.test import SimpleTestCase
-from example.models import Shard
 
 from djanquiltdb import STATES, ShardingMode, State
 from djanquiltdb import decorators as djanquiltdb_decorators
@@ -16,8 +15,9 @@ from djanquiltdb.decorators import (
     sharded_model,
 )
 from djanquiltdb.options import ShardOptions
-from djanquiltdb_tests import ShardingTestCase
 from djanquiltdb.utils import create_template_schema
+from djanquiltdb_tests import ShardingTestCase
+from example.models import Shard
 
 
 class ModelTestCase(ShardingTestCase):

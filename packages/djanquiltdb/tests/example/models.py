@@ -1,10 +1,10 @@
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 from django.db import IntegrityError, models
 from django.utils import timezone
-from djanquiltdb.decorators import mirrored_model, public_model, shard_mapping_model, sharded_model
-from djanquiltdb.models import BaseQuiltSession, BaseShard, MappingQuerySet
 
 from djanquiltdb import STATES, State
+from djanquiltdb.decorators import mirrored_model, public_model, shard_mapping_model, sharded_model
+from djanquiltdb.models import BaseQuiltSession, BaseShard, MappingQuerySet
 
 __all__ = [
     'Shard',

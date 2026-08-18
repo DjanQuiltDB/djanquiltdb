@@ -1,10 +1,10 @@
 from django.core.management import call_command
-from example.models import Organization, Shard, Type
 
 from djanquiltdb import State
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb_tests import OverrideMirroredRoutingMixin, ShardingTransactionTestCase
 from djanquiltdb.utils import StateException, create_template_schema, use_shard
+from djanquiltdb_tests import OverrideMirroredRoutingMixin, ShardingTransactionTestCase
+from example.models import Organization, Shard, Type
 
 
 class FlushTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):

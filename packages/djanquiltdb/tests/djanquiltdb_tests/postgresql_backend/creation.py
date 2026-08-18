@@ -3,15 +3,15 @@ from contextlib import contextmanager
 
 from django.db import connections
 from django.db.utils import load_backend
-from example.models import Cake, Shard, SuperType
 
 from djanquiltdb import ShardingMode, State
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import override_sharding_setting
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME, get_database_creation_class
 from djanquiltdb.postgresql_backend.creation import DatabaseCreation, TemplateDatabaseCreation
-from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
 from djanquiltdb.utils import create_template_schema, get_sharding_mode, get_template_name, use_shard
+from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
+from example.models import Cake, Shard, SuperType
 
 
 class DatabaseCreationClassTestCase(ShardingTransactionTestCase):

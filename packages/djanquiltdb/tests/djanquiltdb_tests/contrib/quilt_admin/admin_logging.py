@@ -2,12 +2,12 @@ from django.contrib.admin import ModelAdmin
 from django.contrib.admin.models import LogEntry
 from django.contrib.admin.sites import AdminSite
 from django.test import RequestFactory
-from example.models import Organization, Shard, User
 
 from djanquiltdb import State
 from djanquiltdb.contrib.quilt_admin.utils import CrossShardUserProxy
-from djanquiltdb_tests import ShardingTransactionTestCase
 from djanquiltdb.utils import create_template_schema, use_shard
+from djanquiltdb_tests import ShardingTransactionTestCase
+from example.models import Organization, Shard, User
 
 
 class AdminCrossShardLoggingTestCase(ShardingTransactionTestCase):

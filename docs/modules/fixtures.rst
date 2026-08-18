@@ -175,7 +175,7 @@ Template Schema
 You can also load data into the template schema by using the template schema name. The template schema name is determined by your Django Sharding configuration.
 
 Schema Creation
-==============
+===============
 
 The fixture loader will automatically:
 

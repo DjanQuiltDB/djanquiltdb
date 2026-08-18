@@ -4,11 +4,11 @@ from unittest import mock
 from django.core.management import CommandError, call_command
 from django.db.utils import IntegrityError
 from django.test import override_settings
-from example.models import DefaultUser, MirroredUser, Shard, User
 
 from djanquiltdb import State
-from djanquiltdb_tests import OverrideMirroredRoutingMixin, ShardingTestCase, ShardingTransactionTestCase
 from djanquiltdb.utils import create_template_schema, use_shard
+from djanquiltdb_tests import OverrideMirroredRoutingMixin, ShardingTestCase, ShardingTransactionTestCase
+from example.models import DefaultUser, MirroredUser, Shard, User
 
 
 class CreateSuperUserTestCaseMixin:

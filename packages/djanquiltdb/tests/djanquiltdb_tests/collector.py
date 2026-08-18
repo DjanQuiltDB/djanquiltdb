@@ -1,11 +1,10 @@
 from unittest import mock
 
-from example.models import Organization, Shard, Statement, SuperType, Type, User
-
 from djanquiltdb import State
 from djanquiltdb.collector import SimpleCollector
-from djanquiltdb_tests import ShardingTestCase
 from djanquiltdb.utils import create_template_schema, use_shard
+from djanquiltdb_tests import ShardingTestCase
+from example.models import Organization, Shard, Statement, SuperType, Type, User
 
 
 class SimpleCollectorTestCase(ShardingTestCase):

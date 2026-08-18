@@ -5,7 +5,6 @@ from django.db import DatabaseError, IntegrityError, InterfaceError, connections
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.utils import OperationalError
 from django.test import override_settings
-from example.models import Organization, Shard, Statement, Type, User
 from psycopg.errors import InternalError
 
 from djanquiltdb import State
@@ -18,6 +17,7 @@ from djanquiltdb.postgresql_backend.base import (
     get_validated_schema_name,
 )
 from djanquiltdb.postgresql_backend.utils import LockCursorWrapperMixin
+from djanquiltdb.utils import create_schema_on_node, create_template_schema, get_template_name, use_shard
 from djanquiltdb_tests import (
     ShardingTestCase,
     ShardingTransactionTestCase,
@@ -25,7 +25,7 @@ from djanquiltdb_tests import (
     skip_without_virtual_generated_column_support,
 )
 from djanquiltdb_tests.sql import CREATE_ALLUPPERCASE, DROP_ALLUPPERCASE
-from djanquiltdb.utils import create_schema_on_node, create_template_schema, get_template_name, use_shard
+from example.models import Organization, Shard, Statement, Type, User
 
 
 class GetValidatedSchemaNameTestCase(ShardingTestCase):

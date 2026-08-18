@@ -6,6 +6,7 @@ The `urlpatterns` list routes URLs to views. For more information please see:
 
 from django.contrib.auth import views as auth_views
 from django.urls import re_path
+
 from example.views import HomeView
 
 urlpatterns = [

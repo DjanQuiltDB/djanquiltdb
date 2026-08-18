@@ -125,8 +125,6 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-TEST_RUNNER = 'config.utils.test.WildcardDiscoverRunner'
-
 # Internationalization
 # https://docs.djangoproject.com/en/1.11/topics/i18n/
 

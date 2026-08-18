@@ -2,12 +2,12 @@ from unittest import mock
 
 from django.conf import settings
 from django.core.management import CommandError, call_command
-from example.models import Shard
 
 from djanquiltdb import State
 from djanquiltdb.management.base import get_databases_and_schema_from_options, shard_table_exists
-from djanquiltdb_tests import ShardingTestCase
 from djanquiltdb.utils import create_template_schema, get_all_databases
+from djanquiltdb_tests import ShardingTestCase
+from example.models import Shard
 
 
 class ShardTableExistsTestCase(ShardingTestCase):
