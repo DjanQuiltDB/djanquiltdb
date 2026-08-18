@@ -12,6 +12,8 @@ from djanquiltdb.utils import create_template_schema, use_shard
 @mock.patch('djanquiltdb.management.commands.sqlflush.sql_flush')
 class SQLFlushTestCase(ShardingTransactionTestCase):
     def setUp(self):
+        super().setUp()
+
         create_template_schema()
         create_template_schema('other')
 

@@ -302,6 +302,8 @@ class ExceptionMiddlewareMixinTestCase(SimpleTestCase):
 
 class BaseUseShardMiddlewareTestCase(ShardingTestCase):
     def setUp(self):
+        super().setUp()
+
         self.addCleanup(mock.patch.stopall)
         mock.patch('djanquiltdb.middleware.get_shard_class').start()
 
@@ -454,6 +456,8 @@ class BaseUseShardMiddlewareTestCase(ShardingTestCase):
 
 class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
     def setUp(self):
+        super().setUp()
+
         self.addCleanup(mock.patch.stopall)
         mock.patch('djanquiltdb.middleware.get_shard_class').start()
 

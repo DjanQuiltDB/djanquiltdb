@@ -10,39 +10,33 @@ from djanquiltdb.router import DynamicDbRouter, set_active_connection
 
 class CleanShardingArtifactsMixin:
     @classmethod
-    def _fixture_setup(cls):
+    def _pre_setup(cls):
         """
-        Save the names of the schemas that exist on start of the test case.
-        Django 6.0 calls _fixture_setup as a classmethod from _pre_setup.
-        """
-        # Can't access instance methods here, so we'll do this in setUp instead
-        super()._fixture_setup()
+        Save the names of the schemas that exist at the start of the test.
 
-    def setUp(self):
+        Recorded here rather than in setUp, and on the class rather than on the instance, because Django 6.0 calls
+        both this and _fixture_setup as classmethods. A subclass that overrides setUp without calling super() would
+        otherwise leave the teardown below with nothing to compare against, and every schema the test created would
+        survive it — silently, and to be found by whichever test runs next.
         """
-        Save the names of the schemas that exist on start of the test case.
-        """
-        if not hasattr(self, '_initial_schemas'):
-            self._initial_schemas = {}
-            for db_name in self._databases_names():
-                connection_ = connections[db_name]
-                self._initial_schemas[db_name] = {s[0] for s in connection_.get_all_pg_schemas()}
-        super().setUp()
+        cls._initial_schemas = {
+            db_name: {schema for (schema,) in connections[db_name].get_all_pg_schemas()}
+            for db_name in cls._databases_names()
+        }
+        super()._pre_setup()
 
     def _post_teardown(self):
         """
-        Remove all the schemas that exist now, but didn't at the start of the test case.
+        Remove all the schemas that exist now, but didn't at the start of the test.
         """
         super()._post_teardown()
 
-        # Only clean up if _initial_schemas was initialized
-        if hasattr(self, '_initial_schemas'):
-            for db_name in self._databases_names():
-                connection_ = connections[db_name]
+        for db_name in self._databases_names():
+            connection_ = connections[db_name]
 
-                for schema in itertools.chain.from_iterable(connection_.get_all_pg_schemas()):
-                    if schema not in self._initial_schemas[db_name]:
-                        connection_.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format(schema))
+            for schema in itertools.chain.from_iterable(connection_.get_all_pg_schemas()):
+                if schema not in self._initial_schemas[db_name]:
+                    connection_.cursor().execute('DROP SCHEMA "{}" CASCADE;'.format(schema))
 
 
 class ResetConnectionTestCaseMixin:
