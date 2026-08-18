@@ -102,7 +102,7 @@ class SessionStore(BaseSessionStore):
         while True:
             session_key = get_random_string(32, VALID_KEY_CHARS)
             session_key = signing.dumps(
-                f'S{self.shard_selector}K{session_key}',
+                f'S{self.shard_selector}{_get_delimiter()}{session_key}',
                 compress=True,
                 salt=self.salt,
                 serializer=self.serializer,

@@ -9,7 +9,7 @@ from unittest import mock
 from django.core import signing
 from django.test import SimpleTestCase, override_settings
 
-from djanquiltdb.sessions import SessionStore
+from djanquiltdb.sessions import SessionStore, _get_delimiter, _get_session_key_regex, _get_shard_selector_regex
 from djanquiltdb.utils import State, create_template_schema, use_shard
 from djanquiltdb_tests import ShardingTestCase
 from example.models import Organization, OrganizationShard, QuiltSession, Shard
@@ -61,6 +61,41 @@ class SessionStoreShardRoutingTestCase(ShardingTestCase):
         store2 = SessionStore(session_key=store.session_key, shard_selector=self.org.id)
         store2.load()
         self.assertEqual(store2.get('test_key'), 'test_value')
+
+
+@override_settings(
+    QUILT_DB={
+        'SHARD_CLASS': 'example.models.Shard',
+        'MAPPING_MODEL': 'example.models.OrganizationShard',
+    },
+    QUILT_SESSIONS={
+        'SESSION_MODEL': 'example.models.QuiltSession',
+        'SESSION_KEY_DELIMITER': 'Z',
+    },
+)
+class SessionStoreDelimiterTestCase(SimpleTestCase):
+    """New session keys must use the configured SESSION_KEY_DELIMITER, not a hardcoded one."""
+
+    def setUp(self):
+        super().setUp()
+        self._clear_setting_caches()
+        self.addCleanup(self._clear_setting_caches)
+
+    @staticmethod
+    def _clear_setting_caches():
+        _get_shard_selector_regex.cache_clear()
+        _get_delimiter.cache_clear()
+        _get_session_key_regex.cache_clear()
+
+    def test_configured_delimiter_round_trips(self):
+        """
+        Case: SESSION_KEY_DELIMITER is set to a non-default value and a new session key is minted.
+        Expected: a store constructed from just that key parses the shard selector back out of it.
+        """
+        store = SessionStore(shard_selector=42)
+        with mock.patch.object(SessionStore, 'exists', return_value=False):
+            session_key = store._get_new_session_key()
+        self.assertEqual(SessionStore(session_key=session_key).shard_selector, '42')
 
 
 @override_settings(
