@@ -49,6 +49,16 @@ scenarios given default runners, is the following::
        for_each_node(_create_template_schema)
 
 
+Optional extras
+---------------
+
+The base library covers models fully with decorators, and leaves database *objects* (views, functions, triggers) to be
+managed with hand-written ``RunSQL`` in a migration.
+
+If you wish to manage database triggers, we recommend
+`django-pgtrigger <https://github.com/AmbitionEng/django-pgtrigger>`_. See :doc:`triggers` for more information.
+
+
 Creating models
 ---------------
 

@@ -22,6 +22,10 @@ The User Guide
     modules/utils
     modules/connection
     modules/migrations
+    modules/database_views
+    modules/database_functions
+    modules/triggers
+    modules/generated_columns
     modules/fixtures
     modules/celery
     modules/commands

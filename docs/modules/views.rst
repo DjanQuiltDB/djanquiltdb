@@ -2,6 +2,8 @@
 Views
 =====
 
+This chapter is about Django views. For views in the database, see :doc:`database_views`.
+
 To prevent the need to use ``with use_shard():`` in every view your project has, this library provides a middleware to
 do that for you.
 

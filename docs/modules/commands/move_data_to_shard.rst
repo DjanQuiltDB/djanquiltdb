@@ -35,7 +35,9 @@ The command will do its thing in several steps:
 
 5. Delete the data from the source shard.
 
-6. Return both shards back to their original state (probably ACTIVE).
+6. Refresh the materialized views of both shards, so neither is left describing the state before the move.
+
+7. Return both shards back to their original state (probably ACTIVE).
 
 
 get_target_shard
