@@ -43,7 +43,11 @@ DECLARE
   parent_column_ TEXT;
   seq_name TEXT;
   tbl_name TEXT;
-  max_id_val BIGINT;
+  ident_rec_ RECORD;
+  src_seq_ TEXT;
+  dest_seq_ TEXT;
+  last_val_ BIGINT;
+  is_called_ BOOLEAN;
   trigger_def TEXT;
   trigger_name TEXT;
   adapted_trigger_def TEXT;
@@ -297,39 +301,26 @@ BEGIN
   /* Restore the path the surrounding phases run under. */
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema) || ',public,pg_catalog';
 
-  /* After cloning all tables, update sequences/identity columns to be higher than any existing IDs.
-   * This prevents ID conflicts when inserting new records after cloning.
-   * Handle both:
-   * - Sequences (older Django versions)
-   * - Identity columns (Django 6.0+)
+  /* After cloning all tables, carry the position of every identity-backed sequence over from the source schema.
+   * LIKE ... INCLUDING ALL recreates an identity column with a fresh sequence starting at 1, and identity sequences
+   * do not appear in information_schema.sequences, so the value-carrying loop at the top never sees them. Pair the
+   * sequences through their owning (table, column), whatever the column is called.
    */
-  FOR dest_table IN
-    SELECT TABLE_NAME::text FROM information_schema.TABLES
-      WHERE table_schema = dest_schema AND table_type = 'BASE TABLE'
+  FOR ident_rec_ IN
+    SELECT cls.relname::text AS table_name, att.attname::text AS column_name
+      FROM pg_catalog.pg_attribute att
+      JOIN pg_catalog.pg_class cls ON cls.oid = att.attrelid
+      JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+      WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND att.attidentity <> '' AND NOT att.attisdropped
   LOOP
-    BEGIN
-      /* Check if table has an id column and get max ID */
-      EXECUTE format('SELECT COALESCE(MAX(id), 0) FROM %I.%I WHERE id IS NOT NULL',
-        dest_schema, dest_table) INTO max_id_val;
-
-      IF max_id_val > 0 THEN
-        /* Try to get the sequence/identity sequence name */
-        DECLARE
-          seq_name_val TEXT;
-        BEGIN
-          seq_name_val := pg_get_serial_sequence(dest_schema || '.' || dest_table, 'id');
-          IF seq_name_val IS NOT NULL THEN
-            /* Reset sequence/identity to continue from max_id_val + 1 */
-            EXECUTE format('SELECT setval(%L, %s, false)',
-              seq_name_val, max_id_val + 1);
-          END IF;
-        END;
-      END IF;
-    EXCEPTION
-      WHEN OTHERS THEN
-        /* If table doesn't have id column or other error, skip */
-        NULL;
-    END;
+    src_seq_ := pg_get_serial_sequence(format('%I.%I', source_schema, ident_rec_.table_name),
+      ident_rec_.column_name);
+    dest_seq_ := pg_get_serial_sequence(format('%I.%I', dest_schema, ident_rec_.table_name),
+      ident_rec_.column_name);
+    IF src_seq_ IS NOT NULL AND dest_seq_ IS NOT NULL THEN
+      EXECUTE format('SELECT last_value, is_called FROM %s', src_seq_) INTO last_val_, is_called_;
+      PERFORM setval(dest_seq_, last_val_, is_called_);
+    END IF;
   END LOOP;
 
   /* Clone all views and materialized views from the source schema to the destination schema. Named with its schema,
