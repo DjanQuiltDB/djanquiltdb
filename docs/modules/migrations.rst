@@ -10,10 +10,8 @@ Since we work with multiple nodes and multiple schemas, performing migrations is
 
 Determining where models go is done by the DynamicDbRouter on basis of the decorators set on the model definitions.
 
-Using the normal ``migrate`` command will migrate all models to the public schema of the default shard.
-Doing so will break a number of things and is therefore discouraged.
-
-This library provides a ``migrate_shards`` management command that executed the migration on each shard of each node.
+This library overrides the ``migrate`` management command with one that executes the migration on each shard of each
+node, so running ``migrate`` as usual just works. It is the only migration command; there is nothing else to call.
 
 Making migrations
 -----------------
@@ -21,10 +19,10 @@ Creating migrations is done as usual. Since it is executed for each shard on eac
 ``use_shard`` in data migrations.
 
 
-Calling migrate_shards
-----------------------
+Calling migrate
+---------------
 
-``migrate_shards`` Does two things regarding the way it applies migrations:
+``migrate`` does two things regarding the way it applies migrations:
 
 Determine migration state
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -58,24 +56,24 @@ You can try to roll back the failed migration on the damaged node if you want, o
    :alt: DjanQuiltDB migration flow
    :align: center
 
-The error handling is the main reason the ``migrate_shards`` command goes migration by migration. And not run all the
+The error handling is the main reason the ``migrate`` command goes migration by migration. And not run all the
 migrations on a node before moving on to the next node. We want to keep the nodes similar as much as possible.
 
 Options
 -------
-``migrate_shards`` extends the normal ``migrate`` command. Thus it knows the same arguments.
+The sharded ``migrate`` command extends Django's normal ``migrate`` command. Thus it knows the same arguments.
 
 ``--database``
 ~~~~~~~~~~~~~~
 The ``--database`` argument defaults to `all`. But you can provide a name (as listed in the database connections in
 settings) if you want to migrate a single node.
-Example: ``migrate_shards --database hoth``
+Example: ``migrate --database hoth``
 
 ``--shard``
 ~~~~~~~~~~~
 ``--shard`` (or ``-s``) is a new argument. This allows you to specify a single shard by using the name of the node
 and the shard alias known to the Shard table (or ``public`` if you want to target that).
-For example: ``migrate_shards -s default|public`` or ``migrate_shards -s hoth|rebellious_shard``
+For example: ``migrate -s default|public`` or ``migrate -s hoth|rebellious_shard``
 Note the ``|`` (pipe) between the node name and the schema name.
 
 Router considerations

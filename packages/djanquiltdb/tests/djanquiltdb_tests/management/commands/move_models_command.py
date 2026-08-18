@@ -19,7 +19,7 @@ from djanquiltdb.utils import (
 )
 
 
-@mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'djanquiltdb'}))
+@mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate': 'djanquiltdb'}))
 class MoveModelsCommandTestCase(ShardingTransactionTestCase):
     available_apps = ['example']
 

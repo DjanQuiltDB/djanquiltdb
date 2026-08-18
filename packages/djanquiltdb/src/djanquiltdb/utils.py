@@ -423,7 +423,7 @@ def migrate_schema(node_name, schema_name, interactive=False, verbosity=0, check
         raise ValueError("Schema '{}' does not exist on node '{}'.".format(schema_name, node_name))
 
     call_command(
-        'migrate_shards',
+        'migrate',
         database=node_name,
         schema_name=schema_name,
         interactive=interactive,

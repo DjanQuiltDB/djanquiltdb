@@ -24,7 +24,7 @@ class ShardTableExistsTestCase(ShardingTestCase):
         Expected: Returns False
         """
         # Remove the shard table from public by migration to zero
-        call_command('migrate_shards', 'example', 'zero', database='default', verbosity=0)
+        call_command('migrate', 'example', 'zero', database='default', verbosity=0)
         self.assertFalse(shard_table_exists('default'))
 
 

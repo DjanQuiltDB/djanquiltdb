@@ -138,7 +138,7 @@ Optionally you can tell DjanQuiltDB on which node new shards (schemas) will be c
 ROUTER
 ~~~~~~
 DjanQuiltDB uses a router to send each database transaction to the correct node.
-It also uses the router to migrate the models to the correct shard when using ``./manage.py migrate_shards``
+It also uses the router to migrate the models to the correct shard when using ``./manage.py migrate``
 So set ``djanquiltdb.router.DynamicDbRouter`` as the database_router in the settings. e.g.::
 
     DATABASE_ROUTERS = ['djanquiltdb.router.DynamicDbRouter']

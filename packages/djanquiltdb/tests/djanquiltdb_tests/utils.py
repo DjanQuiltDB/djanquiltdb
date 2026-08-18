@@ -1701,7 +1701,7 @@ class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
 
         self.addCleanup(self.clean_up)
 
-    @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'djanquiltdb'}))
+    @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate': 'djanquiltdb'}))
     def test(self):
         """
         Case: Move the Type model over from public to a shard
@@ -1772,7 +1772,7 @@ class MoveModelToSchemaTestCase(ShardingTransactionTestCase):
 class MoveModelToExistingSchemaTestCase(ShardingTransactionTestCase):
     available_apps = ['example']
 
-    @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate_shards': 'djanquiltdb'}))
+    @mock.patch('django.core.management.get_commands', mock.Mock(return_value={'migrate': 'djanquiltdb'}))
     def test(self):
         """
         Case: Move a schema to a shard where it already resides.

@@ -25,7 +25,7 @@ class MigrationTestCase(ShardingTestCase):
         self.addCleanup(mock.patch.stopall)
 
         commands = get_commands()
-        commands['migrate_shards'] = 'djanquiltdb'
+        commands['migrate'] = 'djanquiltdb'
 
         with mock.patch('django.core.management.get_commands', return_value=commands):
             # The templates won't have any migration applied to it initially

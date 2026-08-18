@@ -2,7 +2,7 @@
 Executing migrations for the operations DjanQuiltDB hints.
 
 The router tests cover ``allow_migrate`` one call at a time. What is covered here is the step after that: a migration
-carrying a ``sharding_mode`` hint, run through ``migrate_shards`` the way a project runs it, ends up in the schemas
+carrying a ``sharding_mode`` hint, run through ``migrate`` the way a project runs it, ends up in the schemas
 the hint asked for and nowhere else.
 """
 
@@ -85,7 +85,7 @@ class HintedOperationTestCase(MigrationPlacementTestCase):
         Expected: Each table only in the schemas its hint allows. Until now only the unhinted case was covered, which
                   asserts the refusal rather than the placement.
         """
-        call_command('migrate_shards', 'migration_tests', verbosity=0)
+        call_command('migrate', 'migration_tests', verbosity=0)
 
         self.assertPublic(self.relation_exists, 'hinted_public')
         self.assertSharded(self.relation_exists, 'hinted_sharded')
@@ -97,6 +97,6 @@ class HintedOperationTestCase(MigrationPlacementTestCase):
         Expected: The table in the shard and the template only. The hint reaches the router from RunPython exactly as
                   it does from RunSQL, and the operation runs once per schema it is allowed in.
         """
-        call_command('migrate_shards', 'migration_tests', verbosity=0)
+        call_command('migrate', 'migration_tests', verbosity=0)
 
         self.assertSharded(self.relation_exists, 'hinted_python')
