@@ -636,10 +636,23 @@ class transaction_for_nodes(Atomic):
                 cursor.execute('LOCK TABLE "{}" IN {} MODE'.format(model._meta.db_table, mode))
 
     def __exit__(self, exc_type, exc_value, traceback):
+        # Exit every node even when one of them fails: otherwise a commit that raises on the first node
+        # leaves the remaining connections inside an open atomic block for the rest of the process. The
+        # failure also flows into the later exits, so their transactions roll back instead of committing
+        # around a half-applied change.
+        error = None
         for database in reversed(self.databases):
             self.using = database
-            # will grab the connection corresponding to the database set in self.using
-            super().__exit__(exc_type, exc_value, traceback)
+            try:
+                # will grab the connection corresponding to the database set in self.using
+                super().__exit__(exc_type, exc_value, traceback)
+            except BaseException as caught:
+                if error is None:
+                    error = caught
+                exc_type, exc_value, traceback = type(caught), caught, caught.__traceback__
+
+        if error is not None:
+            raise error
 
 
 class transaction_for_every_node(transaction_for_nodes):

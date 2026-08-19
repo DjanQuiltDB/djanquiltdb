@@ -1512,6 +1512,28 @@ class TransactionForNodesTestCase(OverrideMirroredRoutingMixin, ShardingTransact
         with use_shard(node_name='other', schema_name='public'):
             self.assertEqual(Type.objects.count(), 0)
 
+    def test_a_commit_failure_still_exits_every_node(self):
+        """
+        Case: Use transaction_for_nodes across both nodes and violate a deferred constraint on the node whose
+              transaction commits first, so its commit itself raises.
+        Expected: The error surfaces, but the other node's transaction is closed as well.
+        """
+        with self.assertRaises(IntegrityError):
+            with transaction_for_nodes(nodes=['default', 'other']):
+                with use_shard(node_name='default', schema_name='public'):
+                    Type.objects.create(name='survivor')
+                with use_shard(node_name='other', schema_name='public') as env:
+                    env.connection.cursor().execute(
+                        'INSERT INTO "{}" (name, super_id) VALUES (%s, %s)'.format(Type._meta.db_table),
+                        ['broken', 999999],
+                    )
+
+        self.assertFalse(connections['default'].in_atomic_block)
+        self.assertFalse(connections['other'].in_atomic_block)
+
+        with use_shard(node_name='default', schema_name='public'):
+            self.assertEqual(Type.objects.count(), 0)
+
     def test_with_closing_connection_during_write(self):
         """
         Case: Use @transaction_for_nodes and close connection when writing.
