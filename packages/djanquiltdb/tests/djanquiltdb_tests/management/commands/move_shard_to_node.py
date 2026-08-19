@@ -359,6 +359,21 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
             new_row = self.user_cake_model.objects.get(cake=cake_4, user=user_2)
             self.assertEqual(new_row.id, max_id + 1)
 
+    def test_moving_a_shard_with_an_empty_sharded_table(self):
+        """
+        Case: Move a shard on which the sharded model with retargetable relations (Cake) holds no rows.
+        Expected: The move succeeds.
+        """
+        with use_shard(self.source_shard) as env:
+            cursor = env.connection.cursor()
+            cursor.execute('DELETE FROM "{}"'.format(self.user_cake_model._meta.db_table))
+            cursor.execute('DELETE FROM "{}"'.format(Cake._meta.db_table))
+
+        call_command('move_shard_to_node', *self.format_options_to_args())
+
+        shard = get_shard_for(self.organization_1.id)
+        self.assertEqual(shard.node_name, 'other')
+
     def assert_nothing_changed(self):
         # Shard object unaltered
         with use_shard(node_name='default', schema_name='public', override_class_method_use_shard=True):

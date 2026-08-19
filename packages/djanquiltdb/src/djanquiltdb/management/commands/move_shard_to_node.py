@@ -5,7 +5,7 @@ from io import StringIO
 
 import progressbar
 from django.core.management import BaseCommand, CommandError
-from django.db import connections
+from django.db import connections, models
 
 from djanquiltdb import ShardingMode, State
 from djanquiltdb.options import ShardOptions
@@ -466,8 +466,11 @@ class Command(BaseCommand):
         for model in sharded_models:
             with self.target_shard_options.use():
                 # Check for all entries that need retargeting
-                current_id = model.objects.order_by('pk')[0].pk  # Lowest id
-                end_id = model.objects.order_by('-pk')[0].pk  # Highest id
+                bounds = model.objects.aggregate(lowest=models.Min('pk'), highest=models.Max('pk'))
+                if bounds['lowest'] is None:
+                    # The shard holds no rows for this model, so there is nothing to retarget.
+                    continue
+                current_id, end_id = bounds['lowest'], bounds['highest']
 
                 while current_id <= end_id:
                     object_batch = list(
