@@ -364,8 +364,10 @@ class Command(BaseCommand):
             subprocess.run(  # nosec
                 ['sort', source_file_name, '-o', source_file_sorted_name], shell=False, check=True, timeout=60
             )
-        except RuntimeError, FileNotFoundError:
+        except FileNotFoundError:
             raise CommandError("'sort' command is not available on your system")
+        except subprocess.CalledProcessError as error:
+            raise CommandError("'sort' failed with exit code {}".format(error.returncode))
 
         return source_file_sorted_name
 

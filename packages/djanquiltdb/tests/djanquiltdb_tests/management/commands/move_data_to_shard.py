@@ -1132,6 +1132,14 @@ class MoveDataToShardTestCase(ShardingTestCase):
 
         self.assertEqual(result, 'file-sorted')
 
+    def test_sort_failure_raises_command_error(self):
+        """
+        Case: The external sort exits nonzero, here because the file to sort does not exist.
+        Expected: CommandError instead of a raw CalledProcessError traceback.
+        """
+        with self.assertRaises(CommandError):
+            self.command._sort('/nonexistent/file')
+
     def test_sort(self):
         """
         Case: Call command._sort targeting a temporary file
