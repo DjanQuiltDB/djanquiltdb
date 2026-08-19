@@ -11,10 +11,12 @@ from django.contrib.admin.utils import NestedObjects
 from django.core.exceptions import ValidationError
 from django.core.management import BaseCommand, CommandError
 from django.db import IntegrityError, connections
+from django.db.models.signals import post_delete, pre_delete
 
 from djanquiltdb import ShardingMode, State
 from djanquiltdb.collector import SimpleCollector
 from djanquiltdb.utils import (
+    disable_signals,
     get_all_sharded_models,
     get_mapping_class,
     get_model_sharding_mode,
@@ -434,8 +436,12 @@ class Command(BaseCommand):
             return self.validate_data_integrity(pk_set=pk_set, model_fields=model_fields, temp_dir=None)
 
     def delete_data(self, collector):
+        # Delete with pre_delete/post_delete disconnected, the way purge_shard_data does: the rows deleted here
+        # were just copied to the target shard, so a handler cleaning up external resources keyed by them would
+        # destroy things the moved copy still references.
         with use_shard(self.source_shard, active_only_schemas=False, lock=False):
-            collector.delete()
+            with disable_signals([pre_delete, post_delete]):
+                collector.delete()
 
     def pre_execution(self, root_objects):
         """

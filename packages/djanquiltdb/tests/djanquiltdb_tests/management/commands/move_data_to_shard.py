@@ -7,6 +7,7 @@ from unittest import mock
 from django.core.exceptions import ValidationError
 from django.core.management import CommandError, call_command
 from django.db import DatabaseError, IntegrityError
+from django.db.models.signals import post_delete, pre_delete
 from django.test import override_settings
 
 from djanquiltdb.collector import SimpleCollector
@@ -1147,16 +1148,21 @@ class MoveDataToShardTestCase(ShardingTestCase):
             with open(resulting_file_name) as f:
                 self.assertEqual(f.read(), 'A\nB\n')
 
-    def test_delete_data(self):
+    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.disable_signals')
+    def test_delete_data(self, mock_disable_signals):
         """
         Case: Call delete_data.
-        Expected: The delete method of the collector will be called
+        Expected: The delete method of the collector will be called with pre_delete and post_delete
+                  disconnected: the copy on the target shard still references whatever external
+                  resources the handlers would clean up.
         """
         mock_collector = mock.Mock()
 
         self.command.source_shard = self.source_shard
         self.command.delete_data(collector=mock_collector)
         mock_collector.delete.assert_called_once_with()
+
+        mock_disable_signals.assert_called_once_with([pre_delete, post_delete])
 
     @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
