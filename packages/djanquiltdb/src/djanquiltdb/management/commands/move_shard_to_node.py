@@ -315,7 +315,9 @@ class Command(BaseCommand):
                     self.target_data[model][nat_keys_value] = mapped_value
             else:
                 with self.source_shard.use(active_only_schemas=False, lock=False):
-                    source_object = model.objects.get_by_natural_key(*nat_keys_value)
+                    # Look the source object up by the original key: nat_keys_value holds relation ids already
+                    # translated to the target node's numbering, which the source does not know.
+                    source_object = model.objects.get_by_natural_key(*org_nat_keys_value)
                 raise ValueError(
                     'Data "{}.{}: {} - {}" not found for on target shard "{}", and the model does not '
                     'allow the data to be copied.'.format(

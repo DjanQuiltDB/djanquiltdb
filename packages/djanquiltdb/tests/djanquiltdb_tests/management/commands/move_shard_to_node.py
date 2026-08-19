@@ -712,6 +712,33 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         # Our given target_data is a pointer. The dict is to be altered by get_mapped_value.
         self.assertCountEqual(self.command.target_data, {CakeType: {('lime',): 1}})
 
+    def test_get_mapped_value_missing_disallow_copy_with_relational_key(self):
+        """
+        Case: get_mapped_value misses the target data for a model that forbids copying, while the natural key holds a
+              relation whose id was already translated to the target node's numbering.
+        Expected: The source object is fetched by the original source-node key.
+        """
+        related = mock.MagicMock(name='related_model')
+        related._meta.unique_together = [('name',)]
+        related._meta._forward_fields_map = {'name': mock.MagicMock(is_relation=False)}
+
+        relation_field = mock.MagicMock(is_relation=True, related_model=related)
+        model = mock.MagicMock(name='model')
+        model.__name__ = 'FakeModel'
+        model._meta.unique_together = [('name', 'super')]
+        model._meta._forward_fields_map = {'name': mock.MagicMock(is_relation=False), 'super': relation_field}
+        setattr(model, '__allow_copy', False)
+
+        self.command.source_shard = self.source_shard
+        self.command.target_shard_options = self.target_shard_options
+        self.command.source_data = {related: {11: ('lime',)}}
+        self.command.target_data = {model: {}, related: {('lime',): 99}}
+
+        with self.assertRaises(ValueError):
+            self.command.get_mapped_value(model, ('citrus', 11))
+
+        model.objects.get_by_natural_key.assert_called_once_with('citrus', 11)
+
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command._check_relations')
     def test_get_mapped_value_missing_disallow_copy(self, mock_check_relations):
         """
