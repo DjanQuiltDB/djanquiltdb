@@ -6,6 +6,7 @@ from django.test import SimpleTestCase, override_settings
 
 import djanquiltdb.contrib.quilt_admin as quilt_admin_pkg
 from djanquiltdb.contrib.quilt_admin.context_processors import admin_shard_context
+from djanquiltdb_tests import ShardingTestCase
 
 
 def _make_anonymous_request():
@@ -13,6 +14,29 @@ def _make_anonymous_request():
     request.user.is_authenticated = False
     request.path = '/not-admin/'
     return request
+
+
+def _make_admin_request():
+    request = mock.Mock()
+    request.user.is_authenticated = True
+    request.path = '/admin/'
+    return request
+
+
+class ShardSwitcherSelectorBindingTestCase(ShardingTestCase):
+    def test_selector_class_is_read_dynamically(self):
+        """
+        Case: The selector class binding on the quilt_admin apps module changes after this module was mported, as
+              happens when a consumer module is imported before the app's ready() ran.
+        Expected: The context processor uses the current binding rather than a stale import-time copy.
+        """
+        fake_selector = mock.Mock()
+        fake_selector.retrieve_override_value.return_value = None
+
+        with mock.patch('djanquiltdb.contrib.quilt_admin.apps.ADMIN_SHARD_SELECTOR_CLASS', fake_selector):
+            admin_shard_context(_make_admin_request())
+
+        self.assertTrue(fake_selector.retrieve_override_value.called)
 
 
 class UseCspNonceContextTests(SimpleTestCase):

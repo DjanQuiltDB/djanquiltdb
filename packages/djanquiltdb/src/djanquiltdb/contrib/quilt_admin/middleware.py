@@ -2,7 +2,7 @@ from django.http import HttpResponse
 from django.urls import resolve
 
 from djanquiltdb import State
-from djanquiltdb.contrib.quilt_admin.apps import ADMIN_SHARD_SELECTOR_CLASS
+from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
 from djanquiltdb.contrib.quilt_admin.utils import CrossShardMappingUserProxy, CrossShardUserProxy
 from djanquiltdb.middleware import BaseUseShardForMiddleware, BaseUseShardMiddleware
 from djanquiltdb.utils import get_mapping_class, get_shard_class, use_shard, use_shard_for
@@ -111,7 +111,7 @@ class BaseAdminOverrideUseShardMiddleware(BaseUseShardMiddleware):
             if request.user is not None and not isinstance(request.user, CrossShardUserProxy):
                 request.user = CrossShardUserProxy(
                     request.user,
-                    ADMIN_SHARD_SELECTOR_CLASS.retrieve_main_value(request),
+                    quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.retrieve_main_value(request),
                 )
         else:
             if request.user is not None and isinstance(request.user, CrossShardUserProxy):
@@ -154,7 +154,7 @@ class BaseAdminOverrideUseShardForMiddleware(BaseUseShardForMiddleware):
             if request.user is not None and not isinstance(request.user, CrossShardMappingUserProxy):
                 request.user = CrossShardMappingUserProxy(
                     request.user,
-                    ADMIN_SHARD_SELECTOR_CLASS.retrieve_main_value(request),
+                    quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.retrieve_main_value(request),
                 )
         else:
             if request.user is not None and isinstance(request.user, CrossShardMappingUserProxy):
@@ -188,9 +188,9 @@ class BaseAdminOverrideUseShardForMiddleware(BaseUseShardForMiddleware):
 
 class ShardIdAdminOverrideMiddleware(BaseAdminOverrideUseShardMiddleware):
     def get_shard_id(self, request):
-        return request.session.get(ADMIN_SHARD_SELECTOR_CLASS.override_shard_selector_key, None)
+        return request.session.get(quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.override_shard_selector_key, None)
 
 
 class MappingValueAdminOverrideMiddleware(BaseAdminOverrideUseShardForMiddleware):
     def get_mapping_value(self, request):
-        return request.session.get(ADMIN_SHARD_SELECTOR_CLASS.override_shard_selector_key, None)
+        return request.session.get(quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.override_shard_selector_key, None)

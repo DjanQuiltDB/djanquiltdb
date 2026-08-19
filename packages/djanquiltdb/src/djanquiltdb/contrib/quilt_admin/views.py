@@ -6,7 +6,7 @@ from django.urls import reverse
 from django.utils.decorators import method_decorator
 from django.views import View
 
-from djanquiltdb.contrib.quilt_admin.apps import ADMIN_SHARD_SELECTOR_CLASS
+from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
 from djanquiltdb.utils import get_mapping_class, get_shard_class
 
 
@@ -59,7 +59,7 @@ class SwitchShardView(View):
                     if not mapping_obj:
                         messages.error(request, 'Selected mapping value does not exist.')
                     else:
-                        ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, mapping_value)
+                        quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, mapping_value)
                         shard = getattr(mapping_obj, 'shard', None)
                         if shard is not None:
                             messages.success(
@@ -70,7 +70,7 @@ class SwitchShardView(View):
                             messages.success(request, f'Switched to mapping: {mapping_value}')
             else:
                 # Clear override
-                ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, None)
+                quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, None)
                 messages.success(request, 'Cleared override; using default routing.')
         else:
             shard_id = request.POST.get('shard_id')
@@ -78,7 +78,7 @@ class SwitchShardView(View):
                 try:
                     shard_class = get_shard_class()
                     shard = shard_class.objects.using('default').get(id=shard_id)
-                    ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, shard_id)
+                    quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, shard_id)
                     messages.success(request, f'Switched to shard: {shard.alias}')
                 except ValueError, TypeError:
                     messages.error(request, 'Selected shard id is invalid.')
@@ -86,7 +86,7 @@ class SwitchShardView(View):
                     messages.error(request, 'Selected shard does not exist.')
             else:
                 # Clear override
-                ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, None)
+                quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, None)
                 messages.success(request, 'Cleared override; using default routing.')
 
         # Redirect back to the referring page or admin index

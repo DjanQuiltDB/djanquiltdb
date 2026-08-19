@@ -1,6 +1,6 @@
 from django.conf import settings
 
-from djanquiltdb.contrib.quilt_admin.apps import ADMIN_SHARD_SELECTOR_CLASS
+from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
 from djanquiltdb.utils import get_mapping_class, get_shard_class
 
 
@@ -45,7 +45,7 @@ def admin_shard_context(request):
                 context['shard_switcher_mode'] = 'mapping'
                 context['shard_switcher_field_name'] = 'mapping_value'
 
-                current_value = ADMIN_SHARD_SELECTOR_CLASS.retrieve_override_value(request)
+                current_value = quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.retrieve_override_value(request)
                 context['current_shard_switcher_value'] = '' if current_value is None else str(current_value)
 
                 options = []
@@ -58,7 +58,7 @@ def admin_shard_context(request):
                         mapping_value_str = str(mapping.pk)
 
                     shard = getattr(mapping, 'shard', None)
-                    label = ADMIN_SHARD_SELECTOR_CLASS.format_override_option(mapping_value, shard, mapping)
+                    label = quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.format_override_option(mapping_value, shard, mapping)
 
                     options.append({'value': mapping_value_str, 'label': label})
 
@@ -70,14 +70,14 @@ def admin_shard_context(request):
                 shards = list(shard_class.objects.using('default').all().order_by('alias'))
                 context['available_shards'] = shards
 
-                current_id = ADMIN_SHARD_SELECTOR_CLASS.retrieve_override_value(request)
+                current_id = quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.retrieve_override_value(request)
                 context['current_shard_id'] = current_id
                 context['current_shard_switcher_value'] = '' if current_id is None else str(current_id)
 
                 context['shard_switcher_options'] = [
                     {
                         'value': str(shard.id),
-                        'label': ADMIN_SHARD_SELECTOR_CLASS.format_override_option(shard.id, shard),
+                        'label': quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.format_override_option(shard.id, shard),
                     }
                     for shard in shards
                 ]
