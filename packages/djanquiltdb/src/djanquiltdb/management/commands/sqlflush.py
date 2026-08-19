@@ -3,9 +3,9 @@ from textwrap import indent
 from django.core.management.commands.sqlflush import Command as SQLFlushCommand
 from django.core.management.sql import sql_flush
 
-from djanquiltdb.management.base import get_databases_and_schema_from_options, shard_table_exists
+from djanquiltdb.management.base import get_databases_and_schema_from_options, get_shards_by_node
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import get_all_databases, get_shard_class, get_template_name, use_shard
+from djanquiltdb.utils import get_all_databases, get_template_name, use_shard
 
 
 class Command(SQLFlushCommand):
@@ -32,6 +32,8 @@ class Command(SQLFlushCommand):
     def handle(self, **options):
         node_names, schema_name = get_databases_and_schema_from_options(options)
 
+        shards_by_node = {} if schema_name else get_shards_by_node(node_names)
+
         for node_name in node_names:
             if schema_name:
                 with use_shard(node_name=node_name, schema_name=schema_name) as env:
@@ -47,11 +49,10 @@ class Command(SQLFlushCommand):
                         ) as env:
                             self.handle_schema(connection=env.connection)
 
-                    # All shards, if we can determine that from the shard table.
-                    if shard_table_exists(node_name):
-                        for shard in get_shard_class().objects.filter(node_name__in=node_names):
-                            with use_shard(shard, include_public=False) as env:
-                                self.handle_schema(connection=env.connection)
+                    # All of this node's shards, as far as the registry knows them.
+                    for shard in shards_by_node.get(node_name, []):
+                        with use_shard(shard, include_public=False) as env:
+                            self.handle_schema(connection=env.connection)
 
                     # Public schema
                     self.handle_schema(connection=public_env.connection)

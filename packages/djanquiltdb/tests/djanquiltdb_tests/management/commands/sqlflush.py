@@ -63,6 +63,27 @@ class SQLFlushTestCase(ShardingTransactionTestCase):
             any_order=True,
         )
 
+    def test_a_mirrored_shard_table_prints_each_shard_once(self, mock_sql_flush):
+        """
+        Case: The shard table is mirrored, so both nodes hold both registry rows; call the sqlflush
+              command without extra options.
+        Expected: Each schema's SQL printed exactly once instead of once per node holding the registry.
+        """
+        with use_shard(node_name='other', schema_name=PUBLIC_SCHEMA_NAME) as env:
+            cursor = env.connection.cursor()
+            for shard in (self.shard1, self.shard2):
+                # Mirrored writes route to the primary, so mirror the registry rows with plain SQL.
+                cursor.execute(
+                    'INSERT INTO "{}" (id, alias, schema_name, node_name, state) VALUES (%s, %s, %s, %s, %s)'.format(
+                        Shard._meta.db_table
+                    ),
+                    [shard.id, shard.alias, shard.schema_name, shard.node_name, shard.state],
+                )
+
+        self.call_command()
+
+        self.assertEqual(mock_sql_flush.call_count, 6)
+
     def test_single_database(self, mock_sql_flush):
         """
         Case: Call the sqlflush command with a single database specified

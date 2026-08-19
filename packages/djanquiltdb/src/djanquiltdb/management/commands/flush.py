@@ -1,9 +1,9 @@
 from django.core.management.commands.flush import Command as FlushCommand
 from django.db import connections
 
-from djanquiltdb.management.base import get_databases_and_schema_from_options, shard_table_exists
+from djanquiltdb.management.base import get_databases_and_schema_from_options, get_shards_by_node
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.utils import get_all_databases, get_shard_class, get_template_name
+from djanquiltdb.utils import get_all_databases, get_template_name
 
 
 class Command(FlushCommand):
@@ -54,6 +54,8 @@ class Command(FlushCommand):
 
         template_name = get_template_name()
 
+        shards_by_node = {} if schema_name else get_shards_by_node(node_names)
+
         for node_name in node_names:
             if schema_name:
                 schema_options = options.copy()
@@ -72,16 +74,14 @@ class Command(FlushCommand):
                     )
                     super().handle(**template_options)
 
-                # And now all other shards, but only if the shard table exists on the public schema. If not, we can
-                # assume that not other shards exists.
-                if shard_table_exists(node_name):
-                    for shard in get_shard_class().objects.filter(node_name__in=node_names):
-                        shard_options = options.copy()
-                        if options.get('ignore_maintenance'):
-                            shard_options['database'] = ShardOptions.from_shard(shard, active_only_schemas=False)
-                        else:
-                            shard_options['database'] = ShardOptions.from_shard(shard)
-                        super().handle(**shard_options)
+                # And now this node's shards, as far as the registry knows them.
+                for shard in shards_by_node.get(node_name, []):
+                    shard_options = options.copy()
+                    if options.get('ignore_maintenance'):
+                        shard_options['database'] = ShardOptions.from_shard(shard, active_only_schemas=False)
+                    else:
+                        shard_options['database'] = ShardOptions.from_shard(shard)
+                    super().handle(**shard_options)
 
                 # And finally do the public schema. We do this as last, to make sure we don't face constraints for
                 # flushing.
