@@ -4,10 +4,12 @@ Tests for djanquiltdb.sessions.SessionStore
 Basic test to verify sessions are stored in the appropriate shard.
 """
 
+from datetime import timedelta
 from unittest import mock
 
 from django.core import signing
 from django.test import SimpleTestCase, override_settings
+from django.utils import timezone
 
 from djanquiltdb.sessions import SessionStore, _get_delimiter, _get_session_key_regex, _get_shard_selector_regex
 from djanquiltdb.utils import State, create_template_schema, use_shard
@@ -40,6 +42,28 @@ class SessionStoreShardRoutingTestCase(ShardingTestCase):
         with use_shard(self.shard):
             self.org = Organization.objects.create(name='Test Org')
         OrganizationShard.objects.create(organization_id=self.org.id, shard=self.shard)
+
+    def test_clear_expired_clears_expired_sessions_on_shards(self):
+        """
+        Case: A shard holds one expired and one live session. Call SessionStore.clear_expired (simulating Django's
+              clearsessions command).
+        Expected: The expired session is removed, and nothing else.
+        """
+        expired = SessionStore(shard_selector=self.org.id)
+        expired.create()
+        live = SessionStore(shard_selector=self.org.id)
+        live.create()
+
+        with use_shard(self.shard):
+            QuiltSession.objects.filter(session_key=expired.session_key).update(
+                expire_date=timezone.now() - timedelta(days=1)
+            )
+
+        SessionStore.clear_expired()
+
+        with use_shard(self.shard):
+            remaining = set(QuiltSession.objects.values_list('session_key', flat=True))
+        self.assertEqual(remaining, {live.session_key})
 
     def test_session_stored_in_correct_shard(self):
         """

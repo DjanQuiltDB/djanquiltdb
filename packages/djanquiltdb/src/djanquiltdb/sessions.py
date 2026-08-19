@@ -6,10 +6,11 @@ from django.contrib.sessions.backends.base import VALID_KEY_CHARS
 from django.contrib.sessions.backends.cached_db import SessionStore as BaseSessionStore
 from django.core import signing
 from django.core.exceptions import ImproperlyConfigured
+from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.module_loading import import_string
 
-from djanquiltdb.utils import use_shard_for
+from djanquiltdb.utils import State, for_each_shard, use_shard, use_shard_for
 
 
 @functools.cache
@@ -132,4 +133,11 @@ class SessionStore(BaseSessionStore):
 
     @classmethod
     def clear_expired(cls):
-        raise NotImplementedError("It's not trivial to clear expired sessions throughout the all shards")
+        def _clear(shard):
+            if shard.state != State.ACTIVE:
+                # A shard being moved or purged is left alone; its expired sessions go on the next run.
+                return
+            with use_shard(shard):
+                cls.get_model_class().objects.filter(expire_date__lt=timezone.now()).delete()
+
+        for_each_shard(_clear)
