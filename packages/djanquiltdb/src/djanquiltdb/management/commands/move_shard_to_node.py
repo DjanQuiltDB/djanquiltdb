@@ -486,10 +486,11 @@ class Command(BaseCommand):
 
     def reset_sequences(self):
         """
-        Reset the sequencers for all models on the target schema
+        Reset the sequencers for all models on the target schema, including the auto-created many-to-many
+        through models: their tables received rows in the copy just the same.
         """
         with self.target_shard_options.use() as env:
-            env.connection.reset_sequence(model_list=get_all_sharded_models())
+            env.connection.reset_sequence(model_list=get_all_sharded_models(include_auto_created=True))
 
     def post_execution(self, succeeded):
         """

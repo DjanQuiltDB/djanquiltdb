@@ -341,6 +341,24 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
             user = User.objects.create(name='test_user', organization=self.organization_1)
             self.assertEqual(user.id, max_id + 1)
 
+    def test_sequences_of_auto_created_through_models_after_moving(self):
+        """
+        Case: Move a shard holding many-to-many rows to another node and add another relation afterward.
+        Expected: The auto-created through table's sequence continues past the copied rows instead of
+                  reissuing a taken id.
+        """
+        call_command('move_shard_to_node', *self.format_options_to_args())
+
+        shard = get_shard_for(self.organization_1.id)
+        with use_shard(shard):
+            max_id = self.user_cake_model.objects.order_by('-id').first().id
+            # Refetch on the moved shard: the setUp instances still carry the source connection in _state.db.
+            user_2 = User.objects.get(pk=self.user_2.pk)
+            cake_4 = Cake.objects.get(pk=self.cake_4.pk)
+            user_2.cake.add(cake_4)
+            new_row = self.user_cake_model.objects.get(cake=cake_4, user=user_2)
+            self.assertEqual(new_row.id, max_id + 1)
+
     def assert_nothing_changed(self):
         # Shard object unaltered
         with use_shard(node_name='default', schema_name='public', override_class_method_use_shard=True):
@@ -1289,12 +1307,12 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
     def test_reset_sequences(self, mock_get_all_models, mock_reset_sequence):
         """
         Case: Call reset_sequences.
-        Expected: reset_sequence called for all sharded models.
+        Expected: reset_sequence called for all sharded models, auto-created through models included.
         """
         self.command.target_shard_options = self.target_shard_options
         self.command.reset_sequences()
 
-        mock_get_all_models.assert_called_once_with()
+        mock_get_all_models.assert_called_once_with(include_auto_created=True)
         mock_reset_sequence.assert_called_once_with(model_list=['app', 'noot', 'mies'])
 
     @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
