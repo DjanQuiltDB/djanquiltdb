@@ -173,7 +173,10 @@ class Command(BaseCommand):
                 )
             )
         else:
-            collector = SimpleCollector(connection=connections[self.shard], verbose=bool(self.options['verbosity']))
+            # Match the NestedObjects branch above: purging is exactly what happens to inactive shards, and the
+            # stale data needs no locking.
+            using = ShardOptions.from_shard(shard=self.shard, active_only_schemas=False, lock=False)
+            collector = SimpleCollector(connection=connections[using], verbose=bool(self.options['verbosity']))
 
         # Collect the data
         collector.collect(objects)

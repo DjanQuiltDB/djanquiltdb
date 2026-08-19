@@ -278,6 +278,24 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         collector = self.command.get_data_collector(objects=[self.organization_1])
         self.assertEqual(collector.data, self.expected_data)
 
+    def test_get_data_collector_on_a_maintenance_shard(self):
+        """
+        Case: Call get_data_collector using the simple collector while the shard is in maintenance, which is exactly the
+              state a shard being purged tends to be in.
+        Expected: The collector is built and collects, instead of raising a StateException.
+        """
+        self.source_shard.state = State.MAINTENANCE
+        self.source_shard.save(update_fields=['state'])
+        self.command.shard = self.source_shard
+
+        collector = self.command.get_data_collector(objects=self.command.get_objects())
+        # Compare by primary key: comparing instances would re-enter the shard through the active-state
+        # options the setUp instances were loaded under, tripping over the maintenance state again.
+        self.assertEqual(
+            {model: {obj.pk for obj in objs} for model, objs in collector.data.items()},
+            {model: {obj.pk for obj in objs} for model, objs in self.expected_data.items()},
+        )
+
     @mock.patch('djanquiltdb.management.commands.purge_shard_data.NestedObjects.collect')
     def test_get_data_collector_nested_collector(self, mock_collect):
         """
