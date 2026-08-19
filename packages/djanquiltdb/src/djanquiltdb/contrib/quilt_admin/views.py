@@ -7,7 +7,7 @@ from django.utils.decorators import method_decorator
 from django.views import View
 
 from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
-from djanquiltdb.utils import get_mapping_class, get_shard_class
+from djanquiltdb.utils import get_mapping_class, get_primary_db_alias, get_shard_class
 
 
 def _coerce_value(raw_value, field):
@@ -51,7 +51,7 @@ class SwitchShardView(View):
                     mapping_value = _coerce_value(raw_value, field)
 
                     mapping_obj = (
-                        mapping_class.objects.using('default')
+                        mapping_class.objects.using(get_primary_db_alias())
                         .select_related('shard')
                         .filter(**{mapping_field: mapping_value})
                         .first()
@@ -77,7 +77,7 @@ class SwitchShardView(View):
             if shard_id:
                 try:
                     shard_class = get_shard_class()
-                    shard = shard_class.objects.using('default').get(id=shard_id)
+                    shard = shard_class.objects.using(get_primary_db_alias()).get(id=shard_id)
                     quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, shard_id)
                     messages.success(request, f'Switched to shard: {shard.alias}')
                 except ValueError, TypeError:

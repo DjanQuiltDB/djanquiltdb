@@ -42,6 +42,12 @@ def get_template_name():
     return settings.QUILT_DB.get('TEMPLATE_NAME', 'template')
 
 
+def get_primary_db_alias():
+    from django.db import DEFAULT_DB_ALIAS
+
+    return settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
+
+
 def get_mapping_class():
     """
     Helper function to get implemented Mapping model, if the project has one.

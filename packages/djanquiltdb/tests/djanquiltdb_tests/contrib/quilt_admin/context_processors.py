@@ -6,7 +6,9 @@ from django.test import SimpleTestCase, override_settings
 
 import djanquiltdb.contrib.quilt_admin as quilt_admin_pkg
 from djanquiltdb.contrib.quilt_admin.context_processors import admin_shard_context
+from djanquiltdb.utils import State, use_shard
 from djanquiltdb_tests import ShardingTestCase
+from example.models import Shard
 
 
 def _make_anonymous_request():
@@ -37,6 +39,25 @@ class ShardSwitcherSelectorBindingTestCase(ShardingTestCase):
             admin_shard_context(_make_admin_request())
 
         self.assertTrue(fake_selector.retrieve_override_value.called)
+
+
+class ShardSwitcherPrimaryAliasTestCase(ShardingTestCase):
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
+    def test_switcher_reads_from_the_primary_alias(self):
+        """
+        Case: PRIMARY_DB_ALIAS points at a non-default node.
+        Expected: The switcher lists the shards from that node instead of the literal default alias.
+        """
+        with use_shard(node_name='other', schema_name='public') as env:
+            env.connection.cursor().execute(
+                'INSERT INTO "{}" (id, alias, schema_name, node_name, state) '
+                'VALUES (%s, %s, %s, %s, %s)'.format(Shard._meta.db_table),
+                [1, 'failover', 'failover_schema', 'other', State.ACTIVE],
+            )
+
+        context = admin_shard_context(_make_admin_request())
+
+        self.assertEqual([shard.alias for shard in context['available_shards']], ['failover'])
 
 
 class UseCspNonceContextTests(SimpleTestCase):

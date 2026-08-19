@@ -5,7 +5,7 @@ from djanquiltdb import State
 from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
 from djanquiltdb.contrib.quilt_admin.utils import CrossShardMappingUserProxy, CrossShardUserProxy
 from djanquiltdb.middleware import BaseUseShardForMiddleware, BaseUseShardMiddleware
-from djanquiltdb.utils import get_mapping_class, get_shard_class, use_shard, use_shard_for
+from djanquiltdb.utils import get_mapping_class, get_primary_db_alias, get_shard_class, use_shard, use_shard_for
 
 """
 Middleware classes that allow viewing the admin for a shard different from the one that your user is stored on. These
@@ -49,7 +49,7 @@ def _check_maintenance_status(request, shard_id=None, mapping_value=None):
     maintenance_message = None
 
     if shard_id:
-        shard = get_shard_class().objects.using('default').get(id=shard_id)
+        shard = get_shard_class().objects.using(get_primary_db_alias()).get(id=shard_id)
         if shard.state == State.MAINTENANCE:
             is_maintenance = True
             maintenance_message = 'This shard is currently in maintenance mode.'
@@ -61,7 +61,7 @@ def _check_maintenance_status(request, shard_id=None, mapping_value=None):
             if mapping_field:
                 try:
                     mapping_obj = (
-                        mapping_class.objects.using('default')
+                        mapping_class.objects.using(get_primary_db_alias())
                         .select_related('shard')
                         .filter(**{mapping_field: mapping_value})
                         .first()
@@ -76,7 +76,7 @@ def _check_maintenance_status(request, shard_id=None, mapping_value=None):
                         if not shard and hasattr(mapping_obj, 'shard_id') and mapping_obj.shard_id:
                             # Shard wasn't loaded, fetch it
                             try:
-                                shard = get_shard_class().objects.using('default').get(id=mapping_obj.shard_id)
+                                shard = get_shard_class().objects.using(get_primary_db_alias()).get(id=mapping_obj.shard_id)
                             except Exception:
                                 shard = None
                         # If shard still not available, try to access it directly (might trigger a query)

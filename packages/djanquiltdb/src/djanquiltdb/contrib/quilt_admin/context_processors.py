@@ -1,7 +1,7 @@
 from django.conf import settings
 
 from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
-from djanquiltdb.utils import get_mapping_class, get_shard_class
+from djanquiltdb.utils import get_mapping_class, get_primary_db_alias, get_shard_class
 
 
 def admin_shard_context(request):
@@ -34,7 +34,7 @@ def admin_shard_context(request):
             if mapping_class:
                 mapping_field = getattr(mapping_class, 'mapping_field', None)
 
-                qs = mapping_class.objects.using('default').select_related('shard').all()
+                qs = mapping_class.objects.using(get_primary_db_alias()).select_related('shard').all()
                 if mapping_field:
                     qs = qs.order_by(mapping_field)
                 else:
@@ -66,8 +66,8 @@ def admin_shard_context(request):
             else:
                 shard_class = get_shard_class()
                 # Get all shards from the primary database
-                # Using .using('default') to ensure we query from the primary database
-                shards = list(shard_class.objects.using('default').all().order_by('alias'))
+                # Using .using(get_primary_db_alias()) to ensure we query from the primary database
+                shards = list(shard_class.objects.using(get_primary_db_alias()).all().order_by('alias'))
                 context['available_shards'] = shards
 
                 current_id = quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.retrieve_override_value(request)
