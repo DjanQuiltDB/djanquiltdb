@@ -515,7 +515,7 @@ class ShardedMigrationGetTargetsTestCase(MigrationTestCase):
         Case: Call get_targets_from_options without options.
         Expected: All leaf nodes returned as targets.
         """
-        leave_nodes = [('migration_tests', '0003_third'), ('djanquiltdb', '0002_second')]
+        leave_nodes = [('migration_tests', '0003_third'), ('example', '0001_initial')]
         mock_leave_nodes.return_value = leave_nodes
 
         executor = MigrationExecutor(connection)
@@ -527,24 +527,20 @@ class ShardedMigrationGetTargetsTestCase(MigrationTestCase):
         Case: Call get_targets_from_options with app_label as option.
         Expected: Single leaf returned
         """
-        leave_nodes = [('migration_tests', '0003_third'), ('example', '0002_auto_20171009_1502')]
+        leave_nodes = [('migration_tests', '0003_third'), ('example', '0001_initial')]
         mock_leave_nodes.return_value = leave_nodes
 
         executor = MigrationExecutor(connection)
         self.assertEqual(
             ShardedMigrate().get_targets_from_options(executor, options={'app_label': 'example'}),
-            (False, [('example', '0002_auto_20171009_1502')]),
+            (False, [('example', '0001_initial')]),
         )
 
-    @mock.patch('django.db.migrations.graph.MigrationGraph.leaf_nodes')
-    def test_with_target_migration(self, mock_leave_nodes):
+    def test_with_target_migration(self):
         """
-        Case: Call get_targets_from_options with app_label as option.
-        Expected: Single leaf returned
+        Case: Call get_targets_from_options with both an app_label and a migration_name.
+        Expected: That one migration returned, resolved from its prefix.
         """
-        leave_nodes = [('migration_tests', '0003_third'), ('example', '0002_auto_20171009_1502')]
-        mock_leave_nodes.return_value = leave_nodes
-
         executor = MigrationExecutor(connection)
         self.assertEqual(
             ShardedMigrate().get_targets_from_options(
@@ -553,15 +549,11 @@ class ShardedMigrationGetTargetsTestCase(MigrationTestCase):
             (False, [('migration_tests', '0002_second')]),
         )
 
-    @mock.patch('django.db.migrations.graph.MigrationGraph.leaf_nodes')
-    def test_with_zero_target(self, mock_leave_nodes):
+    def test_with_zero_target(self):
         """
         Case: Call get_targets_from_options with zero as option.
         Expected: [(app_label, None)] returned
         """
-        leave_nodes = [('migration_tests', '0003_third'), ('example', '0002_auto_20171009_1502')]
-        mock_leave_nodes.return_value = leave_nodes
-
         executor = MigrationExecutor(connection)
         self.assertEqual(
             ShardedMigrate().get_targets_from_options(
@@ -570,15 +562,11 @@ class ShardedMigrationGetTargetsTestCase(MigrationTestCase):
             (False, [('migration_tests', None)]),
         )
 
-    @mock.patch('django.db.migrations.graph.MigrationGraph.leaf_nodes')
-    def test_with_unexisting_migration(self, mock_leave_nodes):
+    def test_with_unexisting_migration(self):
         """
         Case: Call get_targets_from_options with nonexisting migration as target
         Expected: CommandError raised
         """
-        leave_nodes = [('migration_tests', '0003_third'), ('example', '0002_auto_20171009_1502')]
-        mock_leave_nodes.return_value = leave_nodes
-
         executor = MigrationExecutor(connection)
         with self.assertRaises(CommandError) as error:
             (
@@ -590,15 +578,11 @@ class ShardedMigrationGetTargetsTestCase(MigrationTestCase):
             error.exception.args[0], "Cannot find a migration matching '9001_over_9k' from app 'migration_tests'."
         )
 
-    @mock.patch('django.db.migrations.graph.MigrationGraph.leaf_nodes')
-    def test_with_unexisting_app_label(self, mock_leave_nodes):
+    def test_with_unexisting_app_label(self):
         """
         Case: Call get_targets_from_options with nonexisting app_label as target
         Expected: CommandError raised
         """
-        leave_nodes = [('migration_tests', '0003_third'), ('example', '0002_auto_20171009_1502')]
-        mock_leave_nodes.return_value = leave_nodes
-
         executor = MigrationExecutor(connection)
         with self.assertRaises(CommandError) as error:
             (ShardedMigrate().get_targets_from_options(executor, options={'app_label': 'Hans'}),)

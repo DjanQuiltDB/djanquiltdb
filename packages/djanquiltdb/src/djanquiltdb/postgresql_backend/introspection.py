@@ -70,34 +70,6 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
             AND con.contype = 'f'
     """
 
-    _get_key_columns_query = """
-        SELECT kcu.column_name, ccu.table_name AS referenced_table, ccu.column_name AS referenced_column
-        FROM information_schema.constraint_column_usage ccu
-            LEFT JOIN information_schema.key_column_usage kcu
-                ON ccu.constraint_catalog = kcu.constraint_catalog
-                    AND ccu.constraint_schema = kcu.constraint_schema
-                    AND ccu.constraint_name = kcu.constraint_name
-            LEFT JOIN information_schema.table_constraints tc
-                ON ccu.constraint_catalog = tc.constraint_catalog
-                    AND ccu.constraint_schema = tc.constraint_schema
-                    AND ccu.constraint_name = tc.constraint_name
-        WHERE kcu.table_name = %(table)s
-          AND kcu.table_schame = %(schema)s
-          AND tc.constraint_type = 'FOREIGN KEY'
-    """
-
-    _get_indexes_query = """
-        SELECT attr.attname, idx.indkey, idx.indisunique, idx.indisprimary
-        FROM pg_catalog.pg_class c, pg_catalog.pg_class c2,
-            pg_catalog.pg_index idx, pg_catalog.pg_attribute attr
-        WHERE c.oid = idx.indrelid
-            AND idx.indexrelid = c2.oid
-            AND attr.attrelid = c.oid
-            AND attr.attnum = idx.indkey[0]
-            AND c.relname = %(table)s
-            AND n.nspname = %(schema)s
-    """
-
     _get_constraints_query = """
         SELECT
             c.conname,
@@ -202,37 +174,6 @@ class DatabaseSchemaIntrospection(BaseDatabaseIntrospection):
             relations[row[1]] = (row[2], row[0])
 
         return relations
-
-    def get_key_columns(self, cursor, table_name):
-        cursor.execute(self._get_key_columns_query, {'schema': self.connection.schema_name, 'table': table_name})
-        return list(cursor.fetchall())
-
-    def get_indexes(self, cursor, table_name):
-        # This query retrieves each index on the given table, including the
-        # first associated field name
-        cursor.execute(
-            self._get_indexes_query,
-            {
-                'schema': self.connection.schema_name,
-                'table': table_name,
-            },
-        )
-        indexes = {}
-        for row in cursor.fetchall():
-            # row[1] (idx.indkey) is stored in the DB as an array. It comes out as
-            # a string of space-separated integers. This designates the field
-            # indexes (1-based) of the fields that have indexes on the table.
-            # Here, we skip any indexes across multiple fields.
-            if ' ' in row[1]:
-                continue
-            if row[0] not in indexes:
-                indexes[row[0]] = {'primary_key': False, 'unique': False}
-            # It's possible to have the unique and PK constraints in separate indexes.
-            if row[3]:
-                indexes[row[0]]['primary_key'] = True
-            if row[2]:
-                indexes[row[0]]['unique'] = True
-        return indexes
 
     def get_constraints(self, cursor, table_name):
         """
