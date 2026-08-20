@@ -558,10 +558,18 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         mock_cursor.execute = mock.Mock()
         connection.reset_sequence(_cursor=mock_cursor, model_list=[Organization, Statement])
         mock_cursor.execute.assert_called_once_with(
-            'SELECT setval(\'example_organization_id_seq\', coalesce(max("id"), 1), max("id") IS NOT null) '
-            'FROM "example_organization";\n'
-            'SELECT setval(\'example_statement_id_seq\', coalesce(max("id"), 1), max("id") IS NOT null) '
-            'FROM "example_statement"'
+            "SELECT setval('example_organization_id_seq',"
+            ' GREATEST(coalesce(max("id"), 1),'
+            " coalesce(pg_sequence_last_value('example_organization_id_seq'::regclass), 1)),"
+            ' max("id") IS NOT null'
+            " OR pg_sequence_last_value('example_organization_id_seq'::regclass) IS NOT null)"
+            ' FROM "example_organization";\n'
+            "SELECT setval('example_statement_id_seq',"
+            ' GREATEST(coalesce(max("id"), 1),'
+            " coalesce(pg_sequence_last_value('example_statement_id_seq'::regclass), 1)),"
+            ' max("id") IS NOT null'
+            " OR pg_sequence_last_value('example_statement_id_seq'::regclass) IS NOT null)"
+            ' FROM "example_statement"'
         )
 
     def test_reset_sequence_for_m2m_field(self):
@@ -573,7 +581,12 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         mock_cursor.execute = mock.Mock()
         connection.reset_sequence(_cursor=mock_cursor, model_list=[User])
         mock_cursor.execute.assert_called_once_with(
-            'SELECT setval(\'example_user_id_seq\', coalesce(max("id"), 1), max("id") IS NOT null) FROM "example_user"'
+            "SELECT setval('example_user_id_seq',"
+            ' GREATEST(coalesce(max("id"), 1),'
+            " coalesce(pg_sequence_last_value('example_user_id_seq'::regclass), 1)),"
+            ' max("id") IS NOT null'
+            " OR pg_sequence_last_value('example_user_id_seq'::regclass) IS NOT null)"
+            ' FROM "example_user"'
         )
 
     def test_is_public_schema(self):
@@ -1874,6 +1887,30 @@ class IdentityColumnTestCase(ShardingTransactionTestCase):
                 )
                 if max_id > 0:
                     self.assertTrue(is_called, 'Sequence should be marked as called when max_id > 0')
+
+
+class ResetSequenceTestCase(ShardingTransactionTestCase):
+    def test_reset_sequence_never_rewinds(self):
+        """
+        Case: A sequence was advanced past the table's max id, as a concurrent insert on a live target shard does while
+              move_data_to_shard runs. After that, reset_sequence is called.
+        Expected: The sequence keeps its advanced position instead of being rewound to max(id).
+        """
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('a', now())")
+            cursor.execute("SELECT pg_get_serial_sequence('test_schema.example_organization', 'id')")
+            sequence = cursor.fetchone()[0]
+            cursor.execute('SELECT setval(%s, 500, true)', [sequence])
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute('SELECT last_value FROM {}'.format(sequence))
+            self.assertEqual(cursor.fetchone()[0], 500)
 
 
 class TriggersTestCase(ShardingTransactionTestCase):

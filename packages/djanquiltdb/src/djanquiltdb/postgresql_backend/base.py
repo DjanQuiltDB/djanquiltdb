@@ -874,15 +874,19 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         cursor = _cursor or self.cursor()
         statements = []
         qn = self.ops.quote_name
+        # Move each model's sequence to at least the max pk value, or 1 if there are no records. The sequence's own
+        # position wins when it is already further along. Set the `is_called` property (the third argument to `setval`)
+        # to true when the value is in use, otherwise set it to false.
+        statement_template = (
+            "SELECT setval('{s}',"
+            " GREATEST(coalesce(max({f}), 1), coalesce(pg_sequence_last_value('{s}'::regclass), 1)),"
+            " max({f}) IS NOT null OR pg_sequence_last_value('{s}'::regclass) IS NOT null) FROM {qnm}"
+        )
         for model in model_list:
-            # Use `coalesce` to set the sequence for each model to the max pk value if there are records,
-            # or 1 if there are none. Set the `is_called` property (the third argument to `setval`) to true
-            # if there are records (as the max pk value is already in use), otherwise set it to false.
-
             for f in model._meta.local_fields:
                 if isinstance(f, models.AutoField):
                     statements.append(
-                        "SELECT setval('{s}', coalesce(max({f}), 1), max({f}) IS NOT null) FROM {qnm}".format(  # nosec
+                        statement_template.format(  # nosec
                             s='{}_{}_seq'.format(model._meta.db_table, f.column),
                             f=qn(f.column),
                             qnm=qn(model._meta.db_table),
@@ -894,7 +898,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 remote_field = 'rel' if hasattr(f, 'rel') else 'remote_field'
                 if not getattr(f, remote_field).through:
                     statements.append(
-                        "SELECT setval('{s}', coalesce(max({f}), 1), max({f}) IS NOT null) FROM {qnm}".format(  # nosec
+                        statement_template.format(  # nosec
                             s='{}_{}_seq'.format(f.m2m_db_table(), 'id'), f=qn('id'), qnm=qn(f.m2m_db_table())
                         )
                     )
