@@ -207,6 +207,73 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             cursor.execute('SELECT current_schema()')
             self.assertEqual(cursor.fetchone()[0], PUBLIC_SCHEMA_NAME)
 
+    def test_clone_schema_function_bodies_survive_verbatim(self):
+        """
+        Case: Template holds a function whose body contains a string literal naming the template schema.
+        Expected: The clone's copy keeps the literal byte-identical.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute(
+            'CREATE FUNCTION template.greet() RETURNS TEXT LANGUAGE plpgsql AS '
+            "$fn$ BEGIN RETURN 'from template.greet'; END; $fn$"
+        )
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        cursor.execute('SELECT test_schema.greet()')
+        self.assertEqual(cursor.fetchone()[0], 'from template.greet')
+
+    def test_clone_schema_skips_aggregates(self):
+        """
+        Case: Template holds an aggregate alongside a plain function.
+        Expected: The clone succeeds and the plain function arrives. The aggregate is skipped rather than aborting the
+                  whole clone.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE FUNCTION template.plain_one() RETURNS INT LANGUAGE sql AS $fn$ SELECT 1 $fn$')
+        cursor.execute('CREATE AGGREGATE template.mysum (INT) (SFUNC = int4pl, STYPE = INT)')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        cursor.execute('SELECT test_schema.plain_one()')
+        self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_clone_schema_trigger_definitions_survive_verbatim(self):
+        """
+        Case: Template holds a trigger whose WHEN clause compares against a string literal naming the template schema.
+        Expected: The clone's trigger keeps the literal, is bound to the clone table and function, and fires there.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template.audited (name TEXT, touched BOOL DEFAULT false)')
+        cursor.execute(
+            'CREATE FUNCTION template.mark_touched() RETURNS trigger LANGUAGE plpgsql AS '
+            '$fn$ BEGIN NEW.touched := true; RETURN NEW; END; $fn$'
+        )
+        cursor.execute(
+            'CREATE TRIGGER audited_touch BEFORE INSERT ON template.audited '
+            "FOR EACH ROW WHEN (NEW.name <> 'template.skip') EXECUTE FUNCTION template.mark_touched()"
+        )
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        cursor.execute(
+            'SELECT pg_get_triggerdef(tg.oid) FROM pg_catalog.pg_trigger tg '
+            'JOIN pg_catalog.pg_class cls ON tg.tgrelid = cls.oid '
+            'JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid '
+            "WHERE nsp.nspname = 'test_schema' AND cls.relname = 'audited' AND NOT tg.tgisinternal"
+        )
+        trigger_def = cursor.fetchone()[0]
+        self.assertIn("'template.skip'", trigger_def)
+        self.assertIn('test_schema.mark_touched()', trigger_def)
+
+        cursor.execute("INSERT INTO test_schema.audited (name) VALUES ('x') RETURNING touched")
+        self.assertTrue(cursor.fetchone()[0])
+        cursor.execute("INSERT INTO test_schema.audited (name) VALUES ('template.skip') RETURNING touched")
+        self.assertFalse(cursor.fetchone()[0])
+
     def test_clone_schema_composite_and_action_bearing_foreign_keys(self):
         """
         Case: the template holds a composite foreign key that also declares ON DELETE CASCADE.
@@ -1940,7 +2007,9 @@ class TriggersTestCase(ShardingTransactionTestCase):
                 f'Trigger {dest_trigger_name} definition should not reference source_schema table',
             )
 
-        # Test that the trigger actually works by performing an UPDATE and checking the log table
+        # Test that the trigger actually works by performing an UPDATE and checking the log tables. The two trigger
+        # functions codify the cloning contract for bodies: the search-path-relying one follows the schema it runs
+        # in, while the explicitly qualified one keeps pointing at the schema it names - bodies are never rewritten.
         with use_shard(node_name='default', schema_name='dest_schema') as env:
             cursor = env.connection.cursor()
             # Insert a test record
@@ -1950,67 +2019,43 @@ class TriggersTestCase(ShardingTransactionTestCase):
             )
             org_id = cursor.fetchone()[0]
 
-            # Verify log table is empty before update
+            # Verify both log tables are empty before update
             cursor.execute('SELECT COUNT(*) FROM dest_schema.update_log')
-            log_count_before = cursor.fetchone()[0]
-            self.assertEqual(log_count_before, 0, 'Log table should be empty before update')
+            self.assertEqual(cursor.fetchone()[0], 0, 'Log table should be empty before update')
+            cursor.execute('SELECT COUNT(*) FROM source_schema.update_log')
+            self.assertEqual(cursor.fetchone()[0], 0, 'Source log table should be empty before update')
 
-            # Update the record - trigger should fire and insert into log table
+            # Update the record - both triggers fire: the search-path one logs here, the qualified one at the
+            # schema its body names.
             cursor.execute(
                 'UPDATE dest_schema.example_organization SET name = %s WHERE id = %s', ['Updated Org', org_id]
             )
 
-            # Verify a row was inserted into the log table
             cursor.execute('SELECT COUNT(*) FROM dest_schema.update_log')
-            log_count_after = cursor.fetchone()[0]
-            self.assertEqual(log_count_after, 2, 'Trigger should have inserted two rows into log table after update')
+            self.assertEqual(cursor.fetchone()[0], 1, 'The search-path-relying trigger should log on this schema')
+            cursor.execute('SELECT COUNT(*) FROM source_schema.update_log')
+            self.assertEqual(cursor.fetchone()[0], 1, 'The qualified trigger should log on the schema it names')
 
-            # Update the record - trigger should fire and insert into log table
+            # Update the record again with an explicit search_path - same distribution.
             cursor.execute('SET search_path = dest_schema,public')
             cursor.execute('UPDATE example_organization SET name = %s WHERE id = %s', ['Updated Org', org_id])
 
-            # Verify a row was inserted into the log table
             cursor.execute('SELECT COUNT(*) FROM dest_schema.update_log')
-            log_count_after = cursor.fetchone()[0]
-            self.assertEqual(
-                log_count_after, 4, 'Trigger should have inserted two more rows into log table after update'
-            )
+            self.assertEqual(cursor.fetchone()[0], 2, 'The search-path-relying trigger should have logged again')
+            cursor.execute('SELECT COUNT(*) FROM source_schema.update_log')
+            self.assertEqual(cursor.fetchone()[0], 2, 'The qualified trigger should have logged again')
 
-            # Verify the log entry has correct data
-            cursor.execute(
-                """
-                SELECT table_name, record_id
-                FROM dest_schema.update_log
-                WHERE record_id = %s
-                AND trigger_type = 1
-            """,
-                [org_id],
-            )
-            log_entry = cursor.fetchone()
-            self.assertIsNotNone(log_entry, 'Log entry should exist for updated record')
-            self.assertEqual(log_entry[0], 'example_organization', 'Log entry should have correct table name')
-            self.assertEqual(log_entry[1], org_id, 'Log entry should have correct record id')
-            log_entry = cursor.fetchone()
-            self.assertIsNotNone(log_entry, 'Log entry should exist for updated record')
-            self.assertEqual(log_entry[0], 'example_organization', 'Log entry should have correct table name')
-            self.assertEqual(log_entry[1], org_id, 'Log entry should have correct record id')
-            cursor.execute(
-                """
-                SELECT table_name, record_id
-                FROM dest_schema.update_log
-                WHERE record_id = %s
-                  AND trigger_type = 2
-                """,
-                [org_id],
-            )
-            log_entry = cursor.fetchone()
-            self.assertIsNotNone(log_entry, 'Log entry should exist for updated record')
-            self.assertEqual(log_entry[0], 'example_organization', 'Log entry should have correct table name')
-            self.assertEqual(log_entry[1], org_id, 'Log entry should have correct record id')
-            log_entry = cursor.fetchone()
-            self.assertIsNotNone(log_entry, 'Log entry should exist for updated record')
-            self.assertEqual(log_entry[0], 'example_organization', 'Log entry should have correct table name')
-            self.assertEqual(log_entry[1], org_id, 'Log entry should have correct record id')
+            # Verify the log entries carry the correct data on both sides
+            for log_table, trigger_type in (('source_schema.update_log', 1), ('dest_schema.update_log', 2)):
+                cursor.execute(
+                    'SELECT table_name, record_id FROM {} WHERE record_id = %s AND trigger_type = %s'.format(log_table),
+                    [org_id, trigger_type],
+                )
+                log_entries = cursor.fetchall()
+                self.assertEqual(len(log_entries), 2, 'Both updates should have logged in {}'.format(log_table))
+                for log_entry in log_entries:
+                    self.assertEqual(log_entry[0], 'example_organization')
+                    self.assertEqual(log_entry[1], org_id)
 
 
 class GeneratedColumnsTestCase(ShardingTransactionTestCase):

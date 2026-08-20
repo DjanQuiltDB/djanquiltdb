@@ -43,13 +43,11 @@ DECLARE
   dest_seq_ TEXT;
   last_val_ BIGINT;
   is_called_ BOOLEAN;
-  trigger_def TEXT;
-  trigger_name TEXT;
-  adapted_trigger_def TEXT;
-  func_name TEXT;
-  func_schema TEXT;
+  trigger_defs_ TEXT[];
+  trigger_def_ TEXT;
   func_def TEXT;
-  adapted_func_def TEXT;
+  header_kw_ TEXT;
+  header_prefix_ TEXT;
   copyable_columns_ TEXT;
   rebind_stmts_ TEXT[];
   rebind_drops_ TEXT[];
@@ -109,27 +107,28 @@ BEGIN
 
   /* Clone all functions from the source schema to the destination schema.
    * This must be done after tables are cloned, because functions may reference tables.
-   * This is also necessary because triggers (cloned next) may reference functions in the same schema.
+   * This is also necessary because triggers (cloned below) may reference functions in the same schema.
+   *
+   * Only the header's schema qualification is adapted, matched as an exact prefix, so the body is never touched:
+   * an unqualified reference in a body resolves through the caller's search_path at runtime, per schema, while an
+   * explicitly qualified one (or a string literal that happens to contain a schema name) survives untouched.
+   * Aggregates are skipped: pg_get_functiondef cannot render them, so they are not carried into clones.
    */
-  FOR func_name, func_def IN
-    SELECT
-      p.proname::text AS func_name,
-      pg_get_functiondef(p.oid) AS func_def
+  FOR func_def IN
+    SELECT pg_get_functiondef(p.oid) AS func_def
     FROM pg_catalog.pg_proc p
     JOIN pg_catalog.pg_namespace n ON p.pronamespace = n.oid
-    WHERE n.nspname = source_schema
+    WHERE n.nspname = source_schema AND p.prokind IN ('f', 'p', 'w')
   LOOP
-    /* Replace schema names in the function definition */
-    adapted_func_def := REPLACE(func_def, source_schema || '.', dest_schema || '.');
-    /* Replace the function name and schema in CREATE FUNCTION statement */
-    adapted_func_def := REPLACE(adapted_func_def,
-      'CREATE FUNCTION ' || source_schema || '.' || func_name,
-      'CREATE FUNCTION ' || dest_schema || '.' || func_name);
-    adapted_func_def := REPLACE(adapted_func_def,
-      'CREATE OR REPLACE FUNCTION ' || source_schema || '.' || func_name,
-      'CREATE OR REPLACE FUNCTION ' || dest_schema || '.' || func_name);
-    /* Execute the adapted function definition */
-    EXECUTE adapted_func_def;
+    FOREACH header_kw_ IN ARRAY ARRAY['FUNCTION', 'PROCEDURE'] LOOP
+      header_prefix_ := 'CREATE OR REPLACE ' || header_kw_ || ' ' || quote_ident(source_schema) || '.';
+      IF left(func_def, length(header_prefix_)) = header_prefix_ THEN
+        func_def := 'CREATE OR REPLACE ' || header_kw_ || ' ' || quote_ident(dest_schema) || '.'
+          || substr(func_def, length(header_prefix_) + 1);
+        EXIT;
+      END IF;
+    END LOOP;
+    EXECUTE func_def;
   END LOOP;
 
   /* CREATE TABLE ... (LIKE ... INCLUDING ALL) above copies parsed expression trees, so every expression that calls a
@@ -298,90 +297,27 @@ BEGIN
 
   /* For all tables and views, clone their triggers. This runs after the views were created above, since a trigger needs
    * its relation to exist, and after the data copy above, so no trigger fires during the copy. (Note that INSTEAD OF
-   * triggers are what make a non-auto-updatable view writable). We query pg_trigger to get all triggers from the source
-   * schema relations, then use pg_get_triggerdef to get the CREATE TRIGGER statement and adapt it for the destination
-   * schema.
+   * triggers are what make a non-auto-updatable view writable).
+   *
+   * Definitions are read with only the source schema on the search_path, the same principle as the expression
+   * rebinding above: the trigger's table and a same-schema function print unqualified and bind to this schema's
+   * copies when the statement runs with the destination schema first on the path, while functions from other
+   * schemas (public, most notably) stay qualified. The definition text itself is never rewritten, so WHEN clauses
+   * and argument string literals survive untouched.
    */
-  FOR dest_table IN
-    SELECT c.relname::text FROM pg_catalog.pg_class c
-      JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
-      WHERE n.nspname = source_schema AND c.relkind IN ('r', 'p', 'v')
-  LOOP
-    dest_table_path := dest_schema || '.' || dest_table;
-    FOR trigger_name, trigger_def, func_schema, func_name IN
-      SELECT
-        tg.tgname::text AS trigger_name,
-        pg_get_triggerdef(tg.oid) AS trigger_def,
-        nsp_func.nspname::text AS func_schema,
-        p.proname::text AS func_name
-      FROM pg_catalog.pg_trigger tg
-      JOIN pg_catalog.pg_class cls ON tg.tgrelid = cls.oid
-      JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
-      JOIN pg_catalog.pg_proc p ON tg.tgfoid = p.oid
-      JOIN pg_catalog.pg_namespace nsp_func ON p.pronamespace = nsp_func.oid
-      WHERE nsp.nspname = source_schema
-        AND cls.relname = dest_table
-        AND NOT tg.tgisinternal  /* Exclude internal triggers (e.g., for foreign keys) */
-    LOOP
-      /* Replace schema names in the trigger definition.
-       * pg_get_triggerdef returns a CREATE TRIGGER statement that may include schema-qualified names.
-       * We need to replace:
-       * 1. Schema-qualified table names in ON clause
-       * 2. Function names in EXECUTE FUNCTION clause (with or without schema qualification)
-       * 3. Any other schema references
-       */
-      adapted_trigger_def := trigger_def;
-      /* Replace schema-qualified table name in ON clause (with and without quotes) */
-      adapted_trigger_def := REPLACE(adapted_trigger_def,
-        'ON ' || source_schema || '.' || dest_table || ' ',
-        'ON ' || dest_table_path || ' ');
-      adapted_trigger_def := REPLACE(adapted_trigger_def,
-        'ON ' || quote_ident(source_schema) || '.' || quote_ident(dest_table) || ' ',
-        'ON ' || dest_table_path || ' ');
+  EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema);
 
-      /* Replace function name in EXECUTE FUNCTION clause.
-       * pg_get_triggerdef may or may not include schema qualification, so we handle both cases:
-       * 1. If function is in source_schema, replace with dest_schema (whether qualified or not)
-       * 2. If function is in another schema (like public), keep it as is
-       */
-      IF func_schema = source_schema THEN
-        /* Function is in source schema - replace with dest schema */
-        /* First, replace schema-qualified function name (with and without quotes) */
-        adapted_trigger_def := REPLACE(adapted_trigger_def,
-          'EXECUTE FUNCTION ' || source_schema || '.' || func_name || '()',
-          'EXECUTE FUNCTION ' || dest_schema || '.' || func_name || '()');
-        adapted_trigger_def := REPLACE(adapted_trigger_def,
-          'EXECUTE FUNCTION ' || quote_ident(source_schema) || '.' || quote_ident(func_name) || '()',
-          'EXECUTE FUNCTION ' || dest_schema || '.' || func_name || '()');
-        /* Replace unqualified function name (when function is in same schema, pg_get_triggerdef may omit schema).
-         * We need to be careful to match the exact function name, not a substring.
-         * Use a regex-like approach: match 'EXECUTE FUNCTION ' followed by func_name and '()'
-         */
-        adapted_trigger_def := regexp_replace(adapted_trigger_def,
-          'EXECUTE FUNCTION ' || quote_ident(func_name) || '\\(\\)',
-          'EXECUTE FUNCTION ' || dest_schema || '.' || func_name || '()',
-          'g');
-        /* Also handle unquoted function name */
-        adapted_trigger_def := regexp_replace(adapted_trigger_def,
-          'EXECUTE FUNCTION ' || func_name || '\\(\\)',
-          'EXECUTE FUNCTION ' || dest_schema || '.' || func_name || '()',
-          'g');
-      ELSE
-        /* Function is in another schema (like public) - only replace if it incorrectly references source_schema */
-        adapted_trigger_def := REPLACE(adapted_trigger_def,
-          'EXECUTE FUNCTION ' || source_schema || '.' || func_name || '()',
-          'EXECUTE FUNCTION ' || func_schema || '.' || func_name || '()');
-        adapted_trigger_def := REPLACE(adapted_trigger_def,
-          'EXECUTE FUNCTION ' || quote_ident(source_schema) || '.' || quote_ident(func_name) || '()',
-          'EXECUTE FUNCTION ' || func_schema || '.' || func_name || '()');
-      END IF;
+  SELECT coalesce(array_agg(pg_get_triggerdef(tg.oid, true) ORDER BY cls.relname, tg.tgname), ARRAY[]::text[])
+    INTO trigger_defs_
+    FROM pg_catalog.pg_trigger tg
+    JOIN pg_catalog.pg_class cls ON tg.tgrelid = cls.oid
+    JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+    WHERE nsp.nspname = source_schema
+      AND NOT tg.tgisinternal;  /* Exclude internal triggers (e.g., for foreign keys) */
 
-      /* Replace any remaining schema references */
-      adapted_trigger_def := REPLACE(adapted_trigger_def, source_schema || '.', dest_schema || '.');
-
-      /* Execute the adapted trigger definition */
-      EXECUTE adapted_trigger_def;
-    END LOOP;
+  EXECUTE 'SET LOCAL search_path = ' || quote_ident(dest_schema) || ',public,pg_catalog';
+  FOREACH trigger_def_ IN ARRAY trigger_defs_ LOOP
+    EXECUTE trigger_def_;
   END LOOP;
 
   /* Restore the caller's search_path (see the note at the top). */
