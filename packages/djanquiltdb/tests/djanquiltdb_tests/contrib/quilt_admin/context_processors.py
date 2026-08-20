@@ -1,6 +1,7 @@
 from pathlib import Path
 from unittest import mock
 
+from django.db import DatabaseError
 from django.template import Context, Template
 from django.test import SimpleTestCase, override_settings
 
@@ -50,14 +51,34 @@ class ShardSwitcherPrimaryAliasTestCase(ShardingTestCase):
         """
         with use_shard(node_name='other', schema_name='public') as env:
             env.connection.cursor().execute(
-                'INSERT INTO "{}" (id, alias, schema_name, node_name, state) '
-                'VALUES (%s, %s, %s, %s, %s)'.format(Shard._meta.db_table),
+                'INSERT INTO "{}" (id, alias, schema_name, node_name, state) VALUES (%s, %s, %s, %s, %s)'.format(
+                    Shard._meta.db_table
+                ),
                 [1, 'failover', 'failover_schema', 'other', State.ACTIVE],
             )
 
         context = admin_shard_context(_make_admin_request())
 
         self.assertEqual([shard.alias for shard in context['available_shards']], ['failover'])
+
+
+class ShardSwitcherErrorHandlingTestCase(ShardingTestCase):
+    def test_a_database_error_degrades_the_switcher_but_is_logged(self):
+        """
+        Case: Listing the switcher's entries fails with a database error.
+        Expected: The switcher degrades to empty context, and the failure is logged instead of vanishing.
+        """
+        mapping_class = mock.Mock()
+        mapping_class.mapping_field = 'organization_id'
+        mapping_class.objects.using.side_effect = DatabaseError('boom')
+
+        with mock.patch(
+            'djanquiltdb.contrib.quilt_admin.context_processors.get_mapping_class', return_value=mapping_class
+        ):
+            with self.assertLogs('djanquiltdb.contrib.quilt_admin.context_processors', 'WARNING'):
+                context = admin_shard_context(_make_admin_request())
+
+        self.assertEqual(context['shard_switcher_options'], [])
 
 
 class UseCspNonceContextTests(SimpleTestCase):

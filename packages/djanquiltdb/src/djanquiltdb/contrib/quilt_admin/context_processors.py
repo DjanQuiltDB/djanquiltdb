@@ -1,7 +1,12 @@
+import logging
+
 from django.conf import settings
+from django.db import DatabaseError
 
 from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
 from djanquiltdb.utils import get_mapping_class, get_primary_db_alias, get_shard_class
+
+logger = logging.getLogger(__name__)
 
 
 def admin_shard_context(request):
@@ -58,7 +63,9 @@ def admin_shard_context(request):
                         mapping_value_str = str(mapping.pk)
 
                     shard = getattr(mapping, 'shard', None)
-                    label = quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.format_override_option(mapping_value, shard, mapping)
+                    label = quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.format_override_option(
+                        mapping_value, shard, mapping
+                    )
 
                     options.append({'value': mapping_value_str, 'label': label})
 
@@ -81,8 +88,9 @@ def admin_shard_context(request):
                     }
                     for shard in shards
                 ]
-        except Exception:
-            # If there's any error (e.g., database not ready, no shards exist), just return empty context
-            pass
+        except DatabaseError:
+            # The database may not be ready (fresh deploy, migrations pending); degrade to an empty switcher, but leave
+            # a trace instead of hiding the failure entirely.
+            logger.warning('Could not build the admin shard switcher context.', exc_info=True)
 
     return context

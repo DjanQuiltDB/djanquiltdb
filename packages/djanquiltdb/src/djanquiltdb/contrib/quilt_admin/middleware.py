@@ -1,5 +1,5 @@
 from django.http import HttpResponse
-from django.urls import resolve
+from django.urls import Resolver404, resolve
 
 from djanquiltdb import State
 from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
@@ -22,7 +22,7 @@ def _is_shard_switching_request(request):
     try:
         resolved = resolve(request.path)
         return resolved.url_name == 'djanquiltdb_switch_shard'
-    except Exception:
+    except Resolver404:
         return False
 
 
@@ -33,7 +33,7 @@ def _is_logout_request(request):
     try:
         resolved = resolve(request.path)
         return resolved.url_name == 'logout' or resolved.url_name == 'admin:logout'
-    except Exception:
+    except Resolver404:
         # Fallback to path check if URL resolution fails
         return request.path.endswith('/logout/') or '/logout' in request.path
 
@@ -49,8 +49,10 @@ def _check_maintenance_status(request, shard_id=None, mapping_value=None):
     maintenance_message = None
 
     if shard_id:
-        shard = get_shard_class().objects.using(get_primary_db_alias()).get(id=shard_id)
-        if shard.state == State.MAINTENANCE:
+        # A stale session override may point at a shard that no longer exists; the admin then simply is not
+        # in maintenance, so the override can be cleared through the switcher.
+        shard = get_shard_class().objects.using(get_primary_db_alias()).filter(id=shard_id).first()
+        if shard is not None and shard.state == State.MAINTENANCE:
             is_maintenance = True
             maintenance_message = 'This shard is currently in maintenance mode.'
 
@@ -59,37 +61,20 @@ def _check_maintenance_status(request, shard_id=None, mapping_value=None):
         if mapping_class:
             mapping_field = getattr(mapping_class, 'mapping_field', None)
             if mapping_field:
-                try:
-                    mapping_obj = (
-                        mapping_class.objects.using(get_primary_db_alias())
-                        .select_related('shard')
-                        .filter(**{mapping_field: mapping_value})
-                        .first()
-                    )
-                    if mapping_obj:
-                        if mapping_obj.state == State.MAINTENANCE:
-                            is_maintenance = True
-                            maintenance_message = 'This mapping entry is currently in maintenance mode.'
-                        # Also check shard state (check independently)
-                        # Ensure shard is loaded - if select_related didn't work, fetch it explicitly
-                        shard = getattr(mapping_obj, 'shard', None)
-                        if not shard and hasattr(mapping_obj, 'shard_id') and mapping_obj.shard_id:
-                            # Shard wasn't loaded, fetch it
-                            try:
-                                shard = get_shard_class().objects.using(get_primary_db_alias()).get(id=mapping_obj.shard_id)
-                            except Exception:
-                                shard = None
-                        # If shard still not available, try to access it directly (might trigger a query)
-                        if not shard:
-                            try:
-                                shard = mapping_obj.shard
-                            except Exception:
-                                pass
-                        if shard and shard.state == State.MAINTENANCE:
-                            is_maintenance = True
-                            maintenance_message = 'This shard is currently in maintenance mode.'
-                except Exception:
-                    pass
+                mapping_obj = (
+                    mapping_class.objects.using(get_primary_db_alias())
+                    .select_related('shard')
+                    .filter(**{mapping_field: mapping_value})
+                    .first()
+                )
+                if mapping_obj:
+                    if mapping_obj.state == State.MAINTENANCE:
+                        is_maintenance = True
+                        maintenance_message = 'This mapping entry is currently in maintenance mode.'
+                    shard = mapping_obj.shard
+                    if shard is not None and shard.state == State.MAINTENANCE:
+                        is_maintenance = True
+                        maintenance_message = 'This shard is currently in maintenance mode.'
 
     # Store maintenance status on request for use in templates
     # Always set these attributes so templates can check them
