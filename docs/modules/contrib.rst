@@ -33,7 +33,7 @@ offers.
 
 Admin Shard Switcher
 ---------------------
-The `django_sharding.contrib.quilt_admin` package adds a shard switcher dropdown to the Django admin interface,
+The `djanquiltdb.contrib.quilt_admin` package adds a shard switcher dropdown to the Django admin interface,
 allowing administrators to easily switch between shards while browsing the admin.
 
 Note: this module does not provide a sharding-aware login method. You can either rely on your application's own
@@ -49,7 +49,7 @@ login page for this after you've made it sharding-aware, or implement a custom o
             shard_selector = ...
 
             try:
-                # Assuming you're using django_sharding.sessions backend
+                # Assuming you're using djanquiltdb.sessions backend
                 if self.request is not None:
                     self.request.session.shard_selector = shard_selector
 
@@ -66,7 +66,7 @@ To enable this feature, add the package to your `INSTALLED_APPS`::
     INSTALLED_APPS = (
         'django.contrib.admin',
         ...
-        'django_sharding.contrib.quilt_admin',
+        'djanquiltdb.contrib.quilt_admin',
         ...
     )
 
@@ -74,15 +74,15 @@ Add the appropriate middleware after the base `UseShardMiddleware`/`UseShardForM
 `AuthenticationMiddleware`. If you are working with a mapping model, this should be
 `MappingValueAdminOverrideMiddleware`, otherwise `ShardIdAdminOverrideMiddleware`::
 
-    MIDDLEWARE_CLASSES = (
+    MIDDLEWARE = [
         (...)
         'django.contrib.sessions.middleware.SessionMiddleware',
-        'django_sharding.middleware.UseShardForMiddleware',
+        'djanquiltdb.middleware.UseShardForMiddleware',
         (...)
         'django.contrib.auth.middleware.AuthenticationMiddleware',
-        'django_sharding.contrib.quilt_admin.middleware.MappingValueAdminOverrideMiddleware',
+        'djanquiltdb.contrib.quilt_admin.middleware.MappingValueAdminOverrideMiddleware',
         (...)
-    )
+    ]
 
 
 Add the context processor to your template settings::
@@ -93,7 +93,7 @@ Add the context processor to your template settings::
             'OPTIONS': {
                 'context_processors': [
                     ...
-                    'django_sharding.contrib.quilt_admin.context_processors.admin_shard_context',
+                    'djanquiltdb.contrib.quilt_admin.context_processors.admin_shard_context',
                 ],
             },
         },
@@ -106,7 +106,7 @@ Include the admin URLs in your main URLconf. The URLs should be included under t
 
     urlpatterns = [
         path('admin/', admin.site.urls),
-        path('admin/', include('django_sharding.contrib.quilt_admin.urls')),
+        path('admin/', include('djanquiltdb.contrib.quilt_admin.urls')),
         ...
     ]
 
@@ -124,9 +124,9 @@ The dropdown shows:
 Selecting no shard clears the shard selection and returns to the default behavior.
 
 If you are not using a default `UseShardMiddleware`/`UseShardForMiddleware` or have a non-standard session backend
-(i.e. not `django_sharding.sessions`), it might be necessary to customize the `AdminOverrideMiddleware`, the setting
+(i.e. not `djanquiltdb.sessions`), it might be necessary to customize the `AdminOverrideMiddleware`, the setting
 `OVERRIDE_SHARD_SELECTOR_KEY` under `QUILT_ADMIN`, or define a custom `SHARD_SELECTOR` class that subclasses
-`django_sharding.contrib.admin.shard_selector.BaseAdminShardSelector`. If this is required, refer to the code for
+`djanquiltdb.contrib.quilt_admin.shard_selector.BaseAdminShardSelector`. If this is required, refer to the code for
 more details and reference implementations.
 
 If your project serves the Django admin under a strict Content Security Policy (e.g. ``script-src 'nonce-…'``

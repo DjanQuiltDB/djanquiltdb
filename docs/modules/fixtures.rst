@@ -184,3 +184,8 @@ The fixture loader will automatically:
 3. Load entries into their respective schemas
 
 This means you don't need to manually create schemas before loading fixtures - the loader handles this for you.
+
+One scope note for multi-node projects: fixtures are per node. A dump records each entry's schema (``_schema``) but
+not the node it lived on, and a load sends every entry to the node named by ``--database``. Dumping a project whose
+shards are spread over several nodes and loading the result in one go would therefore rehome all of them onto a
+single node. Dump and reload node by node instead, passing ``--database`` on both sides.

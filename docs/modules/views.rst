@@ -14,6 +14,7 @@ The ``UseShardMiddleware`` will enable a use_shard context manager in ``process_
    :alt: DjanQuiltDB request flow
    :align: center
 
-Since it inherits ``StateExceptionMiddleware`` It will raise a 503 error if the shard required is in a non-active state.
+Since it inherits ``ExceptionMiddlewareMixin`` it will return a 503 response if the shard required is in a non-active
+state.
 
 See :ref:`use_shard_middleware` for details about using this middleware.

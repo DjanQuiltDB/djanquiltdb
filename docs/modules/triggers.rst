@@ -19,19 +19,22 @@ trigger of the new shard fires while the template's rows are being copied in.
 
 Every relation in the template is covered: ordinary tables, partitioned tables, and views, the latter so that an
 ``INSTEAD OF`` trigger making a non-auto-updatable view writable comes along as well. Each trigger is read back with
-``pg_get_triggerdef()``, and the ``CREATE TRIGGER`` statement that returns is rewritten for the destination schema
-before it is executed there. Internal triggers are skipped, since the ones Postgres creates to implement foreign keys
-arrive with the constraints themselves.
+``pg_get_triggerdef()`` while only the template schema is visible on the search path, so the relation in the ``ON``
+clause and a trigger function living in the template print unqualified, while a function living elsewhere - typically
+in the public schema - prints with its schema attached. Executing those statements with the new shard first on the
+path then binds the unqualified names to the shard's own copies and leaves the qualified ones alone. Internal
+triggers are skipped, since the ones Postgres creates to implement foreign keys arrive with the constraints
+themselves.
 
-Two parts of that statement are rewritten. The relation in the ``ON`` clause always becomes the one in the new shard.
-The function in the ``EXECUTE FUNCTION`` clause is only re-pointed when it lives in the template schema, in which case
-the clone has already copied it and the trigger is bound to the shard's own copy; a trigger function that lives
-elsewhere, typically in the public schema, stays shared by every shard. That is the placement rule
-:doc:`database_functions` describes, and it holds for a trigger function as it does for any other: sharded ones are
-per shard, public ones shared.
+This is the same visibility principle the rest of the clone uses for expressions and views, and like there, the
+definition text is never rewritten: a ``WHEN`` clause or trigger argument holding a string literal survives
+byte-identical, whatever it contains. The function placement that falls out is the rule :doc:`database_functions`
+describes, and it holds for a trigger function as it does for any other: sharded ones are per shard, public ones
+shared.
 
 Triggers need this pass of their own because ``CREATE TABLE ... (LIKE ... INCLUDING ALL)``, which is what carries the
-columns, defaults, indexes and constraints into the clone, does not copy them.
+columns, defaults, indexes and constraints into the clone, does not copy them. For what cloning deliberately does not
+carry, see :ref:`cloning_limitations`.
 
 
 Using django-pgtrigger
