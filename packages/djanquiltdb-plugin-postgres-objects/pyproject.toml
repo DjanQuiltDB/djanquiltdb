@@ -38,6 +38,9 @@ dependencies = [
     "django-postgres-objects>=1.0,<2.0",
 ]
 
+[project.entry-points."djanquiltdb.plugins"]
+postgres_objects = "djanquiltdb_plugin_postgres_objects:plugin"
+
 [project.urls]
 Source = "https://github.com/DjanQuiltDB/djanquiltdb/tree/master/packages/djanquiltdb-plugin-postgres-objects"
 Changelog = "https://github.com/DjanQuiltDB/djanquiltdb/blob/master/packages/djanquiltdb-plugin-postgres-objects/CHANGELOG.rst"
@@ -95,7 +98,11 @@ commands = [
         "--rcfile={tox_root}/pyproject.toml",
         "manage.py",
         "test",
+        "plugin_tests",
         "--noinput",
+        # The test modules are named after what they cover rather than test_*, as the libraries they sit between name
+        # theirs, so discovery needs the wider pattern.
+        "--pattern=*.py",
         { replace = "posargs", extend = true, default = [] },
     ],
     ["coverage", "report", "--rcfile={tox_root}/pyproject.toml"],
