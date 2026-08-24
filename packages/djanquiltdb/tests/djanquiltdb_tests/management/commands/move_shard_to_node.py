@@ -341,6 +341,21 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
             user = User.objects.create(name='test_user', organization=self.organization_1)
             self.assertEqual(user.id, max_id + 1)
 
+    def test_a_successful_move_names_the_leftover_source_schema(self):
+        """
+        Case: Move a shard to another node successfully, without --quiet.
+        Expected: The closing output names the source schema left behind on the old node and points at purge_schema for
+                  removing it once the move is verified.
+        """
+        options = {key: value for key, value in self.options.items() if key != 'quiet'}
+
+        with mock.patch('builtins.print') as mock_print:
+            call_command('move_shard_to_node', *self.format_options_to_args(options))
+
+        printed = '\n'.join(str(call.args[0]) for call in mock_print.call_args_list if call.args)
+        self.assertIn('default|test_source', printed)
+        self.assertIn('purge_schema', printed)
+
     def test_a_failure_while_entering_maintenance_restores_the_flipped_mapping_objects(self):
         """
         Case: Flipping the mapping objects into maintenance fails midway; the second save raises.

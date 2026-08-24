@@ -76,6 +76,7 @@ class Command(BaseCommand):
         source_shard_alias = options['source_shard_alias']
         self.source_shard = self.get_source_shard(alias=source_shard_alias)
         self.target_node = self.get_target_node(options=options)
+        source_node = self.source_shard.node_name
 
         self.old_source_states = {}  # Used to keep track of the old source states
 
@@ -105,6 +106,11 @@ class Command(BaseCommand):
         else:
             self.post_execution(succeeded=True)
         self.print(green(f'Done. Shard {self.source_shard} moved to node {self.target_node}'))
+        self.print(
+            f'The source data is still at {source_node}|{self.source_shard.schema_name}. Verify the move, then '
+            'remove that schema with the purge_schema command; the shard cannot move back to '
+            f'{source_node} until it is gone.'
+        )
 
     def print(self, *args):
         if not self.quiet:
