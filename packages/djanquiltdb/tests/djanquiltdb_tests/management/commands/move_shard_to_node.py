@@ -341,6 +341,31 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
             user = User.objects.create(name='test_user', organization=self.organization_1)
             self.assertEqual(user.id, max_id + 1)
 
+    def test_a_failure_while_entering_maintenance_restores_the_flipped_mapping_objects(self):
+        """
+        Case: Flipping the mapping objects into maintenance fails midway; the second save raises.
+        Expected: The error surfaces and the already-flipped mapping objects are restored to their old state.
+        """
+        real_save = OrganizationShard.save
+        calls = {'count': 0}
+
+        def flaky_save(instance, *args, **kwargs):
+            calls['count'] += 1
+            if calls['count'] == 2:
+                raise DatabaseError('node hiccup')
+            return real_save(instance, *args, **kwargs)
+
+        with mock.patch.object(OrganizationShard, 'save', flaky_save):
+            with self.assertRaises(DatabaseError):
+                call_command('move_shard_to_node', *self.format_options_to_args())
+
+        for organization_shard in (self.organization_shard1, self.organization_shard2, self.organization_shard3):
+            organization_shard.refresh_from_db()
+            self.assertEqual(organization_shard.state, State.ACTIVE)
+
+        self.source_shard.refresh_from_db()
+        self.assertEqual(self.source_shard.state, State.ACTIVE)
+
     def test_sequences_of_auto_created_through_models_after_moving(self):
         """
         Case: Move a shard holding many-to-many rows to another node and add another relation afterward.

@@ -145,9 +145,11 @@ class Command(BaseCommand):
 
         objects = self.get_objects(self.source_shard)
 
-        self.pre_execution(root_objects=objects)
-
         try:
+            # Inside the try: a failure while entering maintenance must restore whatever states were already flipped,
+            # exactly like a failure of the move itself.
+            self.pre_execution(root_objects=objects)
+
             self.print('Gathering data:')
 
             collector = self.get_data_collector(objects=objects)
@@ -511,8 +513,11 @@ class Command(BaseCommand):
                 # Release the exclusive advisory lock
                 source_connection.release_advisory_lock(key='mapping_{}'.format(root_object_id), shared=False)
         else:
-            self.source_shard.state = self.old_shard_state
-            self.source_shard.save(update_fields=['state'])
+            # pre_execution records the old state before flipping; when it failed before getting there, the shard was
+            # never flipped and there is nothing to restore.
+            if hasattr(self, 'old_shard_state'):
+                self.source_shard.state = self.old_shard_state
+                self.source_shard.save(update_fields=['state'])
             source_connection.release_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
 
     @staticmethod

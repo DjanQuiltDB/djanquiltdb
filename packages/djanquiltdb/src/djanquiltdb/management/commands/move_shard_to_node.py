@@ -92,9 +92,11 @@ class Command(BaseCommand):
             if confirm != 'yes':
                 return
 
-        self.pre_execution()
-
         try:
+            # Inside the try: a failure while flipping mapping objects into maintenance must restore the ones already
+            # flipped, exactly like a failure of the move itself.
+            self.pre_execution()
+
             self.print('Moving shard...')
             self.move_shard()
         except Exception as error:
@@ -520,10 +522,13 @@ class Command(BaseCommand):
         # Restore shard state and set its node to the target
         source_connection.release_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
 
-        self.source_shard.state = self.old_shard_state
-        if succeeded:
-            self.source_shard.node_name = self.target_node
-        self.source_shard.save(update_fields=['state', 'node_name'])
+        # pre_execution records the old state just before flipping the shard; when it failed earlier, the shard itself
+        # was never flipped and there is nothing to restore.
+        if hasattr(self, 'old_shard_state'):
+            self.source_shard.state = self.old_shard_state
+            if succeeded:
+                self.source_shard.node_name = self.target_node
+            self.source_shard.save(update_fields=['state', 'node_name'])
 
     @staticmethod
     def copy_data_stream(cursor, sql, file_obj):

@@ -1156,6 +1156,22 @@ class MoveDataToShardTestCase(ShardingTestCase):
             with open(resulting_file_name) as f:
                 self.assertEqual(f.read(), 'A\nB\n')
 
+    @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.post_execution')
+    @mock.patch(
+        'djanquiltdb.management.commands.move_data_to_shard.Command.pre_execution',
+        side_effect=DatabaseError('node hiccup'),
+    )
+    def test_a_failure_while_entering_maintenance_still_restores_state(self, mock_pre, mock_post):
+        """
+        Case: pre_execution fails while putting the mapping objects into maintenance.
+        Expected: The error surfaces and post_execution(succeeded=False) still runs, restoring whatever states were
+                  already flipped.
+        """
+        with self.assertRaises(DatabaseError):
+            self.command.handle(**self.options)
+
+        mock_post.assert_called_once_with(succeeded=False)
+
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.disable_signals')
     def test_delete_data(self, mock_disable_signals):
         """
