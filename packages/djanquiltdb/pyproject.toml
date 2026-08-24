@@ -41,6 +41,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+postgres-objects = [
+    "djanquiltdb-plugin-postgres-objects>=1.0,<2.0",
+]
 lint = [
     "ruff==0.15.21",
 ]
