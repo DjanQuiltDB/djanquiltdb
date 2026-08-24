@@ -1,0 +1,154 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "djanquiltdb-plugin-postgres-objects"
+dynamic = ["version"]
+description = "Place the Postgres functions and views django-postgres-objects declares in a DjanQuiltDB-sharded database."
+readme = "README.rst"
+requires-python = ">=3.14"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [
+    { name = "DjanQuiltDB Project", email = "djanquiltdb@portal42.net" },
+]
+keywords = [
+    "django",
+    "database",
+    "sharding",
+    "postgresql",
+    "migrations",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Framework :: Django",
+    "Framework :: Django :: 6.0",
+    "Topic :: Database",
+]
+dependencies = [
+    "django>=6.0,<7.0",
+    "djanquiltdb>=4.0,<5.0",
+    "django-postgres-objects>=1.0,<2.0",
+]
+
+[project.urls]
+Source = "https://github.com/DjanQuiltDB/djanquiltdb/tree/master/packages/djanquiltdb-plugin-postgres-objects"
+Changelog = "https://github.com/DjanQuiltDB/djanquiltdb/blob/master/packages/djanquiltdb-plugin-postgres-objects/CHANGELOG.rst"
+
+[project.optional-dependencies]
+lint = [
+    "ruff==0.15.21",
+]
+test = [
+    "coverage",
+    "psycopg[binary]>=3.0.0",
+    "dj-database-url",
+]
+docs = [
+    "sphinx>=8,<10",
+]
+dev = [
+    "djanquiltdb-plugin-postgres-objects[test,lint,docs]",
+    "pre-commit",
+    # Native TOML configuration, so that tox.ini is not needed, landed in 4.21.
+    "tox>=4.21",
+    "build",
+    "twine",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "djanquiltdb_plugin_postgres_objects.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.tox]
+requires = ["tox>=4.21"]
+env_list = ["py314-dj60-pg17", "py314-dj60-pg18", "ruff"]
+
+[tool.tox.env_run_base]
+description = "Run the test suite against Postgres named by DATABASE_URL"
+base_python = ["python3.14"]
+package = "editable"
+extras = ["test"]
+# FIXME: djanquiltdb is not on PyPI yet, so point DJANQUILTDB at a local checkout (docker-compose.yml bind-mounts one).
+# Once it is published the default resolves on its own and the variable can be dropped.
+deps = [
+    "Django>=6.0,<7.0",
+    "{env:DJANQUILTDB:djanquiltdb>=4.0,<5.0}",
+    "django-postgres-objects>=1.0,<2.0",
+]
+change_dir = "tests"
+pass_env = ["DATABASE_URL", "DJANQUILTDB"]
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/pyproject.toml",
+        "manage.py",
+        "test",
+        "--noinput",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    ["coverage", "report", "--rcfile={tox_root}/pyproject.toml"],
+]
+
+[tool.tox.env.py314-dj60-pg17]
+description = "Run the test suite against PostgreSQL 17"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}" }
+
+[tool.tox.env.py314-dj60-pg18]
+description = "Run the test suite against PostgreSQL 18"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}" }
+
+[tool.tox.env.ruff]
+description = "Lint and check formatting"
+skip_install = true
+extras = []
+deps = ["ruff==0.15.21"]
+change_dir = "{tox_root}"
+commands = [
+    ["ruff", "check", "src", "tests"],
+    ["ruff", "format", "--check", "src", "tests"],
+]
+
+[tool.tox.env.build]
+description = "Build the sdist and wheel and check the metadata"
+skip_install = true
+extras = []
+deps = ["build", "twine"]
+change_dir = "{tox_root}"
+commands = [
+    ["python", "-m", "build"],
+    ["twine", "check", "dist/*"],
+]
+
+[tool.coverage.run]
+source = ["djanquiltdb_plugin_postgres_objects"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.ruff]
+line-length = 120
+
+[tool.ruff.lint]
+extend-select = [
+    # isort
+    "I",
+]
+
+[tool.ruff.format]
+quote-style = 'single'
+indent-style = 'space'
+docstring-code-format = true
+skip-magic-trailing-comma = false
