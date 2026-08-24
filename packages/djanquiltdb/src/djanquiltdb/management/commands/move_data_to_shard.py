@@ -44,7 +44,9 @@ class Command(BaseCommand):
     This command migrates all data belonging to a single root_object from one shard to another.
     A root_object is the top object of a data hierarchy.
 
-    Both the source and target shard are put into maintenance mode during the migration.
+    With a mapping model configured, the mapping objects being moved are locked and put into maintenance for the
+    duration; without one, the source shard is. The shards themselves stay ACTIVE and the target shard is never
+    locked, so other tenants on either side keep working throughout.
     """
 
     help = 'Move all data belonging to a single root_object from one shard to another.'
@@ -110,7 +112,8 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         """
         Move data, based on model name and id, from the source shard to the target shard.
-        Both shards are put into maintenance during this.
+        The mapping objects being moved (or, without a mapping model, the source shard) are put into maintenance
+        during this; the target shard stays live.
         Delete the original data (if --no-delete is not provided) and release the transaction only after the migration
         is verified.
         """
@@ -126,8 +129,8 @@ class Command(BaseCommand):
         if not self.no_input:
             confirm = input(
                 'This command will move data from one shard to another. This will start with putting the '
-                'shards (and if applicable, mapping objects) in maintenance and acquiring an exclusive '
-                "lock. Type 'yes' if you want to continue: "
+                'mapping objects being moved (or, without a mapping model, the source shard) in maintenance '
+                "and acquiring an exclusive lock. Type 'yes' if you want to continue: "
             )
             if confirm != 'yes':
                 return
