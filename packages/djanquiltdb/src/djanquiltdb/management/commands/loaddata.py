@@ -121,7 +121,7 @@ class Command(LoadDataCommand):
                     'Install it with: pip install PyYAML or pip install .[test]'
                 )
 
-        with open(fixture_file, 'r') as f:
+        with self._open_fixture(fixture_file) as f:
             try:
                 if fixture_format == 'yaml':
                     fixture_data = yaml.safe_load(f)
@@ -291,7 +291,7 @@ class Command(LoadDataCommand):
         Load a fixture file normally without schema support.
         """
         deserializer = get_deserializer(fixture_format)
-        with open(fixture_file, 'r') as f:
+        with self._open_fixture(fixture_file) as f:
             try:
                 objects = deserializer(f, using=self._database_string, ignorenonexistent=self.ignore)
                 for obj in objects:
@@ -301,8 +301,17 @@ class Command(LoadDataCommand):
                     self.stdout.write(self.style.ERROR("Problem installing fixture '%s': %s" % (fixture_file, e)))
                 raise
 
+    def _open_fixture(self, fixture_file):
+        suffix = os.path.splitext(fixture_file)[1].lstrip('.')
+        open_method, mode = self.compression_formats.get(suffix, self.compression_formats[None])
+        return open_method(fixture_file, mode)
+
     def _get_fixture_format(self, fixture_file):
-        """Determine fixture format from file extension."""
+        """Determine fixture format from file extension, looking through a compression extension."""
+        suffix = os.path.splitext(fixture_file)[1].lstrip('.')
+        if suffix in self.compression_formats:
+            fixture_file = os.path.splitext(fixture_file)[0]
+
         if fixture_file.endswith('.json'):
             return 'json'
         elif fixture_file.endswith('.xml'):

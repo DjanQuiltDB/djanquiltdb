@@ -9,8 +9,8 @@ from django.db import connection, models
 from djanquiltdb import State
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import create_template_schema, use_shard_for
-from djanquiltdb_tests import ShardingTestCase
+from djanquiltdb.utils import create_template_schema, use_shard, use_shard_for
+from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
 from example.models import Organization, Shard, Statement, SuperType, Type, User
 
 
@@ -67,6 +67,24 @@ class LoadDataTestCase(ShardingTestCase):
         """
         shard_options = ShardOptions(node_name='default', schema_name='test_schema')
         self.assertDatabaseString(database=shard_options)
+
+    def test_compressed_fixtures_load(self):
+        """
+        Case: Load a gzip-compressed JSON fixture through the schema-aware loader.
+        Expected: The entries load.
+        """
+        import gzip
+
+        fixture_data = [{'model': 'example.SuperType', 'pk': 1, 'fields': {'name': 'Compressed'}}]
+        with tempfile.NamedTemporaryFile(suffix='.json.gz', delete=False) as f:
+            with gzip.open(f.name, 'wt') as gz:
+                json.dump(fixture_data, gz)
+            fixture_path = f.name
+        self.addCleanup(os.unlink, fixture_path)
+
+        call_command('loaddata', fixture_path, verbosity=0)
+
+        self.assertEqual(SuperType.objects.get(pk=1).name, 'Compressed')
 
     def test_database_option_targets_the_named_node(self):
         """
@@ -283,3 +301,39 @@ class LoadDataTestCase(ShardingTestCase):
                 os.unlink(fixture_path)
             except OSError:
                 pass
+
+
+class LoadDataTransactionTestCase(ShardingTransactionTestCase):
+    def test_forward_references_within_a_fixture_load(self):
+        """
+        Case: A fixture lists a sharded object before the object its foreign key points at.
+        Expected: The load succeeds.
+        """
+        fixture_data = [
+            {
+                'model': 'example.Shard',
+                'pk': 1,
+                'fields': {'node_name': 'default', 'schema_name': 'test_shard', 'alias': 'test_shard', 'state': 'A'},
+            },
+            {
+                'model': 'example.Statement',
+                'pk': 1,
+                'fields': {'content': 'Forward!', 'user': 1, 'offset': 0},
+                '_schema': 'test_shard',
+            },
+            {
+                'model': 'example.User',
+                'pk': 1,
+                'fields': {'name': 'Late User', 'email': 'late@example.com', 'password': 'x'},
+                '_schema': 'test_shard',
+            },
+        ]
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(fixture_data, f)
+            fixture_path = f.name
+        self.addCleanup(os.unlink, fixture_path)
+
+        call_command('loaddata', fixture_path, verbosity=0)
+
+        with use_shard(Shard.objects.get(alias='test_shard')):
+            self.assertEqual(Statement.objects.get(pk=1).user_id, 1)
