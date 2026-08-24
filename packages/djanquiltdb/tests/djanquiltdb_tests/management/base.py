@@ -37,6 +37,21 @@ class GetDatabasesAndSchemaFromOptionsTestCase(ShardingTestCase):
 
         Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default', state=State.ACTIVE)
 
+    @mock.patch('djanquiltdb.management.base.shard_table_exists', return_value=True)
+    def test_shard_check_reads_the_primary_alias(self, mock_shard_table_exists):
+        """
+        Case: PRIMARY_DB_ALIAS points at the other node while a schema name needs validating.
+        Expected: The shard-table pre-flight check consults the currently configured primary node.
+        """
+        quilt_db = dict(settings.QUILT_DB, PRIMARY_DB_ALIAS='other')
+        with self.settings(QUILT_DB=quilt_db):
+            with self.assertRaises(CommandError):
+                # The shard does not exist on 'other', so the deeper check refuses - all this test pins
+                # is which node the shard-table existence check consulted.
+                get_databases_and_schema_from_options(options={'database': 'other', 'schema_name': 'test_sina'})
+
+        mock_shard_table_exists.assert_called_once_with('other')
+
     def test_without_options(self):
         """
         Case: Call get_database_and_schema_from_options without options.
