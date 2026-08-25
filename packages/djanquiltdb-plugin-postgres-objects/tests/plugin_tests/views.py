@@ -1,3 +1,5 @@
+from django.conf import settings
+from django.db import DEFAULT_DB_ALIAS
 from example.db_views import (
     APP_LABEL,
     SOURCE_TABLE,
@@ -9,12 +11,13 @@ from example.db_views import (
     ShardStored,
     Unannotated,
 )
+from example.functions import AllUppercase
 from postgres_objects import View
 from postgres_objects.operations import AddView, RefreshMaterializedView, RemoveView
 
 from djanquiltdb import ShardingMode
 from djanquiltdb.db import connection
-from djanquiltdb.decorators import mirrored_view
+from djanquiltdb.decorators import mirrored_view, sharded_view
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.testing import ShardingTransactionTestCase
 from djanquiltdb.utils import use_shard
@@ -245,6 +248,29 @@ class MaterializedViewAnnotationTestCase(MaterializedViewShardingTestCase):
         operation = AddView(PublicStored.definition, hints=PublicStored.router_hints)
         self.assertEqual(operation.hints, {'sharding_mode': ShardingMode.PUBLIC})
 
+    def test_only_a_stored_view_is_annotated_with_where_a_refresh_goes(self):
+        """
+        Case: The refresh hook on a materialized view, a plain view and a function.
+        Expected: Only the materialized view has one.
+        """
+        self.assertTrue(hasattr(ShardStored, 'db_for_refresh'))
+        self.assertFalse(hasattr(ShardOnly, 'db_for_refresh'))
+        self.assertFalse(hasattr(AllUppercase, 'db_for_refresh'))
+
+    def test_reannotating_a_mirrored_subclass_drops_the_fan_out(self):
+        """
+        Case: Subclass a MIRRORED materialized view and re-annotate the subclass as SHARDED.
+        Expected: The refresh the subclass inherited stops fanning out to every node.
+        """
+
+        @sharded_view()
+        class ShardedAgain(MirroredStored):
+            app_label = APP_LABEL
+
+        self.assertEqual(ShardedAgain.router_hints, {'sharding_mode': ShardingMode.SHARDED})
+        self.assertIsNone(getattr(ShardedAgain.refresh.__func__, '__wrapped_refresh__', None))
+        self.assertIsNotNone(getattr(MirroredStored.refresh.__func__, '__wrapped_refresh__', None))
+
     def test_a_refresh_operation_carries_the_declaration_hints(self):
         """
         Case: Build a refresh operation for an annotated materialized view.
@@ -401,6 +427,26 @@ class MaterializedViewRefreshTestCase(MaterializedViewShardingTestCase):
             cursor.execute('SELECT name FROM {}'.format(declaration.resolved_db_name))
             return [name for (name,) in cursor.fetchall()]
 
+    def _create_mirrored_on_both_nodes(self):
+        """
+        A mirrored view has a copy on the public schema of every node, so the case that refreshes one has to build
+        both, source table and all. The second node's table is not part of the shared setUp, which knows only about
+        the default node.
+        """
+        with use_shard(node_name='other', schema_name=PUBLIC_SCHEMA_NAME) as env:
+            env.connection.cursor().execute('CREATE TABLE {} (id serial PRIMARY KEY, name text)'.format(SOURCE_TABLE))
+        self.addCleanup(self._drop_on_other_node)
+
+        operation = AddView(MirroredStored.definition, hints=MirroredStored.router_hints)
+        self.apply(operation, PUBLIC_SCHEMA_NAME)
+        self.apply(operation, PUBLIC_SCHEMA_NAME, node_name='other')
+
+    def _drop_on_other_node(self):
+        with use_shard(node_name='other', schema_name=PUBLIC_SCHEMA_NAME) as env:
+            cursor = env.connection.cursor()
+            cursor.execute(self._drop_statement(MirroredStored, PUBLIC_SCHEMA_NAME))
+            cursor.execute('DROP TABLE IF EXISTS "{}".{} CASCADE;'.format(PUBLIC_SCHEMA_NAME, SOURCE_TABLE))
+
     def test_a_refresh_is_refused_on_the_schema_the_view_does_not_belong_to(self):
         """
         Case: Apply the refresh for a SHARDED materialized view against the public schema, where it was never created.
@@ -444,3 +490,85 @@ class MaterializedViewRefreshTestCase(MaterializedViewShardingTestCase):
         )
 
         self.assertEqual(sorted(self._stored_names(ShardStored)), ['after the view', 'before the view'])
+
+    def test_a_refresh_from_code_follows_the_shard_in_context(self):
+        """
+        Case: The connection a declaration would refresh on, inside a shard and outside one.
+        Expected: The shard's own connection while it is active, and the primary node otherwise.
+        """
+        with use_shard(node_name='default', schema_name=SHARD_SCHEMA) as env:
+            self.assertEqual(ShardStored.db_for_refresh(), env.options)
+
+        self.assertEqual(ShardStored.db_for_refresh(), settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS))
+
+    def test_a_refresh_from_code_repopulates_the_copy_of_the_active_shard(self):
+        """
+        Case: Insert a row into a shard's source table, then call refresh() on the declaration from inside that shard.
+        Expected: The shard's copy is refreshed.
+        """
+        self.apply_everywhere(AddView(ShardStored.definition, hints=ShardStored.router_hints))
+        self._insert('after the view')
+        self.assertEqual(self._stored_names(ShardStored), [])
+
+        with use_shard(node_name='default', schema_name=SHARD_SCHEMA):
+            ShardStored.refresh()
+
+        self.assertEqual(self._stored_names(ShardStored), ['after the view'])
+
+    def test_a_concurrent_refresh_from_code_uses_the_declared_unique_index(self):
+        """
+        Case: refresh(concurrently=True) from inside the shard, on a view carrying its declared unique index.
+        Expected: It refreshes without locking readers out.
+        """
+        self._insert('before the view')
+        self.apply_everywhere(AddView(ShardStored.definition, hints=ShardStored.router_hints))
+        self._insert('after the view')
+
+        with use_shard(node_name='default', schema_name=SHARD_SCHEMA):
+            ShardStored.refresh(concurrently=True)
+
+        self.assertEqual(sorted(self._stored_names(ShardStored)), ['after the view', 'before the view'])
+
+    def test_a_refresh_from_code_fills_a_view_created_without_data(self):
+        """
+        Case: A sharded view declared with_data off, refreshed from code inside its shard.
+        Expected: Unpopulated until then, and holding the shard's rows afterwards.
+        """
+        self._insert('a row')
+        self.apply_everywhere(AddView(EmptyStored.definition, hints=EmptyStored.router_hints))
+        self.assertFalse(self.is_populated(EmptyStored, SHARD_SCHEMA))
+
+        with use_shard(node_name='default', schema_name=SHARD_SCHEMA):
+            EmptyStored.refresh()
+
+        self.assertTrue(self.is_populated(EmptyStored, SHARD_SCHEMA))
+        self.assertEqual(self._stored_names(EmptyStored), ['a row'])
+
+    def test_a_mirrored_refresh_reaches_every_node(self):
+        """
+        Case: refresh() on a mirrored view, with a row added to the source table of each node after the copies were
+              created.
+        Expected: Both copies are refreshed from the one call.
+        """
+        self._create_mirrored_on_both_nodes()
+        self._insert('on default', schema_name=PUBLIC_SCHEMA_NAME)
+        self._insert('on other', schema_name=PUBLIC_SCHEMA_NAME, node_name='other')
+
+        MirroredStored.refresh()
+
+        self.assertEqual(self._stored_names(MirroredStored, PUBLIC_SCHEMA_NAME), ['on default'])
+        self.assertEqual(self._stored_names(MirroredStored, PUBLIC_SCHEMA_NAME, node_name='other'), ['on other'])
+
+    def test_a_named_connection_pins_a_mirrored_refresh_to_one_node(self):
+        """
+        Case: refresh(using=...) on a mirrored view, naming one node.
+        Expected: Only that node's copy moves.
+        """
+        self._create_mirrored_on_both_nodes()
+        self._insert('on default', schema_name=PUBLIC_SCHEMA_NAME)
+        self._insert('on other', schema_name=PUBLIC_SCHEMA_NAME, node_name='other')
+
+        MirroredStored.refresh(using=DEFAULT_DB_ALIAS)
+
+        self.assertEqual(self._stored_names(MirroredStored, PUBLIC_SCHEMA_NAME), ['on default'])
+        self.assertEqual(self._stored_names(MirroredStored, PUBLIC_SCHEMA_NAME, node_name='other'), [])

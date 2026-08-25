@@ -1,4 +1,53 @@
 from djanquiltdb import ShardingMode
+from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
+from djanquiltdb.router import get_active_connection
+from djanquiltdb.utils import get_all_databases, transaction_for_every_node, use_shard
+
+
+def _annotate_refresh(cls, sharding_mode):
+    """
+    Point a declared materialized view's refresh at the correct copy.
+
+    Left alone, django-postgres-objects sends a refresh to the connection its own routing picks, which for a raw-sql
+    declaration is the default one: the wrong copy for any view that does not live on the public schema of the default
+    node. ``db_for_refresh`` is the hook it documents for exactly this, so the active connection goes there instead.
+    Which schema that is resolves through the search path, since the view is named unqualified, and a view is either
+    sharded or public and never both.
+
+    A mirrored view is the one mode no single connection answers for: its copies sit on the public schema of every
+    node. Its refresh is wrapped to visit them all inside one cascading transaction, the way
+    ``atomic_write_to_every_node`` propagates any other mirrored write, so either every copy moves or none does.
+    Naming a connection with ``using`` still pins it to one.
+    """
+
+    def db_for_refresh(declaration):
+        return get_active_connection()
+
+    cls.db_for_refresh = classmethod(db_for_refresh)
+
+    if sharding_mode is not ShardingMode.MIRRORED:
+        # Re-annotating away from MIRRORED, either on the declaration itself or on a subclass of a mirrored one, has to
+        # drop the fan-out the mirrored annotation wraps around refresh.
+        base = getattr(cls.refresh.__func__, '__wrapped_refresh__', None)
+        if base is not None:
+            cls.refresh = classmethod(base)
+        return
+
+    # The plain function rather than the bound classmethod, so a subclassed declaration refreshes its own view and not
+    # its parent's, and unwrapped first, so annotating an already annotated declaration cannot nest the loop.
+    base = getattr(cls.refresh.__func__, '__wrapped_refresh__', cls.refresh.__func__)
+
+    def refresh(declaration, concurrently=False, using=None):
+        if using is not None:
+            return base(declaration, concurrently=concurrently, using=using)
+
+        with transaction_for_every_node():
+            for node_name in get_all_databases():
+                with use_shard(node_name=node_name, schema_name=PUBLIC_SCHEMA_NAME):
+                    base(declaration, concurrently=concurrently)
+
+    refresh.__wrapped_refresh__ = base
+    cls.refresh = classmethod(refresh)
 
 
 def _annotate_object(cls, sharding_mode):
@@ -10,6 +59,9 @@ def _annotate_object(cls, sharding_mode):
     itself; this is the whole of the seam between the two libraries.
     """
     cls.router_hints = {'sharding_mode': sharding_mode}
+
+    if hasattr(cls, 'db_for_refresh'):
+        _annotate_refresh(cls, sharding_mode)
 
     return cls
 
@@ -121,7 +173,9 @@ def mirrored_view():
     """
     A decorator for marking a declared Postgres view as being mirrored across the various nodes.
 
-    The view is created on the public schema of every node, which is where a view over mirrored tables belongs.
+    The view is created on the public schema of every node, which is where a view over mirrored tables belongs. A
+    ``@public_view()`` reaches those same schemas; what MIRRORED adds is that the copies are kept in step, so a
+    materialized one refreshes on every node at once rather than on the connection in context.
 
     :Example:
         .. code-block:: python
@@ -147,7 +201,7 @@ def public_view():
 
     A view is created on the public schema of every node and reads the tables that live there. Those are the same
     schemas a mirrored view reaches; what PUBLIC says is that each copy stands on its own, over sources that may differ
-    per node.
+    per node, and that a materialized one is refreshed on the connection in context rather than everywhere at once.
 
     Note that unlike a function, a public view is *not* a way to read sharded tables: a view's body is resolved when it
     is created, not when it is queried, so the tables it names are pinned to the schema it was created in. A view over
