@@ -24,4 +24,14 @@ class Migration(migrations.Migration):
                 ('name', models.CharField(verbose_name='name', max_length=128)),
             ],
         ),
+        migrations.CreateModel(
+            name='CakeType',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('name', models.CharField(verbose_name='name', max_length=100)),
+            ],
+            options={
+                'unique_together': {('name',)},
+            },
+        ),
     ]
