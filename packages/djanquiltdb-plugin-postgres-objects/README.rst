@@ -35,9 +35,6 @@ Functions get ``@public_function``, ``@mirrored_function`` and ``@sharded_functi
 ``@mirrored_view`` and ``@sharded_view``. An unannotated declaration is placed in the public schema, so declarations
 written for a single-database project keep working once that project is sharded.
 
-A declared materialized view's refresh-from-code follows the connection in context, so a sharded one is refreshed per
-shard and a mirrored one on every node in a single cascading transaction.
-
 Development
 ===========
 

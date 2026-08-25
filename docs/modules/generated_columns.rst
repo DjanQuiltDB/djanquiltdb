@@ -94,3 +94,18 @@ appropriate schema for the table holding the generated column in question at exe
 This is why it is **generally advisable** to create a function for a generated column as *public*, even if the generated
 column is on a *sharded* model. Each table in each shard can safely reference the single public function, without
 needing to clone the function to each shard and requiring a rewrite pass as described above.
+
+
+With the postgres-objects extra
+-------------------------------
+
+There is no placement decorator for a generated column, and there does not need to be: a generated column is part of a
+model, so it goes wherever the model's own decorator puts the table.
+
+What the ``djanquiltdb[postgres-objects]`` extra adds here is a response to a change in the *function*. Postgres
+computes a stored generated column when a row is written, not when the function behind it changes, so editing a
+function body leaves every existing row holding a value the old body produced. Declaring the function as a class and
+the column with the declaring library's own ``GeneratedField`` makes ``makemigrations`` follow a changed function with
+an operation that rewrites the table so the stored values are updated, and if the ``GeneratedField`` exists on a sharded
+model, that update will occur on each shard individually. See :ref:`postgres_objects_extra` for installing it and
+:doc:`/plugins/postgres-objects/generated_columns` for more details.

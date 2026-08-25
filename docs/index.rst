@@ -32,6 +32,18 @@ The User Guide
     modules/contrib
 
 
+Plugins
+-------
+
+Optional features ship as plugins: separately installed distributions DjanQuiltDB discovers through the
+``djanquiltdb.plugins`` entry-point group. Each is installed through an extra of ``djanquiltdb`` itself.
+
+.. toctree::
+    :maxdepth: 2
+
+    plugins/postgres-objects/index
+
+
 Indices and tables
 ------------------
 

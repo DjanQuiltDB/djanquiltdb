@@ -115,3 +115,36 @@ Renaming a table during a rolling deploy
 A view is what makes a table rename possible without a gap: rename the table, then expose the old name as a view so
 the previous release keeps reading and writing it, and drop the view in a later contract migration. A column alias
 keeps such a view automatically updatable; the restriction is on expressions, not on renamed plain column references.
+
+
+With the postgres-objects extra
+-------------------------------
+
+Everything above is the base library, where a view is hand-written SQL in a migration. The
+``djanquiltdb[postgres-objects]`` extra offers the other route: declare the view as a class with
+`django-postgres-objects <https://github.com/djanquiltdb/django-postgres-objects>`_ and let ``makemigrations`` write
+the operations for it. See :ref:`postgres_objects_extra` for installing it and
+:doc:`/plugins/postgres-objects/views` for the full reference.
+
+.. code-block:: python
+
+    # example/db_views.py
+    from djanquiltdb.decorators import sharded_view
+    from postgres_objects import View
+
+
+    @sharded_view()
+    class LoudCakes(View):
+        sql = 'SELECT id, upper(name) AS name FROM example_cake'
+
+``@sharded_view()``, ``@public_view()`` and ``@mirrored_view()`` say which schemas the view belongs in, matching the
+model decorators. They work by putting a sharding mode in the declaration's ``router_hints``, which is the same hint
+channel a hand-written ``RunSQL`` uses, so the placement rules above hold unchanged and there is no second mechanism.
+A declaration left unannotated is public, so one written for a single-database project keeps working once that project
+is sharded.
+
+Placement is identical for the public and mirrored modes, since a view holds no rows of its own to distinguish them by.
+What separates them is how a *materialized* view is refreshed from code: a mirrored one is refreshed on every node in
+a single cascading transaction, a public one only on the connection in context, and a sharded one per shard.
+
+To use the appropriate decorators with these declarations, install the ``djanquiltdb[postgres-objects]`` extra.

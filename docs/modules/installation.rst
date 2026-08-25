@@ -49,11 +49,27 @@ scenarios given default runners, is the following::
        for_each_node(_create_template_schema)
 
 
+.. _`postgres_objects_extra`:
+
 Optional extras
 ---------------
 
 The base library covers models fully with decorators, and leaves database *objects* (views, functions, triggers) to be
 managed with hand-written ``RunSQL`` in a migration.
+
+The ``postgres-objects`` extra adds the declarative alternative for views and functions::
+
+    pip install djanquiltdb[postgres-objects]
+
+It installs a plugin carrying the glue between this library and `django-postgres-objects
+<https://github.com/djanquiltdb/django-postgres-objects>`_, which declares Postgres views and functions as classes and
+lets ``makemigrations`` manage them. That library works on its own against a single database and needs nothing from
+here; what a sharded project adds is the question of which schemas each object belongs in, and the plugin provides
+decorators for that purpose analogous to the model decorators in the base library. They are importable from
+``djanquiltdb.decorators`` beside the model decorators.
+
+See :doc:`database_views`, :doc:`database_functions` and :doc:`generated_columns` for what the extra changes in each
+case, and :doc:`the plugin's documentation </plugins/postgres-objects/index>` for the rest.
 
 If you wish to manage database triggers, we recommend
 `django-pgtrigger <https://github.com/AmbitionEng/django-pgtrigger>`_. See :doc:`triggers` for more information.
@@ -261,7 +277,7 @@ the following changes (assuming here that the session storage is under an app ca
 
     # settings.py
     SESSION_ENGINE = 'djanquiltdb.sessions'
-    
+
     QUILT_SESSIONS = {
         # Required: Configure the session model
         'SESSION_MODEL': 'users.models.QuiltSession',
@@ -270,7 +286,7 @@ the following changes (assuming here that the session storage is under an app ca
         # Optional: Delimiter used in session keys to separate shard selector from session key (default: 'K')
         'SESSION_KEY_DELIMITER': 'K',
     }
-    
+
     # Optional: Customize the session key used by middleware to store shard selector (default: 'shard_selector')
     QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
