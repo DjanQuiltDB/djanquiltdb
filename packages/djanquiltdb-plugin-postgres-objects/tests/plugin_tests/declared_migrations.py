@@ -1,10 +1,10 @@
 from django.core.management import call_command
 from django.test import override_settings
-
 from djanquiltdb.db import connection
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.testing import ShardingTestCase
 from djanquiltdb.utils import State, create_template_schema
+
 from example.models import Shard
 
 SHARD_SCHEMA = 'test_sina'

@@ -1,6 +1,5 @@
-from postgres_objects import Function
-
 from djanquiltdb.decorators import public_function, sharded_function
+from postgres_objects import Function
 
 APP_LABEL = 'example'
 

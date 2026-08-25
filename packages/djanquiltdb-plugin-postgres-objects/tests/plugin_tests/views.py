@@ -1,5 +1,14 @@
 from django.conf import settings
 from django.db import DEFAULT_DB_ALIAS
+from djanquiltdb import ShardingMode
+from djanquiltdb.db import connection
+from djanquiltdb.decorators import mirrored_view, sharded_view
+from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
+from djanquiltdb.testing import ShardingTransactionTestCase
+from djanquiltdb.utils import use_shard
+from postgres_objects import View
+from postgres_objects.operations import AddView, RefreshMaterializedView, RemoveView
+
 from example.db_views import (
     APP_LABEL,
     SOURCE_TABLE,
@@ -12,15 +21,6 @@ from example.db_views import (
     Unannotated,
 )
 from example.functions import AllUppercase
-from postgres_objects import View
-from postgres_objects.operations import AddView, RefreshMaterializedView, RemoveView
-
-from djanquiltdb import ShardingMode
-from djanquiltdb.db import connection
-from djanquiltdb.decorators import mirrored_view, sharded_view
-from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.testing import ShardingTransactionTestCase
-from djanquiltdb.utils import use_shard
 
 SHARD_SCHEMA = 'shard_schema'
 

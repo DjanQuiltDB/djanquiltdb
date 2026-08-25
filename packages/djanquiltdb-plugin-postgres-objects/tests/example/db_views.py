@@ -1,6 +1,5 @@
-from postgres_objects import MaterializedView, View
-
 from djanquiltdb.decorators import mirrored_view, public_view, sharded_view
+from postgres_objects import MaterializedView, View
 
 APP_LABEL = 'example'
 SOURCE_TABLE = 'view_source_table'

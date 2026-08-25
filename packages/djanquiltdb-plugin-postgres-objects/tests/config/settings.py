@@ -6,7 +6,6 @@ This is not a template for a real deployment.
 import os
 
 import dj_database_url
-
 from djanquiltdb import ShardingMode
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))

@@ -5,17 +5,17 @@ Stored generated columns on sharded models, for both of the fields that can decl
 from django.db import models
 from django.db.migrations.state import ModelState, ProjectState
 from django.db.models import F
-from example.functions import APP_LABEL, AllUppercase, ShardOnly
-from postgres_objects import Function, GeneratedField
-from postgres_objects.autodetector.recalculation import get_recalculations
-from postgres_objects.operations import AddFunction, AlterFunction, RecalculateGeneratedField
-from postgres_objects.registry import get_declared_objects
-
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import public_function, sharded_function
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.testing import ShardingTestCase, ShardingTransactionTestCase
 from djanquiltdb.utils import create_template_schema, get_template_name, use_shard
+from postgres_objects import Function, GeneratedField
+from postgres_objects.autodetector.recalculation import get_recalculations
+from postgres_objects.operations import AddFunction, AlterFunction, RecalculateGeneratedField
+from postgres_objects.registry import get_declared_objects
+
+from example.functions import APP_LABEL, AllUppercase, ShardOnly
 from plugin_tests.functions import SHARD_SCHEMA, FunctionShardingTestCase
 
 MODEL_APP_LABEL = 'example'

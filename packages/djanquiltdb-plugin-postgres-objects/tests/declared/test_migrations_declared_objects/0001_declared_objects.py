@@ -7,11 +7,10 @@ Only ever imported when a test points MIGRATION_MODULES here. Test discovery doe
 """
 
 from django.db import migrations
+from djanquiltdb import ShardingMode
 from postgres_objects.functions import FunctionDefinition
 from postgres_objects.operations import AddFunction, AddView
 from postgres_objects.views import ViewDefinition
-
-from djanquiltdb import ShardingMode
 
 
 class Migration(migrations.Migration):

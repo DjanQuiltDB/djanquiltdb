@@ -1,15 +1,15 @@
 from django.db import DatabaseError
 from django.db.models import F
-from example.functions import APP_LABEL, AllUppercase, ShardOnly, Unannotated
-from postgres_objects import Function
-from postgres_objects.operations import AddFunction, RemoveFunction
-
 from djanquiltdb import ShardingMode
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import mirrored_function
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.testing import ShardingTransactionTestCase
 from djanquiltdb.utils import use_shard
+from postgres_objects import Function
+from postgres_objects.operations import AddFunction, RemoveFunction
+
+from example.functions import APP_LABEL, AllUppercase, ShardOnly, Unannotated
 
 SHARD_SCHEMA = 'shard_schema'
 

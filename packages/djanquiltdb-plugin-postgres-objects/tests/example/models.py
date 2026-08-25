@@ -1,5 +1,4 @@
 from django.db import models
-
 from djanquiltdb.decorators import mirrored_model, public_model, sharded_model
 from djanquiltdb.models import BaseShard
 
