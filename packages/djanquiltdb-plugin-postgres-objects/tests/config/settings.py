@@ -23,6 +23,8 @@ INSTALLED_APPS = (
     'djanquiltdb',
     'postgres_objects',
     'example',
+    # Carries no models: only the fixture migrations the declared-objects placement cases point MIGRATION_MODULES at.
+    'declared',
 )
 
 DATABASES = {
