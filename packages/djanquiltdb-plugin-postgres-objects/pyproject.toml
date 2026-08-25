@@ -89,7 +89,7 @@ deps = [
     "django-postgres-objects>=1.0,<2.0",
 ]
 change_dir = "tests"
-pass_env = ["DATABASE_URL", "DJANQUILTDB"]
+pass_env = ["DATABASE_URL", "DATABASE_URL2", "DJANQUILTDB"]
 set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default" }
 commands = [
     [
@@ -110,11 +110,11 @@ commands = [
 
 [tool.tox.env.py314-dj60-pg17]
 description = "Run the test suite against PostgreSQL 17"
-set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}" }
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
 
 [tool.tox.env.py314-dj60-pg18]
 description = "Run the test suite against PostgreSQL 18"
-set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}" }
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
 
 [tool.tox.env.ruff]
 description = "Lint and check formatting"

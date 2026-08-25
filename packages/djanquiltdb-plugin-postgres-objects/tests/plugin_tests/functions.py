@@ -32,8 +32,8 @@ class FunctionShardingTestCase(ShardingTransactionTestCase):
         for declaration in self.DECLARATIONS:
             cursor.execute('DROP FUNCTION IF EXISTS public.{} CASCADE;'.format(declaration.definition.drop_signature))
 
-    def apply(self, operation, schema_name):
-        with use_shard(node_name='default', schema_name=schema_name) as env:
+    def apply(self, operation, schema_name, node_name='default'):
+        with use_shard(node_name=node_name, schema_name=schema_name) as env:
             with env.connection.schema_editor() as schema_editor:
                 operation.database_forwards(APP_LABEL, schema_editor, None, None)
 
@@ -41,18 +41,19 @@ class FunctionShardingTestCase(ShardingTransactionTestCase):
         for schema_name in (PUBLIC_SCHEMA_NAME, SHARD_SCHEMA):
             self.apply(operation, schema_name)
 
-    def function_exists(self, declaration, schema_name):
-        cursor = connection.cursor()
-        cursor.execute(
-            """
-            SELECT COUNT(*)
-            FROM pg_catalog.pg_proc proc
-            JOIN pg_catalog.pg_namespace nsp ON proc.pronamespace = nsp.oid
-            WHERE proc.proname = %s AND nsp.nspname = %s
-            """,
-            [declaration.resolved_db_name, schema_name],
-        )
-        return cursor.fetchone()[0] == 1
+    def function_exists(self, declaration, schema_name, node_name='default'):
+        with use_shard(node_name=node_name, schema_name=schema_name) as env:
+            cursor = env.connection.cursor()
+            cursor.execute(
+                """
+                SELECT COUNT(*)
+                FROM pg_catalog.pg_proc proc
+                JOIN pg_catalog.pg_namespace nsp ON proc.pronamespace = nsp.oid
+                WHERE proc.proname = %s AND nsp.nspname = %s
+                """,
+                [declaration.resolved_db_name, schema_name],
+            )
+            return cursor.fetchone()[0] == 1
 
 
 class AnnotationTestCase(FunctionShardingTestCase):
@@ -103,6 +104,30 @@ class PlacementTestCase(FunctionShardingTestCase):
 
         self.assertTrue(self.function_exists(AllUppercase, PUBLIC_SCHEMA_NAME))
         self.assertFalse(self.function_exists(AllUppercase, SHARD_SCHEMA))
+
+    def test_a_public_function_lands_on_the_public_schema_of_another_node(self):
+        """
+        Case: Apply a PUBLIC-annotated declaration against the public schema of the second node.
+        Expected: That node gets it too.
+        """
+        self.addCleanup(self._drop_on_other_node, AllUppercase)
+
+        self.apply(
+            AddFunction(AllUppercase.definition, hints=AllUppercase.router_hints),
+            PUBLIC_SCHEMA_NAME,
+            node_name='other',
+        )
+
+        self.assertTrue(self.function_exists(AllUppercase, PUBLIC_SCHEMA_NAME, node_name='other'))
+
+    def _drop_on_other_node(self, declaration):
+        """
+        The shared cleanup knows only about the default node, so a case that reaches the second one clears up itself.
+        """
+        with use_shard(node_name='other', schema_name=PUBLIC_SCHEMA_NAME) as env:
+            env.connection.cursor().execute(
+                'DROP FUNCTION IF EXISTS public.{} CASCADE;'.format(declaration.definition.drop_signature)
+            )
 
     def test_a_sharded_function_lands_on_the_shard_only(self):
         """

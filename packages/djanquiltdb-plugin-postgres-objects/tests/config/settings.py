@@ -32,6 +32,13 @@ DATABASES = {
         ),
         'ENGINE': 'djanquiltdb.postgresql_backend',
     },
+    # A second node, so the mirrored cases can show an object reaching every node rather than only the default one.
+    'other': {
+        **dj_database_url.parse(
+            os.environ.get('DATABASE_URL2', 'postgresql://postgres:postgres@localhost:5432/test_db2')
+        ),
+        'ENGINE': 'djanquiltdb.postgresql_backend',
+    },
 }
 
 DATABASE_ROUTERS = ['djanquiltdb.router.DynamicDbRouter']
