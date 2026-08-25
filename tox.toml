@@ -1,0 +1,176 @@
+requires = ["tox>=4.21"]
+env_list = [
+    "core-py314-dj60-pg17",
+    "core-py314-dj60-pg18",
+    "postgres-objects-py314-dj60-pg17",
+    "postgres-objects-py314-dj60-pg18",
+    "ruff",
+    "docs",
+    "core-coverage",
+]
+
+# Every env installs the packages it needs as editable path deps, so pip resolves the plugin's djanquiltdb pin
+# against the in-tree checkout and the build backend never writes into the source tree.
+[env_run_base]
+base_python = ["python3.14"]
+skip_install = true
+pass_env = ["DATABASE_URL", "DATABASE_URL2"]
+
+# The pg17/pg18 envs pick the pair of database servers from docker-compose.yml; either URL can still be overridden
+# from the outside.
+[env.core-py314-dj60-pg17]
+description = "Run the core test suite against PostgreSQL 17"
+labels = ["core", "test"]
+deps = [
+    "Django>=6.0,<7.0",
+    "psycopg[binary]>=3.0.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.dev", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml",
+        "manage.py",
+        "test",
+        "--noinput",
+        # The test modules are named after what they cover rather than test_*, so discovery needs the wider pattern.
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+        "--parallel",
+    ],
+]
+
+[env.core-py314-dj60-pg18]
+description = "Run the core test suite against PostgreSQL 18"
+labels = ["core", "test"]
+deps = [
+    "Django>=6.0,<7.0",
+    "psycopg[binary]>=3.0.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.dev", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml",
+        "manage.py",
+        "test",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+        "--parallel",
+    ],
+]
+
+[env.postgres-objects-py314-dj60-pg17]
+description = "Run the postgres-objects plugin suite against PostgreSQL 17"
+labels = ["postgres-objects", "test"]
+deps = [
+    "Django>=6.0,<7.0",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-postgres-objects>=1.0,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml"],
+]
+
+[env.postgres-objects-py314-dj60-pg18]
+description = "Run the postgres-objects plugin suite against PostgreSQL 18"
+labels = ["postgres-objects", "test"]
+deps = [
+    "Django>=6.0,<7.0",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-postgres-objects>=1.0,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml"],
+]
+
+[env.ruff]
+description = "Lint and check formatting across all packages and the docs"
+labels = ["lint"]
+deps = ["ruff==0.15.21"]
+change_dir = "{tox_root}"
+# One cache for the whole tree; without this, ruff drops a .ruff_cache next to every package's config, and inside the
+# Docker container those become root-owned.
+set_env = { RUFF_CACHE_DIR = "{tox_root}/.ruff_cache" }
+commands = [
+    ["ruff", "check", "packages", "docs"],
+    ["ruff", "format", "--check", "packages", "docs"],
+]
+
+[env.docs]
+description = "Build the unified documentation"
+labels = ["docs"]
+deps = [
+    "Django>=6.0,<7.0",
+    "-e {tox_root}/packages/djanquiltdb[docs]",
+    # conf.py imports the plugin for its version, and the plugin imports django-postgres-objects.
+    "django-postgres-objects>=1.0,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects",
+]
+change_dir = "{tox_root}"
+commands = [["sphinx-build", "-b", "html", "-W", "docs", "docs/_build/html"]]
+
+[env.core-coverage]
+description = "Render the HTML report and summary of the coverage the core test envs recorded"
+labels = ["core"]
+deps = ["coverage"]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+commands = [
+    ["coverage", "html", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
+    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
+]
+
+[env.core-build]
+description = "Build the djanquiltdb sdist and wheel and check the metadata"
+labels = ["core", "build"]
+deps = ["build", "twine"]
+change_dir = "{tox_root}/packages/djanquiltdb"
+commands = [
+    ["python", "-m", "build"],
+    ["twine", "check", "dist/*"],
+]
+
+[env.postgres-objects-build]
+description = "Build the djanquiltdb-plugin-postgres-objects sdist and wheel and check the metadata"
+labels = ["postgres-objects", "build"]
+deps = ["build", "twine"]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects"
+commands = [
+    ["python", "-m", "build"],
+    ["twine", "check", "dist/*"],
+]
