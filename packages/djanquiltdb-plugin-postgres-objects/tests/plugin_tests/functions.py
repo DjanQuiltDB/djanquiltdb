@@ -1,5 +1,6 @@
 from django.db import DatabaseError
 from django.db.models import F
+from django.test import SimpleTestCase
 from djanquiltdb import ShardingMode
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import mirrored_function
@@ -9,9 +10,21 @@ from djanquiltdb.utils import use_shard
 from postgres_objects import Function
 from postgres_objects.operations import AddFunction, RemoveFunction
 
-from example.functions import APP_LABEL, AllUppercase, ShardOnly, Unannotated
+from example.functions import APP_LABEL, AllUppercase, RawAllUppercase, ShardOnly, Unannotated
 
 SHARD_SCHEMA = 'shard_schema'
+
+
+class DeclaredNameTestCase(SimpleTestCase):
+    def test_a_declared_db_name_is_used_verbatim(self):
+        """
+        Case: One declaration leaves db_name unset and another sets it, both in the same app.
+        Expected: The first is named after the app it belongs to and the second is named exactly what it asked for.
+                  Both halves are asserted together because the pair is the rule: everything the suite writes by
+                  hand, from generated-column DDL to the drops in tearDown, spells one of these names out.
+        """
+        self.assertEqual(AllUppercase.resolved_db_name, 'example_alluppercase')
+        self.assertEqual(RawAllUppercase.resolved_db_name, 'alluppercase')
 
 
 class FunctionShardingTestCase(ShardingTransactionTestCase):

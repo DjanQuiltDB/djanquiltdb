@@ -1,3 +1,8 @@
+# These declarations are fixtures, not schema: do not write them into a migration, however much `makemigrations`
+# wants to. The tests apply the operations by hand and drop the objects again afterwards, so anything a migration
+# created would be gone after the first test and the migrated state would be a lie for the rest of the run. The cases
+# that do need a migration use the `declared` app instead, whose fixture migrations a test points MIGRATION_MODULES at.
+
 from djanquiltdb.decorators import public_function, sharded_function
 from postgres_objects import Function
 
@@ -19,9 +24,10 @@ class AllUppercase(Function):
     """
 
 
-# The same function as AllUppercase but under its bare name: the generated-column tests reference it as
-# public.alluppercase in DDL they build by hand, so the identifier is pinned with db_name. Only the identifier is
-# pinned; naming the declaration 'alluppercase' as well would make this module declare two objects under that name.
+# The same function as AllUppercase, but the one declaration here that sets db_name: it holds the other half of the
+# naming rule, that an explicit db_name is the identifier verbatim while an unset one is derived from the app label.
+# Only the identifier is overridden; naming the declaration 'alluppercase' as well would make this module declare two
+# objects under that name.
 @public_function()
 class RawAllUppercase(Function):
     app_label = APP_LABEL

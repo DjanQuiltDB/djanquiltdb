@@ -1,3 +1,9 @@
+# These declarations are fixtures, not schema: do not write them into a migration, however much `makemigrations`
+# wants to. Every one of them reads SOURCE_TABLE, which is no model's table - a test creates it in setUp and drops it
+# again afterwards - so a migration creating these views could never apply, and `migrate` would fail on the public
+# schema, the template and every shard before a test database could be built. The cases that do need a migration use
+# the `declared` app instead, whose fixture migrations a test points MIGRATION_MODULES at.
+
 from djanquiltdb.decorators import mirrored_view, public_view, sharded_view
 from postgres_objects import MaterializedView, View
 
