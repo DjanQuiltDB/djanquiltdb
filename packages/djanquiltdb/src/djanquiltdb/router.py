@@ -22,6 +22,12 @@ def get_active_connection():
 
 
 def set_active_connection(connection):
+    """
+    Make ``connection`` the target for this thread until it is set again.
+
+    ``use_shard`` and the middleware do this for you; call it directly only where neither fits, and reset it
+    afterwards, since the value outlives the block that set it.
+    """
     setattr(_active_connection, 'connection', connection)
 
 
@@ -55,6 +61,11 @@ class DynamicDbRouter:
         return self.db_for_read(model, **hints)
 
     def allow_relation(self, obj1, obj2, *args, **kwargs):
+        """
+        Allow a relation between two models placed the same way, between two that both live in a public schema, and
+        from a sharded model to a public or mirrored one. Not the other way around: a public row cannot point into
+        one shard's schema.
+        """
         obj1_mode = get_model_sharding_mode(obj1)
         obj2_mode = get_model_sharding_mode(obj2)
 
@@ -79,6 +90,13 @@ class DynamicDbRouter:
         return False
 
     def allow_migrate(self, connection_name, app_label, model_name=None, **hints):
+        """
+        Decide whether an operation runs against the schema ``connection_name`` resolves to.
+
+        Sharded models are applied everywhere but the public schema, public and mirrored ones only in a public
+        schema, and undecorated ones only in the default node's. An operation carrying no model, such as ``RunSQL``,
+        needs a ``sharding_mode`` hint or an ``OVERRIDE_SHARDING_MODE`` entry to be placed at all.
+        """
         options = ShardOptions.from_alias(connection_name)
         node_name, schema_name = (options.node_name, options.schema_name)
         model = hints.pop('model', False)

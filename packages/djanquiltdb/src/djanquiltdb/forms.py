@@ -15,4 +15,12 @@ class ModelFormMetaClass(_ModelFormMetaclass):
 
 
 class ModelForm(_ModelForm, metaclass=ModelFormMetaClass):
+    """
+    Django's ``ModelForm``, minus the routing a related field's queryset captured at class definition time.
+
+    A form class is built once, on whichever shard happened to be active then, and a ``ModelChoiceField`` would hold
+    on to that shard for the life of the process. Subclass this one instead and each request's queryset is routed
+    where that request is.
+    """
+
     pass

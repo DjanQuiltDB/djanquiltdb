@@ -7,6 +7,7 @@ Added:
  * A system check warning when `django-pgtrigger` is installed with incompatible configuration.
  * Documentation for pre-existing but previously undocumented settings, the schema-cloning limitations, the data-moving
    commands' locking semantics, and `move_shard_to_node` general reference.
+ * API reference in the documentation.
  * GitHub Actions for CI.
  * Documentation on readthedocs.io.
  * Support for Django 6.1 (no changes, just test coverage).

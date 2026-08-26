@@ -27,6 +27,14 @@ def get_connection(using=None):
 
 
 def atomic(using=None, savepoint=True, durable=False):
+    """
+    Django's ``atomic``, extended to the node a mirrored write has to reach.
+
+    Naming a connection in ``using`` behaves exactly as Django's does. Without one, and when the active connection is
+    not the ``PRIMARY_DB_ALIAS`` node, the block opens a transaction on both that node and the active one, so a write
+    to a mirrored model and one to a sharded model commit or roll back together. Installed over Django's own by the
+    app config, so ``django.db.transaction.atomic`` is this function in a sharded project.
+    """
     # Bare decorator: @atomic -- although the first argument is called
     # `using`, it's actually the function being decorated.
     if callable(using):

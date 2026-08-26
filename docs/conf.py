@@ -23,13 +23,22 @@ import sys
 
 sys.path.insert(0, os.path.abspath('../packages/djanquiltdb/src/'))
 sys.path.insert(0, os.path.abspath('../packages/djanquiltdb-plugin-postgres-objects/src/'))
+import django
 from django.conf import settings
 
 from djanquiltdb import __version__
 from djanquiltdb_plugin_postgres_objects import __version__ as postgres_objects_version
 
-settings.configure()
-# sys.path.insert(0, os.path.abspath('.'))
+# The API reference autodocs modules that define models, which needs a populated app registry, not just configured
+# settings. The values are the smallest set that satisfies the checks DjanQuiltDBConfig.ready() makes; nothing here
+# connects to a database.
+settings.configure(
+    INSTALLED_APPS=['django.contrib.contenttypes', 'django.contrib.auth', 'djanquiltdb'],
+    DATABASES={},
+    DATABASE_ROUTERS=['djanquiltdb.router.DynamicDbRouter'],
+    QUILT_DB={'SHARD_CLASS': 'djanquiltdb.models.BaseShard'},
+)
+django.setup()
 
 
 # -- General configuration ------------------------------------------------

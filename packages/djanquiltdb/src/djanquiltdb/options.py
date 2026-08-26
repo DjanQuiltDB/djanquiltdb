@@ -4,6 +4,14 @@ from djanquiltdb.utils import StateException, get_mapping_class, get_shard_class
 
 
 class ShardOptions:
+    """
+    A resolved routing target: the node and schema a query is to reach, plus how it was arrived at.
+
+    This is what the router hands back in place of a plain connection alias, and what ``connections`` accepts as one.
+    Build it from whatever you have with :meth:`from_alias`, which also takes a shard instance, a ``'node|schema'``
+    string or a ``(node, schema)`` tuple.
+    """
+
     def __init__(self, **options):
         # Save the options, so we can compare it with other ShardOptions instances in `__eq__`
         self.options = frozenset(options.items())
@@ -44,6 +52,12 @@ class ShardOptions:
 
     @classmethod
     def from_shard(cls, shard, **kwargs):
+        """
+        Options targeting ``shard``.
+
+        Raises ``StateException`` when the shard is not ACTIVE, unless ``active_only_schemas`` is False; pass
+        ``check_active_mapping_values`` to refuse a shard any of whose mapping rows are in maintenance too.
+        """
         active_only_schemas = kwargs.get('active_only_schemas', True)
         check_active_mapping_values = kwargs.get('check_active_mapping_values', False)
 
@@ -66,6 +80,11 @@ class ShardOptions:
 
     @classmethod
     def from_alias(cls, alias):
+        """
+        Options for any of the forms ``connections`` accepts as an alias: an existing ``ShardOptions``, a shard
+        instance, a ``'node'`` or ``'node|schema'`` string, or a ``(node, schema)`` tuple. A string naming only the
+        node targets its public schema.
+        """
         if isinstance(alias, cls):
             return alias
         elif isinstance(alias, get_shard_class()):
@@ -81,6 +100,7 @@ class ShardOptions:
 
     @property
     def lock_keys(self):
+        """The advisory lock names this target implies, one per shard or mapping value it was resolved from."""
         lock_keys = []
 
         if self.shard_id:
@@ -92,9 +112,14 @@ class ShardOptions:
         return lock_keys
 
     def is_public_schema(self):
+        """Whether this target is a node's public schema rather than a shard's."""
         return self.schema_name == PUBLIC_SCHEMA_NAME
 
     def use(self):
+        """
+        The context manager that makes this target the active connection, equivalent to whichever of ``use_shard``
+        or ``use_shard_for`` matches how these options were resolved.
+        """
         if self.mapping_value:
             return use_shard_for(self.mapping_value, **self.kwargs)
         elif self.shard_id:

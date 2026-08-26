@@ -94,6 +94,11 @@ class _BaseShardMiddleware(ExceptionMiddlewareMixin, object):
 
 class BaseUseShardMiddleware(_BaseShardMiddleware):
     def get_shard_id(self, request):
+        """
+        The primary key of the shard this request belongs to, or a falsy value to leave the request unsharded.
+
+        Abstract: implement it on your subclass. A common source is the session, written there by the login flow.
+        """
         raise NotImplementedError(
             'The `BaseUseShardMiddleware` middleware class requires that `get_shard_id` is implemented.'
         )
@@ -116,6 +121,12 @@ class BaseUseShardMiddleware(_BaseShardMiddleware):
 
 class BaseUseShardForMiddleware(_BaseShardMiddleware):
     def get_mapping_value(self, request):
+        """
+        The mapping value this request belongs to, or a falsy value to leave the request unsharded. The shard is
+        then looked up through the ``MAPPING_MODEL``.
+
+        Abstract: implement it on your subclass.
+        """
         raise NotImplementedError(
             'The `BaseUseShardForMiddleware` middleware class requires that `get_mapping_value` is implemented.'
         )
@@ -137,16 +148,37 @@ class BaseUseShardForMiddleware(_BaseShardMiddleware):
 
 # noinspection PyAbstractClass
 class ExceptionMiddlewareMixin(MiddlewareMixin, ExceptionMiddlewareMixin):  # nosec
+    """
+    Turns an unreachable shard into a response instead of a traceback.
+
+    A ``StateException`` or an ``OperationalError`` raised while processing a view becomes a 503, or the view named
+    by the ``STATE_EXCEPTION_VIEW`` and ``CONNECTION_EXCEPTION_VIEW`` settings when either is set.
+    """
+
     pass
 
 
 # noinspection PyAbstractClass
 class BaseUseShardMiddleware(MiddlewareMixin, BaseUseShardMiddleware):  # nosec
+    """
+    Wraps each request in ``use_shard``, so views need not know the project is sharded.
+
+    Abstract: subclass it and implement :meth:`get_shard_id`. The shard is released again when the response is
+    returned, and an unreachable one is handled as :class:`ExceptionMiddlewareMixin` describes.
+    """
+
     pass
 
 
 # noinspection PyAbstractClass
 class BaseUseShardForMiddleware(MiddlewareMixin, BaseUseShardForMiddleware):  # nosec
+    """
+    :class:`BaseUseShardMiddleware` for a project with a mapping model: the request names a mapping value rather
+    than a shard.
+
+    Abstract: subclass it and implement :meth:`get_mapping_value`.
+    """
+
     pass
 
 
@@ -156,6 +188,7 @@ class UseShardMiddleware(BaseUseShardMiddleware, ExceptionMiddlewareMixin):
     """
 
     def get_shard_id(self, request):
+        """The shard id the session carries, under the key ``SESSION_SHARD_SELECTOR_KEY`` names."""
         return getattr(request.session, settings.QUILT_DB.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector'))
 
 
@@ -165,4 +198,5 @@ class UseShardForMiddleware(BaseUseShardForMiddleware, ExceptionMiddlewareMixin)
     """
 
     def get_mapping_value(self, request):
+        """The mapping value the session carries, under the key ``SESSION_SHARD_SELECTOR_KEY`` names."""
         return getattr(request.session, settings.QUILT_DB.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector'))

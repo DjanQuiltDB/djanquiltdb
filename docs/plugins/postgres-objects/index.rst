@@ -16,3 +16,4 @@ Plugin release |postgres-objects-version|.
     functions
     views
     generated_columns
+    api

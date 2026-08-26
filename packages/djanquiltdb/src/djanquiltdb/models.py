@@ -8,19 +8,33 @@ from djanquiltdb.utils import delete_schema, get_shard_class, use_shard
 
 
 class MappingQuerySet(models.QuerySet):
+    """
+    Manager for a model decorated with ``@shard_mapping_model``, which maps a value of your own onto a shard.
+
+    Assigning it as the model's manager is what lets :func:`djanquiltdb.utils.use_shard_for` look a shard up from
+    that value.
+    """
+
     def active(self):
+        """Only the mappings whose own state and whose shard's state are both ``ACTIVE``."""
         return self.filter(state=State.ACTIVE, shard__state=State.ACTIVE)
 
     def in_maintenance(self):
+        """Only the mappings that are in maintenance themselves, or whose shard is."""
         return self.filter(Q(state=State.MAINTENANCE) | Q(shard__state=State.MAINTENANCE))
 
     def for_target(self, target_value, field=None):
+        """
+        The single mapping for ``target_value``, looked up on the model's ``mapping_field`` unless ``field`` names
+        another. Raises the model's ``DoesNotExist`` when there is none.
+        """
         if not field:
             field = self.model.mapping_field
 
         return self.get(**{field: target_value})
 
     def for_shard(self, shard):
+        """Every mapping pointing at ``shard``."""
         return self.filter(shard_id=shard.id)
 
 
@@ -55,6 +69,12 @@ class BaseShard(models.Model):
         unique_together = ('schema_name', 'node_name')
 
     def save(self, using=None, **kwargs):
+        """
+        Save the shard, creating and migrating its schema first when that schema does not exist yet.
+
+        The node defaults to the ``NEW_SHARD_NODE`` setting, and saving the same shard again on another node (the
+        save-on-every-node style of replication) does not re-create a schema that is already there.
+        """
         self.node_name = self.node_name or settings.QUILT_DB.get('NEW_SHARD_NODE', None)
         if not self.node_name:
             raise ValueError('No node_name given, or no NEW_SHARD_NODE set in the QUILT_DB settings.')
@@ -74,12 +94,16 @@ class BaseShard(models.Model):
 
     @transaction.atomic()
     def delete(self, *args, delete_from_db=False, **kwargs):
+        """
+        Delete the shard record. Its schema, and so the data in it, survives unless ``delete_from_db`` says otherwise.
+        """
         if delete_from_db:
             delete_schema(schema_name=self.schema_name, node_name=self.node_name)
 
         super().delete(*args, **kwargs)
 
     def clean(self):
+        """Reject a ``node_name`` that is not one of the connections in ``settings.DATABASES``."""
         if self.node_name not in connections:
             raise ValueError(
                 "Connection '{}' does not exist. Is it listed in settings.DATABASES?".format(self.node_name)
@@ -89,6 +113,7 @@ class BaseShard(models.Model):
         return '{}({}|{})'.format(self.alias, self.node_name, self.schema_name)
 
     def use(self, *args, **kwargs):
+        """Shorthand for :func:`djanquiltdb.utils.use_shard` on this shard."""
         return use_shard(self, *args, **kwargs)
 
 

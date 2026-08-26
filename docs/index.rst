@@ -30,6 +30,7 @@ The User Guide
     modules/celery
     modules/commands
     modules/contrib
+    modules/api
 
 
 Plugins

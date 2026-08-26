@@ -17,6 +17,13 @@ from djanquiltdb.router import DynamicDbRouter, set_active_connection
 
 
 class CleanShardingArtifactsMixin:
+    """
+    Drops every schema a test created but did not remove.
+
+    A test that creates a shard leaves a schema behind that no transaction rollback undoes, so without this the next
+    test starts against a database the previous one shaped.
+    """
+
     @classmethod
     def _pre_setup(cls):
         """
@@ -61,6 +68,7 @@ class ResetConnectionTestCaseMixin:
         super()._pre_setup()
 
     def setUp(self):
+        """Point the connection at the public schema before the test body runs."""
         # Reset connections at the start of each test
         self._reset_connections_to_public()
         super().setUp()
@@ -74,16 +82,32 @@ class ResetConnectionTestCaseMixin:
 
 
 class ShardingTestCase(ResetConnectionTestCaseMixin, TestCase):
+    """
+    ``TestCase`` for a sharded project: every node is in ``databases``, and each test starts on the public schema.
+
+    Everything runs in a transaction that is rolled back, so a test that has to create a shard for real wants
+    :class:`ShardingTransactionTestCase` instead.
+    """
+
     available_apps = ['djanquiltdb', 'example']
     databases = '__all__'  # To make sure cleanup will be done on all databases
 
 
 class ShardingTransactionTestCase(ResetConnectionTestCaseMixin, CleanShardingArtifactsMixin, TransactionTestCase):
+    """
+    ``TransactionTestCase`` for a sharded project, for tests that create shards or commit for real.
+
+    Schemas the test leaves behind are dropped afterwards. ``available_apps`` restricts the migration graph, so a
+    test needing a table from a third-party app has to widen it.
+    """
+
     available_apps = ['djanquiltdb', 'example']
     databases = '__all__'  # To make sure cleanup will be done on all databases
 
 
 def skip_without_virtual_generated_column_support(func):
+    """Skip the decorated test unless the default connection is PostgreSQL 18 or later."""
+
     @functools.wraps(func)
     def inner(self, *args, **kwargs):
         if not connections[DEFAULT_DB_ALIAS].features.supports_virtual_generated_columns:
@@ -95,6 +119,13 @@ def skip_without_virtual_generated_column_support(func):
 
 
 def disable_db_reconnect():
+    """
+    Decorator factory holding every connection usable for the duration, so Django does not quietly reconnect.
+
+    A test that makes a connection fail on purpose needs the failure to stay; without this Django opens a fresh
+    connection and the test passes against a healthy database.
+    """
+
     def outer(func):
         @functools.wraps(func)
         def inner(*args, **kwargs):
@@ -114,9 +145,11 @@ class OverrideMirroredRoutingMixin:
     """
 
     def reset_router_override(self):
+        """Put the router's real ``db_for_write`` back. Registered as a cleanup, so it runs even on failure."""
         DynamicDbRouter.db_for_write = self.old_db_for_write
 
     def setUp(self):
+        """Point mirrored writes at whichever node is active, rather than only at the primary."""
         super().setUp()
         self.old_db_for_write = DynamicDbRouter.db_for_write
         self.addCleanup(self.reset_router_override)
