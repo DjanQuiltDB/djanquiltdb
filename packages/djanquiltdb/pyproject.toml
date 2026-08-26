@@ -59,6 +59,7 @@ test = [
 ]
 docs = [
     "sphinx>=8,<10",
+    "sphinx-rtd-theme>=3.1,<4",
 ]
 dev = [
     "djanquiltdb[test,lint,docs]",
@@ -72,7 +73,7 @@ dev = [
 [project.urls]
 Homepage = "https://github.com/DjanQuiltDB/djanquiltdb"
 Repository = "https://github.com/DjanQuiltDB/djanquiltdb"
-Documentation = "https://github.com/DjanQuiltDB/djanquiltdb/tree/master/docs"
+Documentation = "https://djanquiltdb.readthedocs.io/"
 Changelog = "https://github.com/DjanQuiltDB/djanquiltdb/blob/master/packages/djanquiltdb/CHANGELOG.rst"
 Issues = "https://github.com/DjanQuiltDB/djanquiltdb/issues"
 
