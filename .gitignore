@@ -59,6 +59,10 @@ coverage/
 nosetests.xml
 coverage.xml
 
+# Tool caches and local environments
+.ruff_cache/
+.venv/
+
 # Translations
 *.mo
 *.pot

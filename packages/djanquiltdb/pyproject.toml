@@ -33,6 +33,7 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Framework :: Django",
     "Framework :: Django :: 6.0",
+    "Topic :: Database",
 ]
 dependencies = [
     "django>=6.0,<7.0",

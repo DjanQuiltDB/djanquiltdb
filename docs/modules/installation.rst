@@ -7,9 +7,9 @@ Installation
 Installing djanquiltdb
 -----------------------------------
 
-If you want to install stable version, you can do so doing::
+The stable version is available from PyPI::
 
-    pip install git+ssh://git@github.com/djanquiltdb/djanquiltdb.git@stable#egg=djanquiltdb
+    pip install djanquiltdb
 
 If you want to install development version (unstable), you can do so doing::
 

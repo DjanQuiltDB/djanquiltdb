@@ -1,3 +1,63 @@
+v 4.0.0
+-------
+Added:
+ * Support for generated columns in sharded tables.
+ * Support for sharded views.
+ * Compatibility decorators for `django-postgres-objects` with `djanquiltdb[postgres-objects]` extra.
+ * A system check warning when `django-pgtrigger` is installed with incompatible configuration.
+ * Documentation for pre-existing but previously undocumented settings, the schema-cloning limitations, the data-moving
+   commands' locking semantics, and `move_shard_to_node` general reference.
+
+Removed:
+ * The separate `migrate_shards` management command. Users should use standard `migrate`.
+ * The dead `ShardingError` exception module, two broken introspection hooks Django no longer calls, and the
+   leftover empty bandit configuration.
+ * Documentation naming classes and modules that no longer exist.
+
+Altered:
+ * Restructured the repository as a `packages/` monorepo with the PyPA src layout.
+ * Cloned indexes now keep the names they have on the template instead of being renamed by Postgres
+ * Fixed formatting and structural issues flagged by ruff
+ * Fixed test coverage broken in 3.1.1 but previously falsely ignored as flaky
+ * Fixed two tests being flaky in non-parallel runs
+ * Fixed a documentation error on passing `sharding_mode` to `RunSQL`
+ * Expanded documentation on trigger behavior and compatibility with `django-pgtrigger` in particular
+ * Fixed generating new session keys with a custom `SESSION_KEY_DELIMITER`.
+ * Fixed renumbering of cloned identity sequences not named `id`.
+ * Fixed cloning of composite foreign keys aborting shard creation; `ON DELETE`/`ON UPDATE` actions and deferrability
+   now carry over faithfully instead of being dropped and forced.
+ * Fixed the template's search path leaking into the enclosing transaction when creating a shard under
+   `transaction.atomic()`, silently redirecting later reads and writes to the template schema.
+ * Fixed advisory lock release masking errors and stranding locks inside atomic blocks.
+ * Fixed `loaddata` and `move_sharded_models` ignoring the `--database` flag.
+ * Fixed through-table sequences not being renumbered after moving a shard, silently losing the first many-to-many
+   `add()` on the moved shard.
+ * Fixed a crash retargeting relations after a shard move when a sharded table is empty.
+ * Fixed `move_data_to_shard` firing delete signals while removing the moved rows.
+ * Fixed `flush` and `sqlflush` handling each shard once per registry-holding node instead of once total.
+ * Fixed a raw traceback when `move_data_to_shard`'s external `sort` fails.
+ * Fixed `purge_shard_data --simple-collector` refusing shards in maintenance.
+ * Fixed mapped-value lookups for forbidden-copy models with relational natural keys hiding the intended error behind a
+   `DoesNotExist`.
+ * Fixed connections being left inside open atomic blocks when one node's commit fails in a multi-node transaction; the
+   remaining nodes now roll back.
+ * Fixed Django's `clearsessions` failing on the sharded session backend; expired sessions are cleared on every active
+   shard.
+ * Fixed the admin shard selector class binding when quilt_admin modules are imported before the app registry is ready.
+ * Fixed quilt_admin ignoring `PRIMARY_DB_ALIAS` after a failover.
+ * Fixed quilt_admin's maintenance checks swallowing errors, silently disabling write protection; a stale shard override
+   no longer breaks the admin.
+ * Fixed function and trigger definitions being rewritten while cloning.
+ * Fixed `reset_sequence` rewinding sequences advanced by concurrent writers.
+ * Fixed maintenance states not being restored when entering maintenance fails midway.
+ * Fixed the shard-table pre-flight check ignoring `PRIMARY_DB_ALIAS` after a failover.
+ * `move_shard_to_node` now names the source schema it leaves behind and points at `purge_schema` for follow-up.
+ * Schema-aware `loaddata` now accepts compressed fixtures.
+ * Fixed the collector ordering multi-table inheritance the wrong way around, deleting parent rows before the child
+   rows that point at them.
+ * Fixed `move_data_to_shard` assuming every table has an `id` column, which failed the move outright on a
+   multi-table inheritance child.
+
 v 3.1.2
 -------
 Added:
@@ -115,4 +175,3 @@ v 0.5.1
 -------
 Dropped:
  * Support vor Django versions below 1.11.
-
