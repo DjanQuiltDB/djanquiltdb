@@ -91,6 +91,9 @@ djanquiltdb = ["**/*.html"]
 [tool.coverage.run]
 branch = true
 source = ["djanquiltdb"]
+concurrency = ["multiprocessing"]
+parallel = true
+sigterm = true
 
 # Data is recorded against the editable install under src/, with tests/ as the working directory; map any install
 # location back onto it so reports combine.
@@ -103,6 +106,7 @@ source = [
 
 [tool.coverage.report]
 omit = ["*/.tox/*"]
+fail_under = 83
 
 [tool.coverage.html]
 directory = "../coverage"

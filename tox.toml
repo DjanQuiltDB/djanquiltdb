@@ -307,6 +307,7 @@ labels = ["core"]
 deps = ["coverage"]
 change_dir = "{tox_root}/packages/djanquiltdb/tests"
 commands = [
+    ["coverage", "combine", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
     ["coverage", "html", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
     ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
 ]

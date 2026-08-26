@@ -79,6 +79,7 @@ branch = true
 
 [tool.coverage.report]
 show_missing = true
+fail_under = 100
 
 # Shared settings live in ruff.toml at the repository root; only the src roots are per package.
 [tool.ruff]
