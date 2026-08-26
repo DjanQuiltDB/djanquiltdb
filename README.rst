@@ -1,6 +1,22 @@
 DjanQuiltDB
 ===========
 
+.. image:: https://github.com/DjanQuiltDB/djanquiltdb/actions/workflows/ci.yml/badge.svg
+    :target: https://github.com/DjanQuiltDB/djanquiltdb/actions/workflows/ci.yml
+    :alt: CI
+
+.. image:: https://readthedocs.org/projects/djanquiltdb/badge/?version=latest
+    :target: https://djanquiltdb.readthedocs.io/
+    :alt: Documentation
+
+.. image:: https://img.shields.io/pypi/v/djanquiltdb.svg
+    :target: https://pypi.org/project/djanquiltdb/
+    :alt: djanquiltdb on PyPI
+
+.. image:: https://img.shields.io/pypi/l/djanquiltdb.svg
+    :target: https://github.com/DjanQuiltDB/djanquiltdb/blob/master/LICENSE
+    :alt: BSD-3-Clause licence
+
 **DjanQuiltDB** is an extension to the Django web framework that provides helper functions to split a database based on
 top level hierarchy. It is specifically designed to support horizontal sharding not just within a single database
 cluster, but also across multiple database clusters, thus allowing you to scale database capacity both vertically and
@@ -21,7 +37,8 @@ This repository develops the library and its plugins, each shipped as a distribu
 DjanQuiltDB discovers plugins through the ``djanquiltdb.plugins`` entry-point group, so plugins can also be developed
 outside this repository.
 
-The documentation for the library and every in-tree plugin builds from ``docs/``.
+The documentation for the library and every in-tree plugin builds from ``docs/`` and is published at
+https://djanquiltdb.readthedocs.io/.
 
 Development
 ===========
