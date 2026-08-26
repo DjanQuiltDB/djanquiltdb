@@ -32,6 +32,15 @@ class FunctionShardingTestCase(ShardingTransactionTestCase):
         for declaration in self.DECLARATIONS:
             cursor.execute('DROP FUNCTION IF EXISTS public.{} CASCADE;'.format(declaration.definition.drop_signature))
 
+    def _drop_on_other_node(self, declaration):
+        """
+        The shared cleanup knows only about the default node, so a case that reaches the second one clears up itself.
+        """
+        with use_shard(node_name='other', schema_name=PUBLIC_SCHEMA_NAME) as env:
+            env.connection.cursor().execute(
+                'DROP FUNCTION IF EXISTS public.{} CASCADE;'.format(declaration.definition.drop_signature)
+            )
+
     def apply(self, operation, schema_name, node_name='default'):
         with use_shard(node_name=node_name, schema_name=schema_name) as env:
             with env.connection.schema_editor() as schema_editor:
@@ -119,15 +128,6 @@ class PlacementTestCase(FunctionShardingTestCase):
         )
 
         self.assertTrue(self.function_exists(AllUppercase, PUBLIC_SCHEMA_NAME, node_name='other'))
-
-    def _drop_on_other_node(self, declaration):
-        """
-        The shared cleanup knows only about the default node, so a case that reaches the second one clears up itself.
-        """
-        with use_shard(node_name='other', schema_name=PUBLIC_SCHEMA_NAME) as env:
-            env.connection.cursor().execute(
-                'DROP FUNCTION IF EXISTS public.{} CASCADE;'.format(declaration.definition.drop_signature)
-            )
 
     def test_a_sharded_function_lands_on_the_shard_only(self):
         """

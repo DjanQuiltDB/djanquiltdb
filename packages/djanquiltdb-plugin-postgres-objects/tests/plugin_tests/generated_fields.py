@@ -9,7 +9,7 @@ from djanquiltdb.db import connection
 from djanquiltdb.decorators import public_function, sharded_function
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.testing import ShardingTestCase, ShardingTransactionTestCase
-from djanquiltdb.utils import create_template_schema, get_template_name, use_shard
+from djanquiltdb.utils import create_schema_on_node, create_template_schema, get_template_name, use_shard
 from postgres_objects import Function, GeneratedField
 from postgres_objects.autodetector.recalculation import get_recalculations
 from postgres_objects.operations import AddFunction, AlterFunction, RecalculateGeneratedField
@@ -32,6 +32,35 @@ FUNCTIONS_MODULE_PATH = 'functions'
 TABLE_NAME = 'generated_column_cake'
 
 OTHER_SHARD_SCHEMA = 'other_shard_schema'
+
+#: The node the multi-node case reaches for, next to the 'default' one every other case uses.
+OTHER_NODE = 'other'
+
+
+def excited_public_declaration():
+    """
+    A second declaration of AllUppercase, PUBLIC like it, whose body computes something else.
+
+    Built on call rather than declared at module level on purpose: it shares AllUppercase's name, and therefore its
+    database name, so two module-level declarations of it would clash in the registry.
+    """
+
+    @public_function()
+    class AllUppercaseExcited(Function):
+        app_label = APP_LABEL
+        name = AllUppercase.name
+        arguments = 'input TEXT'
+        returns = 'TEXT'
+        volatility = 'IMMUTABLE'
+        strict = True
+        parallel = 'SAFE'
+        body = """
+            BEGIN
+                RETURN UPPER(input) || '!';
+            END;
+        """
+
+    return AllUppercaseExcited
 
 
 class GeneratedFieldStateMixin:
@@ -153,6 +182,10 @@ class RecalculationPlacementTestCase(ShardingTransactionTestCase):
         Expected: On the template and on a shard, and never in the public schema. Every shard is rewritten, since each
                   computes the column with whatever its own search path resolves the function to.
         """
+        # Where the template is concerned this is as far as the suite goes, deliberately. A recalculation is only
+        # observable through the rows it rewrites, and a template holds structure and no rows. Cloning it proves
+        # nothing either: clone_schema copies rows without the generated columns, so a clone recomputes them on insert
+        # and would read the new values whether or not the template had been rewritten.
         self.assertTrue(self.allowed_in(MODEL_NAME, get_template_name()))
         self.assertTrue(self.allowed_in(MODEL_NAME, SHARD_SCHEMA))
         self.assertFalse(self.allowed_in(MODEL_NAME, PUBLIC_SCHEMA_NAME))
@@ -168,9 +201,9 @@ class RecalculationPlacementTestCase(ShardingTransactionTestCase):
 
 
 class RecalculationTestCase(GeneratedFieldStateMixin, FunctionShardingTestCase):
-    def create_table(self, schema_name, function_name):
+    def create_table(self, schema_name, function_name, node_name='default'):
         # Unqualified, so the table lands in the schema the connection creates in rather than in public.
-        with use_shard(node_name='default', schema_name=schema_name) as env:
+        with use_shard(node_name=node_name, schema_name=schema_name) as env:
             env.connection.cursor().execute(
                 """
                 CREATE TABLE {table} (
@@ -181,21 +214,21 @@ class RecalculationTestCase(GeneratedFieldStateMixin, FunctionShardingTestCase):
                 """.format(table=TABLE_NAME, column=FIELD_NAME, function=function_name)
             )
 
-    def insert(self, schema_name, name):
-        with use_shard(node_name='default', schema_name=schema_name) as env:
+    def insert(self, schema_name, name, node_name='default'):
+        with use_shard(node_name=node_name, schema_name=schema_name) as env:
             env.connection.cursor().execute('INSERT INTO {} (name) VALUES (%s)'.format(TABLE_NAME), [name])
 
-    def stored_values(self, schema_name):
-        with use_shard(node_name='default', schema_name=schema_name) as env:
+    def stored_values(self, schema_name, node_name='default'):
+        with use_shard(node_name=node_name, schema_name=schema_name) as env:
             cursor = env.connection.cursor()
             cursor.execute('SELECT {} FROM {} ORDER BY id'.format(FIELD_NAME, TABLE_NAME))
             return [value for (value,) in cursor.fetchall()]
 
-    def recalculate(self, schema_name, declaration=None):
+    def recalculate(self, schema_name, declaration=None, node_name='default'):
         state = self.state_with(self.generated_field(GeneratedField, declaration))
         operation = RecalculateGeneratedField(MODEL_NAME, FIELD_NAME)
 
-        with use_shard(node_name='default', schema_name=schema_name) as env:
+        with use_shard(node_name=node_name, schema_name=schema_name) as env:
             with env.connection.schema_editor() as schema_editor:
                 operation.database_forwards(MODEL_APP_LABEL, schema_editor, state, state)
 
@@ -205,34 +238,14 @@ class RecalculationTestCase(GeneratedFieldStateMixin, FunctionShardingTestCase):
               recalculation against that shard.
         Expected: The stored values are what the new body computes.
         """
-
-        # Declared inside the test on purpose: it shares AllUppercase's name, and therefore its database name, so two
-        # module-level declarations of it would clash in the registry.
-        @public_function()
-        class AllUppercaseExcited(Function):
-            app_label = APP_LABEL
-            name = AllUppercase.name
-            arguments = 'input TEXT'
-            returns = 'TEXT'
-            volatility = 'IMMUTABLE'
-            strict = True
-            parallel = 'SAFE'
-            body = """
-                BEGIN
-                    RETURN UPPER(input) || '!';
-                END;
-            """
+        excited = excited_public_declaration()
 
         self.apply(AddFunction(AllUppercase.definition, hints=AllUppercase.router_hints), PUBLIC_SCHEMA_NAME)
         self.create_table(SHARD_SCHEMA, AllUppercase.resolved_db_name)
         self.insert(SHARD_SCHEMA, 'cake')
 
         self.apply(
-            AlterFunction(
-                AllUppercaseExcited.definition,
-                AllUppercase.definition,
-                hints=AllUppercase.router_hints,
-            ),
+            AlterFunction(excited.definition, AllUppercase.definition, hints=AllUppercase.router_hints),
             PUBLIC_SCHEMA_NAME,
         )
 
@@ -241,6 +254,78 @@ class RecalculationTestCase(GeneratedFieldStateMixin, FunctionShardingTestCase):
         self.recalculate(SHARD_SCHEMA)
 
         self.assertEqual(self.stored_values(SHARD_SCHEMA), ['CAKE!'])
+
+    def test_each_shard_is_recomputed_with_the_changed_public_function(self):
+        """
+        Case: Two shards holding the same column, computed by the one PUBLIC function both of them reach, whose body
+              changed once. Recalculated in both.
+        Expected: Both shards store what the new body computes, and neither of them until it is recalculated itself.
+                  One body change reaches every shard, but the rewrite that brings its rows up to date happens per
+                  shard.
+        """
+        excited = excited_public_declaration()
+
+        self.apply(AddFunction(AllUppercase.definition, hints=AllUppercase.router_hints), PUBLIC_SCHEMA_NAME)
+        connection.create_schema(OTHER_SHARD_SCHEMA)
+
+        for schema_name in (SHARD_SCHEMA, OTHER_SHARD_SCHEMA):
+            self.create_table(schema_name, AllUppercase.resolved_db_name)
+            self.insert(schema_name, 'cake')
+
+        # Once, in public: there is only one copy of the function for both shards to compute with.
+        self.apply(
+            AlterFunction(excited.definition, AllUppercase.definition, hints=AllUppercase.router_hints),
+            PUBLIC_SCHEMA_NAME,
+        )
+
+        self.assertEqual(self.stored_values(SHARD_SCHEMA), ['CAKE'])
+        self.assertEqual(self.stored_values(OTHER_SHARD_SCHEMA), ['CAKE'])
+
+        # One shard at a time, so that a rewrite reaching further than the schema it was applied to would show up as
+        # the second shard catching up before it was asked to.
+        self.recalculate(SHARD_SCHEMA)
+
+        self.assertEqual(self.stored_values(SHARD_SCHEMA), ['CAKE!'])
+        self.assertEqual(self.stored_values(OTHER_SHARD_SCHEMA), ['CAKE'])
+
+        self.recalculate(OTHER_SHARD_SCHEMA)
+
+        self.assertEqual(self.stored_values(OTHER_SHARD_SCHEMA), ['CAKE!'])
+
+    def test_a_shard_is_recomputed_with_its_own_nodes_copy_of_a_public_function(self):
+        """
+        Case: A shard on each node, both holding the same column, with only the second node's copy of the PUBLIC
+              function changed. Recalculated on both nodes.
+        Expected: Each shard stores what the copy on its own node computes. The expression is never schema-qualified,
+                  so a shard resolves the function through its own node's public schema.
+        """
+        excited = excited_public_declaration()
+        self.addCleanup(self._drop_on_other_node, AllUppercase)
+        create_schema_on_node(schema_name=SHARD_SCHEMA, node_name=OTHER_NODE, migrate=False)
+
+        for node_name in ('default', OTHER_NODE):
+            self.apply(
+                AddFunction(AllUppercase.definition, hints=AllUppercase.router_hints),
+                PUBLIC_SCHEMA_NAME,
+                node_name=node_name,
+            )
+            self.create_table(SHARD_SCHEMA, AllUppercase.resolved_db_name, node_name=node_name)
+            self.insert(SHARD_SCHEMA, 'cake', node_name=node_name)
+
+        # Only the second node's copy starts computing something else.
+        self.apply(
+            AlterFunction(excited.definition, AllUppercase.definition, hints=AllUppercase.router_hints),
+            PUBLIC_SCHEMA_NAME,
+            node_name=OTHER_NODE,
+        )
+
+        self.assertEqual(self.stored_values(SHARD_SCHEMA, node_name=OTHER_NODE), ['CAKE'])
+
+        for node_name in ('default', OTHER_NODE):
+            self.recalculate(SHARD_SCHEMA, node_name=node_name)
+
+        self.assertEqual(self.stored_values(SHARD_SCHEMA), ['CAKE'])
+        self.assertEqual(self.stored_values(SHARD_SCHEMA, node_name=OTHER_NODE), ['CAKE!'])
 
     def test_each_shard_is_recomputed_with_its_own_copy_of_a_sharded_function(self):
         """
