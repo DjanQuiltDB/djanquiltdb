@@ -45,7 +45,11 @@ commands = [
         "--noinput",
         # The test modules are named after what they cover rather than test_*, so discovery needs the wider pattern.
         "--pattern=*.py",
-        { replace = "posargs", extend = true, default = [] },
+        # The suites are named rather than discovered from the working directory, so that pgtrigger_tests is left out:
+        # it needs django-pgtrigger, which only the core-pgtrigger environments install. It skips itself on import when
+        # the dependency is missing, but a skipped module cannot be handed to the --parallel workers, so leaving it
+        # undiscovered is what keeps these runs clean. Passing labels as posargs replaces this list, as before.
+        { replace = "posargs", extend = true, default = ["djanquiltdb_tests", "example", "migration_tests"] },
         "--parallel",
     ],
 ]
@@ -69,7 +73,8 @@ commands = [
         "test",
         "--noinput",
         "--pattern=*.py",
-        { replace = "posargs", extend = true, default = [] },
+        # Named rather than discovered, for the reason the first core environment above spells out.
+        { replace = "posargs", extend = true, default = ["djanquiltdb_tests", "example", "migration_tests"] },
         "--parallel",
     ],
 ]
@@ -93,7 +98,8 @@ commands = [
         "test",
         "--noinput",
         "--pattern=*.py",
-        { replace = "posargs", extend = true, default = [] },
+        # Named rather than discovered, for the reason the first core environment above spells out.
+        { replace = "posargs", extend = true, default = ["djanquiltdb_tests", "example", "migration_tests"] },
         "--parallel",
     ],
 ]
@@ -117,31 +123,34 @@ commands = [
         "test",
         "--noinput",
         "--pattern=*.py",
-        { replace = "posargs", extend = true, default = [] },
+        # Named rather than discovered, for the reason the first core environment above spells out.
+        { replace = "posargs", extend = true, default = ["djanquiltdb_tests", "example", "migration_tests"] },
         "--parallel",
     ],
 ]
 
 [env.core-pgtrigger-py314-dj60]
-description = "Run the compatibility checks that only fire with django-pgtrigger installed, on Django 6.0"
+description = "Run the suites that only run with django-pgtrigger installed, on Django 6.0"
 labels = ["core", "test"]
 deps = [
     "Django>=6.0,<6.1",
     "psycopg[binary]>=3.0.0",
-    # Only this environment installs it: pgtrigger is not a dependency of the package, it is what the check under test
-    # reacts to. The pin matches the version docs/modules/triggers.rst records as tested.
+    # Only this environment installs it: pgtrigger is not a dependency of the package, it is what the suites under
+    # test react to. The pin matches the version docs/modules/triggers.rst records as tested.
     "django-pgtrigger>=4.17,<5.0",
     "-e {tox_root}/packages/djanquiltdb[test]",
 ]
 change_dir = "{tox_root}/packages/djanquiltdb/tests"
 set_env = { DJANGO_SETTINGS_MODULE = "config.settings.pgtrigger", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
-# The purpose is to verify the checks only, so run limited suites and without coverage.
+# Only the two suites that need pgtrigger, so the core suite is not run a third time; the coverage of what they reach
+# is measured by the core environments, so these run without it.
 commands = [
     [
         "python",
         "manage.py",
         "test",
         "djanquiltdb_tests.checks",
+        "pgtrigger_tests",
         "--noinput",
         "--pattern=*.py",
         { replace = "posargs", extend = true, default = [] },
@@ -149,7 +158,7 @@ commands = [
 ]
 
 [env.core-pgtrigger-py314-dj61]
-description = "Run the compatibility checks that only fire with django-pgtrigger installed, on Django 6.1"
+description = "Run the suites that only run with django-pgtrigger installed, on Django 6.1"
 labels = ["core", "test"]
 deps = [
     "Django>=6.1,<6.2",
@@ -165,6 +174,7 @@ commands = [
         "manage.py",
         "test",
         "djanquiltdb_tests.checks",
+        "pgtrigger_tests",
         "--noinput",
         "--pattern=*.py",
         { replace = "posargs", extend = true, default = [] },

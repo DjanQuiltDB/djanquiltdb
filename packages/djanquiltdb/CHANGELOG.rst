@@ -5,6 +5,8 @@ Added:
  * Support for sharded views.
  * Compatibility decorators for `django-postgres-objects` with `djanquiltdb[postgres-objects]` extra.
  * A system check warning when `django-pgtrigger` is installed with incompatible configuration.
+ * Test coverage for `django-pgtrigger` triggers behaving correctly on sharded models. No change in behavior; this was
+   already functional and manually confirmed, but not yet validated in the test suite.
  * Documentation for pre-existing but previously undocumented settings, the schema-cloning limitations, the data-moving
    commands' locking semantics, and `move_shard_to_node` general reference.
  * API reference in the documentation.

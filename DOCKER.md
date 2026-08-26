@@ -24,8 +24,9 @@ docker compose run --rm test tox -e core-py314-dj60-pg17 -- djanquiltdb_tests.ro
 docker compose run --rm test tox -e postgres-objects-py314-dj60-pg17 -- -k ViewPlacementTestCase
 ```
 
-The plugin environment names its suite before the posargs, so a second dotted label cannot follow; narrow that
-one with `-k` instead, as above.
+The plugin and `core-pgtrigger` environments name their suites before the posargs, so a second dotted label cannot
+follow; narrow those with `-k` instead, as above. The core environments name theirs as the posargs default, so a
+label handed to one of those replaces the list and behaves as it reads.
 
 The `ruff`, `docs` and the two coverage environments need no database; add `--no-deps` to skip starting the
 PostgreSQL containers for those:
