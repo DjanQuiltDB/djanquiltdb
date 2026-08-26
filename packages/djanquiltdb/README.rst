@@ -1,3 +1,9 @@
+.. The logo needs an absolute URL: this README is the PyPI long description, where a relative path renders broken.
+
+.. image:: https://raw.githubusercontent.com/DjanQuiltDB/djanquiltdb/master/assets/icon-128.png
+    :alt: DjanQuiltDB
+    :width: 128
+
 DjanQuiltDB - Django Database Sharding
 ======================================
 
@@ -8,6 +14,14 @@ DjanQuiltDB - Django Database Sharding
 .. image:: https://img.shields.io/pypi/pyversions/djanquiltdb.svg
     :target: https://pypi.org/project/djanquiltdb/
     :alt: Supported Python versions
+
+.. image:: https://img.shields.io/pypi/frameworkversions/django/djanquiltdb.svg
+    :target: https://pypi.org/project/djanquiltdb/
+    :alt: Supported Django versions
+
+.. image:: https://img.shields.io/badge/postgres-17%20%7C%2018-4169e1?logo=postgresql&logoColor=white
+    :target: https://www.postgresql.org/
+    :alt: Supported PostgreSQL versions
 
 .. image:: https://github.com/DjanQuiltDB/djanquiltdb/actions/workflows/ci.yml/badge.svg
     :target: https://github.com/DjanQuiltDB/djanquiltdb/actions/workflows/ci.yml

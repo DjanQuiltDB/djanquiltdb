@@ -1,3 +1,7 @@
+.. image:: https://raw.githubusercontent.com/DjanQuiltDB/djanquiltdb/master/assets/icon-128.png
+    :alt: DjanQuiltDB
+    :width: 128
+
 DjanQuiltDB
 ===========
 
@@ -12,6 +16,18 @@ DjanQuiltDB
 .. image:: https://img.shields.io/pypi/v/djanquiltdb.svg
     :target: https://pypi.org/project/djanquiltdb/
     :alt: djanquiltdb on PyPI
+
+.. image:: https://img.shields.io/pypi/pyversions/djanquiltdb.svg
+    :target: https://pypi.org/project/djanquiltdb/
+    :alt: Supported Python versions
+
+.. image:: https://img.shields.io/pypi/frameworkversions/django/djanquiltdb.svg
+    :target: https://pypi.org/project/djanquiltdb/
+    :alt: Supported Django versions
+
+.. image:: https://img.shields.io/badge/postgres-17%20%7C%2018-4169e1?logo=postgresql&logoColor=white
+    :target: https://www.postgresql.org/
+    :alt: Supported PostgreSQL versions
 
 .. image:: https://img.shields.io/pypi/l/djanquiltdb.svg
     :target: https://github.com/DjanQuiltDB/djanquiltdb/blob/master/LICENSE
