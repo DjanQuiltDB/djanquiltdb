@@ -13,6 +13,7 @@ env_list = [
     "ruff",
     "docs",
     "core-coverage",
+    "postgres-objects-coverage",
 ]
 
 # Every env installs the packages it needs as editable path deps, so pip resolves the plugin's djanquiltdb pin
@@ -193,7 +194,6 @@ commands = [
         "--pattern=*.py",
         { replace = "posargs", extend = true, default = [] },
     ],
-    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml"],
 ]
 
 [env.postgres-objects-py314-dj60-pg18]
@@ -219,7 +219,6 @@ commands = [
         "--pattern=*.py",
         { replace = "posargs", extend = true, default = [] },
     ],
-    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml"],
 ]
 
 [env.postgres-objects-py314-dj61-pg17]
@@ -245,7 +244,6 @@ commands = [
         "--pattern=*.py",
         { replace = "posargs", extend = true, default = [] },
     ],
-    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml"],
 ]
 
 [env.postgres-objects-py314-dj61-pg18]
@@ -271,7 +269,6 @@ commands = [
         "--pattern=*.py",
         { replace = "posargs", extend = true, default = [] },
     ],
-    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml"],
 ]
 
 [env.ruff]
@@ -301,6 +298,8 @@ deps = [
 change_dir = "{tox_root}"
 commands = [["sphinx-build", "-b", "html", "-W", "docs", "docs/_build/html"]]
 
+# The gate lives here rather than at the end of each test env, so that narrowing a run to one test with `-- -k Name`
+# reports on that run instead of failing it for the coverage the tests you skipped would have contributed.
 [env.core-coverage]
 description = "Render the HTML report and summary of the coverage the core test envs recorded"
 labels = ["core"]
@@ -310,6 +309,15 @@ commands = [
     ["coverage", "combine", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
     ["coverage", "html", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
     ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
+]
+
+[env.postgres-objects-coverage]
+description = "Report on the coverage the postgres-objects plugin test envs recorded"
+labels = ["postgres-objects"]
+deps = ["coverage"]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+commands = [
+    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml"],
 ]
 
 [env.core-build]

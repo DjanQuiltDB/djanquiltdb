@@ -21,10 +21,13 @@ docker compose run --rm test tox -m core
 docker compose run --rm test tox -m postgres-objects
 docker compose run --rm test tox -e core-py314-dj60-pg17
 docker compose run --rm test tox -e core-py314-dj60-pg17 -- djanquiltdb_tests.router
-docker compose run --rm test tox -e postgres-objects-py314-dj60-pg17 -- plugin_tests.views
+docker compose run --rm test tox -e postgres-objects-py314-dj60-pg17 -- -k ViewPlacementTestCase
 ```
 
-The `ruff`, `docs` and `core-coverage` environments need no database; add `--no-deps` to skip starting the
+The plugin environment names its suite before the posargs, so a second dotted label cannot follow; narrow that
+one with `-k` instead, as above.
+
+The `ruff`, `docs` and the two coverage environments need no database; add `--no-deps` to skip starting the
 PostgreSQL containers for those:
 
 ```bash
@@ -33,3 +36,6 @@ docker compose run --no-deps --rm test tox -e docs
 
 The Postgres containers keep their data in named volumes; `docker compose down -v` resets them. The tox
 environments live in a container-internal volume (`/app/.tox`), so they never pollute the host checkout.
+
+CI runs these same tox environments, one per job, against a pair of PostgreSQL service containers rather
+than this compose file; `.github/workflows/ci.yml` is the whole of the difference.

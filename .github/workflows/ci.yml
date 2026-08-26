@@ -1,0 +1,185 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*', 'plugin-postgres-objects-v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: ${{ matrix.toxenv }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - toxenv: core-py314-dj60-pg17
+            postgres: "17"
+            coverageenv: core-coverage
+          - toxenv: core-py314-dj60-pg18
+            postgres: "18"
+            coverageenv: core-coverage
+          - toxenv: core-py314-dj61-pg17
+            postgres: "17"
+            coverageenv: core-coverage
+          - toxenv: core-py314-dj61-pg18
+            postgres: "18"
+            coverageenv: core-coverage
+          - toxenv: core-pgtrigger-py314-dj60
+            postgres: "17"
+          - toxenv: core-pgtrigger-py314-dj61
+            postgres: "17"
+          - toxenv: postgres-objects-py314-dj60-pg17
+            postgres: "17"
+            coverageenv: postgres-objects-coverage
+          - toxenv: postgres-objects-py314-dj60-pg18
+            postgres: "18"
+            coverageenv: postgres-objects-coverage
+          - toxenv: postgres-objects-py314-dj61-pg17
+            postgres: "17"
+            coverageenv: postgres-objects-coverage
+          - toxenv: postgres-objects-py314-dj61-pg18
+            postgres: "18"
+            coverageenv: postgres-objects-coverage
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      postgres2:
+        image: postgres:${{ matrix.postgres }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: test_db2
+        ports: ['5433:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/test_db
+      DATABASE_URL2: postgresql://postgres:postgres@localhost:5433/test_db2
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: packages/*/pyproject.toml
+      - run: python -m pip install --upgrade pip 'tox>=4.21'
+      - run: tox -e ${{ matrix.toxenv }}
+      - if: matrix.coverageenv
+        run: tox -e ${{ matrix.coverageenv }}
+
+  lint:
+    name: ruff
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: packages/*/pyproject.toml
+      - run: python -m pip install --upgrade pip 'tox>=4.21'
+      - run: tox -e ruff
+
+  pre-commit:
+    name: pre-commit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: .pre-commit-config.yaml
+      - run: python -m pip install --upgrade pip pre-commit
+      - run: pre-commit run --all-files --show-diff-on-failure
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: packages/*/pyproject.toml
+      - run: python -m pip install --upgrade pip 'tox>=4.21'
+      - run: tox -e docs
+
+  build:
+    name: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+          cache: pip
+          cache-dependency-path: packages/*/pyproject.toml
+      - run: python -m pip install --upgrade pip 'tox>=4.21'
+      - run: tox -e core-build,postgres-objects-build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-djanquiltdb
+          path: packages/djanquiltdb/dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-plugin-postgres-objects
+          path: packages/djanquiltdb-plugin-postgres-objects/dist/
+
+  publish-core:
+    name: publish djanquiltdb to PyPI
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, lint, pre-commit, docs, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi-djanquiltdb
+      url: https://pypi.org/p/djanquiltdb
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-djanquiltdb
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-plugin-postgres-objects:
+    name: publish djanquiltdb-plugin-postgres-objects to PyPI
+    if: startsWith(github.ref, 'refs/tags/plugin-postgres-objects-v')
+    needs: [test, lint, pre-commit, docs, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi-plugin-postgres-objects
+      url: https://pypi.org/p/djanquiltdb-plugin-postgres-objects
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-plugin-postgres-objects
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
