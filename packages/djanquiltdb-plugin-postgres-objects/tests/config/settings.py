@@ -58,6 +58,6 @@ POSTGRES_OBJECTS = {
     'VIEWS_MODULE_PATH': 'db_views',
 }
 
-DEFAULT_AUTO_FIELD = 'django.db.models.AutoField'
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 USE_TZ = True

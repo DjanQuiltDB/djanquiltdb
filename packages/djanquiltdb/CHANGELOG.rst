@@ -64,6 +64,7 @@ Altered:
    rows that point at them.
  * Fixed `move_data_to_shard` assuming every table has an `id` column, which failed the move outright on a
    multi-table inheritance child.
+ * Fixed the test projects' models and migrations disagreeing on their state.
 
 v 3.1.2
 -------

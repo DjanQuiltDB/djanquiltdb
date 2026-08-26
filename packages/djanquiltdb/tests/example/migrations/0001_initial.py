@@ -63,7 +63,6 @@ class Migration(migrations.Migration):
                 (
                     'type',
                     models.ForeignKey(
-                        null=True,
                         on_delete=django.db.models.deletion.DO_NOTHING,
                         to='example.CakeType',
                         verbose_name='type',
@@ -312,8 +311,8 @@ class Migration(migrations.Migration):
             name='QuiltSession',
             fields=[
                 ('session_key', models.CharField(max_length=255, primary_key=True, serialize=False)),
-                ('session_data', models.TextField()),
-                ('expire_date', models.DateTimeField(db_index=True)),
+                ('session_data', models.TextField(verbose_name='session data')),
+                ('expire_date', models.DateTimeField(db_index=True, verbose_name='expire date')),
             ],
             options={
                 'abstract': False,

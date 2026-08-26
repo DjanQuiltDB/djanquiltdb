@@ -63,14 +63,16 @@ class TriggerMigrationStateTestCase(SimpleTestCase):
         Case: The autodetector compares this app's models against its migrations, as `makemigrations --check` would.
         Expected: Nothing pending, so a django-pgtrigger release that renders its triggers differently is caught here
                   rather than by a shard silently diverging from the template.
+
+                  `djanquiltdb_tests.migration_state` asserts the same of every app, but the core environments do
+                  not install this one, so pgtrigger's own operations are only ever checked here.
         """
         loader = MigrationLoader(None, ignore_no_migrations=True)
         autodetector = MigrationAutodetector(
             loader.project_state(),
             ProjectState.from_apps(apps),
-            # The autodetector walks every app, and the example app has a field whose migration and model disagree,
-            # which makes the questioner report on it. That is not what this test is about, so swallow the message and
-            # trim the answer to this app.
+            # Scoped to this app so a failure reads as "pgtrigger renders its triggers differently now" rather than
+            # as whatever else the project may have pending; the no-op log keeps that a plain assertion failure.
             NonInteractiveMigrationQuestioner(specified_apps={APP_LABEL}, dry_run=True, log=lambda message: None),
         )
 

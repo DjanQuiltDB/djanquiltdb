@@ -1293,10 +1293,14 @@ class ChangeWarningTestCase(ShardingTestCase):
 
     def test_an_empty_plan_is_reported(self):
         """
-        Case: Migrate a database that is already fully migrated.
-        Expected: It says so. This is the branch the check lives in, so nothing below runs without it.
+        Case: Migrate a database that is already fully migrated, with every app's migrations matching its models.
+        Expected: It says there is nothing to apply and stays quiet about unmigrated changes, so the notice below
+                  means something when it does appear.
         """
-        self.assertIn(self.NOTHING_TO_APPLY, self.migrate())
+        output = self.migrate()
+
+        self.assertIn(self.NOTHING_TO_APPLY, output)
+        self.assertNotIn(self.HAS_CHANGES, output)
 
     @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_empty'})
     def test_models_without_a_migration_are_reported(self):
