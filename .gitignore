@@ -55,6 +55,7 @@ htmlcov/
 coverage/
 .tox/
 .coverage
+.coverage.*
 .cache
 nosetests.xml
 coverage.xml

@@ -1,11 +1,12 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+# The PEP 639 license expression below needs 77, which is also new enough not to want `wheel` declared here.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "djanquiltdb"
 dynamic = ["version"]
-description = "Library to shard a database on the hierarchy's top level table."
+description = "Multi-schema, multi-cluster, flexible horizontal database sharding for Django applications."
 readme = "README.rst"
 requires-python = ">=3.14"
 license = "BSD-3-Clause"

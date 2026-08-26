@@ -1,11 +1,12 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+# The PEP 639 license expression below needs 77, which is also new enough not to want `wheel` declared here.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "djanquiltdb-plugin-postgres-objects"
 dynamic = ["version"]
-description = "Place the Postgres functions and views django-postgres-objects declares in a DjanQuiltDB-sharded database."
+description = "DjanQuiltDB decorators for functions/views as declared by django-postgres-objects"
 readme = "README.rst"
 requires-python = ">=3.14"
 license = "BSD-3-Clause"
@@ -43,7 +44,10 @@ dependencies = [
 postgres_objects = "djanquiltdb_plugin_postgres_objects:plugin"
 
 [project.urls]
+Homepage = "https://github.com/DjanQuiltDB/djanquiltdb"
+Documentation = "https://djanquiltdb.readthedocs.io/en/latest/plugins/postgres-objects/index.html"
 Source = "https://github.com/DjanQuiltDB/djanquiltdb/tree/master/packages/djanquiltdb-plugin-postgres-objects"
+Issues = "https://github.com/DjanQuiltDB/djanquiltdb/issues"
 Changelog = "https://github.com/DjanQuiltDB/djanquiltdb/blob/master/packages/djanquiltdb-plugin-postgres-objects/CHANGELOG.rst"
 
 [project.optional-dependencies]

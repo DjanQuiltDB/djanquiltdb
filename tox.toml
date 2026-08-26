@@ -318,6 +318,7 @@ labels = ["core", "build"]
 deps = ["build", "twine"]
 change_dir = "{tox_root}/packages/djanquiltdb"
 commands = [
+    ["python", "-c", "import shutil; shutil.rmtree('dist', ignore_errors=True)"],
     ["python", "-m", "build"],
     ["twine", "check", "dist/*"],
 ]
@@ -328,6 +329,7 @@ labels = ["postgres-objects", "build"]
 deps = ["build", "twine"]
 change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects"
 commands = [
+    ["python", "-c", "import shutil; shutil.rmtree('dist', ignore_errors=True)"],
     ["python", "-m", "build"],
     ["twine", "check", "dist/*"],
 ]
