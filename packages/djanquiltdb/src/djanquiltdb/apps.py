@@ -76,10 +76,17 @@ class DjanQuiltDBConfig(AppConfig):
             raise ImproperlyConfigured("There are MIRRORED models, but QUILT_DB['PRIMARY_DB_ALIAS'] is not set.")
 
         _validate_public_models()
+        _register_checks()
         _patch_connections()
         _patch_transactions()
         _install_plugins()
         _initialize_sharded_models()
+
+
+def _register_checks():
+    # Importing the module runs the @register decorators it holds. Doing so from ready() keeps the checks out of the
+    # registry when the app is not installed.
+    from djanquiltdb import checks  # noqa: F401
 
 
 def _install_plugins():

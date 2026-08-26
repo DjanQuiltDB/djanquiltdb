@@ -432,3 +432,17 @@ databases are built, for example ``djanquiltdb.postgresql_backend.creation.Templ
       'SHARD_CLASS': 'myapp.models.Shard',
       'DATABASE_CREATION_CLASS': 'myapp.db.MyDatabaseCreation',
   }
+
+MUTE_PGTRIGGER_COMPATIBILITY_WARNING
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When ``django-pgtrigger`` is installed, DjanQuiltDB checks that it is left in migration mode and reports
+``djanquiltdb.W001`` or ``djanquiltdb.W002`` when it is not. See :doc:`triggers` for why the other modes cannot reach
+every shard. Set this to ``True`` to silence that check; it defaults to ``False``.
+
+.. code-block:: python
+
+  QUILT_DB = {
+      'SHARD_CLASS': 'myapp.models.Shard',
+      'MUTE_PGTRIGGER_COMPATIBILITY_WARNING': True,
+  }

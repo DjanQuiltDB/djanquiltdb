@@ -2,6 +2,7 @@ requires = ["tox>=4.21"]
 env_list = [
     "core-py314-dj60-pg17",
     "core-py314-dj60-pg18",
+    "core-pgtrigger-py314-dj60",
     "postgres-objects-py314-dj60-pg17",
     "postgres-objects-py314-dj60-pg18",
     "ruff",
@@ -64,6 +65,32 @@ commands = [
         "--pattern=*.py",
         { replace = "posargs", extend = true, default = [] },
         "--parallel",
+    ],
+]
+
+[env.core-pgtrigger-py314-dj60]
+description = "Run the compatibility checks that only fire with django-pgtrigger installed"
+labels = ["core", "test"]
+deps = [
+    "Django>=6.0,<7.0",
+    "psycopg[binary]>=3.0.0",
+    # Only this environment installs it: pgtrigger is not a dependency of the package, it is what the check under test
+    # reacts to. The pin matches the version docs/modules/triggers.rst records as tested.
+    "django-pgtrigger>=4.17,<5.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.pgtrigger", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+# The purpose is to verify the checks only, so run limited suites and without coverage.
+commands = [
+    [
+        "python",
+        "manage.py",
+        "test",
+        "djanquiltdb_tests.checks",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
     ],
 ]
 

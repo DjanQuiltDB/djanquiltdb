@@ -56,6 +56,11 @@ Leave both of its settings at their defaults:
     PGTRIGGER_MIGRATIONS = True
     PGTRIGGER_INSTALL_ON_MIGRATE = False
 
+DjanQuiltDB checks both of them for you. When pgtrigger is installed and either has been turned away from its default,
+``manage.py check`` reports ``djanquiltdb.W001`` or ``djanquiltdb.W002`` and names the setting to put back. Should you
+have a reason to run that way regardless, silence the check with ``MUTE_PGTRIGGER_COMPATIBILITY_WARNING``, described in
+:doc:`installation`.
+
 pgtrigger creates the function backing a trigger unqualified, so it is created in whichever schema the connection is
 pointed at and ends up in the template and in each shard, next to the tables it belongs to. The clone then binds each
 cloned trigger to the shard's own copy of it. The small helper behind ``pgtrigger.ignore`` is qualified into the public
