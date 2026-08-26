@@ -22,7 +22,8 @@ Removed:
 
 Altered:
  * Restructured the repository as a `packages/` monorepo with the PyPA src layout.
- * Cloned indexes now keep the names they have on the template instead of being renamed by Postgres
+ * Cloned indexes, unique constraints and exclusion constraints now keep the names they have on the template
+   instead of being renamed by PostgreSQL.
  * Fixed formatting and structural issues flagged by ruff
  * Fixed test coverage measurement on parallel test runs
  * Fixed test coverage broken in 3.1.1 but previously falsely ignored as flaky

@@ -208,6 +208,34 @@ BEGIN
     WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND con.contype = 'c';
   rebind_stmts_ := rebind_stmts_ || rebind_drops_ || rebind_adds_;
 
+  /* Unique and exclusion constraints, for their names. LIKE brings the constraints themselves across but names them
+   * by PostgreSQL's own rules, so a unique_together Django called <table>_<cols>_<hash>_uniq arrives as
+   * <table>_<cols>_key and the shard stops agreeing with the template about what its constraints are called. The
+   * index rebinding below cannot repair that: an index backing a constraint cannot be dropped on its own, so the
+   * constraint has to be dropped and added back the way the CHECK constraints above are.
+   *
+   * This runs before the foreign keys are added, so nothing references these yet: dropping a unique constraint that
+   * an FK had already been pointed at would fail. Restricted to contype 'u' and 'x'; primary keys are left alone,
+   * since Django and PostgreSQL both name those <table>_pkey and they already match.
+   */
+  SELECT coalesce(array_agg(format('ALTER TABLE %I.%I DROP CONSTRAINT %I', dest_schema, cls.relname, con.conname)
+      ORDER BY cls.relname, con.conname), ARRAY[]::text[])
+    INTO rebind_drops_
+    FROM pg_catalog.pg_constraint con
+    JOIN pg_catalog.pg_class cls ON cls.oid = con.conrelid
+    JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+    WHERE nsp.nspname = dest_schema AND cls.relkind = 'r' AND con.contype IN ('u', 'x');
+
+  SELECT coalesce(array_agg(format('ALTER TABLE %I.%I ADD CONSTRAINT %I %s',
+      dest_schema, cls.relname, con.conname, pg_catalog.pg_get_constraintdef(con.oid, true))
+      ORDER BY cls.relname, con.conname), ARRAY[]::text[])
+    INTO rebind_adds_
+    FROM pg_catalog.pg_constraint con
+    JOIN pg_catalog.pg_class cls ON cls.oid = con.conrelid
+    JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND con.contype IN ('u', 'x');
+  rebind_stmts_ := rebind_stmts_ || rebind_drops_ || rebind_adds_;
+
   /* Foreign keys. LIKE copies none at all, so add each of the source's from its own definition, rendered under the
    * source-only path like the CHECK constraints above: a parent in this schema prints unqualified and binds to the
    * destination's copy at execution, while a parent in another schema (public) stays qualified. The definition

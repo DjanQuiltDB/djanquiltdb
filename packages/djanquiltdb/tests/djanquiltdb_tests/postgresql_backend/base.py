@@ -354,33 +354,41 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
             'foreign key constraints': """SELECT conname, pg_catalog.pg_get_constraintdef(r.oid, true) as condef
                    FROM pg_catalog.pg_constraint r
                    WHERE r.conrelid = %s AND r.contype = 'f' ORDER BY 1;""",
+            'triggers': """SELECT tg.tgname, pg_catalog.pg_get_triggerdef(tg.oid, true)
+                   FROM pg_catalog.pg_trigger tg
+                   WHERE tg.tgrelid = %s AND NOT tg.tgisinternal ORDER BY 1;""",
         }
+
+        def normalized_rows(schema_name, query, oid):
+            """
+            Every row the query returns for `oid`, with the schema it came from spelled generically.
+
+            Whole rows rather than the first one: a table has as many rows here as it has columns, indexes or
+            constraints, so comparing one would leave a second index of either schema unchecked. Each query orders
+            its rows, so the two schemas can be compared in order.
+            """
+            with use_shard(node_name='default', schema_name=schema_name) as env:
+                cursor = env.connection.cursor()
+                cursor.execute(query, [oid])
+
+                return [
+                    tuple(field.replace(schema_name, 'schema') if isinstance(field, str) else field for field in row)
+                    for row in cursor.fetchall()
+                ]
 
         for table_name in template_tables:
             oid_template = self.get_oid('template', table_name, connection.cursor())
             oid_test_schema = self.get_oid('test_schema', table_name, connection.cursor())
 
             for name, query in info_queries.items():
-                with use_shard(node_name='default', schema_name='template') as env:
-                    cursor = env.connection.cursor()
-                    cursor.execute(query, [oid_template])
-                    template_result = next(iter(cursor.fetchall()), [])  # Get the first element, or empty list
-                with use_shard(node_name='default', schema_name='test_schema') as env:
-                    cursor = env.connection.cursor()
-                    cursor.execute(query, [oid_test_schema])
-                    test_schema_result = next(iter(cursor.fetchall()), [])  # Get the first element, or empty list
-
-                # Replace schema names to a generic name, so they can be compared.
-                self.assertCountEqual(
-                    list(
-                        map(
-                            lambda i: i.replace('test_schema', 'schema') if isinstance(i, str) else i,
-                            test_schema_result,
-                        )
-                    ),
-                    list(map(lambda i: i.replace('template', 'schema') if isinstance(i, str) else i, template_result)),
-                    '{} does not appear to be cloned successfully'.format(name),
-                )
+                # A subTest per table and query, so one run reports every table that differs rather than stopping at
+                # the first.
+                with self.subTest(table=table_name, info=name):
+                    self.assertEqual(
+                        normalized_rows('test_schema', query, oid_test_schema),
+                        normalized_rows('template', query, oid_template),
+                        '{} of {} does not appear to be cloned successfully'.format(name, table_name),
+                    )
 
     def test_clone_schema_sequences(self):
         """
