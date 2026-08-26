@@ -4,6 +4,9 @@ The repository ships a compose file that starts two PostgreSQL 17 servers and tw
 (one pair per tox environment, so mirrored and multi-node cases have a second node) plus a `test`
 container that has Python 3.14 and tox and bind-mounts the repository at `/app`.
 
+Every Django minor the packages claim gets a tox environment of its own against each PostgreSQL, so
+`tox` runs each suite once per combination rather than resolving to whichever Django is newest.
+
 Run everything the way CI would:
 
 ```bash

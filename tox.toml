@@ -2,9 +2,14 @@ requires = ["tox>=4.21"]
 env_list = [
     "core-py314-dj60-pg17",
     "core-py314-dj60-pg18",
+    "core-py314-dj61-pg17",
+    "core-py314-dj61-pg18",
     "core-pgtrigger-py314-dj60",
+    "core-pgtrigger-py314-dj61",
     "postgres-objects-py314-dj60-pg17",
     "postgres-objects-py314-dj60-pg18",
+    "postgres-objects-py314-dj61-pg17",
+    "postgres-objects-py314-dj61-pg18",
     "ruff",
     "docs",
     "core-coverage",
@@ -20,10 +25,10 @@ pass_env = ["DATABASE_URL", "DATABASE_URL2"]
 # The pg17/pg18 envs pick the pair of database servers from docker-compose.yml; either URL can still be overridden
 # from the outside.
 [env.core-py314-dj60-pg17]
-description = "Run the core test suite against PostgreSQL 17"
+description = "Run the core test suite against Django 6.0 and PostgreSQL 17"
 labels = ["core", "test"]
 deps = [
-    "Django>=6.0,<7.0",
+    "Django>=6.0,<6.1",
     "psycopg[binary]>=3.0.0",
     "-e {tox_root}/packages/djanquiltdb[test]",
 ]
@@ -45,10 +50,58 @@ commands = [
 ]
 
 [env.core-py314-dj60-pg18]
-description = "Run the core test suite against PostgreSQL 18"
+description = "Run the core test suite against Django 6.0 and PostgreSQL 18"
 labels = ["core", "test"]
 deps = [
-    "Django>=6.0,<7.0",
+    "Django>=6.0,<6.1",
+    "psycopg[binary]>=3.0.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.dev", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml",
+        "manage.py",
+        "test",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+        "--parallel",
+    ],
+]
+
+[env.core-py314-dj61-pg17]
+description = "Run the core test suite against Django 6.1 and PostgreSQL 17"
+labels = ["core", "test"]
+deps = [
+    "Django>=6.1,<6.2",
+    "psycopg[binary]>=3.0.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.dev", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml",
+        "manage.py",
+        "test",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+        "--parallel",
+    ],
+]
+
+[env.core-py314-dj61-pg18]
+description = "Run the core test suite against Django 6.1 and PostgreSQL 18"
+labels = ["core", "test"]
+deps = [
+    "Django>=6.1,<6.2",
     "psycopg[binary]>=3.0.0",
     "-e {tox_root}/packages/djanquiltdb[test]",
 ]
@@ -69,10 +122,10 @@ commands = [
 ]
 
 [env.core-pgtrigger-py314-dj60]
-description = "Run the compatibility checks that only fire with django-pgtrigger installed"
+description = "Run the compatibility checks that only fire with django-pgtrigger installed, on Django 6.0"
 labels = ["core", "test"]
 deps = [
-    "Django>=6.0,<7.0",
+    "Django>=6.0,<6.1",
     "psycopg[binary]>=3.0.0",
     # Only this environment installs it: pgtrigger is not a dependency of the package, it is what the check under test
     # reacts to. The pin matches the version docs/modules/triggers.rst records as tested.
@@ -94,11 +147,34 @@ commands = [
     ],
 ]
 
+[env.core-pgtrigger-py314-dj61]
+description = "Run the compatibility checks that only fire with django-pgtrigger installed, on Django 6.1"
+labels = ["core", "test"]
+deps = [
+    "Django>=6.1,<6.2",
+    "psycopg[binary]>=3.0.0",
+    "django-pgtrigger>=4.17,<5.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.pgtrigger", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "python",
+        "manage.py",
+        "test",
+        "djanquiltdb_tests.checks",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
 [env.postgres-objects-py314-dj60-pg17]
-description = "Run the postgres-objects plugin suite against PostgreSQL 17"
+description = "Run the postgres-objects plugin suite against Django 6.0 and PostgreSQL 17"
 labels = ["postgres-objects", "test"]
 deps = [
-    "Django>=6.0,<7.0",
+    "Django>=6.0,<6.1",
     "-e {tox_root}/packages/djanquiltdb",
     "django-postgres-objects>=1.0,<2.0",
     "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
@@ -121,10 +197,62 @@ commands = [
 ]
 
 [env.postgres-objects-py314-dj60-pg18]
-description = "Run the postgres-objects plugin suite against PostgreSQL 18"
+description = "Run the postgres-objects plugin suite against Django 6.0 and PostgreSQL 18"
 labels = ["postgres-objects", "test"]
 deps = [
-    "Django>=6.0,<7.0",
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-postgres-objects>=1.0,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml"],
+]
+
+[env.postgres-objects-py314-dj61-pg17]
+description = "Run the postgres-objects plugin suite against Django 6.1 and PostgreSQL 17"
+labels = ["postgres-objects", "test"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-postgres-objects>=1.0,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml"],
+]
+
+[env.postgres-objects-py314-dj61-pg18]
+description = "Run the postgres-objects plugin suite against Django 6.1 and PostgreSQL 18"
+labels = ["postgres-objects", "test"]
+deps = [
+    "Django>=6.1,<6.2",
     "-e {tox_root}/packages/djanquiltdb",
     "django-postgres-objects>=1.0,<2.0",
     "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
@@ -162,8 +290,9 @@ commands = [
 [env.docs]
 description = "Build the unified documentation"
 labels = ["docs"]
+# The newest Django the classifiers claim: the docs describe what a current install gets.
 deps = [
-    "Django>=6.0,<7.0",
+    "Django>=6.1,<6.2",
     "-e {tox_root}/packages/djanquiltdb[docs]",
     # conf.py imports the plugin for its version, and the plugin imports django-postgres-objects.
     "django-postgres-objects>=1.0,<2.0",
