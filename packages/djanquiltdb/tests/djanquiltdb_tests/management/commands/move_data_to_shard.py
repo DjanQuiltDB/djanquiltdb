@@ -22,8 +22,10 @@ from djanquiltdb_tests import (
 from djanquiltdb_tests.sql import CREATE_ALLUPPERCASE, DROP_ALLUPPERCASE
 from example.models import (
     Cake,
+    DetailedReport,
     Organization,
     OrganizationShard,
+    Report,
     Shard,
     Statement,
     Suborganization,
@@ -148,6 +150,31 @@ class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
                 name='Jean Descole', email='jean@layton.l15', type=self.type, organization=organization_new
             )
             self.assertEqual(user_new.id, self.user.id + 1)
+
+    def test_moving_a_multi_table_inheritance_child(self):
+        """
+        Case: Move an organization whose tree holds a multi-table inheritance child. That child's table has no `id`
+              column; its primary key is the `report_ptr_id` parent link.
+        Expected: Both the child's row and the parent row it inherits from land on the target shard, and both are gone
+                  from the source.
+        """
+        with use_shard(self.source_shard):
+            detailed_report = DetailedReport.objects.create(
+                organization=self.organization, title='Puzzles', detail='One hundred and thirty five of them.'
+            )
+
+        call_command('move_data_to_shard', *map(str, self.options))
+
+        with use_shard(self.source_shard):
+            self.assertFalse(Report.objects.exists())
+            self.assertFalse(DetailedReport.objects.exists())
+
+        with use_shard(self.target_shard):
+            self.assertEqual([report.pk for report in Report.objects.all()], [detailed_report.pk])
+            self.assertEqual(
+                [(report.pk, report.detail) for report in DetailedReport.objects.all()],
+                [(detailed_report.pk, 'One hundred and thirty five of them.')],
+            )
 
     def _add_materialized_views(self):
         """

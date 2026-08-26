@@ -303,9 +303,9 @@ class Command(BaseCommand):
                 quote_name = env.connection.ops.quote_name
                 columns = ', '.join(quote_name(column) for column in columns_by_table[model._meta.db_table])
                 query = cursor.mogrify(
-                    'COPY (SELECT {columns} FROM "{t}" WHERE "id" = ANY(%s)) '  # nosec
+                    'COPY (SELECT {columns} FROM "{t}" WHERE {pk} = ANY(%s)) '  # nosec
                     "TO STDOUT WITH CSV DELIMITER ';' HEADER".format(  # nosec
-                        columns=columns, t=model._meta.db_table
+                        columns=columns, t=model._meta.db_table, pk=quote_name(model._meta.pk.column)
                     ),
                     [list(pk_set)],
                 )
@@ -398,8 +398,8 @@ class Command(BaseCommand):
             for model, keys in pk_set.items():
                 fields = model_fields.get(model)
                 # Export
-                query_string = 'COPY (SELECT {f} FROM "{t}" WHERE "id" = ANY(%s)) TO STDOUT'.format(  # nosec
-                    t=model._meta.db_table, f=fields
+                query_string = 'COPY (SELECT {f} FROM "{t}" WHERE "{pk}" = ANY(%s)) TO STDOUT'.format(  # nosec
+                    t=model._meta.db_table, f=fields, pk=model._meta.pk.column
                 )
 
                 # We let the copy functions just append to the output file
