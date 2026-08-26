@@ -3,7 +3,7 @@ from unittest import mock
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.core.management import CommandError
-from django.db import ProgrammingError
+from django.db import ProgrammingError, models
 
 from djanquiltdb.db import connection
 from djanquiltdb.management.commands.move_sharded_models import Command as MoveCommand
@@ -45,9 +45,10 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # Make sure all tables and sequences now live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            # Only check sequences for models that have an 'id' column
-            # (some models like QuiltSession use different primary keys)
-            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+            # Only check sequences for models whose own table carries the id column, and with it the sequence.
+            # QuiltSession has a primary key of another kind, and a multi-table inheritance child inherits the
+            # id field without inheriting the sequence.
+            if any(isinstance(field, models.AutoField) for field in model._meta.local_fields):
                 self.assertCountEqual(
                     connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
                 )
@@ -64,9 +65,10 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # Sharded models are now moved to the newly created default_shard and the template.
         for model in sharded_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('test_target_schema',), ('template',)])
-            # Only check sequences for models that have an 'id' column
-            # (some models like QuiltSession use different primary keys)
-            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+            # Only check sequences for models whose own table carries the id column, and with it the sequence.
+            # QuiltSession has a primary key of another kind, and a multi-table inheritance child inherits the
+            # id field without inheriting the sequence.
+            if any(isinstance(field, models.AutoField) for field in model._meta.local_fields):
                 self.assertCountEqual(
                     connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)),
                     [('test_target_schema',), ('template',)],
@@ -75,9 +77,10 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # Mirrored models are unaffected.
         for model in non_sharded_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            # Only check sequences for models that have an 'id' column
-            # (some models like QuiltSession use different primary keys)
-            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+            # Only check sequences for models whose own table carries the id column, and with it the sequence.
+            # QuiltSession has a primary key of another kind, and a multi-table inheritance child inherits the
+            # id field without inheriting the sequence.
+            if any(isinstance(field, models.AutoField) for field in model._meta.local_fields):
                 self.assertCountEqual(
                     connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
                 )
@@ -219,9 +222,10 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # Make sure all tables and sequences now live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            # Only check sequences for models that have an 'id' column
-            # (some models like QuiltSession use different primary keys)
-            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+            # Only check sequences for models whose own table carries the id column, and with it the sequence.
+            # QuiltSession has a primary key of another kind, and a multi-table inheritance child inherits the
+            # id field without inheriting the sequence.
+            if any(isinstance(field, models.AutoField) for field in model._meta.local_fields):
                 self.assertCountEqual(
                     connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
                 )
@@ -238,9 +242,10 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # All tables and sequences should still live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            # Only check sequences for models that have an 'id' column
-            # (some models like QuiltSession use different primary keys)
-            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+            # Only check sequences for models whose own table carries the id column, and with it the sequence.
+            # QuiltSession has a primary key of another kind, and a multi-table inheritance child inherits the
+            # id field without inheriting the sequence.
+            if any(isinstance(field, models.AutoField) for field in model._meta.local_fields):
                 self.assertCountEqual(
                     connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
                 )
@@ -264,9 +269,10 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # Make sure all tables and sequences now live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            # Only check sequences for models that have an 'id' column
-            # (some models like QuiltSession use different primary keys)
-            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+            # Only check sequences for models whose own table carries the id column, and with it the sequence.
+            # QuiltSession has a primary key of another kind, and a multi-table inheritance child inherits the
+            # id field without inheriting the sequence.
+            if any(isinstance(field, models.AutoField) for field in model._meta.local_fields):
                 self.assertCountEqual(
                     connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
                 )
@@ -283,9 +289,10 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
         # All tables and sequences should still live on the public schema
         for model in all_models:
             self.assertCountEqual(connection.get_schema_for_model(model), [('public',)])
-            # Only check sequences for models that have an 'id' column
-            # (some models like QuiltSession use different primary keys)
-            if 'id' in [f.name for f in model._meta.get_fields() if hasattr(f, 'name')]:
+            # Only check sequences for models whose own table carries the id column, and with it the sequence.
+            # QuiltSession has a primary key of another kind, and a multi-table inheritance child inherits the
+            # id field without inheriting the sequence.
+            if any(isinstance(field, models.AutoField) for field in model._meta.local_fields):
                 self.assertCountEqual(
                     connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
                 )

@@ -73,19 +73,24 @@ class SimpleCollector(Collector):
 
         model = new_objs[0].__class__
 
-        # Recursively collect concrete model's parent models, but not their
-        # related objects. These will be found by meta.get_fields()
-        concrete_model = model._meta.concrete_model
-        for ptr in concrete_model._meta.parents.values():
-            if ptr:
-                # FIXME: This seems to be buggy and execute a query for each
-                # parent object fetch. We have the parent data in the obj,
-                # but we don't have a nice way to turn that data into parent
-                # object instance.
-                parent_objs = [getattr(obj, ptr.name) for obj in new_objs]
-                self.collect(
-                    parent_objs, source=model, source_attr=ptr.remote_field.related_name, collect_related=False
-                )
+        if not keep_parents:
+            # Recursively collect concrete model's parent models, but not their
+            # related objects. These will be found by meta.get_fields()
+            concrete_model = model._meta.concrete_model
+            for ptr in concrete_model._meta.parents.values():
+                if ptr:
+                    # Reading a parent link costs no query: Django builds the parent instance out of the data the
+                    # child row already carries.
+                    parent_objs = [getattr(obj, ptr.name) for obj in new_objs]
+                    self.collect(
+                        parent_objs,
+                        source=model,
+                        source_attr=ptr.remote_field.related_name,
+                        collect_related=False,
+                        # The parent row is the one that has to go last, so the dependency runs the other way
+                        # around than it does for a cascade.
+                        reverse_dependency=True,
+                    )
 
         if collect_related:
             for related in get_candidate_relations_to_collect(model._meta):

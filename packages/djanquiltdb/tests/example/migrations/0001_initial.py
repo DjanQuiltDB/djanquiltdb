@@ -319,4 +319,33 @@ class Migration(migrations.Migration):
                 'abstract': False,
             },
         ),
+        migrations.CreateModel(
+            name='Report',
+            fields=[
+                ('id', models.BigAutoField(auto_created=True, verbose_name='ID', serialize=False, primary_key=True)),
+                ('title', models.CharField(verbose_name='title', max_length=100)),
+                (
+                    'organization',
+                    models.ForeignKey(to='example.Organization', verbose_name='organization', on_delete=models.CASCADE),
+                ),
+            ],
+        ),
+        migrations.CreateModel(
+            name='DetailedReport',
+            fields=[
+                (
+                    'report_ptr',
+                    models.OneToOneField(
+                        to='example.Report',
+                        auto_created=True,
+                        parent_link=True,
+                        primary_key=True,
+                        serialize=False,
+                        on_delete=models.CASCADE,
+                    ),
+                ),
+                ('detail', models.TextField(verbose_name='detail')),
+            ],
+            bases=('example.report',),
+        ),
     ]

@@ -22,6 +22,8 @@ __all__ = [
     'ProxyMirroredUser',
     'DefaultUser',
     'Statement',
+    'Report',
+    'DetailedReport',
     'QuiltSession',
 ]
 
@@ -315,6 +317,33 @@ class Statement(models.Model):
 
     def __str__(self):
         return '{}: {}'.format(self.user.name, self.content)
+
+
+@sharded_model()
+class Report(models.Model):
+    """Multi-table inheritance parent. Its child lives in a table of its own, linked by a parent link."""
+
+    organization = models.ForeignKey('Organization', verbose_name='organization', on_delete=models.CASCADE)
+    title = models.CharField('title', max_length=100)
+
+    class Meta:
+        app_label = 'example'
+
+    def __str__(self):
+        return self.title
+
+
+@sharded_model()
+class DetailedReport(Report):
+    """
+    Multi-table inheritance child. Its table has no `id` column: the primary key is the `report_ptr_id`
+    parent link.
+    """
+
+    detail = models.TextField('detail')
+
+    class Meta:
+        app_label = 'example'
 
 
 class Unrelated(models.Model):

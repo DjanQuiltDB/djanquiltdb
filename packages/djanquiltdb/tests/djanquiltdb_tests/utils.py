@@ -65,10 +65,12 @@ from example.models import (
     Cake,
     CakeType,
     CoatingType,
+    DetailedReport,
     MirroredUser,
     Organization,
     OrganizationShard,
     QuiltSession,
+    Report,
     Shard,
     Statement,
     Suborganization,
@@ -823,6 +825,8 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
                 'example_statement',
                 'example_cake',
                 'example_quiltsession',
+                'example_report',
+                'example_detailedreport',
                 'example_user_cake',
                 'example_statement_type',
             ],
@@ -977,7 +981,10 @@ class GetAllShardedModels(ShardingTestCase):
                 }
             }
         ):
-            self.assertCountEqual(get_all_sharded_models(), [User, Statement, Suborganization, Cake, QuiltSession])
+            self.assertCountEqual(
+                get_all_sharded_models(),
+                [User, Statement, Suborganization, Cake, QuiltSession, Report, DetailedReport],
+            )
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):
@@ -1021,6 +1028,8 @@ class GetAllShardedModels(ShardingTestCase):
                 "<class 'example.models.QuiltSession'>",
                 "<class 'example.models.Statement_type'>",  # This is a auto-created model
                 "<class 'example.models.Statement'>",
+                "<class 'example.models.Report'>",
+                "<class 'example.models.DetailedReport'>",
             ],
         )
 
@@ -1041,6 +1050,8 @@ class GetAllShardedModels(ShardingTestCase):
                 "<class 'example.models.User'>",
                 "<class 'example.models.Statement'>",
                 "<class 'example.models.QuiltSession'>",
+                "<class 'example.models.Report'>",
+                "<class 'example.models.DetailedReport'>",
             ],
         )
 

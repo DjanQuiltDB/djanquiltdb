@@ -642,6 +642,8 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             'example_statement',
             'example_cake',
             'example_quiltsession',
+            'example_report',
+            'example_detailedreport',
             'example_user_cake',
             'example_statement_type',
         ]
