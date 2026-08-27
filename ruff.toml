@@ -1,0 +1,17 @@
+line-length = 120
+# Directly governs only the files outside the packages (docs/); each package's pyproject extends this file and names
+# its own src roots, so first-party import classification stays per package.
+src = ["packages/djanquiltdb/src", "packages/djanquiltdb-plugin-postgres-objects/src"]
+extend-exclude = ["docs/_build"]
+
+[lint]
+extend-select = [
+    # isort
+    "I",
+]
+
+[format]
+quote-style = 'single'
+indent-style = 'space'
+docstring-code-format = true
+skip-magic-trailing-comma = false

@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640">
+  <rect width="1280" height="640" fill="#092e20"/>
+
+  <g transform="translate(116 160) scale(5)">
+    <path d="M10 38V50A22 7.5 0 0 0 39 57.11V45.11A22 7.5 0 0 1 10 38Z" fill="#24602a"/>
+    <path d="M39 45.11V57.11A22 7.5 0 0 0 54 50V38A22 7.5 0 0 1 39 45.11Z" fill="#38883d"/>
+    <path d="M10 26V38A22 7.5 0 0 0 39 45.11V33.11A22 7.5 0 0 1 10 26Z" fill="#46a54c"/>
+    <path d="M39 33.11V45.11A22 7.5 0 0 0 54 38V26A22 7.5 0 0 1 39 33.11Z" fill="#2e7a34"/>
+    <path d="M10 14V26A22 7.5 0 0 0 39 33.11V21.11A22 7.5 0 0 1 10 14Z" fill="#3c8f42"/>
+    <path d="M39 21.11V33.11A22 7.5 0 0 0 54 26V14A22 7.5 0 0 1 39 21.11Z" fill="#4fb455"/>
+    <path d="M32 14L39 21.11A22 7.5 0 0 1 11.14 16.39Z" fill="#6dd46d"/>
+    <path d="M32 14L11.14 16.39A22 7.5 0 0 1 25 6.89Z" fill="#49a94e"/>
+    <path d="M32 14L25 6.89A22 7.5 0 0 1 52.86 11.61Z" fill="#6dd46d"/>
+    <path d="M32 14L52.86 11.61A22 7.5 0 0 1 39 21.11Z" fill="#49a94e"/>
+    <g fill="none" stroke="#e8b923" stroke-width="1.8"
+       stroke-linecap="round" stroke-dasharray="3.5 3.5">
+      <ellipse cx="32" cy="14" rx="22" ry="7.5"/>
+      <path d="M10 26A22 7.5 0 0 0 54 26"/>
+      <path d="M10 38A22 7.5 0 0 0 54 38"/>
+      <path d="M10 50A22 7.5 0 0 0 54 50"/>
+      <path d="M10 14V50"/>
+      <path d="M54 14V50"/>
+      <path d="M25 6.89L39 21.11V57.11"/>
+      <path d="M11.14 16.39L52.86 11.61"/>
+    </g>
+  </g>
+
+  <g font-family="Noto Sans, DejaVu Sans, Liberation Sans, sans-serif">
+    <text x="516" y="275" font-size="100" font-weight="700" fill="#ffffff">DjanQuiltDB</text>
+    <rect x="518" y="311" width="140" height="6" fill="#e8b923"/>
+    <text x="516" y="385" font-size="44" font-weight="400" fill="#6dd46d">Database sharding for Django</text>
+    <text x="516" y="431" font-size="26" font-weight="400" fill="#7fa892">Multi-schema, multi-cluster, flexible horizontal scaling</text>
+  </g>
+</svg>

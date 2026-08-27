@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   test:
     build:
@@ -101,8 +99,6 @@ services:
       retries: 5
 
 volumes:
-  tox-cache:
-  tox-env-cache:
   postgres17-data:
   postgres17-data2:
   postgres18-data:
@@ -111,4 +107,3 @@ volumes:
 networks:
   test-network:
     driver: bridge
-

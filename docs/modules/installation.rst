@@ -7,9 +7,9 @@ Installation
 Installing djanquiltdb
 -----------------------------------
 
-If you want to install stable version, you can do so doing::
+The stable version is available from PyPI::
 
-    pip install git+ssh://git@github.com/djanquiltdb/djanquiltdb.git@stable#egg=djanquiltdb
+    pip install djanquiltdb
 
 If you want to install development version (unstable), you can do so doing::
 
@@ -47,6 +47,32 @@ scenarios given default runners, is the following::
            create_template_schema(node_name=node_name, migrate=False)
 
        for_each_node(_create_template_schema)
+
+
+.. _`postgres_objects_extra`:
+
+Optional extras
+---------------
+
+The base library covers models fully with decorators, and leaves database *objects* (views, functions, triggers) to be
+managed with hand-written ``RunSQL`` in a migration.
+
+The ``postgres-objects`` extra adds the declarative alternative for views and functions::
+
+    pip install djanquiltdb[postgres-objects]
+
+It installs a plugin carrying the glue between this library and `django-postgres-objects
+<https://github.com/djanquiltdb/django-postgres-objects>`_, which declares Postgres views and functions as classes and
+lets ``makemigrations`` manage them. That library works on its own against a single database and needs nothing from
+here; what a sharded project adds is the question of which schemas each object belongs in, and the plugin provides
+decorators for that purpose analogous to the model decorators in the base library. They are importable from
+``djanquiltdb.decorators`` beside the model decorators.
+
+See :doc:`database_views`, :doc:`database_functions` and :doc:`generated_columns` for what the extra changes in each
+case, and :doc:`the plugin's documentation </plugins/postgres-objects/index>` for the rest.
+
+If you wish to manage database triggers, we recommend
+`django-pgtrigger <https://github.com/AmbitionEng/django-pgtrigger>`_. See :doc:`triggers` for more information.
 
 
 Creating models
@@ -138,52 +164,55 @@ Optionally you can tell DjanQuiltDB on which node new shards (schemas) will be c
 ROUTER
 ~~~~~~
 DjanQuiltDB uses a router to send each database transaction to the correct node.
-It also uses the router to migrate the models to the correct shard when using ``./manage.py migrate_shards``
+It also uses the router to migrate the models to the correct shard when using ``./manage.py migrate``
 So set ``djanquiltdb.router.DynamicDbRouter`` as the database_router in the settings. e.g.::
 
     DATABASE_ROUTERS = ['djanquiltdb.router.DynamicDbRouter']
 
-STATE_EXCEPTION_MIDDLEWARE
-~~~~~~~~~~~~~~~~~~~~~~~~~~
-The ``djanquiltdb.middleware.StateExceptionMiddleware`` class allows you to deal with exceptions raised by accessing
+EXCEPTION_MIDDLEWARE
+~~~~~~~~~~~~~~~~~~~~
+The ``djanquiltdb.middleware.ExceptionMiddlewareMixin`` class allows you to deal with exceptions raised by accessing
 unavailable shards. It is not required, but recommended to add it to the middleware settings.
 
-The middleware raises a 503 error when a shard availability error pops up during view processing.
-You can also tell it to render a specific view instead.
-To do that set ``STATE_EXCEPTION_VIEW`` in the ``QUILT_DB`` setting to a view of your choice e.g.::
+The middleware returns a 503 response when a shard availability error or a database connection error pops up during
+view processing. You can also tell it to render a specific view instead. To do that set ``STATE_EXCEPTION_VIEW``
+(for shard state errors) and/or ``CONNECTION_EXCEPTION_VIEW`` (for connection errors) in the ``QUILT_DB`` setting to
+a view of your choice e.g.::
 
-    MIDDLEWARE_CLASSES = (
+    MIDDLEWARE = [
         (...)
-        'djanquiltdb.middleware.StateExceptionMiddleware'
+        'djanquiltdb.middleware.ExceptionMiddlewareMixin',
         (...)
-    )
+    ]
 
     QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
-        'STATE_EXCEPTION_VIEW': 'myapp.views.ShardExceptionView'
+        'STATE_EXCEPTION_VIEW': 'myapp.views.ShardExceptionView',
+        'CONNECTION_EXCEPTION_VIEW': 'myapp.views.ConnectionExceptionView',
     }
 
 .. _use_shard_middleware:
 
 BASE_USE_SHARD_MIDDLEWARE
 ~~~~~~~~~~~~~~~~~~~~~~~~~
-The ``djanquiltdb.middleware.BaseUseShardMiddleware`` class extends ``StateExceptionMiddleware`` and adds the option to
-wrap views in a ``use_shard`` context manager. This prevents the need to take note of sharding in each of your views.
+The ``djanquiltdb.middleware.BaseUseShardMiddleware`` class extends ``ExceptionMiddlewareMixin`` and adds the option
+to wrap views in a ``use_shard`` context manager. This prevents the need to take note of sharding in each of your
+views.
 
 How the middleware determines which shard to use is up to you however. To use the ``UseShardMiddleware`` you have to
 extend it and fill in the ``get_shard_id()`` function yourself.
 
-Don't forget you can assign your own view as error page like in `STATE_EXCEPTION_MIDDLEWARE`_.
+Don't forget you can assign your own view as error page like in `EXCEPTION_MIDDLEWARE`_.
 
 .. code-block:: python
 
     # settings.py
-    MIDDLEWARE_CLASSES = (
+    MIDDLEWARE = [
         (...)
         'django.contrib.sessions.middleware.SessionMiddleware',
         'middleware.UseShardMiddleware',
         (...)
-    )
+    ]
 
     QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
@@ -218,12 +247,12 @@ fashion as the ``BaseUseShardMiddleware``. The only difference is that you now h
 .. code-block:: python
 
     # settings.py
-    MIDDLEWARE_CLASSES = (
+    MIDDLEWARE = [
         (...)
         'django.contrib.sessions.middleware.SessionMiddleware',
         'middleware.UseShardForMiddleware',
         (...)
-    )
+    ]
 
     QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
@@ -238,17 +267,17 @@ fashion as the ``BaseUseShardMiddleware``. The only difference is that you now h
             return request.session.get('mapping_value')
 
 
-If you want to store the value on the session, you can also use `django_sharding.middleware.UseShardMiddleware` or
-`django_sharding.middleware.UseShardForMiddleware` directly; these assume the shard selector value is stored on the
+If you want to store the value on the session, you can also use `djanquiltdb.middleware.UseShardMiddleware` or
+`djanquiltdb.middleware.UseShardForMiddleware` directly; these assume the shard selector value is stored on the
 session with the key defined in the `SESSION_SHARD_SELECTOR_KEY` setting. The default is `shard_selector`, which is
-compatible with the standard `django_sharding.sessions` backend. To configure this session backend, you need to make
+compatible with the standard `djanquiltdb.sessions` backend. To configure this session backend, you need to make
 the following changes (assuming here that the session storage is under an app called `users`):
 
 .. code-block:: python
 
     # settings.py
     SESSION_ENGINE = 'djanquiltdb.sessions'
-    
+
     QUILT_SESSIONS = {
         # Required: Configure the session model
         'SESSION_MODEL': 'users.models.QuiltSession',
@@ -257,22 +286,22 @@ the following changes (assuming here that the session storage is under an app ca
         # Optional: Delimiter used in session keys to separate shard selector from session key (default: 'K')
         'SESSION_KEY_DELIMITER': 'K',
     }
-    
+
     # Optional: Customize the session key used by middleware to store shard selector (default: 'shard_selector')
     QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
         'SESSION_SHARD_SELECTOR_KEY': 'shard_selector',  # Optional, defaults to 'shard_selector'
     }
 
-    MIDDLEWARE_CLASSES = (
+    MIDDLEWARE = [
         (...)
         'django.contrib.sessions.middleware.SessionMiddleware',
         'djanquiltdb.middleware.UseShardForMiddleware',
         (...)
-    )
+    ]
 
     # users/models.py
-    from django_sharding.models import BaseQuiltSession
+    from djanquiltdb.models import BaseQuiltSession
 
     @sharded_model()
     class QuiltSession(BaseQuiltSession):
@@ -280,6 +309,10 @@ the following changes (assuming here that the session storage is under an app ca
             app_label = 'users'
 
 You would only need to change the SHARD_SELECTOR_REGEX if the primary key of your shard or mapping value is not a number. For example, if your shard selectors are UUIDs, you might use: ``'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'``. If your regular expression supports string values that may include K, you also have to adjust the SESSION_KEY_DELIMITER to make sure it is a value that can't be matched by the regular expression.
+
+Django's ``clearsessions`` management command works with this backend: it walks every ACTIVE shard and deletes the
+expired sessions it holds. Shards that are in maintenance (mid-move, being purged) are skipped and picked up on the
+next run.
 
 OVERRIDE_SHARDING_MODE
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -372,3 +405,44 @@ So we alter 'PRIMARY_DB_ALIAS' to tell that 'other' is now writable.
 
 It would be less confusing if we have non-suggestive names for all connections. But Django enforces the existence of
 a 'default' node. Even if the router will always route to the primary assigned connection by default.
+
+TEMPLATE_NAME
+~~~~~~~~~~~~~
+
+The name of the template schema each new shard is cloned from. It defaults to ``template`` and rarely needs
+changing; set it when that name collides with an existing schema in your database.
+
+.. code-block:: python
+
+  QUILT_DB = {
+      'SHARD_CLASS': 'myapp.models.Shard',
+      'TEMPLATE_NAME': 'shard_template',
+  }
+
+DATABASE_CREATION_CLASS
+~~~~~~~~~~~~~~~~~~~~~~~
+
+The dotted path of the class the backend uses to create and serialize test databases. It defaults to
+``djanquiltdb.postgresql_backend.creation.DatabaseCreation``; point it at a subclass to customize how test
+databases are built, for example ``djanquiltdb.postgresql_backend.creation.TemplateDatabaseCreation``.
+
+.. code-block:: python
+
+  QUILT_DB = {
+      'SHARD_CLASS': 'myapp.models.Shard',
+      'DATABASE_CREATION_CLASS': 'myapp.db.MyDatabaseCreation',
+  }
+
+MUTE_PGTRIGGER_COMPATIBILITY_WARNING
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+When ``django-pgtrigger`` is installed, DjanQuiltDB checks that it is left in migration mode and reports
+``djanquiltdb.W001`` or ``djanquiltdb.W002`` when it is not. See :doc:`triggers` for why the other modes cannot reach
+every shard. Set this to ``True`` to silence that check; it defaults to ``False``.
+
+.. code-block:: python
+
+  QUILT_DB = {
+      'SHARD_CLASS': 'myapp.models.Shard',
+      'MUTE_PGTRIGGER_COMPATIBILITY_WARNING': True,
+  }

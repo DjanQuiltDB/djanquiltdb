@@ -55,9 +55,14 @@ htmlcov/
 coverage/
 .tox/
 .coverage
+.coverage.*
 .cache
 nosetests.xml
 coverage.xml
+
+# Tool caches and local environments
+.ruff_cache/
+.venv/
 
 # Translations
 *.mo
@@ -70,7 +75,7 @@ coverage.xml
 docs/_build/
 
 # Secrets file
-/djanquiltdb/secrets.json
+/packages/djanquiltdb/tests/secrets.json
 
 # All extra minified files
 *.min.min.js

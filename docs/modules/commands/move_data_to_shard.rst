@@ -35,7 +35,27 @@ The command will do its thing in several steps:
 
 5. Delete the data from the source shard.
 
-6. Return both shards back to their original state (probably ACTIVE).
+6. Refresh the materialized views of both shards, so neither is left describing the state before the move.
+
+7. Return both shards back to their original state (probably ACTIVE).
+
+
+Locking and concurrency
+-----------------------
+Be precise about what the command protects. With a mapping model configured, only the mapping objects being moved are
+locked (exclusively) and put into MAINTENANCE - the source and target shards themselves stay ACTIVE, and other
+tenants on either shard keep working throughout. Without a mapping model, the source shard is locked and put into
+maintenance; the target shard never is. Requests holding a shard's shared advisory lock inside a transaction finish
+before the exclusive lock is granted.
+
+Because the target shard stays live, its sequences may advance while the move runs; the sequence reset at the end
+only ever moves a sequence forward, never back, so a concurrent writer's ids are not reissued. Id *collisions* with
+pre-existing target data remain the operator's responsibility, as described under get_target_shard below.
+
+Two more operational notes. The rows deleted from the source in step 5 are the rows just copied to the target, so the
+``pre_delete``/``post_delete`` signals are disconnected during that deletion - a handler cleaning up external
+resources keyed by those rows would destroy things the moved copy still references. And the copy buffers each table's
+export in memory, so peak memory use is proportional to the largest table being moved.
 
 
 get_target_shard

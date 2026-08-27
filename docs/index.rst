@@ -22,10 +22,27 @@ The User Guide
     modules/utils
     modules/connection
     modules/migrations
+    modules/database_views
+    modules/database_functions
+    modules/triggers
+    modules/generated_columns
     modules/fixtures
     modules/celery
     modules/commands
     modules/contrib
+    modules/api
+
+
+Plugins
+-------
+
+Optional features ship as plugins: separately installed distributions DjanQuiltDB discovers through the
+``djanquiltdb.plugins`` entry-point group. Each is installed through an extra of ``djanquiltdb`` itself.
+
+.. toctree::
+    :maxdepth: 2
+
+    plugins/postgres-objects/index
 
 
 Indices and tables
@@ -34,4 +51,3 @@ Indices and tables
 * :ref:`genindex`
 * :ref:`modindex`
 * :ref:`search`
-

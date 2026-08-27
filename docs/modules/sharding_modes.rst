@@ -22,5 +22,3 @@ Special decorator:
   in the decorator.
 
 `More info <decorators.html>`__  on decorators and how to use them.
-
-

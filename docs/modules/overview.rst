@@ -172,3 +172,30 @@ mechanisms.
 
 In case you want to handle this data writing yourself, refer to `@transaction_for_every_node` and
 `@atomic_write_to_every_node` decorators as a starting point.
+
+.. _cloning_limitations:
+
+What schema cloning carries - and what it does not
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A new shard is created by cloning the template schema: tables with their rows, sequences and identity positions,
+constraints, indexes, defaults and generated columns, plain and materialized views, functions and triggers all carry
+over, rebound to the new schema where they should be. Everything a Django migration puts into the template arrives in
+the clone. The known limitations, which matter once objects reach the template by other routes than migrations:
+
+* **Partitioned tables** are not understood: the parent and each partition clone as independent plain tables, and the
+  rows arrive twice - once through the parent, once through the partition.
+* **Mixed-case table names** (a quoted ``db_table``) abort the clone; Django's conventional lowercase names are safe.
+* **Aggregates** are skipped: Postgres cannot render their definitions the way it renders functions.
+* **Function bodies are never rewritten.** An unqualified reference in a body resolves through the caller's search
+  path at runtime, which is what binds each shard's copy to its own tables; a reference that explicitly qualifies the
+  template schema keeps pointing at the template after the clone. Qualify deliberately, or not at all.
+* **Schema-local types and domains** are not cloned; a cloned column keeps using the template's type, and dropping the
+  template schema with ``CASCADE`` would then reach into every shard.
+* **Row-level security policies, grants and comments** on views and functions are not carried (table and column
+  comments are). A security policy on a template table is silently absent from its clones.
+* **Standalone sequences** are recreated with their value but not their parameters - ``INCREMENT``, ``MINVALUE``,
+  ``CYCLE`` and ``CACHE`` are lost. Sequences behind serial and identity columns are unaffected.
+* ``truncate_all_tables()`` on the connection truncates the schema the connection is on, not the schema named in its
+  argument.
+* The reserved-name check refuses creating or deleting a schema named literally ``default``, ``public``,
+  ``information_schema`` or a ``pg_``-prefixed name; other connection aliases are not reserved.

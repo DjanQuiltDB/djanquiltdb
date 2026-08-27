@@ -36,7 +36,7 @@
             }
         },
         {
-            "label": "Docker: Run Tox Tests (Python 3.14, Django 6.0)",
+            "label": "Docker: Run Tox Tests (Python 3.14, Django 6.0, PostgreSQL 17)",
             "type": "shell",
             "command": "docker-compose",
             "args": [
@@ -45,7 +45,7 @@
                 "test",
                 "tox",
                 "-e",
-                "py314-dj60"
+                "core-py314-dj60-pg17"
             ],
             "problemMatcher": [],
             "group": "test",
@@ -64,7 +64,7 @@
                 "test",
                 "tox",
                 "-e",
-                "coverage"
+                "core-coverage"
             ],
             "problemMatcher": [],
             "group": "test",
@@ -80,7 +80,10 @@
             "args": [
                 "up",
                 "-d",
-                "postgres"
+                "postgres17",
+                "postgres17-2",
+                "postgres18",
+                "postgres18-2"
             ],
             "problemMatcher": [],
             "group": "build",
@@ -140,4 +143,3 @@
         }
     ]
 }
-

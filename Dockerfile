@@ -11,7 +11,6 @@ RUN apt-get update && apt-get install -y \
     libpq-dev \
     postgresql-client \
     software-properties-common \
-    wget \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python 3.14 from deadsnakes PPA
@@ -23,23 +22,15 @@ RUN add-apt-repository ppa:deadsnakes/ppa -y && \
     python3.14-venv \
     && rm -rf /var/lib/apt/lists/*
 
-# Install pip for Python 3.14
-# Python 3.14 has PEP 668 protection, so we need --break-system-packages flag
+# Install pip for Python 3.14. It has PEP 668 protection, hence --break-system-packages.
 RUN curl https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py && \
     python3.14 /tmp/get-pip.py --break-system-packages && \
     rm /tmp/get-pip.py
 
-# Set working directory
 WORKDIR /app
 
-# Copy requirements and setup files first for better caching
-COPY setup.py setup.cfg tox.ini MANIFEST.in ./
-COPY djanquiltdb ./djanquiltdb
+# The image only carries the tooling: the repository is bind-mounted by docker-compose.yml, and tox installs
+# everything from there.
+RUN python3.14 -m pip install --upgrade pip setuptools wheel "tox>=4.21"
 
-# Install the package in development mode
-RUN python3.14 -m pip install --upgrade pip setuptools wheel && \
-    python3.14 -m pip install -e .[dev]
-
-# Default command
 CMD ["tox"]
-

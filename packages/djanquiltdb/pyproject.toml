@@ -1,0 +1,118 @@
+[build-system]
+# The PEP 639 license expression below needs 77, which is also new enough not to want `wheel` declared here.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "djanquiltdb"
+dynamic = ["version"]
+description = "Multi-schema, multi-cluster, flexible horizontal database sharding for Django applications."
+readme = "README.rst"
+requires-python = ">=3.14"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [
+    { name = "DjanQuiltDB Project", email = "djanquiltdb@portal42.net" },
+    { name = "Cloud Linux Software, Inc.", email = "info@cloudlinux.com" },
+    { name = "Patchman B.V.", email = "hello@patchman.co" },
+]
+keywords = [
+    "django",
+    "database",
+    "sharding",
+    "postgresql",
+    "multi-tenant",
+    "horizontal-scaling",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Framework :: Django",
+    "Framework :: Django :: 6.0",
+    "Framework :: Django :: 6.1",
+    "Topic :: Database",
+]
+dependencies = [
+    "django>=6.0,<7.0",
+    "psycopg[binary]>=3.0.0",
+    "progressbar2",
+]
+
+[project.optional-dependencies]
+postgres-objects = [
+    "djanquiltdb-plugin-postgres-objects>=1.0,<2.0",
+]
+lint = [
+    "ruff==0.15.21",
+]
+test = [
+    "dj-database-url==2.1.0",
+    "django-braces==1.15.0",
+    "tblib",
+    "filelock",
+    "coverage",
+    "PyYAML",
+]
+docs = [
+    "sphinx>=8,<10",
+    "sphinx-rtd-theme>=3.1,<4",
+]
+dev = [
+    "djanquiltdb[test,lint,docs]",
+    "pre-commit>=4.0",
+    # Native TOML configuration, so that tox.ini is not needed, landed in 4.21.
+    "tox>=4.21",
+    "build",
+    "twine",
+]
+
+[project.urls]
+Homepage = "https://github.com/DjanQuiltDB/djanquiltdb"
+Repository = "https://github.com/DjanQuiltDB/djanquiltdb"
+Documentation = "https://djanquiltdb.readthedocs.io/"
+Changelog = "https://github.com/DjanQuiltDB/djanquiltdb/blob/master/packages/djanquiltdb/CHANGELOG.rst"
+Issues = "https://github.com/DjanQuiltDB/djanquiltdb/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "djanquiltdb.__version__" }
+
+# src/ holds only shippable code (djanquiltdb.testing, the harness plugin suites run on, deliberately ships);
+# the suite itself lives outside the package under tests/.
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+djanquiltdb = ["**/*.html"]
+
+[tool.coverage.run]
+branch = true
+source = ["djanquiltdb"]
+concurrency = ["multiprocessing"]
+parallel = true
+sigterm = true
+
+# Data is recorded against the editable install under src/, with tests/ as the working directory; map any install
+# location back onto it so reports combine.
+[tool.coverage.paths]
+source = [
+    "../src/djanquiltdb",
+    "*/src/djanquiltdb",
+    "*/site-packages/djanquiltdb",
+]
+
+[tool.coverage.report]
+omit = ["*/.tox/*"]
+fail_under = 83
+
+[tool.coverage.html]
+directory = "../coverage"
+
+# Shared settings live in ruff.toml at the repository root; only the src roots are per package.
+[tool.ruff]
+extend = "../../ruff.toml"
+src = ["src", "tests"]
