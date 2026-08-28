@@ -12,7 +12,7 @@ from djanquiltdb import ShardingMode
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import class_method_use_shard, shard_aware_from_db
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.plugins import load_plugins
+from djanquiltdb.plugins import load_plugins, raise_for_duplicate_plugin_names
 from djanquiltdb.postgresql_backend.base import ShardDatabaseWrapper
 from djanquiltdb.utils import get_all_mirrored_models, get_all_public_models, get_all_sharded_models
 
@@ -90,6 +90,8 @@ def _register_checks():
 
 
 def _install_plugins():
+    raise_for_duplicate_plugin_names()
+
     for plugin in load_plugins():
         plugin.install()
 

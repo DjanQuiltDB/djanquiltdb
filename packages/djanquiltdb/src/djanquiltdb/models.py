@@ -4,7 +4,15 @@ from django.db import connections, models, transaction
 from django.db.models import Q
 
 from djanquiltdb import STATES, State
+from djanquiltdb.plugins import install_plugin_importer, served_plugin_module
 from djanquiltdb.utils import delete_schema, get_shard_class, use_shard
+
+# A plugin's models module is served as the submodule djanquiltdb.models.<plugin>, and the import system only asks
+# PluginImporter for a submodule when the parent module has a __path__. The list is empty, because no submodule is found
+# by searching it. Setting __path__ does not change how Django imports this module as the models module of the app.
+__path__ = []
+
+install_plugin_importer()
 
 
 class MappingQuerySet(models.QuerySet):
@@ -140,3 +148,16 @@ class BaseQuiltSession(AbstractBaseSession):
 
     class Meta:
         abstract = True
+
+
+def __getattr__(name):
+    """
+    Serves the models module of a plugin under the plugin's registered name, for plain attribute access.
+    :class:`~djanquiltdb.plugins.PluginImporter` handles import statements.
+    """
+    module = served_plugin_module(__name__, name)
+
+    if module is None:
+        raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+
+    return module

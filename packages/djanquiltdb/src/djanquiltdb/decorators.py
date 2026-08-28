@@ -11,9 +11,17 @@ from django.test import override_settings
 from djanquiltdb import STATES, ShardingMode
 from djanquiltdb.db import connection
 from djanquiltdb.options import ShardOptions
+from djanquiltdb.plugins import install_plugin_importer
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.router import get_active_connection
 from djanquiltdb.utils import get_all_databases, transaction_for_every_node, use_shard
+
+# A plugin's decorators are served as the submodule djanquiltdb.decorators.<plugin>, and the import system only asks
+# PluginImporter for a submodule when the parent module has a __path__. The list is empty, because no submodule is found
+# by searching it.
+__path__ = []
+
+install_plugin_importer()
 
 shard_mapping_models = False
 
@@ -446,15 +454,24 @@ class override_sharding_setting(override_settings):
 
 def __getattr__(name):
     """
-    Serve decorators any plugin provides as members of this module. Underscore-prefixed names stay private
-    to the plugin module: only its public decorators become attributes here.
+    Serves the decorators module of a plugin under the plugin's registered name, and serves the decorators of every
+    plugin directly, unless the plugin sets ``SERVE_UNQUALIFIED = False``.
     """
-    from djanquiltdb.plugins import load_plugins
+    from djanquiltdb.plugins import load_plugins, served_plugin_module
 
-    if not name.startswith('_'):
-        for plugin in load_plugins():
-            decorators = getattr(plugin, 'decorators', None)
-            if decorators is not None and hasattr(decorators, name):
-                return getattr(decorators, name)
+    if name.startswith('_'):
+        raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+
+    decorators = served_plugin_module(__name__, name)
+
+    if decorators is not None:
+        return decorators
+
+    for plugin in load_plugins():
+        decorators = getattr(plugin, 'decorators', None)
+        if decorators is None or not getattr(decorators, 'SERVE_UNQUALIFIED', True):
+            continue
+        if hasattr(decorators, name):
+            return getattr(decorators, name)
 
     raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
