@@ -1,9 +1,6 @@
-from django.apps import apps
-from django.db.migrations.autodetector import MigrationAutodetector
-from django.db.migrations.loader import MigrationLoader
-from django.db.migrations.questioner import NonInteractiveMigrationQuestioner
-from django.db.migrations.state import ProjectState
 from django.test import SimpleTestCase
+
+from djanquiltdb.testing import pending_migration_changes
 
 # The apps whose migrations this repository maintains. Contrib apps are deliberately left out: their migrations are
 # not ours to keep in step, and they show up as pending here anyway, because the cases that swap AUTH_USER_MODEL
@@ -25,15 +22,4 @@ class NoPendingMigrationsTestCase(SimpleTestCase):
         tables from the models, so the two halves of the suite quietly disagree rather than failing. A drifting field
         also makes the unmigrated-changes notice of `migrate` fire on a fully migrated database, where it means nothing.
         """
-        loader = MigrationLoader(None, ignore_no_migrations=True)
-        autodetector = MigrationAutodetector(
-            loader.project_state(),
-            ProjectState.from_apps(apps),
-            # The questioner writes through a logger it is only given by makemigrations itself, and asking about a
-            # field that turned non-nullable is enough to reach it. Passing a no-op keeps a regression here a
-            # readable assertion failure rather than a TypeError raised from inside the autodetector.
-            NonInteractiveMigrationQuestioner(dry_run=True, log=lambda message: None),
-        )
-        changes = autodetector.changes(graph=loader.graph)
-
-        self.assertEqual({app_label: changes[app_label] for app_label in changes.keys() & OWNED_APPS}, {})
+        self.assertEqual(pending_migration_changes(OWNED_APPS), {})

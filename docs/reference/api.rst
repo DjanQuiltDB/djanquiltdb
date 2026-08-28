@@ -151,6 +151,8 @@ Ships with the package rather than with the suite, so a project's own tests and 
 
 .. autofunction:: disable_db_reconnect
 
+.. autofunction:: pending_migration_changes
+
 
 Plugins
 =======

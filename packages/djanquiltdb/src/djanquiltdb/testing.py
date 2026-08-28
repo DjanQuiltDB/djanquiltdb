@@ -10,10 +10,50 @@ import functools
 import itertools
 from unittest import mock
 
+from django.apps import apps
 from django.db import DEFAULT_DB_ALIAS, connections
+from django.db.migrations.autodetector import MigrationAutodetector
+from django.db.migrations.loader import MigrationLoader
+from django.db.migrations.questioner import NonInteractiveMigrationQuestioner
+from django.db.migrations.state import ProjectState
 from django.test import TestCase, TransactionTestCase
 
 from djanquiltdb.router import DynamicDbRouter, set_active_connection
+
+
+def pending_migration_changes(owned_apps, ignored_operations=()):
+    """
+    Returns the model changes that ``makemigrations`` would write for ``owned_apps``, keyed by app label. Operations
+    whose class is in ``ignored_operations`` are skipped, and an app that has no operations left is not included.
+
+    The test suites of DjanQuiltDB and its plugins assert that this is empty. Their migrations are maintained by hand,
+    and the other tests run against the schema that the migrations build, so they do not always notice a model change
+    that has no migration.
+    """
+    loader = MigrationLoader(None, ignore_no_migrations=True)
+    autodetector = MigrationAutodetector(
+        loader.project_state(),
+        ProjectState.from_apps(apps),
+        # The questioner calls a log function for a field that becomes non-nullable, and only makemigrations passes one.
+        # A function that does nothing makes such a change fail as an assertion, and not as a TypeError.
+        NonInteractiveMigrationQuestioner(dry_run=True, log=lambda message: None),
+    )
+    changes = autodetector.changes(graph=loader.graph)
+
+    pending = {}
+
+    for app_label in changes.keys() & frozenset(owned_apps):
+        operations = [
+            operation
+            for migration in changes[app_label]
+            for operation in migration.operations
+            if not isinstance(operation, tuple(ignored_operations))
+        ]
+
+        if operations:
+            pending[app_label] = operations
+
+    return pending
 
 
 class CleanShardingArtifactsMixin:
