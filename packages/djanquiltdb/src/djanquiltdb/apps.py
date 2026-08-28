@@ -14,7 +14,12 @@ from djanquiltdb.decorators import class_method_use_shard, shard_aware_from_db
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.plugins import load_plugins, raise_for_duplicate_plugin_names
 from djanquiltdb.postgresql_backend.base import ShardDatabaseWrapper
-from djanquiltdb.utils import get_all_mirrored_models, get_all_public_models, get_all_sharded_models
+from djanquiltdb.utils import (
+    OverrideShardingModeWithLowercaseKeys,
+    get_all_mirrored_models,
+    get_all_public_models,
+    get_all_sharded_models,
+)
 
 
 class DjanQuiltDBConfig(AppConfig):
@@ -48,7 +53,7 @@ class DjanQuiltDBConfig(AppConfig):
             _validate_override_sharding_mode_entry(key, value)
 
         # Convert app and model names to lowercase
-        settings.QUILT_DB['OVERRIDE_SHARDING_MODE'] = dict(
+        settings.QUILT_DB['OVERRIDE_SHARDING_MODE'] = OverrideShardingModeWithLowercaseKeys(
             (tuple(x.lower() for x in k), v) for k, v in override_sharding_mode.items()
         )
 
