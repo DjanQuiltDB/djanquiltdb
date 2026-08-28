@@ -167,13 +167,22 @@ def make_shard_aware_from_db(from_db):
 
 def post_init(func):
     @functools.wraps(func)
-    def inner(self, *args, hints=None, **kwargs):
+    def inner(self, *args, **kwargs):
+        # QuerySet.__init__ takes (model, query, using, hints), and django-pghistory's EventQuerySet passes all four
+        # positionally. The fourth positional argument is the hints, and a subclass can take more arguments after it,
+        # so the hints are replaced in place and every argument keeps its position.
+        if len(args) >= 4:
+            func(self, *args[:3], with_shard_options(args[3]), *args[4:], **kwargs)
+        else:
+            func(self, *args, **{**kwargs, 'hints': with_shard_options(kwargs.get('hints'))})
+
+    def with_shard_options(hints):
         hints = hints or {}
 
         if '_shard_options' not in hints and not connection.is_public_schema():
             hints['_shard_options'] = connection.shard_options
 
-        func(self, *args, hints=hints, **kwargs)
+        return hints
 
     inner.__decorator__ = post_init
     return inner
