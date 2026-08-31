@@ -6,10 +6,11 @@ from django.contrib.auth.models import AbstractBaseUser
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connections, models
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import isolate_apps
 
 from djanquiltdb import ShardingMode, State
 from djanquiltdb.db import connection
-from djanquiltdb.decorators import sharded_model
+from djanquiltdb.decorators import class_method_use_shard, sharded_model
 from djanquiltdb.models import BaseShard
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME, DatabaseWrapper, ShardDatabaseWrapper
@@ -593,3 +594,39 @@ class ConnectionTestCase(SimpleTestCase):
         from django.db import connection as django_connection
 
         self.assertIs(django_connection, connection)
+
+
+class DescriptorRaisingOnClassAccess:
+    """
+    A class attribute that raises when it is read through the class, as django-pghistory's pgh_event_model can.
+    """
+
+    def __get__(self, instance, owner):
+        raise ValueError('this attribute cannot be read through the class')
+
+
+class InitializeShardedModelsTestCase(SimpleTestCase):
+    @isolate_apps('djanquiltdb')
+    def test_a_class_attribute_that_raises_on_class_access_does_not_stop_initialization(self):
+        """
+        Case: A sharded model has a descriptor that raises when it is read through the class, and the sharded models are
+              initialized.
+        Expected: Initialization completes, and the methods of the model are decorated with class_method_use_shard.
+        """
+        from djanquiltdb.apps import _initialize_sharded_models
+
+        @sharded_model()
+        class Cracker(models.Model):
+            raises_on_class_access = DescriptorRaisingOnClassAccess()
+
+            # Only the decoration of this method is tested, so the method is never called.
+            def crumble(self):  # pragma: no cover
+                return 'crumbled'
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with mock.patch('djanquiltdb.apps.get_all_sharded_models', return_value=[Cracker]):
+            _initialize_sharded_models()
+
+        self.assertIs(Cracker.crumble.__decorator__[0], class_method_use_shard)

@@ -1,6 +1,5 @@
 import functools
 import inspect
-import types
 
 from django.apps import AppConfig
 from django.conf import settings
@@ -133,14 +132,12 @@ def _initialize_sharded_models():
     from_db_functions = {model: model.from_db for model in get_all_sharded_models(include_proxy=True)}
 
     for model in get_all_sharded_models(include_proxy=True):
-        for attr, func in inspect.getmembers(model, inspect.isfunction):
-            # getattr(model, attr) will trigger dynamic lookup via the descriptor protocol,  __getattr__ or
-            # __getattribute__. Therefore, we use inspect.getattr_static to strip out staticmethods (which we don't want
-            # to decorate).
-            if isinstance(inspect.getattr_static(model, attr), types.FunctionType):
-                # And decorate all model methods so that the methods will all run in the same shard context as the
-                # instance is living in
-                setattr(model, attr, class_method_use_shard(func))
+        # The members are listed statically, because a descriptor may raise when it is read through the class (such as
+        # django-pghistory's pgh_event_model), and an exception in AppConfig.ready() stops the project from starting.
+        # The static listing also skips staticmethods and classmethods, because it returns them as wrapper objects.
+        for attr, func in inspect.getmembers_static(model, inspect.isfunction):
+            # Decorate every model method, so that each method runs in the shard that the instance belongs to.
+            setattr(model, attr, class_method_use_shard(func))
 
         # Setting the from_db function for a Model that is the parent of a ProxyModel will corrupt the ProxyModels
         # version of the same function. So we have saved the original from_db function at the start, and use that.
