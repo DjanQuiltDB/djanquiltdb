@@ -127,6 +127,63 @@ class GetValidatedSchemaNameTestCase(ShardingTestCase):
         self.assertEqual(get_validated_schema_name('template', is_template=True), 'template')
 
 
+class SearchPathExecuteWrapperTestCase(ShardingTransactionTestCase):
+    def test_the_search_path_statement_reaches_execute_wrappers_as_a_string(self):
+        """
+        Case: An execute wrapper is registered, as pghistory.context() does, and a shard is used, so that the backend
+              runs SET search_path.
+        Expected: Every SET search_path statement that the wrapper receives is a str.
+        """
+        create_template_schema()
+        shard = Shard.objects.create(alias='one', schema_name='one_schema', node_name='default', state=State.ACTIVE)
+
+        statements_received_by_wrapper = []
+
+        def record_statement(execute, sql, params, many, context):
+            statements_received_by_wrapper.append(sql)
+            return execute(sql, params, many, context)
+
+        with connections['default'].execute_wrapper(record_statement):
+            with use_shard(shard):
+                pass
+
+        search_path_statements = [
+            statement for statement in statements_received_by_wrapper if 'search_path' in str(statement).lower()
+        ]
+
+        self.assertTrue(
+            search_path_statements,
+            f'The wrapper received no SET search_path. It received {statements_received_by_wrapper!r}',
+        )
+
+        for statement in search_path_statements:
+            self.assertIsInstance(statement, str)
+
+    def test_a_schema_name_with_a_double_quote_is_put_on_the_search_path(self):
+        """
+        Case: A schema whose name has a double quote in it, which was created outside DjanQuiltDB, is used.
+        Expected: The schema is the current schema, so its name is escaped in the SET search_path statement.
+        """
+        schema_name = 'quoted"schema'
+        quoted_schema_name = '"quoted""schema"'
+
+        with connections['default'].cursor() as cursor:
+            cursor.execute(f'CREATE SCHEMA {quoted_schema_name}')
+
+        self.addCleanup(self.drop_schema, quoted_schema_name)
+
+        with use_shard(node_name='default', schema_name=schema_name) as env:
+            with env.connection.cursor() as cursor:
+                cursor.execute('SELECT current_schema()')
+
+                self.assertEqual(cursor.fetchone()[0], schema_name)
+
+    @staticmethod
+    def drop_schema(quoted_schema_name):
+        with connections['default'].cursor() as cursor:
+            cursor.execute(f'DROP SCHEMA IF EXISTS {quoted_schema_name} CASCADE')
+
+
 class PostgresBackendTestCase(ShardingTransactionTestCase):
     @mock.patch('django.db.backends.postgresql.base.DatabaseWrapper.close')
     def test_close(self, mock_close):

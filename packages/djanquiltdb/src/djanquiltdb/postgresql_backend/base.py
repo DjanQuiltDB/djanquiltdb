@@ -20,7 +20,6 @@ from django.db.backends.base.base import NO_DB_ALIAS
 from django.db.backends.postgresql.base import DatabaseWrapper as BaseDatabaseWrapper
 from django.db.utils import DatabaseError, IntegrityError
 from django.utils.module_loading import import_string
-from psycopg import sql
 from psycopg.errors import InternalError
 
 from djanquiltdb.postgresql_backend.introspection import DatabaseSchemaIntrospection
@@ -1625,10 +1624,14 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             # if the next instruction is not a rollback it will just fail also, so
             # we do not have to worry that it's not the good one
             try:
-                identifiers = [sql.Identifier(x) for x in search_paths]
-                sql_ = sql.SQL('SET search_path = {}').format(sql.SQL(', ').join(identifiers))
+                # The statement is a plain string, because Django documents the sql argument of an execute wrapper as a
+                # string, and the wrapper that pghistory.context() registers fails on a psycopg Composed object. A
+                # schema that was created outside DjanQuiltDB can have any name, so each name is quoted here, with
+                # every double quote in it doubled, as Postgres escapes an identifier. quote_name() does not do that.
+                identifiers = ', '.join('"{}"'.format(schema.replace('"', '""')) for schema in search_paths)
+                sql_ = 'SET search_path = {}'.format(identifiers)
                 cursor_for_search_path.execute(sql_)
-                logger.debug(str(sql_))
+                logger.debug(sql_)
             except DatabaseError, InternalError:
                 logger.warning('Something went wrong with setting the search path.', exc_info=True)
             else:
