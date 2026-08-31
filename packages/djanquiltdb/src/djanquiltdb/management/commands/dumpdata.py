@@ -2,7 +2,6 @@ import json
 import warnings
 from collections import OrderedDict
 
-import yaml
 from django.apps import apps
 from django.core import serializers
 from django.core.management.base import CommandError
@@ -229,10 +228,11 @@ class Command(DumpDataCommand):
             if indent:
                 stream.write('\n')
         elif format == 'yaml':
+            yaml = _import_pyyaml()
             yaml.dump(
                 dicts,
                 stream,
-                Dumper=_OrderedYamlDumper,
+                Dumper=_build_ordered_yaml_dumper(yaml),
                 default_flow_style=False,
                 allow_unicode=True,
                 indent=indent,
@@ -253,16 +253,32 @@ def _order_keys(d):
     return ordered
 
 
-class _OrderedYamlDumper(yaml.SafeDumper):
-    """YAML dumper that preserves OrderedDict key order."""
+def _import_pyyaml():
+    """
+    Imports PyYAML when the yaml format is used, as Django's own serializers do. Every other format works without
+    PyYAML, and so does listing the commands, which imports every command module.
+    """
+    try:
+        import yaml
+    except ImportError as error:
+        raise CommandError('The yaml format requires PyYAML. Install it with: pip install PyYAML.') from error
 
-    pass
+    return yaml
 
 
-_OrderedYamlDumper.add_representer(
-    OrderedDict,
-    lambda dumper, data: dumper.represent_mapping(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, data.items()),
-)
+def _build_ordered_yaml_dumper(yaml):
+    """
+    Builds a YAML dumper class that keeps the key order of an OrderedDict. The class is built inside a function because
+    it subclasses yaml.SafeDumper, and PyYAML is only imported when the yaml format is used.
+    """
+    ordered_dumper_class = type('_OrderedYamlDumper', (yaml.SafeDumper,), {})
+
+    ordered_dumper_class.add_representer(
+        OrderedDict,
+        lambda dumper, data: dumper.represent_mapping(yaml.resolver.BaseResolver.DEFAULT_MAPPING_TAG, data.items()),
+    )
+
+    return ordered_dumper_class
 
 
 class _DjangoTypeEncoder(json.JSONEncoder):

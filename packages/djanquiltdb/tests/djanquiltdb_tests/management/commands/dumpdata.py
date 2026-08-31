@@ -1,10 +1,16 @@
 import json
 import os
+import sys
 import tempfile
+from collections import OrderedDict
+from unittest import mock
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
+from django.test import SimpleTestCase
 
 from djanquiltdb import State
+from djanquiltdb.management.commands import dumpdata as dumpdata_command
 from djanquiltdb.utils import create_template_schema, use_shard
 from djanquiltdb_tests import ShardingTestCase
 from example.models import Organization, Shard, Type
@@ -160,3 +166,26 @@ class DumpDataTestCase(ShardingTestCase):
         """
         data = self._call_dumpdata('example.Organization')
         self.assertEqual(data, [])
+
+
+class DumpDataYamlDependencyTestCase(SimpleTestCase):
+    def test_importing_pyyaml_raises_a_command_error_when_pyyaml_is_missing(self):
+        """
+        Case: The helper that imports PyYAML for the yaml format is called in an environment without PyYAML.
+        Expected: A CommandError that says what to install, and not an ImportError.
+        """
+        with mock.patch.dict(sys.modules, {'yaml': None}):
+            with self.assertRaisesMessage(CommandError, 'PyYAML'):
+                dumpdata_command._import_pyyaml()
+
+    def test_the_yaml_dumper_preserves_key_order(self):
+        """
+        Case: The YAML dumper dumps an OrderedDict whose keys are not in sorted order.
+        Expected: The dumper is a SafeDumper, and the output has the keys in the order of the OrderedDict.
+        """
+        import yaml
+
+        dumper = dumpdata_command._build_ordered_yaml_dumper(yaml)
+
+        self.assertTrue(issubclass(dumper, yaml.SafeDumper))
+        self.assertEqual(yaml.dump(OrderedDict([('b', 1), ('a', 2)]), Dumper=dumper), 'b: 1\na: 2\n')
