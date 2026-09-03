@@ -13,8 +13,9 @@ __version__ = '1.0.0'
 
 def install():
     """
-    Run when the app registry is ready.
+    Registers the plugin's system checks. DjanQuiltDB calls this once the app registry is ready.
     """
+    from djanquiltdb_plugin_pghistory import checks  # noqa: F401
 
 
 plugin = SimpleNamespace(decorators=decorators, models=models, install=install)
