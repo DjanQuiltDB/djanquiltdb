@@ -50,12 +50,12 @@ model in the same place as the tracked model, so the history of a sharded model 
     class User(models.Model):
         ...
 
-The ``pghistory`` namespace is importable from ``djanquiltdb.decorators`` beside the model decorators, as above; the
-same functions are also importable directly from ``djanquiltdb_plugin_pghistory``. The sharding mode is read from the
-tracked model, so the mode decorator goes below ``@track()``. Models that cannot carry the decorator, such as
-third-party ones, resolve through ``QUILT_DB['OVERRIDE_SHARDING_MODE']``, and the explicit forms ``track_sharded``,
-``track_mirrored`` and ``track_public`` state the placement at the call site instead. ``create_event_model()`` is
-mirrored the same way.
+The sharding mode is read from the tracked model, so the mode decorator goes below ``@track()``. For a model that cannot
+have the decorator, such as a third-party model, set its mode in ``QUILT_DB['OVERRIDE_SHARDING_MODE']``, or use
+``track_sharded``, ``track_mirrored`` or ``track_public``, which do not read the mode from the model.
+
+The tracking functions can also be imported by name, as in ``from djanquiltdb.decorators.pghistory import track``. The
+event bases and the queryset are in ``djanquiltdb.models.pghistory``.
 
 Install it through DjanQuiltDB's extra::
 

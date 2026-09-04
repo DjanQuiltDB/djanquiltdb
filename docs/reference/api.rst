@@ -159,7 +159,42 @@ Plugins
 
 .. currentmodule:: djanquiltdb.plugins
 
-Optional features ship as separate distributions and are discovered through the ``djanquiltdb.plugins`` entry-point
-group. See :doc:`/plugins/postgres-objects/index` for the one in this repository.
+Optional features are separate distributions, which DjanQuiltDB finds through the ``djanquiltdb.plugins`` entry-point
+group. See :doc:`/plugins/postgres-objects/index` and :doc:`/plugins/pghistory/index` for the plugins in this
+repository.
+
+A plugin's API is served from inside ``djanquiltdb``, under the name that the plugin registers, so that name is part of
+the plugin's public API. ``djanquiltdb.decorators`` and ``djanquiltdb.models`` each serve the plugin module that has the
+same name:
+
+``djanquiltdb.decorators.<name>``
+    The plugin's ``decorators`` module, so its decorators are imported from the same place as the model decorators.
+
+``djanquiltdb.models.<name>``
+    The plugin's ``models`` module: base classes, querysets, and the like.
+
+A plugin that has only one of the two modules is only served under that one. Both namespaces support importing the
+plugin's module and importing a single name from it, and both ways are supported::
+
+    from djanquiltdb.decorators import pghistory
+    from djanquiltdb.decorators.pghistory import track
+
+The served module is the plugin's own module object and not a copy, so a class is the same class whichever way it is
+imported. Neither namespace is a package on disk: the names are resolved when they are imported or read, so a plugin is
+only imported when something uses it. A type checker cannot follow these names, so for a type checker, import the names
+from the modules in the plugin's distribution package that define them.
+
+By default, the decorators of a plugin are also served directly from ``djanquiltdb.decorators``, next to the model
+decorators, which suits a placement decorator such as ``@public_function()``. A plugin that keeps its own namespace sets
+``SERVE_UNQUALIFIED = False`` in its decorators module. ``djanquiltdb.models`` has no such setting, because it only
+serves a plugin under the plugin's name.
+
+When two installed distributions register the same name, DjanQuiltDB raises ``ImproperlyConfigured`` the first time it
+looks up a plugin. A registered plugin name takes precedence over a decorator with the same name that another plugin
+serves directly.
 
 .. autofunction:: load_plugins
+
+.. autofunction:: load_plugin_by_name
+
+.. autofunction:: served_plugin_module

@@ -76,6 +76,16 @@ See :doc:`/database_objects/views`, :doc:`/database_objects/functions` and :doc:
 for what the extra changes in each case, and :doc:`the plugin's documentation </plugins/postgres-objects/index>` for the
 rest.
 
+.. _`pghistory_extra`:
+
+The ``pghistory`` extra adds model history that works with sharding::
+
+    pip install djanquiltdb[pghistory]
+
+It installs a plugin that makes this library work with `django-pghistory <https://django-pghistory.readthedocs.io/>`_.
+The plugin's ``track()`` works like ``pghistory.track()``, and places each event model in the same place as the tracked
+model. See :doc:`the plugin's documentation </plugins/pghistory/index>`.
+
 If you wish to manage database triggers, we recommend
 `django-pgtrigger <https://github.com/AmbitionEng/django-pgtrigger>`_. See :doc:`/database_objects/triggers` for more
 information.

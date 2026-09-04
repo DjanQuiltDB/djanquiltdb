@@ -52,8 +52,8 @@ enabled by adding it to ``INSTALLED_APPS``.
     contrib/authentication
     contrib/admin_shard_switcher
 
-Optional features ship as plugins: separately installed distributions DjanQuiltDB discovers through the
-``djanquiltdb.plugins`` entry-point group. Each is installed through an extra of ``djanquiltdb`` itself.
+Optional features are plugins: distributions that are installed separately, through an extra of ``djanquiltdb``.
+DjanQuiltDB finds them through the ``djanquiltdb.plugins`` entry-point group.
 
 .. toctree::
     :maxdepth: 2
@@ -61,6 +61,7 @@ Optional features ship as plugins: separately installed distributions DjanQuiltD
 
     integrations/celery
     plugins/postgres-objects/index
+    plugins/pghistory/index
 
 .. toctree::
     :maxdepth: 2

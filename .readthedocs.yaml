@@ -17,3 +17,5 @@ python:
         - docs
     - method: pip
       path: packages/djanquiltdb-plugin-postgres-objects
+    - method: pip
+      path: packages/djanquiltdb-plugin-pghistory

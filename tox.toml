@@ -406,9 +406,12 @@ labels = ["docs"]
 deps = [
     "Django>=6.1,<6.2",
     "-e {tox_root}/packages/djanquiltdb[docs]",
-    # conf.py imports the plugin for its version, and the plugin imports django-postgres-objects.
+    # conf.py imports each plugin to read its version, and the API reference imports the libraries that the plugins
+    # integrate.
     "django-postgres-objects>=1.0,<2.0",
     "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects",
+    "django-pghistory>=3.9.2,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-pghistory",
 ]
 change_dir = "{tox_root}"
 commands = [["sphinx-build", "-b", "html", "-W", "docs", "docs/_build/html"]]

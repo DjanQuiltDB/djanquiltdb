@@ -16,3 +16,7 @@ in ``INSTALLED_APPS``.
 
 See :doc:`/database_objects/triggers` for why both settings matter. ``MUTE_PGTRIGGER_COMPATIBILITY_WARNING`` (see
 :doc:`/reference/settings`) silences both checks.
+
+Plugins register their own checks, with their own prefix. The pghistory plugin documents
+``djanquiltdb_plugin_pghistory.W001`` to ``W003`` and ``E002`` on :doc:`its installation page
+</plugins/pghistory/installation>`, and ``E001`` and ``E003`` on :doc:`its tracking page </plugins/pghistory/tracking>`.

@@ -66,6 +66,10 @@ pointed at and ends up in the template and in each shard, next to the tables it 
 cloned trigger to the shard's own copy of it. The small helper behind ``pgtrigger.ignore`` is qualified into the public
 schema instead, so it is created once and shared by all of them.
 
+`django-pghistory <https://django-pghistory.readthedocs.io/>`_ builds model history on top of django-pgtrigger. The
+:ref:`pghistory extra <pghistory_extra>` installs a plugin that stores each generated event model in the same place as
+its tracked model. See :doc:`its documentation </plugins/pghistory/index>`.
+
 
 Why the management commands do not work
 ---------------------------------------
