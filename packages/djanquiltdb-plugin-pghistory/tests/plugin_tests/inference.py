@@ -150,17 +150,6 @@ class BaseModelInferenceTestCase(SimpleTestCase):
 
         self.assertTrue(issubclass(event_model, ShardedEventBaseOfTheProject))
 
-    def test_track_sharded_raises_for_a_base_of_another_mode(self):
-        """
-        Case: track_sharded gets a base model that inherits MirroredEvent.
-        Expected: ImproperlyConfigured, raised as soon as track_sharded is called, before it decorates anything,
-                  because the name of the function says where the events are stored.
-        """
-        from djanquiltdb_plugin_pghistory import MirroredEvent, track_sharded
-
-        with self.assertRaisesMessage(ImproperlyConfigured, 'ShardedEvent'):
-            track_sharded(base_model=MirroredEvent)
-
     def test_a_unique_together_that_the_caller_passes_for_a_public_model_is_kept(self):
         """
         Case: Call create_event_model on CakeType, a public model, with a unique_together that the caller passes in

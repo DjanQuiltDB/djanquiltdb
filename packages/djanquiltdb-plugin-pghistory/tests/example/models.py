@@ -87,6 +87,46 @@ class Muffin(models.Model):
         app_label = 'example'
 
 
+# Named trackers: a label for each operation, a condition on the update tracker, a delete tracker and a manual event.
+@track(
+    pghistory.InsertEvent('cookie.baked'),
+    pghistory.UpdateEvent('cookie.reglazed', condition=pghistory.AnyChange('glaze')),
+    pghistory.DeleteEvent('cookie.eaten'),
+    pghistory.ManualEvent('cookie.inspected'),
+)
+@sharded_model()
+class Cookie(models.Model):
+    name = models.CharField('name', max_length=128)
+    glaze = models.CharField('glaze', max_length=128)
+
+    class Meta:
+        app_label = 'example'
+
+
+# Two track() decorators, each of which records a different part of the row, shaped by fields, exclude, model_name and
+# obj_field. Neither event model records every field, so neither can revert.
+@track(
+    pghistory.InsertEvent('scone.iced_insert'),
+    pghistory.UpdateEvent('scone.iced_update'),
+    fields=['icing'],
+    model_name='SconeIcingEvent',
+    obj_field=pghistory.ObjForeignKey(related_name='icing_events'),
+)
+@track(
+    pghistory.InsertEvent('scone.plain_insert'),
+    exclude=['icing'],
+    obj_field=None,
+    model_name='SconePlainEvent',
+)
+@sharded_model()
+class Scone(models.Model):
+    name = models.CharField('name', max_length=128)
+    icing = models.CharField('icing', max_length=128)
+
+    class Meta:
+        app_label = 'example'
+
+
 class GroupProxy(Group):
     """
     A proxy of a third-party model, as a project tracking one would declare it. It carries no mode of its own: the mode
