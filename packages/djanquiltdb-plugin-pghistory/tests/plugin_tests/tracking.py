@@ -1,3 +1,4 @@
+from django.db.migrations.state import ModelState
 from django.test import SimpleTestCase
 from djanquiltdb import State
 from djanquiltdb.testing import ShardingTestCase, ShardingTransactionTestCase
@@ -120,3 +121,14 @@ class PublicTrackingTestCase(ShardingTestCase):
 
         self.assertEqual(event.pgh_label, 'insert')
         self.assertEqual(CakeTypeEvent.objects.get_by_natural_key(*event.natural_key()), event)
+
+    def test_the_natural_key_of_a_public_event_model_is_not_seen_by_the_migrations(self):
+        """
+        Case: The unique_together of CakeTypeEvent, the events of a public model, is read, and its migration state is
+              built, as makemigrations does.
+        Expected: unique_together names pgh_id, which DjanQuiltDB reads as the natural key of a public model. The
+                  migration state has no unique_together, so the table gets no unique constraint next to its primary
+                  key.
+        """
+        self.assertEqual(CakeTypeEvent._meta.unique_together, (('pgh_id',),))
+        self.assertNotIn('unique_together', ModelState.from_model(CakeTypeEvent).options)

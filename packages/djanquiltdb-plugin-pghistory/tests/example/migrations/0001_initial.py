@@ -360,10 +360,6 @@ class Migration(migrations.Migration):
                 ),
             ),
         ),
-        migrations.AlterUniqueTogether(
-            name='caketypeevent',
-            unique_together={('pgh_id',)},
-        ),
         pgtrigger.migrations.AddTrigger(
             model_name='muffinevent',
             trigger=pgtrigger.compiler.Trigger(

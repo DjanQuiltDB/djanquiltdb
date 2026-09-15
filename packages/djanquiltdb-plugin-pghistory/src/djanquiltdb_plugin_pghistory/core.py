@@ -52,21 +52,6 @@ def _resolve_base_model(tracked_model, base_model):
     )
 
 
-def _add_public_event_unique_together(base_model, kwargs):
-    """
-    Adds ``unique_together = [['pgh_id']]`` to the meta kwarg when base_model is a public event base, unless the meta
-    kwarg sets its own unique_together.
-    """
-    if issubclass(base_model, public.Event):
-        meta = dict(kwargs.get('meta') or {})
-
-        if 'unique_together' not in meta:
-            meta['unique_together'] = [['pgh_id']]
-            kwargs = {**kwargs, 'meta': meta}
-
-    return kwargs
-
-
 def create_event_model(tracked_model, *trackers, base_model=None, **kwargs):
     """
     Calls ``pghistory.create_event_model`` with the plugin base for the sharding mode of the tracked model, and not with
@@ -74,9 +59,7 @@ def create_event_model(tracked_model, *trackers, base_model=None, **kwargs):
     """
     base_model = _resolve_base_model(tracked_model, base_model)
 
-    return pghistory.create_event_model(
-        tracked_model, *trackers, base_model=base_model, **_add_public_event_unique_together(base_model, kwargs)
-    )
+    return pghistory.create_event_model(tracked_model, *trackers, base_model=base_model, **kwargs)
 
 
 def track(*trackers, base_model=None, **kwargs):
@@ -89,13 +72,9 @@ def track(*trackers, base_model=None, **kwargs):
     """
 
     def track_with_resolved_base_model(tracked_model):
-        resolved_base_model = _resolve_base_model(tracked_model, base_model)
-
-        return pghistory.track(
-            *trackers,
-            base_model=resolved_base_model,
-            **_add_public_event_unique_together(resolved_base_model, kwargs),
-        )(tracked_model)
+        return pghistory.track(*trackers, base_model=_resolve_base_model(tracked_model, base_model), **kwargs)(
+            tracked_model
+        )
 
     return track_with_resolved_base_model
 

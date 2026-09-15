@@ -51,11 +51,14 @@ QUILT_DB = {
     'OVERRIDE_SHARDING_MODE': {
         ('auth',): ShardingMode.MIRRORED,
         ('contenttypes',): ShardingMode.MIRRORED,
-        # The documentation recommends PUBLIC, but the tests place pghistory's Context model in the shards, to cover the
-        # setup in which the events in a shard have a foreign key to the Context table in the same shard.
+        # In this run, pghistory's Context table is sharded. config.settings_public_context and
+        # config.settings_mirrored_context run the suite again with a public and a mirrored Context table.
         ('pghistory',): ShardingMode.SHARDED,
     },
 }
+
+# The example app gives sharded event models a foreign key to the Context table, to cover the normalized context.
+SILENCED_SYSTEM_CHECKS = ['djanquiltdb_plugin_pghistory.W005']
 
 # Denormalized context for the whole project. The Waffle, Danish and Strudel call sites in the example app pass
 # context_field=pghistory.ContextForeignKey() to cover the normalized context.

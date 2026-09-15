@@ -130,11 +130,20 @@ meta whenever the call site does not bring its own.
 Querying
 ========
 
-Event models are queried like any other model in a sharded project: inside :func:`~djanquiltdb.utils.use_shard` for
-sharded events, plainly for mirrored and public ones. The plugin's bases carry a queryset that resolves the
-argument conflict between pghistory's ``EventQuerySet`` and DjanQuiltDB's sharded queryset wrapping, and keeps
-pghistory's proxy fields resolving — including on Django 6, where the column aliasing of ``values()`` breaks the
-proxy-field CTE of django-pghistory releases up to at least 3.9.
+Event models are queried like any other model in a sharded project. The plugin's bases use a queryset that keeps
+pghistory's proxy fields working on Django 6, where the column aliasing of ``values()`` breaks the proxy-field CTE of
+django-pghistory releases up to at least 3.9.
+
+Statement-level triggers
+========================
+
+``level=pghistory.Statement``, at a call site or for the whole project through ``PGHISTORY_LEVEL``, works as in
+pghistory, and the events are stored in the shard that has the rows.
+
+It is the one tracking option whose SQL calls pghistory's ``_pgh_attach_context()`` function regardless of how the
+context is recorded, where a row-level trigger reads the session directly. The function is installed by the
+``pghistory`` app's own migrations, so it exists wherever :doc:`you placed that app <installation>` — inside each
+shard when it is sharded, in the public schema when it is public, and reachable from a shard either way.
 
 Reverting
 =========

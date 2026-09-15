@@ -3,7 +3,7 @@ from djanquiltdb.testing import pending_migration_changes
 
 # The apps whose migrations this project maintains. pghistory and pgtrigger are dependencies, so their migrations are
 # not maintained here.
-OWNED_APPS = frozenset({'djanquiltdb', 'example'})
+OWNED_APPS = frozenset({'djanquiltdb', 'example', 'unsharded_context_example'})
 
 
 class NoPendingModelMigrationsTestCase(SimpleTestCase):

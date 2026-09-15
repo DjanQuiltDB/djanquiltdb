@@ -139,10 +139,22 @@ class Waffle(models.Model):
         app_label = 'example'
 
 
+# Statement-level triggers, which fire once per statement over a transition table rather than once per row. Their
+# generated SQL calls _pgh_attach_context() whichever way the context is recorded, so unlike the row-level triggers
+# every other model here uses, they need that function to exist in the schema the trigger runs in.
+@track(level=pghistory.Statement)
+@sharded_model()
+class Croissant(models.Model):
+    name = models.CharField('name', max_length=128)
+
+    class Meta:
+        app_label = 'example'
+
+
 class GroupProxy(Group):
     """
-    A proxy of a third-party model, as a project tracking one would declare it. It carries no mode of its own: the mode
-    resolves through the concrete model's app, auth, which OVERRIDE_SHARDING_MODE marks as mirrored.
+    A proxy of a third-party model, without a mode of its own. It gets the mode of auth, which OVERRIDE_SHARDING_MODE
+    marks as mirrored.
     """
 
     class Meta:

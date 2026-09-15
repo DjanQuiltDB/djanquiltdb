@@ -4,17 +4,17 @@ from unittest import mock
 from django.apps import apps
 from django.db.migrations.state import ModelState
 from django.test import SimpleTestCase
-from djanquiltdb import State
+from djanquiltdb import ShardingMode
 from djanquiltdb.apps import _validate_public_models
 from djanquiltdb.testing import ShardingTransactionTestCase
-from djanquiltdb.utils import create_template_schema, use_shard
 from pghistory.models import Context, Events, MiddlewareEvents
 
-from djanquiltdb_plugin_pghistory.natural_keys import add_natural_keys_to_pghistory_models
-from example.models import Shard
+from djanquiltdb_plugin_pghistory.natural_keys import add_natural_keys_to_public_pghistory_models
+from plugin_tests.context_placement import run_only_when_the_context_table_is
 
 
-class PghistoryModelNaturalKeyTestCase(SimpleTestCase):
+@run_only_when_the_context_table_is(ShardingMode.PUBLIC)
+class PublicPghistoryModelNaturalKeyTestCase(SimpleTestCase):
     def test_the_natural_key_of_a_context_is_its_id(self):
         """
         Case: natural_key() is called on a Context.
@@ -48,7 +48,7 @@ class PghistoryModelNaturalKeyTestCase(SimpleTestCase):
         Expected: It returns the pgh_slug of the event, like Events does.
         """
         self.assertEqual(MiddlewareEvents(pgh_slug='example.CakeEvent:1').natural_key(), ('example.CakeEvent:1',))
-        self.assertEqual(MiddlewareEvents._meta.unique_together, ())
+        self.assertFalse(MiddlewareEvents._meta.unique_together)
 
     def test_the_unique_together_of_the_pghistory_models_is_not_seen_by_the_migrations(self):
         """
@@ -77,45 +77,56 @@ class PghistoryModelNaturalKeyTestCase(SimpleTestCase):
 
     def test_adding_the_natural_keys_again_keeps_the_manager_classes(self):
         """
-        Case: add_natural_keys_to_pghistory_models() runs a second time, as it does when AppConfig.ready() runs again.
+        Case: add_natural_keys_to_public_pghistory_models() runs a second time, as it does when AppConfig.ready() runs
+              again.
         Expected: The class of each manager is unchanged.
         """
         manager_classes = [type(manager) for manager in Events._meta.managers]
 
-        add_natural_keys_to_pghistory_models()
+        add_natural_keys_to_public_pghistory_models()
 
         self.assertEqual([type(manager) for manager in Events._meta.managers], manager_classes)
 
+
+@run_only_when_the_context_table_is(ShardingMode.SHARDED, ShardingMode.MIRRORED)
+class PghistoryModelWithoutNaturalKeyTestCase(SimpleTestCase):
+    def test_the_models_of_a_sharded_or_mirrored_pghistory_app_get_no_natural_key(self):
+        """
+        Case: The pghistory app is sharded or mirrored, so DjanQuiltDB requires no natural key of its models.
+        Expected: Context and Events are left unchanged: no natural_key(), no unique_together, and no
+                  get_by_natural_key() on their managers.
+        """
+        for model in [Context, Events]:
+            with self.subTest(model=model.__name__):
+                self.assertFalse(hasattr(model, 'natural_key'))
+                self.assertFalse(model._meta.unique_together)
+
+                for manager in model._meta.managers:
+                    self.assertFalse(hasattr(manager, 'get_by_natural_key'))
+
+
+class NaturalKeysWithoutThePghistoryAppTestCase(SimpleTestCase):
     def test_nothing_is_added_without_the_pghistory_app(self):
         """
-        Case: add_natural_keys_to_pghistory_models() runs while the pghistory app is not installed.
+        Case: add_natural_keys_to_public_pghistory_models() runs while the pghistory app is not installed.
         Expected: It returns without looking up the pghistory app, which does not exist without the app.
         """
         with mock.patch.object(apps, 'is_installed', return_value=False):
             with mock.patch.object(apps, 'get_app_config') as get_app_config:
-                add_natural_keys_to_pghistory_models()
+                add_natural_keys_to_public_pghistory_models()
 
         get_app_config.assert_not_called()
 
 
-class ContextLookupByNaturalKeyTestCase(ShardingTransactionTestCase):
+@run_only_when_the_context_table_is(ShardingMode.PUBLIC)
+class PublicContextLookupByNaturalKeyTestCase(ShardingTransactionTestCase):
     available_apps = ['djanquiltdb', 'example', 'pghistory', 'django.contrib.auth', 'django.contrib.contenttypes']
-
-    def setUp(self):
-        super().setUp()
-        create_template_schema()
-
-        self.shard = Shard.objects.create(
-            alias='one', schema_name='one_schema', node_name='default', state=State.ACTIVE
-        )
 
     def test_a_context_is_found_by_its_natural_key(self):
         """
-        Case: A Context row is created inside a shard, which reaches the Context table whether it is sharded or public,
-              and is looked up with get_by_natural_key().
+        Case: A Context row is created, and is looked up with get_by_natural_key().
         Expected: The lookup returns that row.
         """
-        with use_shard(self.shard):
-            context = Context.objects.create(metadata={'baked_by': 'ann'})
+        context = Context.objects.create(metadata={'baked_by': 'ann'})
 
-            self.assertEqual(Context.objects.get_by_natural_key(context.id), context)
+        self.assertEqual(Context.objects.get_by_natural_key(context.id), context)

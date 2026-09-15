@@ -1,7 +1,11 @@
+import sys
+
+import pghistory
 from django.conf import settings
 from django.contrib.auth.models import Group
 from django.core.exceptions import ImproperlyConfigured
 from django.db import models
+from django.db.migrations.state import ModelState
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import isolate_apps
 from djanquiltdb import ShardingMode
@@ -150,15 +154,35 @@ class BaseModelInferenceTestCase(SimpleTestCase):
 
         self.assertTrue(issubclass(event_model, ShardedEventBaseOfTheProject))
 
-    def test_a_unique_together_that_the_caller_passes_for_a_public_model_is_kept(self):
+    @isolate_apps('example')
+    def test_a_unique_together_that_the_caller_passes_for_a_public_model_follows_the_natural_key(self):
         """
-        Case: Call create_event_model on CakeType, a public model, with a unique_together that the caller passes in
-              meta.
-        Expected: The caller's value is kept. The pgh_id unique_together is only added when meta has none.
+        Case: Call create_event_model with the PublicEvent base and a unique_together that the caller passes in meta,
+              and build the migration state of the generated model, as makemigrations does. The model is concrete,
+              because only a concrete model gets the natural key, and it tracks a model of its own with a manual
+              tracker, so that no trigger and no tracker label is registered for the models of the example app.
+        Expected: The pgh_id natural key comes first in unique_together, where DjanQuiltDB reads the natural key, and
+                  the caller's value follows it. Only the caller's value is in the migration state, so only that one
+                  becomes a constraint.
         """
-        event_model = create_event_model(CakeType, abstract=True, meta={'unique_together': [['pgh_id', 'pgh_label']]})
 
-        self.assertEqual(event_model._meta.unique_together, (('pgh_id', 'pgh_label'),))
+        class LabelledRecipe(models.Model):
+            class Meta:
+                app_label = 'example'
+
+        event_model = create_event_model(
+            LabelledRecipe,
+            pghistory.ManualEvent('labelled_recipe.noted'),
+            base_model=PublicEvent,
+            model_name='LabelledRecipeEvent',
+            abstract=False,
+            meta={'unique_together': [['pgh_id', 'pgh_label']]},
+        )
+        # pghistory sets a concrete event model on the models module of its app.
+        self.addCleanup(delattr, sys.modules['example.models'], 'LabelledRecipeEvent')
+
+        self.assertEqual(event_model._meta.unique_together, (('pgh_id',), ('pgh_id', 'pgh_label')))
+        self.assertEqual(ModelState.from_model(event_model).options['unique_together'], {('pgh_id', 'pgh_label')})
 
     def test_explicit_base_model_is_accepted_for_a_model_without_a_mode(self):
         """

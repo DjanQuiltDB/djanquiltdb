@@ -309,6 +309,34 @@ commands = [
         "--pattern=*.py",
         { replace = "posargs", extend = true, default = [] },
     ],
+    # The suite again, with pghistory's Context table public, and once more with it mirrored. Its sharding mode is
+    # fixed when the test database is migrated, so each takes a run of its own.
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_public_context",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_mirrored_context",
+        { replace = "posargs", extend = true, default = [] },
+    ],
 ]
 
 [env.pghistory-py314-dj60-pg18]
@@ -332,6 +360,34 @@ commands = [
         "plugin_tests",
         "--noinput",
         "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    # The suite again, with pghistory's Context table public, and once more with it mirrored. Its sharding mode is
+    # fixed when the test database is migrated, so each takes a run of its own.
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_public_context",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_mirrored_context",
         { replace = "posargs", extend = true, default = [] },
     ],
 ]
@@ -359,6 +415,34 @@ commands = [
         "--pattern=*.py",
         { replace = "posargs", extend = true, default = [] },
     ],
+    # The suite again, with pghistory's Context table public, and once more with it mirrored. Its sharding mode is
+    # fixed when the test database is migrated, so each takes a run of its own.
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_public_context",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_mirrored_context",
+        { replace = "posargs", extend = true, default = [] },
+    ],
 ]
 
 [env.pghistory-py314-dj61-pg18]
@@ -382,6 +466,34 @@ commands = [
         "plugin_tests",
         "--noinput",
         "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    # The suite again, with pghistory's Context table public, and once more with it mirrored. Its sharding mode is
+    # fixed when the test database is migrated, so each takes a run of its own.
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_public_context",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_mirrored_context",
         { replace = "posargs", extend = true, default = [] },
     ],
 ]

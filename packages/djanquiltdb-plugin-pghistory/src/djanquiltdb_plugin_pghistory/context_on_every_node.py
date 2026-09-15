@@ -2,6 +2,7 @@ import contextlib
 
 import pghistory.runtime
 from django.db import connections
+from djanquiltdb.utils import get_all_databases
 
 
 class EveryNodeConnection:
@@ -17,8 +18,8 @@ class EveryNodeConnection:
     @contextlib.contextmanager
     def execute_wrapper(self, wrapper):
         with contextlib.ExitStack() as stack:
-            for node_connection in connections.all():
-                stack.enter_context(node_connection.execute_wrapper(wrapper))
+            for node_name in get_all_databases():
+                stack.enter_context(connections[node_name].execute_wrapper(wrapper))
 
             yield
 

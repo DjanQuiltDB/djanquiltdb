@@ -26,11 +26,28 @@ django-pghistory writes events through django-pgtrigger triggers, so everything 
 on the connection of every node, so a context that is entered before a shard is selected, as pghistory's middleware
 does, also reaches a shard on another node.
 
+Recording the context
+=====================
+
+Use a **denormalized context**. It copies the metadata of ``pghistory.context()`` to each event row, so the events of
+every model keep their context next to them::
+
+    import pghistory
+
+    PGHISTORY_CONTEXT_FIELD = pghistory.ContextJSONField()
+
+pghistory's default, a normalized context, gives each event row a foreign key to a single ``Context`` table instead. No
+sharding mode of that table suits the events of every model:
+
+* A sharded ``Context`` table cannot be reached by the events of public and mirrored models.
+* A public or mirrored ``Context`` table stores the context of the history of sharded models outside their shards.
+
 Placing the context table
 =========================
 
-The ``pghistory`` app has a concrete ``Context`` model, which has no sharding mode unless the settings give it one.
-Without one, the plugin reports ``djanquiltdb_plugin_pghistory.W002``::
+The ``pghistory`` app has a concrete ``Context`` model, also when no event model reads it. It has no sharding mode
+unless the settings give it one, and without one, the plugin reports ``djanquiltdb_plugin_pghistory.W002``. Make it
+public::
 
     QUILT_DB = {
         ...
@@ -40,40 +57,44 @@ Without one, the plugin reports ``djanquiltdb_plugin_pghistory.W002``::
         },
     }
 
-DjanQuiltDB requires a natural key of every public model. The plugin gives the models of the ``pghistory`` app their
-primary key as the natural key: the UUID ``id`` of ``Context``, and the ``pgh_slug`` of pghistory's aggregate
-``Events`` model. This needs no migration.
-
-The placement only matters to the event models that have a foreign key to the table, and that depends on how
-``PGHISTORY_CONTEXT_FIELD``, or a ``context_field=`` at a call site, records the context. The plugin registers system
-checks for the placements that do not work, and for a placement that works but creates a table that nothing uses. The
-checks read the generated event models and not the setting, so they also see a ``context_field=`` that a call site
-passes.
-
-**A denormalized context** copies the metadata to each event row, and never reads the table::
-
-    import pghistory
-
-    PGHISTORY_CONTEXT_FIELD = pghistory.ContextJSONField()
-
-Any placement of ``Context`` then works. ``djanquiltdb_plugin_pghistory.W001`` reports a sharded or mirrored ``Context``
-table that no event model reads, and recommends a public one, so that the project has one unused table, and not an
-unused copy in every shard or on every node. Silence it if you want to keep the table where it is. The table is not
-always empty: the trigger of a model that is tracked with ``level=pghistory.Statement`` writes a row to it inside a
+The table has to be somewhere, and a project has one public schema on each node, but a schema for every shard.
+``djanquiltdb_plugin_pghistory.W001`` reports a sharded or mirrored ``Context`` table that no event model has a foreign
+key to, and asks you to make it public. A sharded table is created in the template schema and in every shard, and a
+mirrored table suggests rows that are kept in sync across the nodes, while nothing reads them. The table is not always
+empty: the trigger of a model that is tracked with ``level=pghistory.Statement`` writes a row to it inside a
 ``pghistory.context()`` block.
 
-**A normalized context**, which is pghistory's default, gives each event row a foreign key to the table, so the events
-have to be able to reach it:
+DjanQuiltDB requires a natural key of every public model. When the ``pghistory`` app is public, the plugin gives its
+models their primary key as the natural key: the UUID ``id`` of ``Context``, and the ``pgh_slug`` of pghistory's
+aggregate ``Events`` model. Like the natural key of the public event models, it is set on the models' ``_meta`` only, so
+it needs no migration.
 
-* In the **public** schema, every event can reach it. Choose this placement unless you have a reason not to.
+With a normalized context
+-------------------------
+
+When ``PGHISTORY_CONTEXT_FIELD``, or a ``context_field=`` at a call site, gives event models a foreign key to the
+table, those event models have to be able to reach it. The plugin reports every such setup, so that you can move to a
+denormalized context. The checks read the generated event models and not the setting, so they also see a
+``context_field=`` that a call site passes, and the event models that a third-party app generates with plain
+``pghistory.track()``.
+
+* When the table is **public**, every event can reach it, but the context of sharded models is stored outside their
+  shards, and the context rows of mirrored events are only written on the node where the tracked write happened.
+  ``djanquiltdb_plugin_pghistory.W004`` reports this.
 * When the table is **sharded**, *every* event model that has a foreign key to it must be sharded too. A public or
   mirrored event model with such a foreign key cannot reach the table, and the plugin reports
-  ``djanquiltdb_plugin_pghistory.E002``, which names the event model. Note that the context is then recorded per shard:
-  a ``pghistory.context()`` block that spans two shards writes a row in each of them, with the same id.
+  ``djanquiltdb_plugin_pghistory.E002``, which names the event model. When every such event model is sharded, it
+  works, and ``djanquiltdb_plugin_pghistory.W005`` reports it: the context is recorded per shard, so a
+  ``pghistory.context()`` block that spans two shards writes a row in each of them, with the same id.
 * When the table is **mirrored**, it works, but the event triggers write the context rows on the node where the tracked
   write happened. Nothing routes them to the primary, so the copies on the nodes stop matching.
   ``djanquiltdb_plugin_pghistory.W003`` reports this. This placement only works when your replication also covers the
-  context table. Silence the check once it does.
+  context table.
+
+The trigger of an event model with such a foreign key calls pghistory's ``_pgh_attach_context()`` function, like a
+statement-level trigger does. When the app is sharded, the function only exists in the shards, so the plugin reports
+``djanquiltdb_plugin_pghistory.E004`` for each public or mirrored model whose triggers call it. See
+:doc:`statement-level triggers <tracking>`.
 
 Changing the placement of an existing project
 ---------------------------------------------

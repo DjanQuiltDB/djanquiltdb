@@ -16,11 +16,12 @@ from djanquiltdb_plugin_pghistory.checks import (
     check_event_models_are_placed_where_their_base_expects,
     check_pghistory_sharding_configuration,
 )
-from example.models import Bakery, Cake, CakeEvent, CakeType, WaffleEvent
+from example.models import Bakery, Cake, CakeEvent, CakeType, Croissant, WaffleEvent
+from plugin_tests.context_placement import context_table_placement, run_only_when_the_context_table_is
 
 #: Event models whose tables are outside the shards, and that have a foreign key to the Context table. They are
-#: abstract, because they cannot reach the Context table in the shards of the test settings. The check only sees them
-#: through a patched registry.
+#: abstract, because the Context table is sharded in the run with config.settings, so they cannot reach it.
+#: The check only sees them through a patched registry.
 PublicContextEvent = create_event_model(
     CakeType,
     pghistory.InsertEvent('caketype.context_insert'),
@@ -46,7 +47,25 @@ NoContextEvent = create_event_model(
     abstract=True,
 )
 
-#: The events of a mirrored model, generated into the pghistory app, which OVERRIDE_SHARDING_MODE marks as sharded.
+#: Event models that plain pghistory generates, as a third-party app does, so they inherit PGHISTORY_BASE_MODEL and none
+#: of the plugin's event bases. One has a foreign key to the Context table, and the other has no context.
+PlainContextEvent = pghistory.create_event_model(
+    Cake,
+    pghistory.InsertEvent('cake.plain_context_insert'),
+    context_field=pghistory.ContextForeignKey(),
+    model_name='PlainContextEvent',
+    abstract=True,
+)
+
+PlainNoContextEvent = pghistory.create_event_model(
+    Cake,
+    pghistory.InsertEvent('cake.plain_contextless_insert'),
+    context_field=None,
+    model_name='PlainNoContextEvent',
+    abstract=True,
+)
+
+#: The events of a mirrored model, generated into the pghistory app. The test that uses it makes the app sharded.
 MisplacedEvent = create_event_model(
     Bakery,
     pghistory.InsertEvent('bakery.misplaced_insert'),
@@ -84,13 +103,22 @@ class PghistoryShardingConfigurationCheckTestCase(SimpleTestCase):
         """
         self.assertIn(check_pghistory_sharding_configuration, registry.get_checks())
 
-    def test_the_settings_of_the_test_project_report_no_messages(self):
+    def test_the_settings_of_the_test_project_report_the_warning_for_its_normalized_context(self):
         """
-        Case: The test project uses the denormalized context for the whole project, and places pghistory's Context model
-              through an OVERRIDE_SHARDING_MODE entry.
-        Expected: No messages.
+        Case: The test project uses the denormalized context for the whole project, but the call sites of Waffle, Danish
+              and Strudel, and in the runs with a public or mirrored Context table those of Kitchen and Recipe, ask for
+              a context foreign key.
+        Expected: Only the warning about a normalized context for the sharding mode of the Context table in this run.
+                  The statement-level triggers of Proofer and Grain report no error, because the Context table is not
+                  sharded in the runs that install them.
         """
-        self.assertEqual(configuration_check_ids(), [])
+        expected_by_context_mode = {
+            ShardingMode.SHARDED: ['djanquiltdb_plugin_pghistory.W005'],
+            ShardingMode.PUBLIC: ['djanquiltdb_plugin_pghistory.W004'],
+            ShardingMode.MIRRORED: ['djanquiltdb_plugin_pghistory.W003'],
+        }
+
+        self.assertEqual(configuration_check_ids(), expected_by_context_mode[context_table_placement()])
 
     def test_the_sharding_configuration_check_does_nothing_without_the_pghistory_app(self):
         """
@@ -104,27 +132,41 @@ class PghistoryShardingConfigurationCheckTestCase(SimpleTestCase):
     def test_every_placement_of_the_context_model_reports_the_expected_messages(self):
         """
         Case: The Context model is placed in each of the three modes, for event models that denormalize their context,
-              for normalized event models that are all sharded, and for normalized event models of different modes.
-              Each case also has an event model that records no context.
+              for normalized event models that are sharded, public, mirrored, or of different modes, and for normalized
+              event models that plain pghistory generates. Each case also has an event model that records no context.
         Expected: Each combination reports exactly the expected messages, and no message twice for the same event model.
+                  Only a public Context table with a denormalized context reports nothing.
         """
         denormalized_event_models = [CakeEvent, NoContextEvent]
         normalized_sharded_event_models = [WaffleEvent, NoContextEvent]
+        normalized_public_event_models = [PublicContextEvent, NoContextEvent]
+        normalized_mirrored_event_models = [MirroredContextEvent, NoContextEvent]
         normalized_event_models_of_different_modes = [WaffleEvent, PublicContextEvent, MirroredContextEvent]
+        normalized_plain_pghistory_event_models = [PlainContextEvent, PlainNoContextEvent]
 
         cases = [
-            # No event model reads the table.
+            # An event model that plain pghistory generates counts like one that the plugin generates.
+            (ShardingMode.SHARDED, normalized_plain_pghistory_event_models, ['djanquiltdb_plugin_pghistory.W005']),
+            (ShardingMode.PUBLIC, normalized_plain_pghistory_event_models, ['djanquiltdb_plugin_pghistory.W004']),
+            (ShardingMode.MIRRORED, normalized_plain_pghistory_event_models, ['djanquiltdb_plugin_pghistory.W003']),
+            # No event model has a foreign key to the table.
             (ShardingMode.PUBLIC, denormalized_event_models, []),
             (ShardingMode.MIRRORED, denormalized_event_models, ['djanquiltdb_plugin_pghistory.W001']),
             (ShardingMode.SHARDED, denormalized_event_models, ['djanquiltdb_plugin_pghistory.W001']),
-            # The events have a foreign key to the table.
-            (ShardingMode.PUBLIC, normalized_sharded_event_models, []),
-            (ShardingMode.PUBLIC, normalized_event_models_of_different_modes, []),
-            # Mirrored works, but only if the project keeps this table in sync itself.
+            # A public table works for every event model, but stores the context outside the shards.
+            (ShardingMode.PUBLIC, normalized_sharded_event_models, ['djanquiltdb_plugin_pghistory.W004']),
+            (ShardingMode.PUBLIC, normalized_public_event_models, ['djanquiltdb_plugin_pghistory.W004']),
+            (ShardingMode.PUBLIC, normalized_mirrored_event_models, ['djanquiltdb_plugin_pghistory.W004']),
+            (ShardingMode.PUBLIC, normalized_event_models_of_different_modes, ['djanquiltdb_plugin_pghistory.W004']),
+            # A mirrored table works, but only if the project keeps this table in sync itself.
             (ShardingMode.MIRRORED, normalized_sharded_event_models, ['djanquiltdb_plugin_pghistory.W003']),
+            (ShardingMode.MIRRORED, normalized_public_event_models, ['djanquiltdb_plugin_pghistory.W003']),
+            (ShardingMode.MIRRORED, normalized_mirrored_event_models, ['djanquiltdb_plugin_pghistory.W003']),
             (ShardingMode.MIRRORED, normalized_event_models_of_different_modes, ['djanquiltdb_plugin_pghistory.W003']),
-            # Sharded works only when every event model that has a foreign key to the table is sharded.
-            (ShardingMode.SHARDED, normalized_sharded_event_models, []),
+            # A sharded table works only when every event model that has a foreign key to the table is sharded.
+            (ShardingMode.SHARDED, normalized_sharded_event_models, ['djanquiltdb_plugin_pghistory.W005']),
+            (ShardingMode.SHARDED, normalized_public_event_models, ['djanquiltdb_plugin_pghistory.E002']),
+            (ShardingMode.SHARDED, normalized_mirrored_event_models, ['djanquiltdb_plugin_pghistory.E002']),
             (
                 ShardingMode.SHARDED,
                 normalized_event_models_of_different_modes,
@@ -142,8 +184,9 @@ class PghistoryShardingConfigurationCheckTestCase(SimpleTestCase):
         Case: Two event models with different modes have a foreign key to a sharded Context table.
         Expected: One error for each event model, which names the model and its mode.
         """
-        with mock.patch.object(apps, 'get_models', return_value=[PublicContextEvent, MirroredContextEvent]):
-            errors = check_pghistory_sharding_configuration(None)
+        with override_settings(QUILT_DB=quilt_db_with_app_sharding_mode('pghistory', ShardingMode.SHARDED)):
+            with mock.patch.object(apps, 'get_models', return_value=[PublicContextEvent, MirroredContextEvent]):
+                errors = check_pghistory_sharding_configuration(None)
 
         self.assertEqual([error.obj for error in errors], [PublicContextEvent, MirroredContextEvent])
         self.assertIn('PUBLIC', errors[0].msg)
@@ -164,6 +207,81 @@ class PghistoryShardingConfigurationCheckTestCase(SimpleTestCase):
 
         with override_settings(QUILT_DB=quilt_db):
             self.assertEqual(configuration_check_ids(), ['djanquiltdb_plugin_pghistory.W002'])
+
+    def test_each_warning_names_the_sharding_mode_and_says_what_to_change(self):
+        """
+        Case: The warning for each placement of the Context table is read, with an event model that denormalizes its
+              context, and with WaffleEvent, which has a foreign key to the table.
+        Expected: Each message names the one sharding mode that the Context table has, and the warnings for a
+                  normalized context name WaffleEvent. Each hint says to denormalize the context when an event model
+                  has a foreign key to the table, and to make the app public when it is not.
+        """
+        cases = [
+            (ShardingMode.SHARDED, [CakeEvent], 'djanquiltdb_plugin_pghistory.W001'),
+            (ShardingMode.MIRRORED, [CakeEvent], 'djanquiltdb_plugin_pghistory.W001'),
+            (ShardingMode.SHARDED, [WaffleEvent], 'djanquiltdb_plugin_pghistory.W005'),
+            (ShardingMode.MIRRORED, [WaffleEvent], 'djanquiltdb_plugin_pghistory.W003'),
+            (ShardingMode.PUBLIC, [WaffleEvent], 'djanquiltdb_plugin_pghistory.W004'),
+        ]
+
+        for context_mode, event_models, expected_id in cases:
+            with self.subTest(context=context_mode.name, events=[model.__name__ for model in event_models]):
+                with override_settings(QUILT_DB=quilt_db_with_app_sharding_mode('pghistory', context_mode)):
+                    with mock.patch.object(apps, 'get_models', return_value=event_models):
+                        [warning] = check_pghistory_sharding_configuration(None)
+
+                self.assertEqual(warning.id, expected_id)
+                self.assertIn(f'The pghistory Context model is {context_mode.name}', warning.msg)
+
+                for other_mode in {ShardingMode.SHARDED, ShardingMode.MIRRORED, ShardingMode.PUBLIC} - {context_mode}:
+                    self.assertNotIn(other_mode.name, warning.msg)
+
+                if event_models == [WaffleEvent]:
+                    self.assertIn('example.WaffleEvent', warning.msg)
+                    self.assertIn('PGHISTORY_CONTEXT_FIELD = pghistory.ContextJSONField()', warning.hint)
+
+                if context_mode is not ShardingMode.PUBLIC:
+                    self.assertIn("{('pghistory',): ShardingMode.PUBLIC}", warning.hint)
+
+
+@run_only_when_the_context_table_is(ShardingMode.PUBLIC, ShardingMode.MIRRORED)
+class TriggersOutsideTheShardsCheckTestCase(SimpleTestCase):
+    """
+    The public and mirrored tracked models of unsharded_context_example are only installed in the runs in which the
+    Context table is not sharded, so these tests make it sharded through override_settings.
+    """
+
+    def test_every_tracked_model_and_context_placement_reports_the_expected_errors(self):
+        """
+        Case: The check runs for each placement of the Context table, over a sharded, a mirrored and a public model that
+              are tracked at row level with a denormalized context (Cake, Bakery, CakeType), at row level with a
+              context foreign key (Kitchen, Recipe), and at statement level (Croissant, Proofer, Grain).
+        Expected: Only a sharded Context table reports E004, once for each public or mirrored model whose triggers call
+                  _pgh_attach_context(): Kitchen, Recipe, Proofer and Grain. The hint says to make the app public, or
+                  to track the model at row level with a denormalized context, which also applies to Kitchen and
+                  Recipe, which are already tracked at row level.
+        """
+        from unsharded_context_example.models import Grain, Kitchen, Proofer, Recipe
+
+        tracked_models = [Cake, Bakery, CakeType, Kitchen, Recipe, Croissant, Proofer, Grain]
+
+        for context_mode in [ShardingMode.SHARDED, ShardingMode.MIRRORED, ShardingMode.PUBLIC]:
+            with self.subTest(context=context_mode.name):
+                with override_settings(QUILT_DB=quilt_db_with_app_sharding_mode('pghistory', context_mode)):
+                    with mock.patch.object(apps, 'get_models', return_value=tracked_models):
+                        errors = [
+                            message
+                            for message in check_pghistory_sharding_configuration(None)
+                            if message.id == 'djanquiltdb_plugin_pghistory.E004'
+                        ]
+
+                expected = [Kitchen, Recipe, Proofer, Grain] if context_mode is ShardingMode.SHARDED else []
+
+                self.assertEqual([error.obj for error in errors], expected)
+
+                for error in errors:
+                    self.assertIn("{('pghistory',): ShardingMode.PUBLIC}", error.hint)
+                    self.assertIn('at row level with a denormalized context', error.hint)
 
 
 class EventModelPlacementCheckTestCase(SimpleTestCase):
@@ -191,7 +309,8 @@ class EventModelPlacementCheckTestCase(SimpleTestCase):
         Case: The events of a mirrored model are generated into the pghistory app, which the settings mark as sharded.
         Expected: The E003 error.
         """
-        self.assertEqual(self.base_placement_check_ids([MisplacedEvent]), ['djanquiltdb_plugin_pghistory.E003'])
+        with override_settings(QUILT_DB=quilt_db_with_app_sharding_mode('pghistory', ShardingMode.SHARDED)):
+            self.assertEqual(self.base_placement_check_ids([MisplacedEvent]), ['djanquiltdb_plugin_pghistory.E003'])
 
     def test_the_event_model_placement_check_does_nothing_without_the_pghistory_app(self):
         """

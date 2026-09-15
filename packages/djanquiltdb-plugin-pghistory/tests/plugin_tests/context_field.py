@@ -9,8 +9,10 @@ from pghistory.models import Context
 from djanquiltdb_plugin_pghistory.checks import check_pghistory_sharding_configuration
 from example.models import Shard, Waffle, WaffleEvent
 from plugin_tests.checks import quilt_db_with_app_sharding_mode
+from plugin_tests.context_placement import run_only_when_the_context_table_is
 
 
+@run_only_when_the_context_table_is(ShardingMode.SHARDED)
 class ContextForeignKeyInsideAShardTestCase(ShardingTransactionTestCase):
     available_apps = ['djanquiltdb', 'example', 'pghistory', 'django.contrib.auth', 'django.contrib.contenttypes']
 
