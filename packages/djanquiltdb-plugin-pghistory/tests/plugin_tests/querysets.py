@@ -9,15 +9,7 @@ from example.models import Bakery, BakeryEvent, Cake, CakeEvent, Shard
 
 
 class ShardedEventQuerySetTestCase(ShardingTransactionTestCase):
-    """
-    Sharded event models run their querysets through DjanQuiltDB's sharded queryset wrapper, and the plugin's queryset
-    has to work with that wrapper while it builds its own EventQuery.
-
-    ``available_apps`` restricts the migration graph, and the example app's migration depends on auth through the
-    GroupProxy fixture, so both contrib apps have to stay in it.
-    """
-
-    available_apps = ['djanquiltdb', 'example', 'django.contrib.auth', 'django.contrib.contenttypes']
+    available_apps = ['djanquiltdb', 'example', 'pghistory', 'django.contrib.auth', 'django.contrib.contenttypes']
 
     def setUp(self):
         super().setUp()

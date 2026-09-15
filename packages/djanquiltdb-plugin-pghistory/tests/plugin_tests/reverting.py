@@ -6,12 +6,7 @@ from example.models import Bakery, BakeryEvent, Cake, CakeEvent, CakeType, CakeT
 
 
 class ShardedRevertTestCase(ShardingTransactionTestCase):
-    """
-    pghistory reverts an event by building a queryset with ``using=DEFAULT_DB_ALIAS``, which names a node's public
-    schema here rather than whichever shard is active, so a sharded revert has to route through the router instead.
-    """
-
-    available_apps = ['djanquiltdb', 'example', 'django.contrib.auth', 'django.contrib.contenttypes']
+    available_apps = ['djanquiltdb', 'example', 'pghistory', 'django.contrib.auth', 'django.contrib.contenttypes']
 
     def setUp(self):
         super().setUp()

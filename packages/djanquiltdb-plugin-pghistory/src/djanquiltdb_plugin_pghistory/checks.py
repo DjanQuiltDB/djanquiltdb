@@ -1,61 +1,112 @@
-import pghistory
 from django.apps import apps
 from django.core import checks
-from pghistory import config
+from django.core.exceptions import FieldDoesNotExist
+from django.db import models
+from djanquiltdb import ShardingMode, public_modes
 
 PGHISTORY_APP_NAME = 'pghistory'
 
 
-def _sharded_event_models():
-    from djanquiltdb_plugin_pghistory import sharded
+def _find_event_models_with_context_foreign_key():
+    """
+    Reads the generated models and not PGHISTORY_CONTEXT_FIELD, because a call site can pass its own context_field.
+    """
+    from djanquiltdb_plugin_pghistory.core import _EVENT_BASE_BY_SHARDING_MODE
 
-    return [model for model in apps.get_models() if issubclass(model, sharded.Event)]
+    event_models = []
+
+    for model in apps.get_models():
+        if not any(issubclass(model, event_base) for event_base in _EVENT_BASE_BY_SHARDING_MODE.values()):
+            continue
+
+        try:
+            field = model._meta.get_field('pgh_context')
+        except FieldDoesNotExist:
+            continue
+
+        if isinstance(field, models.ForeignKey):
+            event_models.append(model)
+
+    return event_models
 
 
 @checks.register(checks.Tags.compatibility)
 def check_pghistory_sharding_configuration(app_configs, **kwargs):
     """
-    Warn about django-pghistory configuration that does not survive sharding.
-
-    The context table an event's foreign key would point at lives outside the shard holding the event table, so sharded
-    events need the denormalized context field. pghistory's own Context model is placed by nothing unless the settings
-    say where it goes; since we do not have a control to disable that table from getting created at all, we need to
-    make sure it can be created in the least costly way (public) where it will happily sit unused.
+    Reports django-pghistory configuration that does not work with sharding.
     """
-    from djanquiltdb.utils import get_sharding_mode
+    from djanquiltdb.utils import get_declared_sharding_mode, get_sharding_mode
 
     if not apps.is_installed(PGHISTORY_APP_NAME):
         return []
 
-    warnings = []
+    context_mode = get_sharding_mode(PGHISTORY_APP_NAME, 'context')
 
-    if isinstance(config.context_field(), pghistory.ContextForeignKey) and _sharded_event_models():
-        warnings.append(
+    if not context_mode:
+        return [
             checks.Warning(
-                'PGHISTORY_CONTEXT_FIELD is a foreign key while sharded event models exist.',
+                "The pghistory app's Context model has no sharding mode.",
                 hint=(
-                    'An event table inside a shard cannot hold a foreign key to the context table outside it. Set '
-                    'PGHISTORY_CONTEXT_FIELD = pghistory.ContextJSONField() to denormalize the context into the event '
-                    'rows.'
-                ),
-                id='djanquiltdb_plugin_pghistory.W001',
-            )
-        )
-
-    if not get_sharding_mode(PGHISTORY_APP_NAME, 'context'):
-        warnings.append(
-            checks.Warning(
-                "Nothing places the pghistory app's Context model.",
-                hint=(
-                    'The app carries a concrete model, so migrations need to know where it goes. Add an '
-                    "OVERRIDE_SHARDING_MODE entry for it to QUILT_DB, such as {('pghistory',): ShardingMode.SHARDED}. "
-                    'This has to be configured explicitly even if you are not using the normalized context table.'
+                    'Migrations need to know where to create its table, also when no event model uses it. Add an '
+                    "OVERRIDE_SHARDING_MODE entry for the app to QUILT_DB, such as {('pghistory',): "
+                    'ShardingMode.PUBLIC}.'
                 ),
                 id='djanquiltdb_plugin_pghistory.W002',
             )
+        ]
+
+    messages = []
+    event_models_with_context_foreign_key = _find_event_models_with_context_foreign_key()
+
+    if not event_models_with_context_foreign_key:
+        if context_mode is not ShardingMode.PUBLIC:
+            messages.append(
+                checks.Warning(
+                    'The pghistory Context model is sharded or mirrored, but no event model reads it.',
+                    hint=(
+                        'With the pghistory app as PUBLIC, the project has one unused Context table, and not an unused '
+                        'copy in every shard or on every node. Every placement works, so silence this check if you '
+                        'want to keep the current placement.'
+                    ),
+                    id='djanquiltdb_plugin_pghistory.W001',
+                )
+            )
+    elif context_mode is ShardingMode.SHARDED:
+        # A table outside the shards cannot have a foreign key to a table in a shard.
+        for model in event_models_with_context_foreign_key:
+            mode = get_declared_sharding_mode(model)
+
+            if mode in public_modes:
+                messages.append(
+                    checks.Error(
+                        '{event} has a foreign key to the Context model, but its events are {mode} while the '
+                        'pghistory app is SHARDED, so the events cannot reach the Context table.'.format(
+                            event=model._meta.label, mode=mode.name
+                        ),
+                        hint=(
+                            'Place the pghistory app in the public schema, or denormalize the context of this event '
+                            'model by passing context_field=pghistory.ContextJSONField() to its tracking call. The '
+                            'app can stay sharded only if every event model that has a foreign key to it is sharded '
+                            'too.'
+                        ),
+                        obj=model,
+                        id='djanquiltdb_plugin_pghistory.E002',
+                    )
+                )
+    elif context_mode is ShardingMode.MIRRORED:
+        messages.append(
+            checks.Warning(
+                'The pghistory Context model is mirrored, and event models have a foreign key to it.',
+                hint=(
+                    'The event triggers write Context rows on the node where the tracked write happened, so the copies '
+                    'on the nodes stop matching unless the project keeps this table in sync itself. Place the '
+                    'pghistory app as PUBLIC, or silence this check once the table is kept in sync.'
+                ),
+                id='djanquiltdb_plugin_pghistory.W003',
+            )
         )
 
-    return warnings
+    return messages
 
 
 @checks.register(checks.Tags.models)

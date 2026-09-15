@@ -127,6 +127,18 @@ class Scone(models.Model):
         app_label = 'example'
 
 
+# A call site asking for the normalized context the settings turn off project-wide. PGHISTORY_CONTEXT_FIELD is what
+# the W001 check reads, so this is also what reaching past that check looks like: the events keep a foreign key into
+# pghistory's Context table, which OVERRIDE_SHARDING_MODE places in the shard alongside them.
+@track(context_field=pghistory.ContextForeignKey())
+@sharded_model()
+class Waffle(models.Model):
+    name = models.CharField('name', max_length=128)
+
+    class Meta:
+        app_label = 'example'
+
+
 class GroupProxy(Group):
     """
     A proxy of a third-party model, as a project tracking one would declare it. It carries no mode of its own: the mode

@@ -13,9 +13,13 @@ Things to know
 
 * Do not use the ``pgtrigger`` management commands that change the database directly. Triggers only reach the template
   schema and every shard through migrations. See :doc:`installation`.
-* Record the context denormalized, with ``PGHISTORY_CONTEXT_FIELD = pghistory.ContextJSONField()``, and give the
-  ``pghistory`` app a sharding mode. The plugin's system checks report a setup that does not do this. See
-  :doc:`installation`.
+* Give the ``pghistory`` app a sharding mode, preferably public, because its ``Context`` table exists even when no
+  event model uses it. With a normalized context, a sharded or mirrored ``Context`` table has drawbacks, which the
+  plugin's system checks report. See :doc:`installation`.
+* ``pghistory.context()`` reaches the connection of every node, so a context that is entered before a shard is selected
+  also reaches a shard on another node. See :doc:`installation`.
+* Changing the sharding mode of the ``pghistory`` app in an existing project does not move its table and function. That
+  takes a one-time migration. See :doc:`installation`.
 * Apply the sharding mode decorator below ``track()``, so that ``track()`` can read the mode. See :doc:`tracking`.
 * The events of a mirrored model are written on the primary node, so the replication that copies the tracked table to
   the other nodes has to copy the event table too. See :doc:`tracking`.

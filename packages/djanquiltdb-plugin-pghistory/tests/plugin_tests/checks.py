@@ -16,7 +16,35 @@ from djanquiltdb_plugin_pghistory.checks import (
     check_event_models_are_placed_where_their_base_expects,
     check_pghistory_sharding_configuration,
 )
-from example.models import Bakery
+from example.models import Bakery, Cake, CakeEvent, CakeType, WaffleEvent
+
+#: Event models whose tables are outside the shards, and that have a foreign key to the Context table. They are
+#: abstract, because they cannot reach the Context table in the shards of the test settings. The check only sees them
+#: through a patched registry.
+PublicContextEvent = create_event_model(
+    CakeType,
+    pghistory.InsertEvent('caketype.context_insert'),
+    context_field=pghistory.ContextForeignKey(),
+    model_name='PublicContextEvent',
+    abstract=True,
+)
+
+MirroredContextEvent = create_event_model(
+    Bakery,
+    pghistory.InsertEvent('bakery.context_insert'),
+    context_field=pghistory.ContextForeignKey(),
+    model_name='MirroredContextEvent',
+    abstract=True,
+)
+
+#: An event model without a context (context_field=None), which does not limit where the Context table can be placed.
+NoContextEvent = create_event_model(
+    Cake,
+    pghistory.InsertEvent('cake.contextless_insert'),
+    context_field=None,
+    model_name='NoContextEvent',
+    abstract=True,
+)
 
 #: The events of a mirrored model, generated into the pghistory app, which OVERRIDE_SHARDING_MODE marks as sharded.
 MisplacedEvent = create_event_model(
@@ -29,7 +57,12 @@ MisplacedEvent = create_event_model(
 
 
 def configuration_check_ids():
-    return [warning.id for warning in check_pghistory_sharding_configuration(None)]
+    return [message.id for message in check_pghistory_sharding_configuration(None)]
+
+
+def configuration_check_ids_for_event_models(event_models):
+    with mock.patch.object(apps, 'get_models', return_value=list(event_models)):
+        return configuration_check_ids()
 
 
 def tracked_mode_check_ids(event_models):
@@ -37,8 +70,14 @@ def tracked_mode_check_ids(event_models):
         return [error.id for error in check_event_bases_match_tracked_modes(None)]
 
 
+def quilt_db_with_app_sharding_mode(app_label, mode):
+    override = {**settings.QUILT_DB['OVERRIDE_SHARDING_MODE'], (app_label,): mode}
+
+    return {**settings.QUILT_DB, 'OVERRIDE_SHARDING_MODE': override}
+
+
 class PghistoryShardingConfigurationCheckTestCase(SimpleTestCase):
-    def test_check_is_registered(self):
+    def test_the_sharding_configuration_check_is_registered(self):
         """
         Case: The plugin's install() has run.
         Expected: check_pghistory_sharding_configuration is part of Django's check registry.
@@ -62,17 +101,55 @@ class PghistoryShardingConfigurationCheckTestCase(SimpleTestCase):
             with override_settings(PGHISTORY_CONTEXT_FIELD=pghistory.ContextForeignKey()):
                 self.assertEqual(configuration_check_ids(), [])
 
-    def test_a_foreign_key_context_field_beside_sharded_events_is_warned_about(self):
+    def test_every_placement_of_the_context_model_reports_the_expected_messages(self):
         """
-        Case: PGHISTORY_CONTEXT_FIELD is left a foreign key, pghistory's default, while sharded event models
-              exist.
-        Expected: The context-field warning: an event table inside a shard cannot hold a foreign key to a context
-                  table outside it.
+        Case: The Context model is placed in each of the three modes, for event models that denormalize their context,
+              for normalized event models that are all sharded, and for normalized event models of different modes.
+              Each case also has an event model that records no context.
+        Expected: Each combination reports exactly the expected messages, and no message twice for the same event model.
         """
-        with override_settings(PGHISTORY_CONTEXT_FIELD=pghistory.ContextForeignKey()):
-            self.assertEqual(configuration_check_ids(), ['djanquiltdb_plugin_pghistory.W001'])
+        denormalized_event_models = [CakeEvent, NoContextEvent]
+        normalized_sharded_event_models = [WaffleEvent, NoContextEvent]
+        normalized_event_models_of_different_modes = [WaffleEvent, PublicContextEvent, MirroredContextEvent]
 
-    def test_an_unplaced_context_model_is_warned_about(self):
+        cases = [
+            # No event model reads the table.
+            (ShardingMode.PUBLIC, denormalized_event_models, []),
+            (ShardingMode.MIRRORED, denormalized_event_models, ['djanquiltdb_plugin_pghistory.W001']),
+            (ShardingMode.SHARDED, denormalized_event_models, ['djanquiltdb_plugin_pghistory.W001']),
+            # The events have a foreign key to the table.
+            (ShardingMode.PUBLIC, normalized_sharded_event_models, []),
+            (ShardingMode.PUBLIC, normalized_event_models_of_different_modes, []),
+            # Mirrored works, but only if the project keeps this table in sync itself.
+            (ShardingMode.MIRRORED, normalized_sharded_event_models, ['djanquiltdb_plugin_pghistory.W003']),
+            (ShardingMode.MIRRORED, normalized_event_models_of_different_modes, ['djanquiltdb_plugin_pghistory.W003']),
+            # Sharded works only when every event model that has a foreign key to the table is sharded.
+            (ShardingMode.SHARDED, normalized_sharded_event_models, []),
+            (
+                ShardingMode.SHARDED,
+                normalized_event_models_of_different_modes,
+                ['djanquiltdb_plugin_pghistory.E002', 'djanquiltdb_plugin_pghistory.E002'],
+            ),
+        ]
+
+        for context_mode, event_models, expected in cases:
+            with self.subTest(context=context_mode.name, events=[model.__name__ for model in event_models]):
+                with override_settings(QUILT_DB=quilt_db_with_app_sharding_mode('pghistory', context_mode)):
+                    self.assertEqual(configuration_check_ids_for_event_models(event_models), expected)
+
+    def test_the_error_names_each_event_model_that_cannot_reach_the_context_table(self):
+        """
+        Case: Two event models with different modes have a foreign key to a sharded Context table.
+        Expected: One error for each event model, which names the model and its mode.
+        """
+        with mock.patch.object(apps, 'get_models', return_value=[PublicContextEvent, MirroredContextEvent]):
+            errors = check_pghistory_sharding_configuration(None)
+
+        self.assertEqual([error.obj for error in errors], [PublicContextEvent, MirroredContextEvent])
+        self.assertIn('PUBLIC', errors[0].msg)
+        self.assertIn('MIRRORED', errors[1].msg)
+
+    def test_a_context_model_without_a_sharding_mode_is_reported(self):
         """
         Case: The pghistory app has no OVERRIDE_SHARDING_MODE entry, so its Context model has no sharding mode.
         Expected: The W002 warning.

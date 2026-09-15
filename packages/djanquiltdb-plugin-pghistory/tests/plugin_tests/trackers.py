@@ -7,12 +7,7 @@ from example.models import Cookie, CookieEvent, Shard
 
 
 class CookieTrackerEventsInsideAShardTestCase(ShardingTransactionTestCase):
-    """
-    The trackers a call site names explicitly, exercised where the events have to land: inside the shard holding the
-    row. The suite's other tracking tests all use the insert/update pair track() falls back to.
-    """
-
-    available_apps = ['djanquiltdb', 'example', 'django.contrib.auth', 'django.contrib.contenttypes']
+    available_apps = ['djanquiltdb', 'example', 'pghistory', 'django.contrib.auth', 'django.contrib.contenttypes']
 
     def setUp(self):
         super().setUp()

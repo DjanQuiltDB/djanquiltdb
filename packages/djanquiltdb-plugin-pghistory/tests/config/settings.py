@@ -51,7 +51,8 @@ QUILT_DB = {
     'OVERRIDE_SHARDING_MODE': {
         ('auth',): ShardingMode.MIRRORED,
         ('contenttypes',): ShardingMode.MIRRORED,
-        # Places pghistory's own Context model; the event models carry their mode through their base classes.
+        # The documentation recommends PUBLIC, but the tests place pghistory's Context model in the shards, to cover the
+        # setup in which the events in a shard have a foreign key to the Context table in the same shard.
         ('pghistory',): ShardingMode.SHARDED,
     },
 }

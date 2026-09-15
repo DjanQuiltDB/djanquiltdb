@@ -13,9 +13,16 @@ __version__ = '1.0.0'
 
 def install():
     """
-    Registers the plugin's system checks. DjanQuiltDB calls this once the app registry is ready.
+    Registers the plugin's system checks, gives the models of the pghistory app the natural key that a public model
+    needs, and makes pghistory.context() reach every node. DjanQuiltDB calls this once the app registry is ready, before
+    it validates the public models.
     """
     from djanquiltdb_plugin_pghistory import checks  # noqa: F401
+    from djanquiltdb_plugin_pghistory.context_on_every_node import send_context_to_every_node
+    from djanquiltdb_plugin_pghistory.natural_keys import add_natural_keys_to_pghistory_models
+
+    add_natural_keys_to_pghistory_models()
+    send_context_to_every_node()
 
 
 plugin = SimpleNamespace(decorators=decorators, models=models, install=install)

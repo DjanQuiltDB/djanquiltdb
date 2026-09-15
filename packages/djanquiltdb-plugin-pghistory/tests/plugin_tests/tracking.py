@@ -43,7 +43,7 @@ class GeneratedEventModelTestCase(SimpleTestCase):
 
 
 class ShardedTrackingTestCase(ShardingTransactionTestCase):
-    available_apps = ['djanquiltdb', 'example', 'django.contrib.auth', 'django.contrib.contenttypes']
+    available_apps = ['djanquiltdb', 'example', 'pghistory', 'django.contrib.auth', 'django.contrib.contenttypes']
 
     def setUp(self):
         super().setUp()
