@@ -13,13 +13,16 @@ IN THE SOFTWARE.
 """
 
 import contextlib
+import functools
 import logging
 import re
 
 from django.conf import settings
+from django.core.signals import setting_changed
 from django.db.backends.base.base import NO_DB_ALIAS
 from django.db.backends.postgresql.base import DatabaseWrapper as BaseDatabaseWrapper
 from django.db.utils import DatabaseError, IntegrityError
+from django.dispatch import receiver
 from django.utils.module_loading import import_string
 from psycopg.errors import InternalError
 
@@ -1085,10 +1088,24 @@ def get_validated_schema_name(schema_name, is_template=False):
     return schema_name
 
 
+@functools.cache
 def get_database_creation_class():
+    """
+    Returns the class that creates the test databases: the class that QUILT_DB['DATABASE_CREATION_CLASS'] points to, or
+    DatabaseCreation when QUILT_DB does not have that key. The class is cached until QUILT_DB changes.
+    """
     return import_string(
         settings.QUILT_DB.get('DATABASE_CREATION_CLASS', 'djanquiltdb.postgresql_backend.creation.DatabaseCreation')
     )
+
+
+@receiver(setting_changed)
+def reset_cached_database_creation_class(setting, **kwargs):
+    """
+    Clears the cached database creation class when override_settings() changes QUILT_DB.
+    """
+    if setting == 'QUILT_DB':
+        get_database_creation_class.cache_clear()
 
 
 class DatabaseWrapper(BaseDatabaseWrapper):

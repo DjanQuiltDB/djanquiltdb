@@ -1,12 +1,13 @@
 import contextlib
 import logging
 from collections import defaultdict
-from functools import wraps
+from functools import cache, wraps
 
 from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
+from django.core.signals import setting_changed
 from django.db import DatabaseError, ProgrammingError, connections
 from django.db.models.signals import (
     post_delete,
@@ -19,6 +20,7 @@ from django.db.models.signals import (
     pre_save,
 )
 from django.db.transaction import Atomic
+from django.dispatch import receiver
 from django.utils.module_loading import import_string
 
 from djanquiltdb import ShardingMode, State, public_modes
@@ -42,8 +44,9 @@ class StateException(Exception):
         self.state = state
 
 
+@cache
 def get_shard_class():
-    """Helper function to get implemented Shard class"""
+    """Returns the Shard class that QUILT_DB['SHARD_CLASS'] points to. The class is cached until QUILT_DB changes."""
     return import_string(settings.QUILT_DB['SHARD_CLASS'])
 
 
@@ -57,13 +60,25 @@ def get_primary_db_alias():
     return settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
 
 
+@cache
 def get_mapping_class():
     """
-    Helper function to get implemented Mapping model, if the project has one.
+    Returns the mapping model that QUILT_DB['MAPPING_MODEL'] points to, or None when QUILT_DB does not have that key.
+    The result is cached until QUILT_DB changes.
     """
     if 'MAPPING_MODEL' not in settings.QUILT_DB:
         return None
     return import_string(settings.QUILT_DB['MAPPING_MODEL'])
+
+
+@receiver(setting_changed)
+def reset_cached_shard_and_mapping_classes(setting, **kwargs):
+    """
+    Clears the cached shard class and mapping model when override_settings() changes QUILT_DB.
+    """
+    if setting == 'QUILT_DB':
+        get_shard_class.cache_clear()
+        get_mapping_class.cache_clear()
 
 
 def _node_exists(node_name):

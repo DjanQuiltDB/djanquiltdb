@@ -20,9 +20,10 @@ from django.db.models.signals import (
 from django.db.utils import ConnectionDoesNotExist, IntegrityError, OperationalError
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import isolate_apps
+from django.utils.module_loading import import_string
 
 from djanquiltdb.db import connection
-from djanquiltdb.decorators import atomic_write_to_every_node
+from djanquiltdb.decorators import atomic_write_to_every_node, override_sharding_setting
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.router import get_active_connection, set_active_connection
 from djanquiltdb.utils import (
@@ -65,6 +66,7 @@ from djanquiltdb_tests import (
     ShardingTestCase,
     ShardingTransactionTestCase,
 )
+from djanquiltdb_tests.app_config import DummyShardedShard
 from example.models import (
     Cake,
     CakeType,
@@ -100,6 +102,31 @@ class GetShardClass(SimpleTestCase):
         Case: Call get_shard_class while it is set in the settings.
         Expected: The model class.
         """
+        self.assertEqual(get_shard_class(), Shard)
+
+    def test_the_shard_class_is_imported_once_for_two_calls(self):
+        """
+        Case: Override QUILT_DB with its own value, which empties the cache, and call get_shard_class() twice.
+        Expected: The shard class is imported once.
+        """
+        with override_settings(QUILT_DB=settings.QUILT_DB):
+            with mock.patch('djanquiltdb.utils.import_string', wraps=import_string) as wrapped:
+                get_shard_class()
+                get_shard_class()
+
+        self.assertEqual(wrapped.call_count, 1)
+
+    def test_a_change_to_the_quilt_db_setting_resets_the_cached_shard_class(self):
+        """
+        Case: Call get_shard_class(), call it again while SHARD_CLASS is set to DummyShardedShard, and call it again
+              after that override ends.
+        Expected: Shard, then DummyShardedShard, then Shard again.
+        """
+        self.assertEqual(get_shard_class(), Shard)
+
+        with override_sharding_setting('SHARD_CLASS', 'djanquiltdb_tests.app_config.DummyShardedShard'):
+            self.assertEqual(get_shard_class(), DummyShardedShard)
+
         self.assertEqual(get_shard_class(), Shard)
 
 
@@ -138,6 +165,31 @@ class GetMappingClass(SimpleTestCase):
         Case: Call get_mapping_class while it is set in the settings.
         Expected: The mapping class.
         """
+        self.assertEqual(get_mapping_class(), OrganizationShard)
+
+    def test_the_mapping_model_is_imported_once_for_two_calls(self):
+        """
+        Case: Override QUILT_DB with its own value, which empties the cache, and call get_mapping_class() twice.
+        Expected: The mapping model is imported once.
+        """
+        with override_settings(QUILT_DB=settings.QUILT_DB):
+            with mock.patch('djanquiltdb.utils.import_string', wraps=import_string) as wrapped:
+                get_mapping_class()
+                get_mapping_class()
+
+        self.assertEqual(wrapped.call_count, 1)
+
+    def test_a_change_to_the_quilt_db_setting_resets_the_cached_mapping_model(self):
+        """
+        Case: get_mapping_class() is called, then called again while the project has no MAPPING_MODEL, and again after
+              that override ends.
+        Expected: OrganizationShard, then None, then OrganizationShard again.
+        """
+        self.assertEqual(get_mapping_class(), OrganizationShard)
+
+        with override_sharding_setting('MAPPING_MODEL'):
+            self.assertIsNone(get_mapping_class())
+
         self.assertEqual(get_mapping_class(), OrganizationShard)
 
 
