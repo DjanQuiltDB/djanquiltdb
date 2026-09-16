@@ -9,7 +9,7 @@ from django.db import DEFAULT_DB_ALIAS, ProgrammingError
 from djanquiltdb import ShardingMode, public_modes
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import get_model_definition, get_model_sharding_mode, get_sharding_mode
+from djanquiltdb.utils import get_model_definition, get_model_sharding_mode, get_primary_db_alias, get_sharding_mode
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +20,10 @@ def get_active_connection():
     """
     Get the active connection name. Fall back to the PRIMARY_DB_ALIAS setting, or to DEFAULT_DB_ALIAS if that fails too.
     """
-    return getattr(_active_connection, 'connection', settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS))
+    try:
+        return _active_connection.connection
+    except AttributeError:
+        return get_primary_db_alias()
 
 
 def set_active_connection(connection):

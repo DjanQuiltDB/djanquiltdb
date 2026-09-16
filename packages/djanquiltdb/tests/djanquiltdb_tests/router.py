@@ -107,6 +107,20 @@ class ActiveConnectionTestCase(ShardingTransactionTestCase):
         _active_connection.connection = sentinel
         self.assertIs(get_active_connection(), sentinel)
 
+    def test_get_active_connection_does_not_read_the_settings_while_a_connection_is_set(self):
+        """
+        Case: Get the result of get_active_connection() while an active connection is set.
+        Expected: Returns the value of _active_connection.connection without reading QUILT_DB. QUILT_DB is read only for
+                  the fallback, when no connection is set.
+        """
+        sentinel = object()
+
+        _active_connection.connection = sentinel
+        with mock.patch('djanquiltdb.router.get_primary_db_alias') as mock_get_primary_db_alias:
+            self.assertIs(get_active_connection(), sentinel)
+
+        mock_get_primary_db_alias.assert_not_called()
+
     def test_set_active_connection(self):
         """
         Case: Set the active connection
