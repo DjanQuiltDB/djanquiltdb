@@ -6,6 +6,8 @@ from django.contrib.sessions.backends.base import VALID_KEY_CHARS
 from django.contrib.sessions.backends.cached_db import SessionStore as BaseSessionStore
 from django.core import signing
 from django.core.exceptions import ImproperlyConfigured
+from django.core.signals import setting_changed
+from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.module_loading import import_string
@@ -37,6 +39,17 @@ def _get_session_key_regex() -> re.Pattern:
 
     # When taking the shard selector regex, we remove the anchors ^ and $
     return re.compile('^S(' + shard_selector.pattern[1:-1] + ')' + delimiter)
+
+
+@receiver(setting_changed)
+def reset_cached_session_settings(setting, **kwargs):
+    """
+    Clears the cached regexes and delimiter when override_settings() changes QUILT_SESSIONS.
+    """
+    if setting == 'QUILT_SESSIONS':
+        _get_shard_selector_regex.cache_clear()
+        _get_delimiter.cache_clear()
+        _get_session_key_regex.cache_clear()
 
 
 class SessionStore(BaseSessionStore):
