@@ -127,10 +127,17 @@ class Scone(models.Model):
         app_label = 'example'
 
 
-# A call site asking for the normalized context the settings turn off project-wide. PGHISTORY_CONTEXT_FIELD is what
-# the W001 check reads, so this is also what reaching past that check looks like: the events keep a foreign key into
-# pghistory's Context table, which OVERRIDE_SHARDING_MODE places in the shard alongside them.
-@track(context_field=pghistory.ContextForeignKey())
+# The call site asks for a normalized context. Depending on the run of the suite, pghistory's Context table is sharded
+# or public. The default trackers are named next to a manual one, which pghistory.create_event() writes through its own
+# SQL compiler, because the event model has a foreign key to the Context table.
+@track(
+    pghistory.InsertEvent(),
+    pghistory.UpdateEvent(),
+    pghistory.ManualEvent('waffle.inspected'),
+    context_field=pghistory.ContextForeignKey(),
+    # A proxy field on a sharded event model, which reads the metadata through the context foreign key.
+    attrs={'baked_by': pghistory.ProxyField('pgh_context__metadata__baked_by', models.TextField(null=True))},
+)
 @sharded_model()
 class Waffle(models.Model):
     name = models.CharField('name', max_length=128)
@@ -139,9 +146,47 @@ class Waffle(models.Model):
         app_label = 'example'
 
 
-# Statement-level triggers, which fire once per statement over a transition table rather than once per row. Their
-# generated SQL calls _pgh_attach_context() whichever way the context is recorded, so unlike the row-level triggers
-# every other model here uses, they need that function to exist in the schema the trigger runs in.
+# Danish and Strudel cover the known gaps in EventQueryCompiler._get_cte: a db_column that is different from the
+# attname, and a proxy field that reads a key inside a key of the context metadata.
+@track(
+    context_field=pghistory.ContextForeignKey(),
+    attrs={'baked_by': pghistory.ProxyField('pgh_context__metadata__baked_by', models.TextField(null=True))},
+)
+@sharded_model()
+class Danish(models.Model):
+    name = models.CharField('name', max_length=128, db_column='pastry_name')
+
+    class Meta:
+        app_label = 'example'
+
+
+@track(
+    context_field=pghistory.ContextForeignKey(),
+    attrs={'baker_name': pghistory.ProxyField('pgh_context__metadata__baker__name', models.TextField(null=True))},
+)
+@sharded_model()
+class Strudel(models.Model):
+    name = models.CharField('name', max_length=128)
+
+    class Meta:
+        app_label = 'example'
+
+
+# Tracks the through model of Cake.toppings through a proxy, as pghistory documents, because the auto-created through
+# model cannot be decorated. It gets the mode of Cake.
+@track(
+    pghistory.InsertEvent('topping.added'),
+    pghistory.DeleteEvent('topping.removed'),
+    obj_field=None,
+)
+class CakeToppings(Cake.toppings.through):
+    class Meta:
+        app_label = 'example'
+        proxy = True
+
+
+# Statement-level triggers call _pgh_attach_context() even with a denormalized context, so the function has to be on
+# the search path of the schema that they run in.
 @track(level=pghistory.Statement)
 @sharded_model()
 class Croissant(models.Model):

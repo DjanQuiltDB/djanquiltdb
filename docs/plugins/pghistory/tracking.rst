@@ -134,6 +134,17 @@ Event models are queried like any other model in a sharded project. The plugin's
 pghistory's proxy fields working on Django 6, where the column aliasing of ``values()`` breaks the proxy-field CTE of
 django-pghistory releases up to at least 3.9.
 
+The queryset keeps three gaps of pghistory's CTE, which pghistory 3.9 has too. They only affect a query that selects
+the proxy fields of an event model:
+
+* when a tracked field has a ``db_column`` that is different from its name, the query fails with a database error that
+  names the column;
+* a proxy field that reads a key inside a key of the context metadata, such as ``pgh_context__baker__name``, returns
+  the value JSON-encoded: ``'"ann"'`` and not ``'ann'``;
+* the CTE renames the column of each proxy field and turns ``->`` into ``->>`` by replacing text in the whole SQL of
+  the query. A key in the path of a proxy field that contains ``->``, or an underscore followed by the column of a
+  proxy field, is changed too.
+
 Statement-level triggers
 ========================
 
@@ -145,10 +156,20 @@ context is recorded, where a row-level trigger reads the session directly. The f
 ``pghistory`` app's own migrations, so it exists wherever :doc:`you placed that app <installation>` — inside each
 shard when it is sharded, in the public schema when it is public, and reachable from a shard either way.
 
-Reverting
-=========
+Reverting and manual events
+===========================
 
 ``Event.revert()`` works as in pghistory, but lets the router choose the connection: the write goes to the active shard
 for a sharded model, and to the primary for a mirrored model. pghistory's own ``revert()`` writes to the ``default``
 connection, which points at the public schema of a node and not at the shard that has the row. An explicit ``using=`` is
 used as given.
+
+``pghistory.create_event()`` does the same. pghistory writes a manual event through the ORM when its event model
+records the context denormalized, and the router already chooses the connection then. When the event model has a
+foreign key to the ``Context`` table, pghistory writes the event through its own SQL compiler on the ``default``
+connection. The plugin replaces ``pghistory.create_event()`` when it is installed, so that without a ``using=``, the
+event is written where the router writes the tracked row.
+
+The plugin is installed when Django's app registry is ready. A module that imports the function by name before then,
+with ``from pghistory import create_event``, such as a ``models.py``, keeps pghistory's own function. Call it as
+``pghistory.create_event()``.

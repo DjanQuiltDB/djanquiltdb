@@ -19,10 +19,13 @@ class EventQueryCompiler(BaseEventQueryCompiler):
         event_model = self.query.model
 
         annotations = {f'_{field.column}': Cast(field.pgh_proxy, output_field=field) for field in self.proxy_fields}
-        # Known gap, shared with pghistory 3.9: a field with a db_column has an attname differing from the column,
-        # so the values() aliasing names the CTE column after the attname while the outer query selects the
-        # column. A complete fix would select every field through a Cast annotation named after its column, the
-        # way the proxy fields already are.
+        # Known gap, which pghistory 3.9 has too: values() names each CTE column after the attname, but the outer query
+        # selects the column name. Only a query that selects the proxy fields of an event model goes through this CTE, and
+        # such a query fails when one of the fields of the model has a db_column. A query that leaves the proxy fields
+        # out, such as the ones of move_shard_to_node, works. A fix would select each field whose column differs from
+        # its attname through an annotation that is named after the column.
+        # Django rejects an annotation with the name of a field, so a column that is also the name of another field
+        # needs an alias that the SQL renames afterwards. KnownCompilerGapTestCase covers this gap.
         values = [field.attname for field in event_model._meta.fields if not hasattr(field, 'pgh_proxy')] + [
             f'_{field.column}' for field in self.proxy_fields
         ]
@@ -36,10 +39,13 @@ class EventQueryCompiler(BaseEventQueryCompiler):
             if isinstance(sql, bytes):  # pragma: no cover
                 sql = sql.decode('utf-8')
 
-        # Known gaps, shared with pghistory 3.9: both replacements rewrite the whole SQL string. The alias rewrite
-        # would have to anchor on the quoted `AS "_column"` positions not to also rewrite a literal or another
-        # column containing the same text, and the operator rewrite breaks chained JSON paths, where only the
-        # last `->` may become `->>`, as well as `->` appearing inside a literal.
+        # Known gaps, which pghistory 3.9 has too. Both replacements below act on the whole SQL string, so they also
+        # change matching text inside literals and other column names. A fix for the alias replacement would match only
+        # the quoted `AS "_column"` positions.
+        #
+        # The operator replacement only matches `->`. A proxy field that reads more than one key compiles to `#>`, so
+        # its value is returned JSON-encoded: '"ann"' and not 'ann'. Replacing more operators does not fix this, because
+        # it would also break path operators that already return text. KnownCompilerGapTestCase covers this gap.
         for field in self.proxy_fields:
             sql = sql.replace(f'_{field.column}', field.column)
 

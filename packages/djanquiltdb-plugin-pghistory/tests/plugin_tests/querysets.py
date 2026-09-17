@@ -2,7 +2,6 @@ import pghistory
 from djanquiltdb import State
 from djanquiltdb.testing import ShardingTestCase, ShardingTransactionTestCase
 from djanquiltdb.utils import create_template_schema, use_shard
-from pghistory.models import EventQuery
 
 from djanquiltdb_plugin_pghistory import EventQuerySet
 from example.models import Bakery, BakeryEvent, Cake, CakeEvent, Shard
@@ -36,14 +35,6 @@ class ShardedEventQuerySetTestCase(ShardingTransactionTestCase):
 
 
 class ProxyFieldQueryTestCase(ShardingTestCase):
-    def test_the_queryset_builds_an_event_query(self):
-        """
-        Case: The query of a BakeryEvent queryset is inspected. The plugin queryset overrides __init__ to build its own
-              EventQuery before it calls the inherited __init__.
-        Expected: The query is an EventQuery, which is what resolves proxy fields.
-        """
-        self.assertIsInstance(BakeryEvent.objects.all().query, EventQuery)
-
     def test_a_proxy_field_reads_from_the_context_of_the_event(self):
         """
         Case: The tracking of a mirrored model declares a proxy field for a context key, and a row is written inside a
