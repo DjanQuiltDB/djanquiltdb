@@ -151,10 +151,37 @@ Statement-level triggers
 ``level=pghistory.Statement``, at a call site or for the whole project through ``PGHISTORY_LEVEL``, works as in
 pghistory, and the events are stored in the shard that has the rows.
 
-It is the one tracking option whose SQL calls pghistory's ``_pgh_attach_context()`` function regardless of how the
-context is recorded, where a row-level trigger reads the session directly. The function is installed by the
-``pghistory`` app's own migrations, so it exists wherever :doc:`you placed that app <installation>` — inside each
-shard when it is sharded, in the public schema when it is public, and reachable from a shard either way.
+The trigger SQL of statement-level tracking always calls pghistory's ``_pgh_attach_context()`` function, regardless of
+whether the context is normalized or denormalized. At row level, the trigger calls it when the event model has a
+foreign key to the ``Context`` table, so only row-level tracking with a denormalized context does not call it. The
+``pghistory`` app's own migrations install the function, so it exists wherever :doc:`you placed that app
+<installation>`: inside each shard when the app is sharded, and in the public schema when the app is public or
+mirrored. Every search path ends with the public schema, so with a public app, the trigger of a model of every sharding
+mode reaches the function. With a sharded app, only a shard can reach it, so a write to a public or mirrored model
+whose trigger calls the function fails outside a shard, and the plugin reports ``djanquiltdb_plugin_pghistory.E004``.
+
+Aggregating across event models
+===============================
+
+``pghistory.models.Events`` and its ``MiddlewareEvents`` proxy run each query as a ``UNION`` over the event tables that
+they are told to span. That union is built as raw SQL and is not routed, and it names each table without a schema, so
+the search path of the connection that runs it decides which rows it finds:
+
+* inside :func:`~djanquiltdb.utils.use_shard`, it spans the event tables of that shard **and** the public ones. This is
+  the only setup in which an aggregate across sharding modes works;
+* the shard that it reads is the active shard, and not a shard that the query names;
+* outside any shard, it can only span public and mirrored event models. Including a sharded event model raises a
+  database error that names the missing table.
+
+An aggregate over sharded events therefore only covers the active shard. To aggregate over the whole project, run the
+aggregate once for each shard, usually with :func:`~djanquiltdb.utils.for_each_shard`.
+
+The same applies to pghistory's admin. It is built on ``PGHISTORY_ADMIN_MODEL``, which is ``pghistory.Events`` by
+default, so it runs this kind of query on every page. Public and mirrored event models show up wherever the admin is
+used. A sharded event model only shows up when a shard is already active by the time the view runs.
+
+:doc:`The admin shard switcher </contrib/admin_shard_switcher>` makes the chosen shard active for each admin request, so
+pghistory's event pages list the events of that shard.
 
 Reverting and manual events
 ===========================

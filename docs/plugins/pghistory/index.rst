@@ -28,6 +28,8 @@ Things to know
   the other nodes has to copy the event table too. See :doc:`tracking`.
 * An extra field on an event base needs a ``db_default``, or a trigger that fills it in, because the trigger that writes
   the events does not apply a Django ``default``. See :doc:`tracking`.
+* A query on pghistory's aggregate ``Events`` model, and so pghistory's admin, only covers the active shard and the
+  public schema. Run it once for each shard to cover the whole project. See :doc:`tracking`.
 * ``Event.revert()`` writes through the router, to the active shard or the primary node, and not to the ``default``
   connection as pghistory's own does. See :doc:`tracking`.
 * pghistory does not inherit the ``Meta`` of an event base, so a trigger or a meta option for every event model has to
