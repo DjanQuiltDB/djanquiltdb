@@ -6,6 +6,7 @@ from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.models.expressions import RawSQL
 from django.db.utils import OperationalError
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from psycopg.errors import InternalError
 
 from djanquiltdb import State
@@ -130,8 +131,8 @@ class GetValidatedSchemaNameTestCase(ShardingTestCase):
 class SearchPathExecuteWrapperTestCase(ShardingTransactionTestCase):
     def test_the_search_path_statement_reaches_execute_wrappers_as_a_string(self):
         """
-        Case: An execute wrapper is registered, as pghistory.context() does, and a shard is used, so that the backend
-              runs SET search_path.
+        Case: An execute wrapper is registered, as pghistory.context() does, and a query runs in a shard, so that the
+              backend runs SET search_path.
         Expected: Every SET search_path statement that the wrapper receives is a str.
         """
         create_template_schema()
@@ -144,8 +145,8 @@ class SearchPathExecuteWrapperTestCase(ShardingTransactionTestCase):
             return execute(sql, params, many, context)
 
         with connections['default'].execute_wrapper(record_statement):
-            with use_shard(shard):
-                pass
+            with use_shard(shard) as env:
+                env.connection.cursor().execute('SELECT 1')
 
         search_path_statements = [
             statement for statement in statements_received_by_wrapper if 'search_path' in str(statement).lower()
@@ -1137,6 +1138,24 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
         cursor.execute('SELECT pg_try_advisory_lock({});'.format(key))
         return cursor.fetchall()[0][0]
 
+    def test_use_shard_of_a_shard_whose_schema_does_not_exist_raises_at_the_first_query(self):
+        """
+        Case: Enter use_shard for a shard whose schema does not exist, and run a query in it.
+        Expected: use_shard enters without an error, because taking the lock of the shard does not set the search_path.
+                  The first query in the shard raises IntegrityError, because setting the search_path checks that the
+                  schema exists.
+        """
+        with mock.patch('djanquiltdb.utils.create_schema_on_node'):
+            shard = Shard.objects.create(
+                alias='without_schema', schema_name='test_missing_schema', node_name='default', state=State.ACTIVE
+            )
+        # The flush after the test enters each shard of the registry, so the cleanup removes the shard from it.
+        self.addCleanup(Shard.objects.filter(pk=shard.pk).delete)
+
+        with use_shard(shard):
+            with self.assertRaisesMessage(IntegrityError, "Schema 'test_missing_schema' does not exist."):
+                Organization.objects.count()
+
     @mock.patch('django.db.backends.utils.CursorWrapper.execute')
     def test_acquire_shard_lock(self, mock_execute):
         """
@@ -1183,6 +1202,27 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
 
         mock_execute.assert_called_once_with(
             'SELECT pg_advisory_unlock(%s);', [LockCursorWrapperMixin.get_int_from_key('test')]
+        )
+
+    def test_shard_lock_does_not_change_the_search_path(self):
+        """
+        Case: Acquire and release an advisory lock through the connection of a shard, while the search_path of the node
+              points at the public schema.
+        Expected: Only the lock statements run, and the search_path is not set to the schema of the shard, because the
+                  lock functions do not depend on the search_path.
+        """
+        create_template_schema('default')
+        shard = Shard.objects.create(node_name='default', schema_name='test_schema', alias='test', state=State.ACTIVE)
+        self.connection1.cursor().execute('SELECT 1')
+        key = LockCursorWrapperMixin.get_int_from_key('test')
+
+        with CaptureQueriesContext(self.connection1) as captured:
+            connections[shard].acquire_advisory_lock(key='test', shared=True)
+            connections[shard].release_advisory_lock(key='test', shared=True)
+
+        self.assertEqual(
+            [query['sql'] for query in captured.captured_queries],
+            ['SELECT pg_advisory_lock_shared({});'.format(key), 'SELECT pg_advisory_unlock_shared({});'.format(key)],
         )
 
     def test_shared_blocks_exclusive_lock(self):

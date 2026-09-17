@@ -100,6 +100,9 @@ class use_shard(object):
     does outside a transaction. Inside a transaction the locks last until the transaction ends, so a use_shard inside
     an entered use_shard of the same shard takes its own locks and reads the shard again.
 
+    use_shard does not check that the schema of the shard exists when it is entered. The first query in a shard whose
+    schema does not exist raises IntegrityError.
+
     :param object shard: Provide a Shard model object so the context manager knows all about where to send the queries.
     :param str node_name: Alternatively, you can provide the name of the database the schema can be found and the name
         of the schema.

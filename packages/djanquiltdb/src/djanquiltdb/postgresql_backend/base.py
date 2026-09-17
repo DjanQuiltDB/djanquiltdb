@@ -1660,16 +1660,31 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def acquire_advisory_lock(self, key, shared=True, xact=False, _cursor=None):
         """
         Set a shared or exclusive advisory lock on a given key, session-scoped or transaction-scoped.
+
+        Without ``_cursor``, this method uses a cursor that does not set the search_path, because the lock functions do
+        not depend on the search_path. Entering and leaving a shard without running a query in the shard then does not
+        change the search_path of the node.
         """
-        cursor = _cursor or self.cursor()
+        cursor = _cursor or self._get_lock_cursor()
         cursor.acquire_advisory_lock(key, shared=shared, xact=xact)
 
     def release_advisory_lock(self, key, shared=True, _cursor=None):
         """
-        Release a shared or exclusive advisory lock on a given key.
+        Release a shared or exclusive advisory lock on a given key. Like acquire_advisory_lock, this method uses a
+        cursor that does not set the search_path, unless ``_cursor`` is passed.
         """
-        cursor = _cursor or self.cursor()
+        cursor = _cursor or self._get_lock_cursor()
         cursor.release_advisory_lock(key, shared=shared)
+
+    def _get_lock_cursor(self):
+        """
+        Returns a cursor for the advisory lock statements. Like _cursor(), this method closes the connection when errors
+        make it unusable, so that the cursor comes from a new connection. Unlike _cursor(), this method does not set the
+        search_path, and so does not check that the schema exists: a use_shard of a shard whose schema does not exist
+        takes its locks and is entered, and the first query in the shard raises IntegrityError.
+        """
+        self._close_if_errors_made_unusable()
+        return self._get_cursor(skip_lock=True)
 
     def cursor(self):
         """
@@ -1688,10 +1703,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         Check for a connection and see if it is usable. If not: close the connection and the Super() class will
         automatically reconnect in its _cursor() function.
         """
-        if self.connection is not None and self.errors_occurred:
-            if not self.is_usable():
-                logger.warning('Database connection is unusable. Reconnecting and continuing.')
-                self.close()
+        self._close_if_errors_made_unusable()
 
         cursor = self._get_cursor(name=name)
 
@@ -1733,6 +1745,16 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 self.current_search_paths = search_paths
 
         return cursor
+
+    def _close_if_errors_made_unusable(self):
+        """
+        Closes the connection when the errors_occurred flag is set and the connection is not usable, so that the next
+        cursor comes from a new connection.
+        """
+        if self.connection is not None and self.errors_occurred:
+            if not self.is_usable():
+                logger.warning('Database connection is unusable. Reconnecting and continuing.')
+                self.close()
 
     def _get_cursor(self, name=None, skip_lock=False):
         """
