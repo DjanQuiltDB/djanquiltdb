@@ -333,6 +333,16 @@ class ShardOptionsTestCase(ShardingTestCase):
         )
         self.assertEqual(shard_options.lock_keys, ['shard_{}'.format(self.shard.id), 'mapping_42'])
 
+    def test_lock_keys_mapping_value_zero(self):
+        """
+        Case: Get the lock keys from a ShardOptions instance that has a shard id and the mapping value 0
+        Expected: List with `shard_<SHARD_ID>` and `mapping_0` returned, because 0 is a mapping value like any other
+        """
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id, mapping_value=0
+        )
+        self.assertEqual(shard_options.lock_keys, ['shard_{}'.format(self.shard.id), 'mapping_0'])
+
     def test_is_public_schema(self):
         """
         Case: Check ShardOptions.is_public_schema() for a public schema and for a non-public schema
@@ -362,6 +372,23 @@ class ShardOptionsTestCase(ShardingTestCase):
         self.assertEqual(shard_options.use(), _use_shard_for)
 
         mock_use_shard_for.assert_called_once_with(42, **kwargs)
+
+    @mock.patch('djanquiltdb.options.use_shard_for')
+    def test_use_mapping_value_zero(self, mock_use_shard_for):
+        """
+        Case: Call ShardOptions's use() method while having the mapping value 0 set
+        Expected: Return a use_shard_for instance with the mapping value 0, because 0 is a mapping value like any other
+        """
+        _use_shard_for = mock.MagicMock()
+        mock_use_shard_for.return_value = _use_shard_for
+
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id, mapping_value=0
+        )
+
+        self.assertEqual(shard_options.use(), _use_shard_for)
+
+        mock_use_shard_for.assert_called_once_with(0)
 
     @mock.patch('djanquiltdb.options.use_shard')
     def test_use_shard_id(self, mock_use_shard):

@@ -111,10 +111,10 @@ class ShardOptions:
         """The advisory lock names this target implies, one per shard or mapping value it was resolved from."""
         lock_keys = []
 
-        if self.shard_id:
+        if self.shard_id is not None:
             lock_keys.append('shard_{}'.format(self.shard_id))
 
-        if self.mapping_value:
+        if self.mapping_value is not None:
             lock_keys.append('mapping_{}'.format(self.mapping_value))
 
         return lock_keys
@@ -128,9 +128,9 @@ class ShardOptions:
         The context manager that makes this target the active connection, equivalent to whichever of ``use_shard``
         or ``use_shard_for`` matches how these options were resolved.
         """
-        if self.mapping_value:
+        if self.mapping_value is not None:
             return use_shard_for(self.mapping_value, **self.kwargs)
-        elif self.shard_id:
+        elif self.shard_id is not None:
             return use_shard(get_shard_class().objects.get(id=self.shard_id), **self.kwargs)
 
         return use_shard(node_name=self.node_name, schema_name=self.schema_name, **self.kwargs)
