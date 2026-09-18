@@ -616,9 +616,7 @@ class Command(BaseCommand):
                 # Release the exclusive advisory lock
                 source_connection.release_advisory_lock(key='mapping_{}'.format(root_object_id), shared=False)
 
-        # Restore shard state and set its node to the target
-        source_connection.release_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
-
+        # Restore shard state and set its node to the target.
         # pre_execution records the old state just before flipping the shard; when it failed earlier, the shard itself
         # was never flipped and there is nothing to restore.
         if hasattr(self, 'old_shard_state'):
@@ -626,6 +624,10 @@ class Command(BaseCommand):
             if succeeded:
                 self.source_shard.node_name = self.target_node
             self.source_shard.save(update_fields=['state', 'node_name'])
+
+        # Release the lock of the source shard only after the shard is saved: a use_shard that waits for the lock reads
+        # the shard again once it holds the lock, and must read the shard where it is after the move.
+        source_connection.release_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
 
     @staticmethod
     def copy_data_stream(cursor, sql, file_obj):

@@ -1681,6 +1681,35 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.assertEqual(self.source_shard.node_name, 'other')
         mock_release_lock.assert_called_once_with(key='shard_{}'.format(self.source_shard.id), shared=False)
 
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
+    def test_post_execution_saves_the_moved_shard_before_it_releases_the_lock_of_the_shard(self):
+        """
+        Case: Call post_execution after a successful move of a shard in maintenance, and read the row of the shard in
+              the shard registry at the moment that the lock of the shard is released.
+        Expected: The row has the target node and the old state of the shard already, so that a use_shard that waits
+                  for the lock reads the shard where it is after the move.
+        """
+        self.command.old_shard_state = State.ACTIVE
+        self.source_shard.state = State.MAINTENANCE
+        self.source_shard.save()
+
+        rows_at_release = []
+
+        def read_the_row_of_the_shard(key, shared):
+            if key == 'shard_{}'.format(self.source_shard.id):
+                rows_at_release.append(Shard.objects.values('node_name', 'state').get(pk=self.source_shard.pk))
+
+        self.command.source_shard = self.source_shard
+        self.command.target_node = 'other'
+
+        with mock.patch(
+            'djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock',
+            side_effect=read_the_row_of_the_shard,
+        ):
+            self.command.post_execution(succeeded=True)
+
+        self.assertEqual(rows_at_release, [{'node_name': 'other', 'state': State.ACTIVE}])
+
     @override_settings(
         QUILT_DB={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
     )

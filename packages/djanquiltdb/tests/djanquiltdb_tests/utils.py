@@ -465,6 +465,135 @@ class UseShardTestCase(ShardingTestCase):
         use_shard(self.shard).enable()
         mock_acquire_lock.assert_called_once_with()
 
+    def test_enter_a_shard_inside_a_shard_without_the_public_schema(self):
+        """
+        Case: Enter use_shard for a shard while a use_shard for another shard on the same node is entered with
+              include_public set to False.
+        Expected: The shard is entered, because use_shard reads the shard registry again in the public schema of the
+                  active node, which the search_path of the outer shard does not have.
+        """
+        second_shard = Shard.objects.create(
+            alias='second_shard', schema_name='test_second_schema', node_name='default', state=State.ACTIVE
+        )
+
+        with use_shard(self.shard, include_public=False):
+            with use_shard(second_shard) as env:
+                self.assertEqual(get_active_connection(), env.options)
+
+    @mock.patch('djanquiltdb.router.set_active_connection')
+    @mock.patch('djanquiltdb.utils.use_shard.release_lock')
+    def test_enable_shard_put_in_maintenance_while_waiting_for_the_lock(
+        self, mock_release_lock, mock_set_active_connection
+    ):
+        """
+        Case: Use use_shard.enable() on an active shard that is put in maintenance while use_shard waits for its lock,
+              as move_shard_to_node does while it holds the exclusive lock.
+        Expected: A StateException, after which the lock is released and the active connection is not changed.
+        """
+        env = use_shard(self.shard)
+
+        def put_the_shard_in_maintenance():
+            Shard.objects.filter(pk=self.shard.pk).update(state=State.MAINTENANCE)
+
+        with mock.patch.object(env, 'acquire_lock', side_effect=put_the_shard_in_maintenance):
+            with self.assertRaises(StateException) as error:
+                env.enable()
+
+        self.assertEqual(error.exception.state, State.MAINTENANCE)
+        mock_release_lock.assert_called_once_with()
+        self.assertFalse(mock_set_active_connection.called)
+
+    @mock.patch('djanquiltdb.router.set_active_connection')
+    @mock.patch('djanquiltdb.utils.use_shard.release_lock')
+    def test_enable_shard_moved_while_waiting_for_the_lock(self, mock_release_lock, mock_set_active_connection):
+        """
+        Case: Use use_shard.enable() on an active shard that is moved to another node while use_shard waits for its
+              lock, and is active again once use_shard holds it.
+        Expected: A StateException, after which the lock is released and the active connection is not changed, because
+                  the options point to the node that the shard is on before the move.
+        """
+        env = use_shard(self.shard)
+
+        def move_the_shard():
+            Shard.objects.filter(pk=self.shard.pk).update(node_name='other')
+
+        with mock.patch.object(env, 'acquire_lock', side_effect=move_the_shard):
+            with self.assertRaisesMessage(StateException, 'on other|test_schema, which differs from the shard'):
+                env.enable()
+
+        mock_release_lock.assert_called_once_with()
+        self.assertFalse(mock_set_active_connection.called)
+
+    @override_sharding_setting('MAPPING_MODEL')
+    def test_enable_with_a_mapping_value_without_a_mapping_model(self):
+        """
+        Case: Use use_shard.enable() for a shard and a mapping value in a project without QUILT_DB['MAPPING_MODEL'].
+        Expected: ImproperlyConfigured, which get_shard_for raises when use_shard reads the mapping value again, and
+                  not an error about the missing mapping model.
+        """
+        with self.assertRaisesMessage(ImproperlyConfigured, 'MAPPING_MODEL'):
+            use_shard(self.shard, mapping_value=7).enable()
+
+    @mock.patch('djanquiltdb.router.set_active_connection')
+    def test_enable_shard_removed_from_the_registry_while_waiting_for_the_lock(self, mock_set_active_connection):
+        """
+        Case: Use use_shard.enable() on an active shard whose row is removed from the shard registry while use_shard
+              waits for its lock, as flush does.
+        Expected: use_shard enters the shard as passed, because the registry has no row to compare the shard with.
+        """
+        env = use_shard(self.shard)
+
+        def remove_the_shard_from_the_registry():
+            Shard.objects.filter(pk=self.shard.pk).delete()
+
+        with mock.patch.object(env, 'acquire_lock', side_effect=remove_the_shard_from_the_registry):
+            env.enable()
+
+        mock_set_active_connection.assert_called_once_with(env.options)
+
+    @mock.patch('djanquiltdb.router.set_active_connection')
+    def test_enable_shard_put_in_maintenance_while_waiting_for_the_lock_active_only_schemas_false(
+        self, mock_set_active_connection
+    ):
+        """
+        Case: Use use_shard.enable() with active_only_schemas set to False on a shard that is put in maintenance while
+              use_shard waits for its lock.
+        Expected: The shard is entered, because use_shard does not check the state of the shard when
+                  active_only_schemas is False.
+        """
+        env = use_shard(self.shard, active_only_schemas=False)
+
+        def put_the_shard_in_maintenance():
+            Shard.objects.filter(pk=self.shard.pk).update(state=State.MAINTENANCE)
+
+        with mock.patch.object(env, 'acquire_lock', side_effect=put_the_shard_in_maintenance):
+            env.enable()
+
+        mock_set_active_connection.assert_called_once_with(env.options)
+
+    @mock.patch('djanquiltdb.router.set_active_connection')
+    @mock.patch('djanquiltdb.utils.use_shard.release_lock')
+    def test_enable_shard_moved_while_waiting_for_the_lock_active_only_schemas_false(
+        self, mock_release_lock, mock_set_active_connection
+    ):
+        """
+        Case: Use use_shard.enable() with active_only_schemas set to False on a shard that is moved to another node
+              while use_shard waits for its lock.
+        Expected: A StateException, after which the lock is released and the active connection is not changed, because
+                  the options point to the node that the shard is on before the move.
+        """
+        env = use_shard(self.shard, active_only_schemas=False)
+
+        def move_the_shard():
+            Shard.objects.filter(pk=self.shard.pk).update(node_name='other')
+
+        with mock.patch.object(env, 'acquire_lock', side_effect=move_the_shard):
+            with self.assertRaisesMessage(StateException, 'on other|test_schema, which differs from the shard'):
+                env.enable()
+
+        mock_release_lock.assert_called_once_with()
+        self.assertFalse(mock_set_active_connection.called)
+
     @mock.patch('djanquiltdb.router.set_active_connection', mock.Mock())
     @mock.patch('djanquiltdb.utils.use_shard.release_lock')
     def test_disable_release_advisory_lock(self, mock_release_lock):
@@ -601,6 +730,124 @@ class UseShardForTestCase(ShardingTestCase):
 
         self.assertEqual(mock_acquire_lock.call_count, 1)
         self.assertEqual(mock_release_lock.call_count, 1)
+
+    @mock.patch('djanquiltdb.router.set_active_connection')
+    @mock.patch.object(use_shard_for, 'release_lock')
+    def test_use_shard_for_mapping_put_in_maintenance_while_waiting_for_the_lock(
+        self, mock_release_lock, mock_set_active_connection
+    ):
+        """
+        Case: Use use_shard_for with an active mapping object that is put in maintenance while use_shard_for waits for
+              its lock, as move_data_to_shard does while it holds the exclusive lock.
+        Expected: A StateException, after which the lock is released and the active connection is not changed.
+        """
+        env = use_shard_for(1)
+
+        def put_the_mapping_in_maintenance():
+            OrganizationShard.objects.filter(pk=self.org_shard1.pk).update(state=State.MAINTENANCE)
+
+        with mock.patch.object(env, 'acquire_lock', side_effect=put_the_mapping_in_maintenance):
+            with self.assertRaises(StateException) as error:
+                env.enable()
+
+        self.assertEqual(error.exception.state, State.MAINTENANCE)
+        mock_release_lock.assert_called_once_with()
+        self.assertFalse(mock_set_active_connection.called)
+
+    @mock.patch('djanquiltdb.router.set_active_connection')
+    def test_use_shard_for_mapping_put_in_maintenance_while_waiting_for_the_lock_active_only_schemas_false(
+        self, mock_set_active_connection
+    ):
+        """
+        Case: Use use_shard_for with active_only_schemas set to False and an active mapping object that is put in
+              maintenance while use_shard_for waits for its lock.
+        Expected: The shard is entered, because use_shard_for does not check the state of the mapping object when
+                  active_only_schemas is False.
+        """
+        env = use_shard_for(1, active_only_schemas=False)
+
+        def put_the_mapping_in_maintenance():
+            OrganizationShard.objects.filter(pk=self.org_shard1.pk).update(state=State.MAINTENANCE)
+
+        with mock.patch.object(env, 'acquire_lock', side_effect=put_the_mapping_in_maintenance):
+            env.enable()
+
+        mock_set_active_connection.assert_called_once_with(env.options)
+
+    @mock.patch('djanquiltdb.router.set_active_connection')
+    @mock.patch.object(use_shard_for, 'release_lock')
+    def test_use_shard_for_shard_moved_while_waiting_for_the_lock_active_only_schemas_false(
+        self, mock_release_lock, mock_set_active_connection
+    ):
+        """
+        Case: Use use_shard_for with active_only_schemas set to False and a mapping object in maintenance, whose shard
+              is moved to another node while use_shard_for waits for its lock.
+        Expected: A StateException, after which the lock is released and the active connection is not changed, because
+                  the options point to the node that the shard is on before the move.
+        """
+        env = use_shard_for(2, active_only_schemas=False)
+
+        def move_the_shard():
+            Shard.objects.filter(pk=self.shard1.pk).update(node_name='other')
+
+        with mock.patch.object(env, 'acquire_lock', side_effect=move_the_shard):
+            with self.assertRaisesMessage(StateException, 'on other|test_schema, which differs from the shard'):
+                env.enable()
+
+        mock_release_lock.assert_called_once_with()
+        self.assertFalse(mock_set_active_connection.called)
+
+    @mock.patch('djanquiltdb.router.set_active_connection')
+    @mock.patch.object(use_shard, 'release_lock')
+    def test_use_shard_with_a_mapping_value_that_moves_to_another_shard_while_waiting_for_the_lock(
+        self, mock_release_lock, mock_set_active_connection
+    ):
+        """
+        Case: Use use_shard with a shard and a mapping value of that shard, as the user proxy of the quilt admin does,
+              while move_data_to_shard moves the mapping value to another shard during the wait for the lock. The
+              mapping object is active again once use_shard holds the lock.
+        Expected: A StateException, after which the lock is released and the active connection is not changed, because
+                  the mapping value is on another shard than the shard that use_shard was given.
+        """
+        with mock.patch('djanquiltdb.utils.create_schema_on_node'):
+            other_shard = Shard.objects.create(
+                alias='other_sharding', schema_name='other_schema', node_name='default', state=State.ACTIVE
+            )
+
+        env = use_shard(self.shard1, mapping_value=1)
+
+        def move_the_mapping_value():
+            OrganizationShard.objects.filter(pk=self.org_shard1.pk).update(shard=other_shard)
+
+        with mock.patch.object(env, 'acquire_lock', side_effect=move_the_mapping_value):
+            with self.assertRaisesMessage(StateException, 'on default|other_schema, which differs from the shard'):
+                env.enable()
+
+        mock_release_lock.assert_called_once_with()
+        self.assertFalse(mock_set_active_connection.called)
+
+    @mock.patch('djanquiltdb.router.set_active_connection')
+    @mock.patch.object(use_shard, 'release_lock')
+    def test_use_shard_with_a_mapping_value_put_in_maintenance_while_waiting_for_the_lock(
+        self, mock_release_lock, mock_set_active_connection
+    ):
+        """
+        Case: Use use_shard with a shard and an active mapping value of that shard, whose mapping object is put in
+              maintenance while use_shard waits for its lock.
+        Expected: A StateException, after which the lock is released and the active connection is not changed.
+        """
+        env = use_shard(self.shard1, mapping_value=1)
+
+        def put_the_mapping_in_maintenance():
+            OrganizationShard.objects.filter(pk=self.org_shard1.pk).update(state=State.MAINTENANCE)
+
+        with mock.patch.object(env, 'acquire_lock', side_effect=put_the_mapping_in_maintenance):
+            with self.assertRaises(StateException) as error:
+                env.enable()
+
+        self.assertEqual(error.exception.state, State.MAINTENANCE)
+        mock_release_lock.assert_called_once_with()
+        self.assertFalse(mock_set_active_connection.called)
 
     def test_use_shard_set_parameters_on_connection(self):
         """

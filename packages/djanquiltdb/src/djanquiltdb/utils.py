@@ -5,10 +5,10 @@ from functools import cache, wraps
 
 from django.apps import apps
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, ObjectDoesNotExist
 from django.core.management import call_command
 from django.core.signals import setting_changed
-from django.db import DatabaseError, ProgrammingError, connections
+from django.db import DatabaseError, ProgrammingError, connections, router
 from django.db.models.signals import (
     post_delete,
     post_init,
@@ -92,6 +92,14 @@ class use_shard(object):
 
     If the shard's state is not State.ACTIVE, use_shard will raise a StateException error.
 
+    Once it holds the lock of the shard, a use_shard that is not inside an entered use_shard of the same shard reads the
+    shard again, in one query, and raises StateException when ``move_shard_to_node`` or ``move_data_to_shard`` changed
+    the shard after the shard that use_shard is given was read. ``use_shard_for()``, and a use_shard that is given a
+    mapping value, read the mapping value and its shard again instead. A use_shard inside an entered use_shard of the
+    same shard runs no statements when the entered use_shard holds the locks of the shard for the session, which it
+    does outside a transaction. Inside a transaction the locks last until the transaction ends, so a use_shard inside
+    an entered use_shard of the same shard takes its own locks and reads the shard again.
+
     :param object shard: Provide a Shard model object so the context manager knows all about where to send the queries.
     :param str node_name: Alternatively, you can provide the name of the database the schema can be found and the name
         of the schema.
@@ -126,6 +134,7 @@ class use_shard(object):
 
         # Add an indication that we activated this connection from an use_shard context manager
         kwargs['use_shard'] = True
+        self._kwargs = kwargs
 
         if shard:
             shard_class = get_shard_class()
@@ -169,6 +178,62 @@ class use_shard(object):
         if not self._locks_are_xact:
             self.connection.release_locks()
 
+    def read_shard_after_locking(self):
+        """
+        Reads the shard of ``self.options`` again, and returns it. When the options have a mapping value, as they have
+        for use_shard_for and for a use_shard that is given a mapping value, this method reads the shard of the mapping
+        value from the mapping table, and returns None when the mapping table does not have the mapping value. Unless
+        ``active_only_schemas`` is False, it then raises StateException when the mapping object or its shard is not
+        active. Without a mapping value, this method reads the shard from the shard registry, and returns None when the
+        registry does not have the shard.
+        """
+        if self.options.mapping_value is not None:
+            try:
+                return get_shard_for(
+                    self.options.mapping_value, active_only=self._kwargs.get('active_only_schemas', True)
+                )
+            except ObjectDoesNotExist:
+                return None
+
+        shard_class = get_shard_class()
+        return (
+            shard_class.objects.using(public_schema_alias_for_reading(shard_class))
+            .filter(pk=self.options.shard_id)
+            .first()
+        )
+
+    def check_shard_after_locking(self):
+        """
+        Raises StateException when the registry has the shard on another node or in another schema than
+        ``self.options``, or, when the options have a mapping value, when the mapping value points to another shard.
+        Unless ``active_only_schemas`` is False, it also raises StateException when the shard is not active.
+        ``move_shard_to_node`` and ``move_data_to_shard`` change the shard while they hold its exclusive lock, so the
+        shard can change between the check in ``__init__`` and the moment that this context gets the shared lock.
+
+        This method reads the shard registry in the public schema of the active node, where ``ShardOptions.use()`` looks
+        up the shard too, so the shard is compared with the copy of the registry that it comes from. The mapping table
+        is read where the router sends the mapping model, which is the primary node unless the mapping model sets
+        ``route_to_primary_db`` to False. When the copy of a mirrored registry on the active node is not in sync with
+        the primary node, this method compares the shard with the row that this copy has. A registry that is not
+        mirrored exists on the default node only, so code that enters a shard while another node is active needs a
+        mirrored registry, as the documentation recommends. When the copy does not have the shard, for example after
+        ``flush`` deletes the shard from it, this method has nothing to compare, and the context enters the shard as
+        passed.
+        """
+        from djanquiltdb.options import ShardOptions  # Prevent cyclic imports
+
+        shard = self.read_shard_after_locking()
+
+        if shard is None:
+            return
+
+        if ShardOptions.from_shard(shard, **self._kwargs) != self.options:
+            raise StateException(
+                'Once use_shard holds its lock, the registry has shard {} on {}|{}, which differs from the shard that '
+                'use_shard looked up before it waited for the lock'.format(shard, shard.node_name, shard.schema_name),
+                shard.state,
+            )
+
     def enable(self):
         from djanquiltdb.router import get_active_connection, set_active_connection  # Prevent cyclic imports
 
@@ -178,9 +243,17 @@ class use_shard(object):
         # Second: Save the old connection
         self._old_connection = get_active_connection()
 
-        # Third: Set an advisory lock on the shard and mapping object (if available)
+        # Third: Set an advisory lock on the shard and mapping object (if available), and check the shard again once
+        # the lock is held
         if self.options.lock:
             self.acquire_lock()
+
+            if self.options.shard_id is not None:
+                try:
+                    self.check_shard_after_locking()
+                except BaseException:
+                    self.release_lock()
+                    raise
 
         # Fourth: Set the new active schema
         set_active_connection(self.options)
@@ -202,6 +275,18 @@ class use_shard(object):
         set_active_connection(self._old_connection)
 
         self._enabled = False  # Make sure we cannot call disable multiple times
+
+
+def public_schema_alias_for_reading(model):
+    """
+    Returns the alias of the public schema of the node that the router picks to read ``model``. A lookup in the shard
+    registry or in the mapping table passes this alias to ``using()``, so that the lookup reads the copy that this node
+    has, also when the active connection is a shard whose search_path does not have the public schema. A mapping model
+    with ``route_to_primary_db`` is read on the primary node, as the router picks it.
+    """
+    from djanquiltdb.options import ShardOptions  # Prevent cyclic imports
+
+    return ShardOptions.from_alias(router.db_for_read(model)).node_name
 
 
 def get_shard_for(target_value, active_only=True, field=None):
