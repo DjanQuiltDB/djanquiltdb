@@ -123,9 +123,18 @@ when the column does not allow ``NULL``. Give the field a ``db_default``, or fil
 Public event models
 ===================
 
-DjanQuiltDB requires every public model to define a natural key. The plugin's ``PublicEvent`` base answers with the
-event's ``pgh_id``, and the tracking functions merge the ``unique_together`` backing it into the generated model's
-meta whenever the call site does not bring its own.
+DjanQuiltDB requires every public model to define a natural key. The plugin's ``PublicEvent`` base uses the ``pgh_id``
+of the event as the natural key, because an event has no other value that identifies it. DjanQuiltDB reads the natural
+key from the first entry of ``unique_together``, so the plugin puts ``pgh_id`` there when the event model is created. It
+only does so on the model's ``_meta``, so the migrations of the event model do not add a unique constraint next to its
+primary key. A ``unique_together`` that a call site passes in ``meta`` follows ``pgh_id``, and is the only one that
+the migrations create.
+
+The ``pgh_id`` is both the natural key and the primary key of an event. This matters when you serialize events.
+``dumpdata --natural-primary`` omits the primary key from each record, because the natural key is expected to find the
+row again. Here the natural key *is* the primary key, so nothing is left to find the row with, and every load adds new
+rows. Dump public event models without ``--natural-primary``. The records then include their ``pgh_id``, and loading
+them again updates the rows in place.
 
 Querying
 ========

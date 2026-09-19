@@ -1,6 +1,8 @@
 from django.test import SimpleTestCase
+from djanquiltdb.testing import OverrideMirroredRoutingMixin, ShardingTransactionTestCase
+from djanquiltdb.utils import use_shard
 
-from example.models import Cookie, CookieEvent, Scone, SconeIcingEvent, SconePlainEvent
+from example.models import Bakery, BakeryEvent, Cookie, CookieEvent, Scone, SconeIcingEvent, SconePlainEvent
 
 
 class EventModelDescriptorTestCase(SimpleTestCase):
@@ -41,3 +43,28 @@ class EventModelDescriptorTestCase(SimpleTestCase):
             set(Cookie.pgh_event_models),
             {'cookie.baked', 'cookie.reglazed', 'cookie.eaten', 'cookie.inspected'},
         )
+
+
+class MirroredEventsOnTheSecondNodeTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):
+    """
+    OverrideMirroredRoutingMixin stands in for the replication that a real deployment configures: it sends a mirrored
+    write to the active node, and not to the primary.
+    """
+
+    databases = '__all__'
+    available_apps = ['djanquiltdb', 'example', 'pghistory', 'django.contrib.auth', 'django.contrib.contenttypes']
+
+    def test_the_events_of_a_mirrored_model_are_recorded_only_on_the_node_that_wrote_them(self):
+        """
+        Case: A Bakery row is created on the second node, and OverrideMirroredRoutingMixin lets the write go there. The
+              event is then looked up on both nodes.
+        Expected: The event is recorded on the second node, and not on the primary, because DjanQuiltDB does not keep
+                  the contents of mirrored tables in sync.
+        """
+        with use_shard(node_name='other'):
+            bakery = Bakery.objects.create(name='corner')
+
+            self.assertEqual(BakeryEvent.objects.get(pgh_obj_id=bakery.pk).pgh_label, 'insert')
+
+        with use_shard(node_name='default'):
+            self.assertEqual(BakeryEvent.objects.count(), 0)
