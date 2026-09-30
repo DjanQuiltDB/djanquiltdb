@@ -242,13 +242,17 @@ class Command(MigrateCommand):
         template_name = get_template_name()
         stop = False
 
+        # The project state of each public and template schema, carried from node to node so it is rendered once per
+        # schema instead of once per node. Shards don't get one: there can be many, and each rendered state is large.
+        states = {}
+
         for node in plan:
             # Migrate all public schemas and templates
             for database in databases:
-                stop |= self.check_or_migrate_schema(database, PUBLIC_SCHEMA_NAME, node, fake, fake_initial)
+                stop |= self.check_or_migrate_schema(database, PUBLIC_SCHEMA_NAME, node, fake, fake_initial, states)
 
                 if schema_exists(database, template_name):
-                    stop |= self.check_or_migrate_schema(database, template_name, node, fake, fake_initial)
+                    stop |= self.check_or_migrate_schema(database, template_name, node, fake, fake_initial, states)
 
             # Migrate all shards, if the shard table exists.
             if shard_table_exists():
@@ -263,7 +267,9 @@ class Command(MigrateCommand):
                 break
         return stop
 
-    def check_or_migrate_schema(self, database, schema_name, plan_node, fake, fake_initial):
+    def check_or_migrate_schema(self, database, schema_name, plan_node, fake, fake_initial, states):
+        key = (database, schema_name)
+
         with use_shard(node_name=database, schema_name=schema_name) as env:
             executor = MigrationExecutor(env.connection, self.migration_progress_callback)
             migration, backwards = plan_node
@@ -281,14 +287,26 @@ class Command(MigrateCommand):
                             '    {}|{} has {} already applied.\n'.format(database, schema_name, migration)
                         )
 
+                # A stored state is built from every migration applied at the time, plus those applied since, so it
+                # already includes this one when going forwards. Going backwards, Django builds its own states.
+                if backwards:
+                    states.pop(key, None)
+
             else:
                 if self.verbosity >= 2:
                     self.stdout.write(
                         '    {} {} to default|public\n'.format('Unapplying' if backwards else 'Applying', migration)
                     )
                 try:
-                    executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
+                    if backwards:
+                        states.pop(key, None)
+                        executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
+                    else:
+                        states[key] = executor.migrate(
+                            targets=None, plan=[plan_node], state=states.get(key), fake=fake, fake_initial=fake_initial
+                        )
                 except Exception as exception:  # When an error occurs, continue this migration for other shards.
+                    states.pop(key, None)  # The failed migration may have left the state half mutated.
                     self.stderr.write(
                         '    {}|{}: {} - {}: {}'.format(
                             database, schema_name, migration, type(exception).__name__, exception
