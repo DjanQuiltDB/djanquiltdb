@@ -1,5 +1,6 @@
 import json
 from collections import defaultdict
+from contextlib import nullcontext
 from io import StringIO
 
 from django.apps import apps
@@ -9,11 +10,28 @@ from django.db import router, transaction
 from django.db.backends.postgresql.creation import DatabaseCreation as BaseDatabaseCreation
 
 from djanquiltdb.management.base import shard_table_exists
+from djanquiltdb.management.executor import enable_shared_migration_states
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.utils import create_template_schema, get_shard_class, get_template_name, use_shard
 
 
 class DatabaseCreation(BaseDatabaseCreation):
+    def create_test_db(self, verbosity=1, autoclobber=False, serialize=None, keepdb=False):
+        """
+        Build the test database. When the database is new and QUILT_DB['SHARED_TEST_MIGRATION_STATES'] is True, migrate
+        shares the project states of each migration between schemas (see the migrations documentation).
+
+        When serialize is not given, it is not passed on either, so Django's own default applies.
+        """
+        if keepdb or not settings.QUILT_DB.get('SHARED_TEST_MIGRATION_STATES', False):
+            context = nullcontext()
+        else:
+            context = enable_shared_migration_states()
+
+        kwargs = {} if serialize is None else {'serialize': serialize}
+        with context:
+            return super().create_test_db(verbosity=verbosity, autoclobber=autoclobber, keepdb=keepdb, **kwargs)
+
     def _serialize_for_schema(self, schema_alias):
         """
         Serialize all models that belong to a specific schema.

@@ -1,12 +1,16 @@
 import json
 from contextlib import contextmanager
+from unittest import mock
 
 from django.db import connections
+from django.db.backends.base.creation import BaseDatabaseCreation
 from django.db.utils import load_backend
+from django.test import SimpleTestCase
 
 from djanquiltdb import ShardingMode, State
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import override_sharding_setting
+from djanquiltdb.management.executor import shared_migration_states_enabled
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME, get_database_creation_class
 from djanquiltdb.postgresql_backend.creation import DatabaseCreation, TemplateDatabaseCreation
 from djanquiltdb.utils import create_template_schema, get_sharding_mode, get_template_name, use_shard
@@ -50,6 +54,85 @@ class DatabaseCreationClassTestCase(ShardingTransactionTestCase):
         self.assertEqual(get_database_creation_class(), TemplateDatabaseCreation)
         with self.new_connection('default') as conn:
             self.assertEqual(conn.creation.__class__, TemplateDatabaseCreation)
+
+
+@mock.patch.object(BaseDatabaseCreation, 'create_test_db', autospec=True)
+@override_sharding_setting('SHARED_TEST_MIGRATION_STATES', True)
+class CreateTestDbTestCase(SimpleTestCase):
+    def migrate_shares_states_while_creating(self, mock_create_test_db, **kwargs):
+        """
+        Create a test database through DatabaseCreation. Return whether migrate shares project states between schemas
+        while Django builds the database.
+        """
+        sharing = []
+        mock_create_test_db.side_effect = lambda *args, **kwargs: sharing.append(shared_migration_states_enabled())
+
+        DatabaseCreation(connection).create_test_db(verbosity=0, **kwargs)
+
+        self.assertFalse(shared_migration_states_enabled())
+        return sharing[0]
+
+    def test_new_test_database_shares_states(self, mock_create_test_db):
+        """
+        Case: Create a new test database with QUILT_DB['SHARED_TEST_MIGRATION_STATES'] set to True.
+        Expected: migrate shares project states between schemas while Django builds the database, and stops sharing
+                  afterwards.
+        """
+        self.assertTrue(self.migrate_shares_states_while_creating(mock_create_test_db))
+
+    def test_kept_test_database_does_not_share_states(self, mock_create_test_db):
+        """
+        Case: Create a test database with keepdb (this migrates a database kept from an earlier run).
+        Expected: migrate does not share the project states. It never shares them for a database that already holds
+                  schemas.
+        """
+        self.assertFalse(self.migrate_shares_states_while_creating(mock_create_test_db, keepdb=True))
+
+    @override_sharding_setting('SHARED_TEST_MIGRATION_STATES')
+    def test_sharing_is_off_by_default(self, mock_create_test_db):
+        """
+        Case: Create a new test database without QUILT_DB['SHARED_TEST_MIGRATION_STATES'] set.
+        Expected: migrate does not share the project states.
+        """
+        self.assertFalse(self.migrate_shares_states_while_creating(mock_create_test_db))
+
+    @override_sharding_setting('SHARED_TEST_MIGRATION_STATES', False)
+    def test_setting_turns_sharing_off(self, mock_create_test_db):
+        """
+        Case: Create a new test database with QUILT_DB['SHARED_TEST_MIGRATION_STATES'] set to False.
+        Expected: migrate does not share the project states.
+        """
+        self.assertFalse(self.migrate_shares_states_while_creating(mock_create_test_db))
+
+    def test_serialize_left_to_django_when_not_given(self, mock_create_test_db):
+        """
+        Case: Create a new test database without passing serialize (like Django's setup_databases).
+        Expected: Django's create_test_db does not get serialize either, so its own default applies. It does not warn
+                  about the deprecated argument and does not serialize the database.
+        """
+        DatabaseCreation(connection).create_test_db(verbosity=0)
+
+        self.assertNotIn('serialize', mock_create_test_db.call_args.kwargs)
+
+    def test_serialize_passed_on_when_given(self, mock_create_test_db):
+        """
+        Case: Create a new test database passing serialize as True, and as False.
+        Expected: Django's create_test_db gets the same value.
+        """
+        for serialize in (True, False):
+            with self.subTest(serialize=serialize):
+                DatabaseCreation(connection).create_test_db(verbosity=0, serialize=serialize)
+
+                self.assertIs(mock_create_test_db.call_args.kwargs['serialize'], serialize)
+
+    def test_returns_what_django_returns(self, mock_create_test_db):
+        """
+        Case: Create a new test database.
+        Expected: The name Django's create_test_db returns.
+        """
+        mock_create_test_db.return_value = 'test_db'
+
+        self.assertEqual(DatabaseCreation(connection).create_test_db(verbosity=0), 'test_db')
 
 
 class DatabaseCreationTestCase(ShardingTestCase):

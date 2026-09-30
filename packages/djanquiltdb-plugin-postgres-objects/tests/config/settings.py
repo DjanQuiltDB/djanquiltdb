@@ -47,6 +47,7 @@ DATABASE_ROUTERS = ['djanquiltdb.router.DynamicDbRouter']
 QUILT_DB = {
     'SHARD_CLASS': 'example.models.Shard',
     'PRIMARY_DB_ALIAS': 'default',
+    'SHARED_TEST_MIGRATION_STATES': True,
     'OVERRIDE_SHARDING_MODE': {
         ('auth',): ShardingMode.MIRRORED,
         ('contenttypes',): ShardingMode.MIRRORED,
