@@ -1,3 +1,9 @@
+v 4.0.1
+-------
+Altered:
+ * `migrate` no longer rebuilds and re-renders the project state for every migration on the public and template
+   schemas. This is primarily a speed improvement for test database generation.
+
 v 4.0.0
 -------
 Added:
