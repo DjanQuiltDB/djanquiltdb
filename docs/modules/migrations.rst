@@ -121,12 +121,12 @@ The ``--database`` argument defaults to `all`. But you can provide a name (as li
 settings) if you want to migrate a single node.
 Example: ``migrate --database hoth``
 
-``--shard``
-~~~~~~~~~~~
-``--shard`` (or ``-s``) is a new argument. This allows you to specify a single shard by using the name of the node
-and the shard alias known to the Shard table (or ``public`` if you want to target that).
-For example: ``migrate -s default|public`` or ``migrate -s hoth|rebellious_shard``
-Note the ``|`` (pipe) between the node name and the schema name.
+``--schema-name``
+~~~~~~~~~~~~~~~~~
+``--schema-name`` (or ``-s``) migrates a single schema, named as in the database, on each node ``--database`` selects:
+``public``, the template schema, or the schema of a shard. A shard's schema has to exist as a shard on every selected
+node, so name its node with ``--database``.
+For example: ``migrate --schema-name public`` or ``migrate --database hoth --schema-name rebellious_shard``
 
 Router considerations
 ---------------------
