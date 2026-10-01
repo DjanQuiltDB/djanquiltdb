@@ -273,17 +273,43 @@ class UseShardFromDbArgDecoratorTestCase(ShardingTestCase):
 
         self.shard = Shard.objects.create(alias='M84', schema_name='outro', node_name='default', state=State.ACTIVE)
 
+    def decorate_with_deprecated_decorator(self, func):
+        """
+        Apply class_method_use_shard_from_db_arg to func and assert that it warns about the deprecation.
+        """
+        with self.assertWarns(DeprecationWarning):
+            return class_method_use_shard_from_db_arg(func)
+
+    def test_deprecated(self):
+        """
+        Case: Decorate a function with class_method_use_shard_from_db_arg.
+        Expected: A DeprecationWarning that names the decorator, the version that removes it and its replacement. It
+                  shows how to use shard_aware_from_db: pass it the function behind from_db (not the bound classmethod)
+                  and add the classmethod it returns to the class. The warning points at the line that applies the
+                  decorator.
+        """
+        with self.assertWarns(DeprecationWarning) as context:
+
+            @class_method_use_shard_from_db_arg
+            def test_function(db, arg):
+                pass
+
+        message = str(context.warning)
+        self.assertIn('class_method_use_shard_from_db_arg', message)
+        self.assertIn('5.0', message)
+        self.assertIn("Model.add_to_class('from_db', shard_aware_from_db(Model.from_db.__func__))", message)
+        self.assertEqual(context.filename, __file__)
+
     def test_decorated_with(self):
         """
         Case: Check if the function is decorator with a specific decorator
         Expected: The function is decorated and called with the expected argument
         """
 
-        @class_method_use_shard_from_db_arg
         def test_function(db, arg):
             pass
 
-        decorator, bound_arguments = test_function.__decorator__
+        decorator, bound_arguments = self.decorate_with_deprecated_decorator(test_function).__decorator__
 
         self.assertEqual(decorator, class_method_use_shard_from_db_arg)
 
@@ -302,11 +328,10 @@ class UseShardFromDbArgDecoratorTestCase(ShardingTestCase):
 
         with mock.patch.object(mock_from_alias.return_value, 'use') as mock_shardoptions_use:
 
-            @class_method_use_shard_from_db_arg
             def test_function(db, arg):
                 self.assertEqual(arg, 'cake')
 
-            test_function(db='db_argument', arg='cake')
+            self.decorate_with_deprecated_decorator(test_function)(db='db_argument', arg='cake')
 
         mock_from_alias.assert_called_once_with('db_argument')
         self.assertEqual(mock_get_active_connection.call_count, 1)
@@ -326,12 +351,12 @@ class UseShardFromDbArgDecoratorTestCase(ShardingTestCase):
 
         with mock.patch.object(mock_from_alias.return_value, 'use') as mock_shardoptions_use:
 
-            @class_method_use_shard_from_db_arg
             def test_function(db, arg):
                 self.assertEqual(arg, 'cake')
 
+            decorated = self.decorate_with_deprecated_decorator(test_function)
             mock_from_alias.reset_mock()  # shard.use calls from_alias.
-            test_function(db='db_argument', arg='cake')
+            decorated(db='db_argument', arg='cake')
 
         mock_from_alias.assert_called_once_with('db_argument')
         self.assertEqual(mock_get_active_connection.call_count, 1)
@@ -352,11 +377,10 @@ class UseShardFromDbArgDecoratorTestCase(ShardingTestCase):
 
         with mock.patch.object(mock_from_alias.return_value, 'use') as mock_shardoptions_use:
 
-            @class_method_use_shard_from_db_arg
             def test_function(db, arg):
                 self.assertEqual(arg, 'cake')
 
-            test_function(db='db_argument', arg='cake')
+            self.decorate_with_deprecated_decorator(test_function)(db='db_argument', arg='cake')
 
         mock_from_alias.assert_called_once_with('db_argument')
         self.assertEqual(mock_get_active_connection.call_count, 1)
@@ -376,13 +400,13 @@ class UseShardFromDbArgDecoratorTestCase(ShardingTestCase):
 
         with mock.patch.object(mock_from_alias.return_value, 'use') as mock_shardoptions_use:
 
-            @class_method_use_shard_from_db_arg
             def test_function(db, arg):
                 self.assertEqual(arg, 'cake')
 
+            decorated = self.decorate_with_deprecated_decorator(test_function)
             with self.shard.use():
                 mock_from_alias.reset_mock()  # shard.use calls from_alias.
-                test_function(db='db_argument', arg='cake')
+                decorated(db='db_argument', arg='cake')
 
         mock_from_alias.assert_called_once_with('db_argument')
         self.assertEqual(mock_get_active_connection.call_count, 1)

@@ -1,6 +1,7 @@
 import copy
 import functools
 import inspect
+import warnings
 
 from django.conf import settings
 from django.core.exceptions import FieldDoesNotExist, ImproperlyConfigured
@@ -59,10 +60,21 @@ def class_method_use_shard(func):
 
 def class_method_use_shard_from_db_arg(func):
     """
-    Decorator that is used to help a model that receives a target db (shard state) and wraps the __init__ function to
-    be executed on that db/shard. This is to ensure the model instancing happens within the correct shard context,
-    otherwise signals like pre_init and post_init will be outside the proper context and can lead to unwanted behavior.
+    Deprecated, will be removed in djanquiltdb 5.0. Use shard_aware_from_db instead, which returns a classmethod:
+    Model.add_to_class('from_db', shard_aware_from_db(Model.from_db.__func__)). Sharded models already get this from the
+    library.
+
+    Decorator for a function that receives a target db (shard state) as its first argument, to run it in that db/shard.
+    This ensures model instancing happens within the correct shard context. Without it, signals like pre_init and
+    post_init would be sent outside of it.
     """
+    warnings.warn(
+        'class_method_use_shard_from_db_arg is deprecated and will be removed in djanquiltdb 5.0. Use '
+        "shard_aware_from_db instead, which returns a classmethod: Model.add_to_class('from_db', "
+        'shard_aware_from_db(Model.from_db.__func__)).',
+        DeprecationWarning,
+        stacklevel=2,
+    )
 
     @functools.wraps(func)
     def inner(db, *args, **kwargs):
@@ -75,6 +87,27 @@ def class_method_use_shard_from_db_arg(func):
             return func(db, *args, **kwargs)
 
     return _add_decorator_reference(inner, decorator=class_method_use_shard_from_db_arg, args=(func,))
+
+
+def shard_aware_from_db(func):
+    """
+    Return a from_db classmethod that runs func (the function behind a model's from_db) in the shard the row comes from.
+    This makes signals like pre_init and post_init get sent within the shard the instance belongs to.
+
+    Like Django's own from_db, it creates instances of the class it is called on, also when a subclass inherits it.
+    """
+
+    @functools.wraps(func)
+    def inner(cls, db, *args, **kwargs):
+        shard_options = ShardOptions.from_alias(db)
+
+        if shard_options == get_active_connection():
+            return func(cls, db, *args, **kwargs)
+
+        with shard_options.use():
+            return func(cls, db, *args, **kwargs)
+
+    return classmethod(_add_decorator_reference(inner, decorator=shard_aware_from_db, args=(func,)))
 
 
 def mirrored_model():
