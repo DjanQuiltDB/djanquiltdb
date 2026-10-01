@@ -284,7 +284,9 @@ class Command(MigrateCommand):
             else:
                 if self.verbosity >= 2:
                     self.stdout.write(
-                        '    {} {} to default|public\n'.format('Unapplying' if backwards else 'Applying', migration)
+                        '    {} {} to {}|{}\n'.format(
+                            'Unapplying' if backwards else 'Applying', migration, database, schema_name
+                        )
                     )
                 try:
                     executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)

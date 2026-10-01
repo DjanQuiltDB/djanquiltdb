@@ -858,9 +858,7 @@ class ShardedMigrationCheckOrMigrateSchemaTestCase(MigrationTestCase):
 
         self.sharded_migrate.check_or_migrate_schema('other', 'public', self.plan[0], False, False)
 
-        self.sharded_migrate.stdout.write.assert_any_call(
-            '    Applying migration_tests.0001_initial to default|public\n'
-        )
+        self.sharded_migrate.stdout.write.assert_any_call('    Applying migration_tests.0001_initial to other|public\n')
         mock_executor.return_value.migrate.assert_called_with(
             targets=None, plan=[self.plan[0]], fake=False, fake_initial=False
         )
@@ -898,7 +896,7 @@ class ShardedMigrationCheckOrMigrateSchemaTestCase(MigrationTestCase):
 
         self.sharded_migrate.check_or_migrate_schema('other', 'public', migration_node, False, False)
         self.sharded_migrate.stdout.write.assert_any_call(
-            '    Unapplying migration_tests.0001_initial to default|public\n'
+            '    Unapplying migration_tests.0001_initial to other|public\n'
         )
         self.assertTrue(mock_executor.return_value.migrate.called)
 
