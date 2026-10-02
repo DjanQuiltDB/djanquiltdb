@@ -1,12 +1,16 @@
 from unittest import mock
 
+from django.db import connections
+from django.test.utils import CaptureQueriesContext
+
 from djanquiltdb import State
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import override_sharding_setting
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import StateException, create_template_schema
-from djanquiltdb_tests import ShardingTestCase
+from djanquiltdb.router import get_active_connection
+from djanquiltdb.utils import StateException, create_template_schema, use_shard, use_shard_for
+from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
 from example.models import Organization, OrganizationShard, Shard
 
 
@@ -464,6 +468,17 @@ class ShardOptionsTestCase(ShardingTestCase):
             self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
             self.assertEqual(connection.shard_options.shard_id, self.shard.id)
 
+    def test_use_shard_id_without_a_node_integration(self):
+        """
+        Case: Call ShardOptions's use() method on options that have a shard id but no node name and no schema name, like
+              the options of a target that identifies a shard by its id only.
+        Expected: Looks up the shard and switches the connection to it
+        """
+        shard_options = ShardOptions(node_name=None, schema_name=None, shard_id=self.shard.id)
+
+        with shard_options.use():
+            self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
+
     def test_use_integration(self):
         """
         Case: Call ShardOptions's use() method while having a no mapping value and no shard id set
@@ -477,3 +492,107 @@ class ShardOptionsTestCase(ShardingTestCase):
         with shard_options.use():
             self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
             self.assertTrue(Organization.objects.filter(name='Foo').exists())
+
+
+class ShardOptionsUseInsideEnteredUseShardTestCase(ShardingTransactionTestCase):
+    """
+    Each test has two active shards on the default node, ``self.shard`` with the mapping value 1 and
+    ``self.other_shard``, and runs outside a transaction.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        create_template_schema()
+        self.shard = Shard.objects.create(
+            alias='test', schema_name='test_schema', node_name='default', state=State.ACTIVE
+        )
+        self.other_shard = Shard.objects.create(
+            alias='other', schema_name='test_other_schema', node_name='default', state=State.ACTIVE
+        )
+        OrganizationShard.objects.create(shard=self.shard, organization_id=1, slug='test')
+
+    def put_shard_into_maintenance(self):
+        Shard.objects.filter(id=self.shard.id).update(state=State.MAINTENANCE)
+        # The flush after the test fails on a shard in maintenance, so the cleanup makes the shard active again.
+        self.addCleanup(Shard.objects.filter(id=self.shard.id).update, state=State.ACTIVE)
+
+    def test_use_runs_no_statements(self):
+        """
+        Case: Call use() on the options of a mapping value while a use_shard_for of that mapping value is entered and
+              another shard is active.
+        Expected: The options become the active connection without running a statement, because the entered
+                  use_shard_for holds the locks of the shard and of the mapping value.
+        """
+        with use_shard_for(1):
+            shard_options = get_active_connection()
+
+            with use_shard(self.other_shard):
+                with CaptureQueriesContext(connections['default']) as captured:
+                    with shard_options.use():
+                        self.assertEqual(get_active_connection(), shard_options)
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_use_does_not_check_the_state_again(self):
+        """
+        Case: Put a shard into maintenance while a use_shard of that shard is entered, enter another shard, and call
+              use() on the options of the first shard.
+        Expected: No StateException, because the outer use_shard checks the state when it enters the shard, and its
+                  locks make the move commands wait until it is left.
+        """
+        with use_shard(self.shard):
+            shard_options = get_active_connection()
+            self.put_shard_into_maintenance()
+
+            with use_shard(self.other_shard):
+                with shard_options.use():
+                    self.assertEqual(get_active_connection(), shard_options)
+
+    def test_use_checks_the_state_without_an_entered_use_shard(self):
+        """
+        Case: Call use() on the options of a shard in maintenance, while no use_shard of that shard is entered.
+        Expected: A StateException, because use() looks up the shard and checks its state.
+        """
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id
+        )
+        self.put_shard_into_maintenance()
+
+        with self.assertRaises(StateException):
+            with shard_options.use():
+                pass
+
+    def test_use_entered_after_the_entered_use_shard_is_left(self):
+        """
+        Case: Call use() on the options of a shard while a use_shard of that shard is entered, leave that use_shard, and
+              then enter what use() returned.
+        Expected: The shard is entered and its lock is counted, because what use() returned takes the lock of the shard
+                  and reads the shard again, as the use_shard that is left no longer holds the lock.
+        """
+        with use_shard(self.shard):
+            shard_options = get_active_connection()
+            context = shard_options.use()
+
+        with context:
+            self.assertEqual(get_active_connection(), shard_options)
+            self.assertEqual(
+                connections['default'].session_locks_of_entered_use_shards['shard_{}'.format(self.shard.id)], 1
+            )
+
+    def test_use_entered_after_the_entered_use_shard_is_left_for_a_moved_shard(self):
+        """
+        Case: Call use() on the options of a shard while a use_shard of that shard is entered, leave that use_shard,
+              move the shard to another schema, and then enter what use() returned.
+        Expected: A StateException, because what use() returned reads the shard again once it holds the lock, and the
+                  shard is no longer in the schema of the options.
+        """
+        with use_shard(self.shard):
+            context = get_active_connection().use()
+
+        Shard.objects.filter(id=self.shard.id).update(schema_name='test_other_schema')
+        self.addCleanup(Shard.objects.filter(id=self.shard.id).update, schema_name='test_schema')
+
+        with self.assertRaisesMessage(StateException, 'which differs from the shard'):
+            with context:
+                pass

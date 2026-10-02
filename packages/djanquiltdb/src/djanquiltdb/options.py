@@ -1,3 +1,5 @@
+from django.db import connections
+
 from djanquiltdb import State
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.utils import StateException, get_mapping_class, get_shard_class, use_shard, use_shard_for
@@ -125,9 +127,24 @@ class ShardOptions:
 
     def use(self):
         """
-        The context manager that makes this target the active connection, equivalent to whichever of ``use_shard``
-        or ``use_shard_for`` matches how these options were resolved.
+        Returns the context manager that makes this target the active connection: ``use_shard_for()`` when the options
+        have a mapping value, ``use_shard()`` of the shard when they have a shard id, and ``use_shard()`` of the node
+        and schema in all other cases.
+
+        When use_shard contexts that are entered and not left yet hold all the advisory locks of these options for the
+        session, use() returns a ``use_shard()`` of these options. That use_shard does not look up the shard, check its
+        state or take locks, so that, for example, a sharded model method that runs while another shard is active runs
+        no statements. The entered contexts check the state when they enter the shard, unless ``active_only_schemas`` is
+        False, and their locks keep the move commands from changing the shard until the contexts are left. Options
+        without a node name look up the shard in every case.
         """
+        if (
+            self.lock
+            and self.node_name is not None
+            and connections[self.node_name].entered_use_shards_hold_session_locks(self.lock_keys)
+        ):
+            return use_shard(**dict(self.options))
+
         if self.mapping_value is not None:
             return use_shard_for(self.mapping_value, **self.kwargs)
         elif self.shard_id is not None:

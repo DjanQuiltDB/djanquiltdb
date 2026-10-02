@@ -19,12 +19,14 @@ from django.db.models.signals import (
 )
 from django.db.utils import ConnectionDoesNotExist, IntegrityError, OperationalError
 from django.test import SimpleTestCase, override_settings
-from django.test.utils import isolate_apps
+from django.test.utils import CaptureQueriesContext, isolate_apps
 from django.utils.module_loading import import_string
 
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import atomic_write_to_every_node, override_sharding_setting
 from djanquiltdb.options import ShardOptions
+from djanquiltdb.postgresql_backend.base import DatabaseWrapper
+from djanquiltdb.postgresql_backend.utils import LockCursorWrapperMixin
 from djanquiltdb.router import get_active_connection, set_active_connection
 from djanquiltdb.utils import (
     OverrideShardingModeWithLowercaseKeys,
@@ -900,6 +902,173 @@ class UseShardForTestCase(ShardingTestCase):
                 mock.call('mapping_{}'.format(self.org_shard1.organization_id), shared=True),
             ]
         )
+
+
+class UseShardInsideEnteredUseShardTestCase(ShardingTransactionTestCase):
+    """
+    Each test has two active shards on the default node, ``self.shard`` with the mapping values 1 and 2 and
+    ``self.other_shard``, and a second database session that checks whether a lock is free. The tests run outside a
+    transaction, unless a test starts one.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        create_template_schema('default')
+        self.shard = Shard.objects.create(
+            alias='test_shard', schema_name='test_schema', node_name='default', state=State.ACTIVE
+        )
+        self.other_shard = Shard.objects.create(
+            alias='other_shard', schema_name='test_other_schema', node_name='default', state=State.ACTIVE
+        )
+        OrganizationShard.objects.create(organization_id=1, shard=self.shard, state=State.ACTIVE)
+        OrganizationShard.objects.create(organization_id=2, shard=self.shard, state=State.ACTIVE)
+
+        self.other_session = DatabaseWrapper(connections['default'].settings_dict, 'default')
+        self.addCleanup(self.other_session.close)
+
+    def lock_is_free(self, lock_key):
+        """
+        Returns whether a second database session can take the lock exclusively. The second session releases the lock
+        right after it takes the lock.
+        """
+        key = LockCursorWrapperMixin.get_int_from_key(lock_key)
+
+        with self.other_session.cursor() as cursor:
+            cursor.execute('SELECT pg_try_advisory_lock(%s)', [key])
+            acquired = cursor.fetchone()[0]
+            cursor.execute('SELECT pg_advisory_unlock(%s)', [key])
+
+        return acquired
+
+    def test_inner_use_shard_runs_no_statements(self):
+        """
+        Case: Enter and leave use_shard for a shard while a use_shard for that shard is entered.
+        Expected: No statements run, because the outer use_shard holds the locks of the shard already.
+        """
+        with use_shard(self.shard):
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_outer_use_shard_keeps_its_locks_after_inner_use_shard(self):
+        """
+        Case: Enter use_shard for a shard inside a use_shard for that shard, leave the inner use_shard, then leave the
+              outer use_shard.
+        Expected: The shard is locked after the inner use_shard is left, and unlocked after the outer use_shard is left.
+        """
+        with use_shard(self.shard):
+            with use_shard(self.shard):
+                pass
+
+            self.assertFalse(self.lock_is_free('shard_{}'.format(self.shard.id)))
+
+        self.assertTrue(self.lock_is_free('shard_{}'.format(self.shard.id)))
+
+    def test_reentering_shard_through_another_shard(self):
+        """
+        Case: Enter a shard, then another shard on the same node, then the first shard again, and leave all three.
+        Expected: Entering the first shard again runs no statements, and both shards are unlocked at the end.
+        """
+        with use_shard(self.shard):
+            with use_shard(self.other_shard):
+                with CaptureQueriesContext(connections['default']) as captured:
+                    with use_shard(self.shard):
+                        pass
+
+        self.assertEqual(captured.captured_queries, [])
+        self.assertTrue(self.lock_is_free('shard_{}'.format(self.shard.id)))
+        self.assertTrue(self.lock_is_free('shard_{}'.format(self.other_shard.id)))
+
+    def test_inner_use_shard_for_another_mapping_value_takes_its_locks(self):
+        """
+        Case: Enter use_shard_for a mapping value while a use_shard_for another mapping value on the same shard is
+              entered.
+        Expected: The inner use_shard_for locks its own mapping value, because the outer use_shard_for does not hold
+                  that lock. The inner use_shard_for releases that lock when it is left.
+        """
+        with use_shard_for(1):
+            with use_shard_for(2):
+                self.assertFalse(self.lock_is_free('mapping_2'))
+
+            self.assertTrue(self.lock_is_free('mapping_2'))
+
+    def test_inner_use_shard_takes_its_own_lock_inside_a_transaction(self):
+        """
+        Case: Enter use_shard for a shard while a use_shard for that shard is entered inside a transaction.
+        Expected: The inner use_shard takes its own transaction-scoped lock, because the outer use_shard holds only a
+                  transaction-scoped lock, and a commit inside the outer use_shard releases that lock. The inner
+                  use_shard then reads the shard again, as a use_shard does once it holds the lock.
+        """
+        key = LockCursorWrapperMixin.get_int_from_key('shard_{}'.format(self.shard.id))
+
+        with transaction.atomic():
+            with use_shard(self.shard):
+                with CaptureQueriesContext(connections['default']) as captured:
+                    with use_shard(self.shard):
+                        pass
+
+        statements = [query['sql'] for query in captured.captured_queries]
+
+        self.assertEqual(statements[0], 'SELECT pg_advisory_xact_lock_shared({});'.format(key))
+        self.assertEqual([statement for statement in statements if 'pg_advisory' in statement], [statements[0]])
+        self.assertTrue(any('"example_shard"' in statement for statement in statements[1:]))
+
+    def test_closing_the_connection_forgets_the_held_locks(self):
+        """
+        Case: Close the connection while a use_shard for a shard is entered, then enter use_shard for that shard.
+        Expected: The inner use_shard locks the shard again, because closing the connection releases the locks of the
+                  session.
+        """
+        with use_shard(self.shard):
+            connections['default'].close()
+
+            with use_shard(self.shard):
+                self.assertFalse(self.lock_is_free('shard_{}'.format(self.shard.id)))
+
+    def test_outermost_use_shard_reads_the_shard_once(self):
+        """
+        Case: Enter and leave use_shard for a shard while no use_shard is entered.
+        Expected: Three statements: the lock of the shard, one read of the shard from the shard registry once the
+                  lock is held, and the release of the lock.
+        """
+        key = LockCursorWrapperMixin.get_int_from_key('shard_{}'.format(self.shard.id))
+
+        with CaptureQueriesContext(connections['default']) as captured:
+            with use_shard(self.shard):
+                pass
+
+        statements = [query['sql'] for query in captured.captured_queries]
+
+        self.assertEqual(len(statements), 3)
+        self.assertEqual(statements[0], 'SELECT pg_advisory_lock_shared({});'.format(key))
+        self.assertIn('"example_shard"', statements[1])
+        self.assertEqual(statements[2], 'SELECT pg_advisory_unlock_shared({});'.format(key))
+
+    def test_outermost_use_shard_for_reads_the_mapping_value_once(self):
+        """
+        Case: Enter and leave use_shard_for a mapping value while no use_shard is entered. The use_shard_for is
+              constructed before the statements are counted, because the constructor looks up the mapping value.
+        Expected: Five statements: the locks of the shard and of the mapping value, one read of the mapping value and
+                  its shard once the locks are held, and the releases of the locks.
+        """
+        env = use_shard_for(1)
+
+        with CaptureQueriesContext(connections['default']) as captured:
+            with env:
+                pass
+
+        statements = [query['sql'] for query in captured.captured_queries]
+
+        self.assertEqual(len(statements), 5)
+        self.assertEqual(
+            [statement for statement in statements if 'pg_advisory' in statement],
+            [statements[0], statements[1], statements[3], statements[4]],
+        )
+        self.assertIn('"example_organizationshard"', statements[2])
+        self.assertIn('"example_shard"', statements[2])
 
 
 class GetShardForTestCase(ShardingTestCase):

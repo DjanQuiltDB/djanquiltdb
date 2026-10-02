@@ -1391,7 +1391,8 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
     def test_expected_proxy_fields(self):
         """
         Case: Check whether the ShardDatabaseWrapper._PROXY_FIELDS are the same as the fields defined in
-              BaseDatabaseWrapper's init fields, including the current_search_path, but excluding:
+              BaseDatabaseWrapper's init fields, including current_search_paths and session_locks_of_entered_use_shards,
+              but excluding:
                 * alias
                 * client
                 * creation
@@ -1401,9 +1402,9 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
                 * validation
                 * _thread_sharing_lock
                 * _thread_sharing_count
-        Expected: List is as we expected
-        Note: if in future versions of Django the fields we define in BaseDatabaseWrapper changes, this test will tell
-              us. We want to proxy all those fields (except for the alias).
+        Expected: The two lists of fields are equal. When a Django version changes the fields that BaseDatabaseWrapper
+                  defines, this test fails, because the wrapper proxies all of those fields except for the excluded
+                  ones.
         """
         exclude_classes = [
             'client',
@@ -1430,6 +1431,7 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
                 proxy_fields.remove(exclude_class)
 
         proxy_fields.append('current_search_paths')
+        proxy_fields.append('session_locks_of_entered_use_shards')
 
         shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name)
         connection_ = ShardDatabaseWrapper(self.connection, shard_options)

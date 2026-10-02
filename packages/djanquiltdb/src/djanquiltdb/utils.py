@@ -155,6 +155,12 @@ class use_shard(object):
 
         self._enabled = False
         self._locks_are_xact = False
+        # The lock keys that this context adds to the lock counts of the node connection, and removes from those counts
+        # when it is left.
+        self._counted_session_lock_keys = []
+        # Whether other entered use_shard contexts hold all the locks of the shard, so that this context takes no locks
+        # of its own.
+        self._uses_held_locks = False
 
     def __enter__(self):
         return self.enable()
@@ -230,7 +236,11 @@ class use_shard(object):
         if shard is None:
             return
 
-        if ShardOptions.from_shard(shard, **self._kwargs) != self.options:
+        # A use_shard of a node and a schema can have the shard id in its keyword arguments, and the use_shard that
+        # ShardOptions.use() returns has it there. from_shard() takes the shard id from the shard.
+        kwargs = {name: value for name, value in self._kwargs.items() if name != 'shard_id'}
+
+        if ShardOptions.from_shard(shard, **kwargs) != self.options:
             raise StateException(
                 'Once use_shard holds its lock, the registry has shard {} on {}|{}, which differs from the shard that '
                 'use_shard looked up before it waited for the lock'.format(shard, shard.node_name, shard.schema_name),
@@ -246,17 +256,27 @@ class use_shard(object):
         # Second: Save the old connection
         self._old_connection = get_active_connection()
 
-        # Third: Set an advisory lock on the shard and mapping object (if available), and check the shard again once
-        # the lock is held
+        # Third: Take the advisory locks of the shard and of the mapping value (if there is one), and check the shard
+        # again once this context holds the locks. Locks that are held for the session are added to the lock counts of
+        # the node connection. When other entered use_shard contexts hold all of these locks for the session, this
+        # context takes no locks and does not check the shard: those contexts hold the locks until after this context is
+        # left, so the move commands cannot change the shard in the meantime.
         if self.options.lock:
-            self.acquire_lock()
+            if self.connection.entered_use_shards_hold_session_locks(self.options.lock_keys):
+                self._uses_held_locks = True
+            else:
+                self.acquire_lock()
 
-            if self.options.shard_id is not None:
-                try:
-                    self.check_shard_after_locking()
-                except BaseException:
-                    self.release_lock()
-                    raise
+                if self.options.shard_id is not None:
+                    try:
+                        self.check_shard_after_locking()
+                    except BaseException:
+                        self.release_lock()
+                        raise
+
+                if not self._locks_are_xact:
+                    self._counted_session_lock_keys = self.options.lock_keys
+                    self.connection.session_locks_of_entered_use_shards.update(self._counted_session_lock_keys)
 
         # Fourth: Set the new active schema
         set_active_connection(self.options)
@@ -271,8 +291,17 @@ class use_shard(object):
 
         from djanquiltdb.router import set_active_connection  # Prevent cyclic imports
 
-        if self.options.lock:
+        if self.options.lock and not self._uses_held_locks:
+            # Closing the connection resets the counts, so a count can be gone before its context is left. The unary
+            # plus drops the counts that end up below one.
+            held_lock_keys = self.connection.session_locks_of_entered_use_shards
+            held_lock_keys.subtract(self._counted_session_lock_keys)
+            self.connection.session_locks_of_entered_use_shards = +held_lock_keys
+            self._counted_session_lock_keys = []
+
             self.release_lock()
+
+        self._uses_held_locks = False
 
         # Set the active connection to the old connection
         set_active_connection(self._old_connection)

@@ -16,6 +16,7 @@ import contextlib
 import functools
 import logging
 import re
+from collections import Counter
 
 from django.conf import settings
 from django.core.signals import setting_changed
@@ -1127,6 +1128,11 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
         self.current_search_paths = [PUBLIC_SCHEMA_NAME]
 
+        # For each advisory lock key, the number of use_shard contexts that are entered and not left yet and that hold
+        # the key for the session of this connection. A use_shard that is entered inside these contexts finds its locks
+        # in this counter and takes no locks of its own.
+        self.session_locks_of_entered_use_shards = Counter()
+
         self.schema_name = PUBLIC_SCHEMA_NAME
         self.include_public_schema = True
 
@@ -1139,7 +1145,17 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def close(self):
         self.current_search_paths = [PUBLIC_SCHEMA_NAME]
+        # Closing the connection ends the session and releases the advisory locks of the session, so the lock counts
+        # start at zero.
+        self.session_locks_of_entered_use_shards = Counter()
         super().close()
+
+    def entered_use_shards_hold_session_locks(self, lock_keys):
+        """
+        Whether use_shard contexts that are entered and not left yet hold every one of ``lock_keys`` for the session of
+        this connection. Returns False when ``lock_keys`` is empty.
+        """
+        return bool(lock_keys) and all(self.session_locks_of_entered_use_shards[key] for key in lock_keys)
 
     def rollback(self):
         try:
@@ -1809,6 +1825,7 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         'errors_occurred',
         '_thread_ident',
         'current_search_paths',
+        'session_locks_of_entered_use_shards',
         'run_on_commit',
         'run_commit_hooks_on_set_autocommit_on',
         'rollback_exc',
