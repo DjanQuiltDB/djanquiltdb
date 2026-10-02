@@ -9,7 +9,6 @@ from django.db import models
 from django.test import override_settings
 
 from djanquiltdb import STATES, ShardingMode
-from djanquiltdb.db import connection
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.plugins import install_plugin_importer
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
@@ -53,11 +52,19 @@ def class_method_use_shard(func):
             return func(self, *args, **kwargs)
 
         shard_options = ShardOptions.from_alias(self._state.db)
-        override_class_method_use_shard = hasattr(connection, 'shard_options') and connection.shard_options.kwargs.get(
-            'override_class_method_use_shard', False
-        )
+        active_connection = get_active_connection()
 
-        if shard_options == get_active_connection() or override_class_method_use_shard:
+        if shard_options == active_connection:
+            return func(self, *args, **kwargs)
+
+        # Read override_class_method_use_shard from the options of the active connection, because reading it from the
+        # connection object builds a new shard connection. The setting applies to a shard only, so it has no effect
+        # while a public schema is active.
+        if (
+            isinstance(active_connection, ShardOptions)
+            and not active_connection.is_public_schema()
+            and active_connection.kwargs.get('override_class_method_use_shard', False)
+        ):
             return func(self, *args, **kwargs)
 
         with shard_options.use():

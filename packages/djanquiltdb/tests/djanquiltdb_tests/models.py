@@ -11,6 +11,7 @@ from djanquiltdb import State
 from djanquiltdb.apps import make_shard_aware_from_db
 from djanquiltdb.decorators import shard_aware_from_db
 from djanquiltdb.options import ShardOptions
+from djanquiltdb.postgresql_backend.base import ShardDatabaseWrapper
 from djanquiltdb.utils import create_schema_on_node, create_template_schema, get_shard_class, use_shard
 from djanquiltdb_tests import ShardingTestCase
 from djanquiltdb_tests.app_config import DummyShard
@@ -296,6 +297,24 @@ class ShardedModelMethodUseShardTestCase(ShardingTestCase):
             # Since we provided override_class_method_use_shard=True, this one now queries the organization that is
             # living on other_shard with the same ID as the organization that is living on shard.
             self.assertEqual(user.get_organization_name(), 'The Rebel Alliance')
+
+    def test_method_call_in_own_shard_builds_no_connection(self):
+        """
+        Case: Call a sharded model instance method that runs no query, in the use_shard context that the instance was
+              created in.
+        Expected: No shard connection is built, because the method runs in the shard that is active already.
+        """
+        shard = Shard.objects.create(
+            alias='death_star', schema_name='empire_schema', node_name='default', state=State.ACTIVE
+        )
+
+        with use_shard(shard):
+            org = Organization.objects.create(name='The Empire')
+
+            with mock.patch('djanquiltdb.apps.ShardDatabaseWrapper', wraps=ShardDatabaseWrapper) as mock_wrapper:
+                str(org)
+
+        self.assertEqual(mock_wrapper.call_count, 0)
 
     def test_already_in_shard(self):
         """
