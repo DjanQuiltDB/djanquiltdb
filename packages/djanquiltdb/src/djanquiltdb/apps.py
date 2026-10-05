@@ -10,7 +10,7 @@ from django.utils.module_loading import import_string
 
 from djanquiltdb import ShardingMode
 from djanquiltdb.db import connection
-from djanquiltdb.decorators import class_method_use_shard, class_method_use_shard_from_db_arg
+from djanquiltdb.decorators import class_method_use_shard, shard_aware_from_db
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.plugins import load_plugins
 from djanquiltdb.postgresql_backend.base import ShardDatabaseWrapper
@@ -137,9 +137,30 @@ def _initialize_sharded_models():
 
         # Setting the from_db function for a Model that is the parent of a ProxyModel will corrupt the ProxyModels
         # version of the same function. So we have saved the original from_db function at the start, and use that.
-        model.add_to_class('from_db', class_method_use_shard_from_db_arg(from_db_functions[model]))
+        model.add_to_class('from_db', make_shard_aware_from_db(from_db_functions[model]))
 
         _initialize_sharded_model_querysets(model)
+
+
+def make_shard_aware_from_db(from_db):
+    """
+    Return a shard-aware from_db classmethod to replace the given from_db of a model.
+
+    It has to be a classmethod, like Django's own: Django 6.1.1 and later read model.from_db.__func__ on every query,
+    and a subclass that inherits it must get instances of its own class.
+
+    Normally from_db is a classmethod, and we wrap the function behind it. It can also be a plain function that takes
+    the db first (a staticmethod, or a from_db wrapped by the deprecated class_method_use_shard_from_db_arg). That one
+    is called with the db first and without the class.
+    """
+    from_db_function = getattr(from_db, '__func__', None)
+    if from_db_function is None:
+
+        @functools.wraps(from_db)
+        def from_db_function(cls, *args, **kwargs):
+            return from_db(*args, **kwargs)
+
+    return shard_aware_from_db(from_db_function)
 
 
 def post_init(func):

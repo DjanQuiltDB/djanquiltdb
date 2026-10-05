@@ -6,31 +6,51 @@ from django.core.management.base import CommandError
 from django.core.management.commands.migrate import Command as MigrateCommand
 from django.core.management.sql import emit_post_migrate_signal, emit_pre_migrate_signal
 from django.db import connections
-from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import AmbiguityError
 from django.db.migrations.state import ProjectState
 from django.utils.module_loading import module_has_submodule
 
 from djanquiltdb.db import connection
-from djanquiltdb.management.base import get_databases_and_schema_from_options, shard_table_exists
+from djanquiltdb.management.base import get_databases_and_schema_from_options, get_shards_by_node
+from djanquiltdb.management.executor import (
+    SharedFilesMigrationExecutor,
+    SharedOperationStates,
+    SharedStartingStates,
+    SharedStatesMigrationExecutor,
+    shared_migration_states_enabled,
+)
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import get_all_databases, get_shard_class, get_template_name, schema_exists, use_shard
+from djanquiltdb.utils import get_all_databases, get_template_name, schema_exists, use_shard
 
 
 class Command(MigrateCommand):
     """
-    This command overrides the normal migration command, so migrating a sharded project is done by running migrate
-    as usual. The main handle function is entirely replaced, but most of it is similar.
+    This command overrides the normal migration command, so migrating a sharded project is done by running migrate as
+    usual. The main handle function is entirely replaced, but most of it is similar.
 
     Major differences:
-        A plan is made for each shard and the longest is executed.
-        It is executed per node.
-            And each node is done for every shard and template
-            before moving to the next node.
-        Same for fake and reverse operations.
+        - A plan is made for each shard and the longest is executed.
+        - It is executed per node. Each node is done for every shard and template before moving to the next node.
+        - Same for fake and reverse operations.
+        - The migrations are loaded from disk once per run.
+        - Schemas that have applied the same migrations share the state a migration starts from. It is built once, and
+          each schema gets its own copy.
+        - When building a new test database with SHARED_TEST_MIGRATION_STATES on, the project states of each migration
+          are computed once and shared between the public and template schemas (see enable_shared_migration_states).
     """
 
     help = 'Updates database schema. Manages both apps with migrations and those without.'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # The state of a single run. handle resets the executors and the migrations loaded from disk, and
+        # perform_migration resets the states.
+        self.use_shared_states = False
+        self.shared_operation_states = SharedOperationStates()
+        self.executors_by_schema = {}
+        self.shared_starting_states = SharedStartingStates()
+        self.loaded_migration_files = {}
 
     def add_arguments(self, parser):
         # Add additional arguments on top of what the
@@ -81,7 +101,17 @@ class Command(MigrateCommand):
         for connection_ in connections:
             connections[connection_].prepare_database()
 
-        executor = MigrationExecutor(connection)
+        # Every run starts with fresh executors and loads the migrations from disk again. Project states are only shared
+        # when building a new test database, where there are no shards and every schema starts from scratch.
+        self.executors_by_schema = {}
+        self.loaded_migration_files = {}
+        self.use_shared_states = (
+            shared_migration_states_enabled()
+            and not schema_name
+            and not any(shard for shard, *location in self.iter_schemas_to_migrate(databases))
+        )
+        with use_shard(node_name=databases[0], schema_name=schema_name or PUBLIC_SCHEMA_NAME) as env:
+            executor = self.get_executor_for_schema(env)
 
         # Before anything else, drop out hard if there are conflicting apps.
         self.check_for_app_conflicts(executor)
@@ -91,8 +121,11 @@ class Command(MigrateCommand):
         run_syncdb = options.get('run_syncdb')
         run_syncdb = run_syncdb and executor.loader.unmigrated_apps
 
-        # Work out from which node we need to migrate
+        # Work out from which node we need to migrate.
         plan = self.get_plan(targets, databases, schema_name)
+
+        # Shared states only work forwards. Unapplying is left to Django's own migrate.
+        self.use_shared_states = self.use_shared_states and not any(backwards for migration, backwards in plan)
 
         # Run the syncdb phase. Note that we need this for apps that don't have migrations.
         if run_syncdb:
@@ -180,33 +213,34 @@ class Command(MigrateCommand):
 
             return plan
 
-        # If no schema_name is set, then collect the longest plan based on the public schema, template schema and all
-        # shards on all databases. Note that we only get the plan from the shards if the shard table exists. If not,
-        # then we can safely assume no shards exist yet, because they're not in the database.
-        if shard_table_exists():
-            for shard in get_shard_class().objects.filter(node_name__in=databases):
-                shard_plan = self.get_plan_for_shard(targets, shard.node_name, shard.schema_name)
-                if len(shard_plan) > len(plan):
-                    plan = shard_plan
-
-        template_name = get_template_name()
-
-        for database in databases:  # Do templates and publics
-            public_plan = self.get_plan_for_shard(targets, database, PUBLIC_SCHEMA_NAME)
-            if len(public_plan) > len(plan):
-                plan = public_plan
-
-            if schema_exists(database, template_name):
-                template_plan = self.get_plan_for_shard(targets, database, template_name)
-                if len(template_plan) > len(plan):
-                    plan = template_plan
+        # If no schema_name is set, then take the longest plan of all schemas.
+        for shard, *location in self.iter_schemas_to_migrate(databases):
+            schema_plan = self.get_plan_for_shard(targets, *location)
+            if len(schema_plan) > len(plan):
+                plan = schema_plan
 
         return plan
 
+    def iter_schemas_to_migrate(self, databases):
+        """
+        Yield (shard, node name, schema name) for every schema to migrate on the given databases. The public and
+        template schemas come first, with None as their shard. Then come the shards, if the shard table exists.
+        """
+        template_name = get_template_name()
+        for database in databases:
+            yield None, database, PUBLIC_SCHEMA_NAME
+
+            if schema_exists(database, template_name):
+                yield None, database, template_name
+
+        shards_by_node = get_shards_by_node(databases)
+        for database in databases:
+            for shard in shards_by_node.get(database, []):
+                yield shard, shard.node_name, shard.schema_name
+
     def get_plan_for_shard(self, targets, database, schema_name):
         with use_shard(node_name=database, schema_name=schema_name) as env:
-            shard_executor = MigrationExecutor(env.connection, self.migration_progress_callback)
-            return shard_executor.migration_plan(targets)
+            return self.get_executor_for_schema(env).migration_plan(targets)
 
     def check_for_changes(self, executor):
         self.stdout.write('  No migrations to apply.')
@@ -231,29 +265,29 @@ class Command(MigrateCommand):
             )
 
     def perform_migration(self, plan, databases, schema_name, fake, fake_initial):
+        self.shared_operation_states = SharedOperationStates()
+        self.shared_starting_states = SharedStartingStates()
+
         if schema_name:  # If we have a targeted shard, just migrate that shard
             for database in databases:
                 with use_shard(node_name=database, schema_name=schema_name) as env:
-                    shard_executor = MigrationExecutor(env.connection)
-                    shard_executor.migrate(targets=None, plan=plan, fake=fake, fake_initial=fake_initial)
+                    self.get_executor_for_schema(env).migrate(
+                        targets=None, plan=plan, fake=fake, fake_initial=fake_initial
+                    )
             return False  # Report no errors
 
         # We have multiple shards to migrate. Do this breadth-first
-        template_name = get_template_name()
         stop = False
 
         for node in plan:
-            # Migrate all public schemas and templates
-            for database in databases:
-                stop |= self.check_or_migrate_schema(database, PUBLIC_SCHEMA_NAME, node, fake, fake_initial)
-
-                if schema_exists(database, template_name):
-                    stop |= self.check_or_migrate_schema(database, template_name, node, fake, fake_initial)
-
-            # Migrate all shards, if the shard table exists.
-            if shard_table_exists():
-                for shard in get_shard_class().objects.filter(node_name__in=databases):
+            for shard, *location in self.iter_schemas_to_migrate(databases):
+                if shard is None:
+                    stop |= self.check_or_migrate_schema(*location, node, fake, fake_initial)
+                else:
                     stop |= self.check_or_migrate_shard(shard, node, fake, fake_initial)
+
+            self.shared_operation_states.advance_to_next_migration()
+            self.shared_starting_states.advance_past_migration(node[0])
 
             # If one or more migrations failed, don't move to the next.
             if stop:
@@ -263,74 +297,70 @@ class Command(MigrateCommand):
                 break
         return stop
 
+    def get_executor_for_schema(self, env):
+        """
+        Return a migration executor for the schema of env.
+
+        When sharing states, each schema keeps one executor for the whole run. When not sharing states, every call
+        returns a new executor, so that each check reads the schema's applied migrations from the database at that
+        moment.
+        """
+        if not self.use_shared_states:
+            return SharedFilesMigrationExecutor(
+                env.connection,
+                self.migration_progress_callback,
+                loaded_migration_files=self.loaded_migration_files,
+                starting_states=self.shared_starting_states,
+            )
+
+        key = (env.options.node_name, env.options.schema_name)
+        if key not in self.executors_by_schema:
+            self.executors_by_schema[key] = SharedStatesMigrationExecutor(
+                env.connection, self.migration_progress_callback, loaded_migration_files=self.loaded_migration_files
+            )
+
+        return self.executors_by_schema[key]
+
     def check_or_migrate_schema(self, database, schema_name, plan_node, fake, fake_initial):
         with use_shard(node_name=database, schema_name=schema_name) as env:
-            executor = MigrationExecutor(env.connection, self.migration_progress_callback)
-            migration, backwards = plan_node
-
-            # if the node is applied and we're going backwards,
-            # or the node is not applied yet and we're going forwards.
-            if ((migration.app_label, migration.name) not in executor.loader.applied_migrations) == backwards:
-                if self.verbosity >= 2:
-                    if backwards:
-                        self.stdout.write(
-                            '    {}|{} does not have {} applied yet.\n'.format(database, schema_name, migration)
-                        )
-                    else:
-                        self.stdout.write(
-                            '    {}|{} has {} already applied.\n'.format(database, schema_name, migration)
-                        )
-
-            else:
-                if self.verbosity >= 2:
-                    self.stdout.write(
-                        '    {} {} to default|public\n'.format('Unapplying' if backwards else 'Applying', migration)
-                    )
-                try:
-                    executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
-                except Exception as exception:  # When an error occurs, continue this migration for other shards.
-                    self.stderr.write(
-                        '    {}|{}: {} - {}: {}'.format(
-                            database, schema_name, migration, type(exception).__name__, exception
-                        )
-                    )
-                    return True  # report failure
-        return False  # report migration went without troubles
+            return self.migrate_schema_if_needed(
+                env, '{}|{}'.format(database, schema_name), plan_node, fake, fake_initial
+            )
 
     def check_or_migrate_shard(self, shard, plan_node, fake, fake_initial):
         with use_shard(shard, active_only_schemas=False) as env:
-            shard_executor = MigrationExecutor(env.connection, self.migration_progress_callback)
-            migration, backwards = plan_node
+            return self.migrate_schema_if_needed(
+                env, '{}|{}'.format(shard.node_name, shard.alias), plan_node, fake, fake_initial
+            )
 
-            # if the node is applied and we're going backwards,
-            # or the node is not applied yet and we're going forwards.
-            if ((migration.app_label, migration.name) not in shard_executor.loader.applied_migrations) == backwards:
-                if self.verbosity >= 2:
-                    if backwards:
-                        self.stdout.write(
-                            '    {}|{} does not have {} applied yet.\n'.format(shard.node_name, shard.alias, migration)
-                        )
-                    else:
-                        self.stdout.write(
-                            '    {}|{} has {} already applied.\n'.format(shard.node_name, shard.alias, migration)
-                        )
+    def migrate_schema_if_needed(self, env, label, plan_node, fake, fake_initial):
+        """
+        Apply or unapply the migration in plan_node on the schema of env, if that is still needed. label is the schema's
+        name in the output. Return True when the migration failed.
+        """
+        executor = self.get_executor_for_schema(env)
+        migration, backwards = plan_node
 
+        # if the node is applied and we're going backwards,
+        # or the node is not applied yet and we're going forwards.
+        if ((migration.app_label, migration.name) not in executor.loader.applied_migrations) == backwards:
+            if self.verbosity >= 2:
+                if backwards:
+                    self.stdout.write('    {} does not have {} applied yet.\n'.format(label, migration))
+                else:
+                    self.stdout.write('    {} has {} already applied.\n'.format(label, migration))
+            return False
+
+        if self.verbosity >= 2:
+            self.stdout.write('    {} {} to {}\n'.format('Unapplying' if backwards else 'Applying', migration, label))
+        try:
+            if self.use_shared_states and not backwards:
+                executor.apply_from_shared_states(migration, self.shared_operation_states, fake, fake_initial)
             else:
-                if self.verbosity >= 2:
-                    self.stdout.write(
-                        '    {} {} to {}|{}\n'.format(
-                            'Unapplying' if backwards else 'Applying', migration, shard.node_name, shard.alias
-                        )
-                    )
-                try:
-                    shard_executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
-                except Exception as exception:  # When an error occurs, continue this migration for other shards.
-                    self.stderr.write(
-                        '    {}|{}: {} - {}: {}'.format(
-                            shard.node_name, shard.alias, migration, type(exception).__name__, exception
-                        )
-                    )
-                    return True  # report failure
+                executor.migrate(targets=None, plan=[plan_node], fake=fake, fake_initial=fake_initial)
+        except Exception as exception:  # When an error occurs, continue this migration for other shards.
+            self.stderr.write('    {}: {} - {}: {}'.format(label, migration, type(exception).__name__, exception))
+            return True  # report failure
         return False  # report migration went without troubles
 
     def migration_progress_callback(self, action, migration=None, fake=False):
@@ -353,23 +383,10 @@ class Command(MigrateCommand):
                 with use_shard(node_name=database, schema_name=schema_name) as env:
                     created_models.update(self.sync_apps(env.connection, app_labels) or {})
         else:
-            for database in databases:
-                # Public schema
-                with use_shard(node_name=database, schema_name='public') as env:
+            for shard, database, location_schema_name in self.iter_schemas_to_migrate(databases):
+                context = use_shard(shard) if shard else use_shard(node_name=database, schema_name=location_schema_name)
+                with context as env:
                     created_models.update(self.sync_apps(env.connection, app_labels) or {})
-
-                # Template schema, if it exists.
-                template_name = get_template_name()
-
-                if schema_exists(database, template_name):
-                    with use_shard(node_name=database, schema_name=template_name) as env:
-                        created_models.update(self.sync_apps(env.connection, app_labels) or {})
-
-            # Sync all other shards, if the shards table exist.
-            if shard_table_exists():
-                for shard in get_shard_class().objects.filter(node_name__in=databases):
-                    with use_shard(shard) as env:
-                        created_models.update(self.sync_apps(env.connection, app_labels) or {})
 
         return created_models
 

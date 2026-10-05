@@ -89,6 +89,7 @@ QUILT_DB = {
     'MAPPING_MODEL': 'example.models.OrganizationShard',
     'PRIMARY_DB_ALIAS': 'default',
     'NEW_SHARD_NODE': 'other',
+    'SHARED_TEST_MIGRATION_STATES': True,
     'OVERRIDE_SHARDING_MODE': {
         ('auth',): ShardingMode.MIRRORED,
         ('contenttypes',): ShardingMode.MIRRORED,

@@ -1,15 +1,56 @@
+import inspect
 from unittest import mock
 
+from django.db.models import Model
 from django.db.models.signals import post_init
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import isolate_apps
 from django.utils import timezone
 
 from djanquiltdb import State
+from djanquiltdb.apps import make_shard_aware_from_db
+from djanquiltdb.decorators import shard_aware_from_db
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.utils import create_schema_on_node, create_template_schema, get_shard_class, use_shard
 from djanquiltdb_tests import ShardingTestCase
 from djanquiltdb_tests.app_config import DummyShard
 from example.models import Organization, ProxyCake, Shard, Type, User
+
+
+class MakeShardAwareFromDbTestCase(SimpleTestCase):
+    def test_from_db_without_a_function_behind_it(self):
+        """
+        Case: Make a shard-aware from_db for a model whose from_db takes the db as its first argument. Try a plain
+              function (like one from the deprecated class_method_use_shard_from_db_arg) and a staticmethod.
+        Expected: A classmethod (Django inspects from_db as one). It calls the function with the db and the row, without
+                  the class.
+        """
+        calls = []
+
+        def from_db(db, field_names, values):
+            calls.append((db, field_names, values))
+            return 'instance'
+
+        for attribute in (from_db, staticmethod(from_db)):
+            with self.subTest(attribute=type(attribute).__name__):
+                model = type('Sharded', (), {'from_db': attribute})
+
+                wrapped = make_shard_aware_from_db(model.from_db)
+                model.from_db = wrapped
+
+                self.assertIsInstance(wrapped, classmethod)
+                self.assertEqual(model.from_db('default', ['id'], [1]), 'instance')
+
+        self.assertEqual(calls, [('default', ['id'], [1])] * 2)
+
+    def test_from_db_classmethod(self):
+        """
+        Case: Make a shard-aware from_db for a model whose from_db is a classmethod (like Django's own).
+        Expected: It wraps the function behind the classmethod.
+        """
+        wrapped = make_shard_aware_from_db(Model.from_db)
+
+        self.assertIs(wrapped.__func__.__decorator__[1].arguments['func'], Model.from_db.__func__)
 
 
 class GetShardTestCase(SimpleTestCase):
@@ -319,6 +360,47 @@ class ShardedModelFromDbUseShardTestCase(ShardingTestCase):
 
     def disconnect_signals(self):
         post_init.disconnect(self.post_init_signal, sender='example.Organization')
+
+    def test_from_db_is_a_classmethod(self):
+        """
+        Case: Look up the shard-aware from_db on a concrete and a proxy sharded model.
+        Expected: A classmethod bound to the model, like Django's own. (Django 6.1.1 reads __func__ from it on every
+                  query, and a plain function has no __func__.)
+        """
+        for model in (Organization, ProxyCake):
+            with self.subTest(model=model.__name__):
+                self.assertIsInstance(inspect.getattr_static(model, 'from_db'), classmethod)
+                self.assertIs(model.from_db.__self__, model)
+
+    @isolate_apps('example')
+    def test_inherited_from_db_creates_the_subclass(self):
+        """
+        Case: Load a row through a subclass of a sharded model. The subclass is defined after the sharded models are set
+              up, so it has no from_db of its own and inherits the one of its parent.
+        Expected: An instance of the subclass (Django's own from_db also creates an instance of the class it is called
+                  on). The instance is built in the shard the row comes from.
+        """
+
+        class LateOrganization(Organization):
+            class Meta:
+                proxy = True
+                app_label = 'example'
+
+        organization = LateOrganization.from_db(self.shard, ['id', 'name', 'created_at'], [1, 'Hope', timezone.now()])
+
+        self.assertIs(type(organization), LateOrganization)
+        self.assertEqual(organization.name, 'Hope')
+
+    def test_from_db_keeps_its_decorator_reference(self):
+        """
+        Case: Look up the function behind the from_db of a sharded model.
+        Expected: It names its decorator and the function it wraps, like the other methods added to sharded models. This
+                  makes the wrapping recognisable.
+        """
+        decorator, bound_arguments = inspect.getattr_static(Organization, 'from_db').__func__.__decorator__
+
+        self.assertIs(decorator, shard_aware_from_db)
+        self.assertIs(bound_arguments.arguments['func'], Model.from_db.__func__)
 
     def test_only(self):
         """

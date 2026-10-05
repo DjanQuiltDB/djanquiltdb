@@ -1,3 +1,21 @@
+v 4.0.1
+-------
+Deprecated:
+ * The `class_method_use_shard_from_db_arg` decorator, to be removed in 5.0. Use `shard_aware_from_db` instead.
+
+Added:
+ * Faster test database creation, opt-in through `QUILT_DB['SHARED_TEST_MIGRATION_STATES'] = True`. See the migrations
+   documentation for more information and potential risks.
+
+Altered:
+ * Fixed querying sharded models on Django 6.1.1.
+ * Fixed a subclass of a sharded model getting instances of the sharded model instead of its own class when loading
+   rows.
+ * `migrate` now loads the migrations from disk and builds state once per run, rather than once per schema.
+ * Fixed the verbose output of `migrate` naming every public and template schema `default|public`.
+ * Fixed `--keepdb` with `--parallel` running tests against outdated database clones from an earlier run. A clone is
+   now rebuilt when the test database has new migrations.
+
 v 4.0.0
 -------
 Added:

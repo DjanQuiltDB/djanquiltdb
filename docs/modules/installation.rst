@@ -433,6 +433,21 @@ databases are built, for example ``djanquiltdb.postgresql_backend.creation.Templ
       'DATABASE_CREATION_CLASS': 'myapp.db.MyDatabaseCreation',
   }
 
+SHARED_TEST_MIGRATION_STATES
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Makes building a new test database faster. When ``True``, ``migrate`` renders the historical models once per
+migration and hands the public and template schemas the same model classes, instead of rendering them for each schema.
+It defaults to ``False``. Leave it off when a data migration keeps state on the historical models it is handed, and
+consider leaving it off in CI. See :doc:`migrations` for the details.
+
+.. code-block:: python
+
+  QUILT_DB = {
+      'SHARD_CLASS': 'myapp.models.Shard',
+      'SHARED_TEST_MIGRATION_STATES': True,
+  }
+
 MUTE_PGTRIGGER_COMPATIBILITY_WARNING
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

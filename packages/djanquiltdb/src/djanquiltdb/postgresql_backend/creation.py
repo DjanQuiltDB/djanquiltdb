@@ -1,5 +1,7 @@
+import hashlib
 import json
 from collections import defaultdict
+from contextlib import nullcontext
 from io import StringIO
 
 from django.apps import apps
@@ -9,11 +11,77 @@ from django.db import router, transaction
 from django.db.backends.postgresql.creation import DatabaseCreation as BaseDatabaseCreation
 
 from djanquiltdb.management.base import shard_table_exists
+from djanquiltdb.management.executor import enable_shared_migration_states
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.utils import create_template_schema, get_shard_class, get_template_name, use_shard
 
 
 class DatabaseCreation(BaseDatabaseCreation):
+    def create_test_db(self, verbosity=1, autoclobber=False, serialize=None, keepdb=False):
+        """
+        Build the test database. When the database is new and QUILT_DB['SHARED_TEST_MIGRATION_STATES'] is True, migrate
+        shares the project states of each migration between schemas (see the migrations documentation).
+
+        When serialize is not given, it is not passed on either, so Django's own default applies.
+        """
+        if keepdb or not settings.QUILT_DB.get('SHARED_TEST_MIGRATION_STATES', False):
+            context = nullcontext()
+        else:
+            context = enable_shared_migration_states()
+
+        kwargs = {} if serialize is None else {'serialize': serialize}
+        with context:
+            return super().create_test_db(verbosity=verbosity, autoclobber=autoclobber, keepdb=keepdb, **kwargs)
+
+    def get_migration_state_hash(self):
+        """
+        Return a hash of the migrations recorded in all schemas of the connected database.
+        """
+        quote_name = self.connection.ops.quote_name
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT table_schema FROM information_schema.tables WHERE table_name = 'django_migrations' "
+                'ORDER BY table_schema'
+            )
+            rows = []
+            for (schema_name,) in cursor.fetchall():
+                cursor.execute(
+                    'SELECT app, name FROM {}.django_migrations ORDER BY app, name'.format(quote_name(schema_name))
+                )
+                rows += [[schema_name, app, name] for app, name in cursor.fetchall()]
+
+        return hashlib.sha256(json.dumps(rows).encode()).hexdigest()
+
+    def _clone_test_db(self, suffix, verbosity, keepdb=False):
+        """
+        Clone the test database for a parallel test run, and store its migration state as a comment on the clone.
+
+        With keepdb, Django reuses an existing clone as is, even though the test database itself gets migrated on every
+        run. So when the stored state of a clone differs from the test database, we drop the clone first and let Django
+        clone the test database again.
+        """
+        state = self.get_migration_state_hash()
+        clone_name = self.get_test_db_clone_settings(suffix)['NAME']
+
+        with self._nodb_cursor() as cursor:
+            cursor.execute(
+                "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = %s", [clone_name]
+            )
+            row = cursor.fetchone()
+            if keepdb and row and row[0] != state:
+                if verbosity >= 1:
+                    self.log(
+                        'Destroying outdated test database for alias {}...'.format(
+                            self._get_database_display_str(verbosity, clone_name)
+                        )
+                    )
+                cursor.execute('DROP DATABASE {}'.format(self._quote_name(clone_name)))
+
+        super()._clone_test_db(suffix, verbosity, keepdb=keepdb)
+
+        with self._nodb_cursor() as cursor:
+            cursor.execute("COMMENT ON DATABASE {} IS '{}'".format(self._quote_name(clone_name), state))
+
     def _serialize_for_schema(self, schema_alias):
         """
         Serialize all models that belong to a specific schema.
