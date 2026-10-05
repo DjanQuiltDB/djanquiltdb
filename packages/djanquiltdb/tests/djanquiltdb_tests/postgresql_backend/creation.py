@@ -1,9 +1,12 @@
 import json
+import os
 from contextlib import contextmanager
 from unittest import mock
 
 from django.db import connections
 from django.db.backends.base.creation import BaseDatabaseCreation
+from django.db.backends.postgresql.creation import DatabaseCreation as PostgresDatabaseCreation
+from django.db.migrations.recorder import MigrationRecorder
 from django.db.utils import load_backend
 from django.test import SimpleTestCase
 
@@ -289,3 +292,154 @@ class DatabaseCreationTestCase(ShardingTestCase):
 
         with use_shard(node_name=self.creation.connection.alias, schema_name=PUBLIC_SCHEMA_NAME):
             self.assertTrue(SuperType.objects.filter(name='Cake').exists())
+
+
+class MigrationStateHashTestCase(ShardingTestCase):
+    def setUp(self):
+        super().setUp()
+
+        self.creation = DatabaseCreation(connections['default'])
+
+    def test_same_migrations_give_the_same_state(self):
+        """
+        Case: Get the migration state of the test database twice.
+        Expected: The same digest both times.
+        """
+        state = self.creation.get_migration_state_hash()
+
+        self.assertRegex(state, '^[0-9a-f]{64}$')
+        self.assertEqual(self.creation.get_migration_state_hash(), state)
+
+    def test_migration_recorded_in_another_schema_changes_the_state(self):
+        """
+        Case: Get the migration state of the test database, record a migration in its template schema, and get the state
+              again.
+        Expected: The digests differ. The state covers the migrations of every schema, not only the public schema.
+        """
+        create_template_schema('default', migrate=False)
+        state = self.creation.get_migration_state_hash()
+
+        with use_shard(node_name='default', schema_name=get_template_name()) as env:
+            MigrationRecorder(env.connection).record_applied('example', '0099_recorded')
+
+        self.assertNotEqual(self.creation.get_migration_state_hash(), state)
+
+
+MIGRATION_STATE_HASH = 'a' * 64
+
+
+class CloneTestDbTestCase(ShardingTestCase):
+    """
+    Tests for cloning the test database for a parallel test run. A scratch database stands in for the clone. A mock
+    replaces Django's own cloning and creates the scratch database when it does not exist. (Under keepdb, Django also
+    keeps an existing clone and creates a missing one.)
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        self.creation = DatabaseCreation(connections['default'])
+        # The suite itself runs in parallel clones, so each process needs its own scratch database.
+        self.scratch_database_name = 'test_clone_scratch_{}'.format(os.getpid())
+
+        mock.patch.object(
+            DatabaseCreation, 'get_test_db_clone_settings', return_value={'NAME': self.scratch_database_name}
+        ).start()
+        mock.patch.object(DatabaseCreation, 'get_migration_state_hash', return_value=MIGRATION_STATE_HASH).start()
+        self.mock_clone_test_db = mock.patch.object(
+            PostgresDatabaseCreation, '_clone_test_db', autospec=True, side_effect=self.fake_django_clone
+        ).start()
+        self.addCleanup(mock.patch.stopall)
+
+        self.drop_scratch_database()
+        self.addCleanup(self.drop_scratch_database)
+
+    def execute_on_server(self, sql, params=None):
+        with self.creation._nodb_cursor() as cursor:
+            cursor.execute(sql, params)
+            return cursor.fetchone() if cursor.description else None
+
+    def scratch_database_oid(self):
+        """
+        Return the oid of the scratch database, or None when it does not exist. A recreated database gets a new oid.
+        """
+        row = self.execute_on_server('SELECT oid FROM pg_database WHERE datname = %s', [self.scratch_database_name])
+        return row and row[0]
+
+    def scratch_database_comment(self):
+        return self.execute_on_server(
+            "SELECT shobj_description(oid, 'pg_database') FROM pg_database WHERE datname = %s",
+            [self.scratch_database_name],
+        )[0]
+
+    def create_scratch_database(self, comment=None):
+        self.execute_on_server('CREATE DATABASE {}'.format(self.creation._quote_name(self.scratch_database_name)))
+        if comment is not None:
+            self.execute_on_server(
+                "COMMENT ON DATABASE {} IS '{}'".format(self.creation._quote_name(self.scratch_database_name), comment)
+            )
+
+    def drop_scratch_database(self):
+        self.execute_on_server(
+            'DROP DATABASE IF EXISTS {}'.format(self.creation._quote_name(self.scratch_database_name))
+        )
+
+    def fake_django_clone(self, creation, suffix, verbosity, keepdb=False):
+        if self.scratch_database_oid() is None:
+            self.create_scratch_database()
+
+    def test_kept_clone_at_the_same_state_is_kept(self):
+        """
+        Case: Clone the test database with keepdb. The clone exists and has the migration state of the test database.
+        Expected: The clone is kept. Django gets the existing database, which still has that state.
+        """
+        self.create_scratch_database(comment=MIGRATION_STATE_HASH)
+        oid = self.scratch_database_oid()
+
+        self.creation._clone_test_db('1', verbosity=0, keepdb=True)
+
+        self.assertEqual(self.scratch_database_oid(), oid)
+        self.mock_clone_test_db.assert_called_once_with(self.creation, '1', 0, True)
+        self.assertEqual(self.scratch_database_comment(), MIGRATION_STATE_HASH)
+
+    def test_kept_clone_at_another_state_is_cloned_again(self):
+        """
+        Case: Clone the test database with keepdb. The clone exists, but has another migration state or no state at all.
+        Expected: The clone is dropped, and Django clones the test database again. The new clone has the state of the
+                  test database.
+        """
+        for comment in ('b' * 64, None):
+            with self.subTest(comment=comment):
+                self.drop_scratch_database()
+                self.create_scratch_database(comment=comment)
+                oid = self.scratch_database_oid()
+
+                self.creation._clone_test_db('1', verbosity=0, keepdb=True)
+
+                self.assertNotIn(self.scratch_database_oid(), (oid, None))
+                self.assertEqual(self.scratch_database_comment(), MIGRATION_STATE_HASH)
+
+    def test_missing_clone_is_cloned(self):
+        """
+        Case: Clone the test database with keepdb. The clone does not exist.
+        Expected: Django clones the test database. The clone has the state of the test database.
+        """
+        self.creation._clone_test_db('1', verbosity=0, keepdb=True)
+
+        self.assertIsNotNone(self.scratch_database_oid())
+        self.assertEqual(self.scratch_database_comment(), MIGRATION_STATE_HASH)
+
+    def test_clone_without_keepdb_is_left_to_django(self):
+        """
+        Case: Clone the test database without keepdb. A clone exists with another migration state.
+        Expected: The clone is not dropped before Django gets it, because Django clones the test database again anyway
+                  without keepdb. The clone then has the state of the test database.
+        """
+        self.create_scratch_database(comment='b' * 64)
+        oid = self.scratch_database_oid()
+
+        self.creation._clone_test_db('1', verbosity=0, keepdb=False)
+
+        self.assertEqual(self.scratch_database_oid(), oid)
+        self.mock_clone_test_db.assert_called_once_with(self.creation, '1', 0, False)
+        self.assertEqual(self.scratch_database_comment(), MIGRATION_STATE_HASH)
