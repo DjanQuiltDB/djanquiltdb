@@ -39,6 +39,9 @@ DECLARE
   seq_name TEXT;
   tbl_name TEXT;
   ident_rec_ RECORD;
+  seq_rec_ RECORD;
+  owned_by_stmts_ TEXT[];
+  owned_by_stmt_ TEXT;
   src_seq_ TEXT;
   dest_seq_ TEXT;
   last_val_ BIGINT;
@@ -73,16 +76,47 @@ BEGIN
    */
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema) || ',public,pg_catalog';
 
-  /* Create all sequences that exist on the source schema on the target schema. */
-  FOR dest_table IN
-    SELECT sequence_name::text FROM information_schema.SEQUENCES WHERE sequence_schema = source_schema
+  /* Create every sequence of the source schema in the destination schema, at the source sequence's position. This
+   * runs before the tables are created, so that the copies get the source sequences' names: CREATE TABLE ...
+   * (LIKE ...) in the table loop below picks a name that is not in use yet for each identity sequence it creates.
+   *
+   * A sequence that is owned by a serial column in the source becomes owned by the destination's copy of that column,
+   * once the tables exist. pg_get_serial_sequence() follows that link, and it makes dropping the table drop the
+   * sequence too. Identity sequences are skipped, since LIKE recreates them together with their identity columns. An
+   * identity sequence has an internal ('i') dependency on its column, and a serial column's sequence an automatic
+   * ('a') one. If the destination already has a sequence with the same name, that sequence is reused and moved to the
+   * source's position. A sequence that the cloning role cannot read is skipped, like a table it cannot see.
+   */
+  owned_by_stmts_ := ARRAY[]::text[];
+  FOR seq_rec_ IN
+    SELECT seq_cls.relname::text AS sequence_name, owner.table_name, owner.column_name
+      FROM pg_catalog.pg_class seq_cls
+      JOIN pg_catalog.pg_namespace nsp ON nsp.oid = seq_cls.relnamespace
+      LEFT JOIN (
+        SELECT dep.objid, cls.relnamespace, cls.relname::text AS table_name, att.attname::text AS column_name
+          FROM pg_catalog.pg_depend dep
+          JOIN pg_catalog.pg_class cls ON cls.oid = dep.refobjid AND cls.relkind IN ('r', 'p')
+          JOIN pg_catalog.pg_attribute att ON att.attrelid = dep.refobjid AND att.attnum = dep.refobjsubid
+          WHERE dep.classid = 'pg_catalog.pg_class'::regclass AND dep.refclassid = 'pg_catalog.pg_class'::regclass
+            AND dep.deptype = 'a'
+      ) owner ON owner.objid = seq_cls.oid AND owner.relnamespace = seq_cls.relnamespace
+      WHERE nsp.nspname = source_schema AND seq_cls.relkind = 'S'
+        /* Guarded, since the planner may evaluate this before the relkind test and it raises for anything else. */
+        AND CASE WHEN seq_cls.relkind = 'S' THEN pg_catalog.has_sequence_privilege(seq_cls.oid, 'SELECT') END
+        AND NOT EXISTS (
+          SELECT 1 FROM pg_catalog.pg_depend identity_dep
+            WHERE identity_dep.classid = 'pg_catalog.pg_class'::regclass AND identity_dep.objid = seq_cls.oid
+              AND identity_dep.deptype = 'i'
+        )
+      ORDER BY seq_cls.relname
   LOOP
-    EXECUTE 'CREATE SEQUENCE IF NOT EXISTS ' || dest_schema || '.' || dest_table;
-    /* Set sequence value based on source sequence last_value.
-     * After tables are cloned, we'll update sequences to ensure they're higher than any existing IDs.
-     */
-    EXECUTE format('SELECT setval(%L, (SELECT last_value FROM %I.%I), (SELECT is_called FROM %I.%I))',
-      dest_schema || '.' || dest_table, source_schema, dest_table, source_schema, dest_table);
+    EXECUTE format('CREATE SEQUENCE IF NOT EXISTS %I.%I', dest_schema, seq_rec_.sequence_name);
+    EXECUTE format('SELECT setval(%L::regclass, last_value, is_called) FROM %I.%I',
+      format('%I.%I', dest_schema, seq_rec_.sequence_name), source_schema, seq_rec_.sequence_name);
+    IF seq_rec_.table_name IS NOT NULL THEN
+      owned_by_stmts_ := owned_by_stmts_ || format('ALTER SEQUENCE %I.%I OWNED BY %I.%I.%I',
+        dest_schema, seq_rec_.sequence_name, dest_schema, seq_rec_.table_name, seq_rec_.column_name);
+    END IF;
   END LOOP;
 
   /* Only base tables are copied here (views are handled separately below) */
@@ -109,6 +143,11 @@ BEGIN
       EXECUTE 'INSERT INTO ' || dest_table_path || ' (' || copyable_columns_ || ')'
         || ' SELECT ' || copyable_columns_ || ' FROM ' || source_schema || '.' || dest_table;
     END IF;
+  END LOOP;
+
+  /* Make the sequences created above owned by their columns, now that the columns exist. */
+  FOREACH owned_by_stmt_ IN ARRAY owned_by_stmts_ LOOP
+    EXECUTE owned_by_stmt_;
   END LOOP;
 
   /* Clone all functions from the source schema to the destination schema.
