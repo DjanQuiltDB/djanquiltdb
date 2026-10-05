@@ -38,14 +38,9 @@ DECLARE
   dest_table_path TEXT;
   seq_name TEXT;
   tbl_name TEXT;
-  ident_rec_ RECORD;
   seq_rec_ RECORD;
   owned_by_stmts_ TEXT[];
   owned_by_stmt_ TEXT;
-  src_seq_ TEXT;
-  dest_seq_ TEXT;
-  last_val_ BIGINT;
-  is_called_ BOOLEAN;
   trigger_defs_ TEXT[];
   trigger_def_ TEXT;
   func_def TEXT;
@@ -232,6 +227,38 @@ BEGIN
     WHERE src_nsp.nspname = source_schema AND src_cls.relkind IN ('r', 'p') AND src_con.contype = 'p'
       AND dest_con.conname <> src_con.conname;
 
+  /* Identity sequences: each destination identity sequence is paired with the source identity sequence of the same
+   * table and column. An identity sequence has an internal ('i') dependency on its column.
+   */
+  SELECT renames_to_placeholder_ || coalesce(array_agg(format('ALTER SEQUENCE %I.%I RENAME TO %I',
+        dest_schema, dest_ident_seq.relname, 'clone_placeholder_' || dest_ident_seq.oid)
+        ORDER BY dest_ident_seq.relname), ARRAY[]::text[]),
+      renames_to_source_ || coalesce(array_agg(format('ALTER SEQUENCE %I.%I RENAME TO %I',
+        dest_schema, 'clone_placeholder_' || dest_ident_seq.oid, src_ident_seq.relname)
+        ORDER BY dest_ident_seq.relname), ARRAY[]::text[]),
+      renamed_relation_oids_ || coalesce(array_agg(dest_ident_seq.oid ORDER BY dest_ident_seq.relname), ARRAY[]::oid[]),
+      rename_current_names_
+        || coalesce(array_agg(dest_ident_seq.relname::text ORDER BY dest_ident_seq.relname), ARRAY[]::text[]),
+      rename_target_names_
+        || coalesce(array_agg(src_ident_seq.relname::text ORDER BY dest_ident_seq.relname), ARRAY[]::text[])
+    INTO renames_to_placeholder_, renames_to_source_, renamed_relation_oids_, rename_current_names_,
+      rename_target_names_
+    FROM pg_catalog.pg_depend src_dep
+    JOIN pg_catalog.pg_class src_ident_seq ON src_ident_seq.oid = src_dep.objid AND src_ident_seq.relkind = 'S'
+    JOIN pg_catalog.pg_class src_cls ON src_cls.oid = src_dep.refobjid AND src_cls.relkind IN ('r', 'p')
+    JOIN pg_catalog.pg_attribute src_att ON src_att.attrelid = src_cls.oid AND src_att.attnum = src_dep.refobjsubid
+    JOIN pg_catalog.pg_namespace src_nsp ON src_nsp.oid = src_cls.relnamespace
+    JOIN pg_catalog.pg_namespace dest_nsp ON dest_nsp.nspname = dest_schema
+    JOIN pg_catalog.pg_class dest_cls ON dest_cls.relnamespace = dest_nsp.oid AND dest_cls.relname = src_cls.relname
+    JOIN pg_catalog.pg_attribute dest_att ON dest_att.attrelid = dest_cls.oid AND dest_att.attname = src_att.attname
+    JOIN pg_catalog.pg_depend dest_dep ON dest_dep.refobjid = dest_cls.oid AND dest_dep.refobjsubid = dest_att.attnum
+      AND dest_dep.classid = 'pg_catalog.pg_class'::regclass AND dest_dep.refclassid = 'pg_catalog.pg_class'::regclass
+      AND dest_dep.deptype = 'i'
+    JOIN pg_catalog.pg_class dest_ident_seq ON dest_ident_seq.oid = dest_dep.objid AND dest_ident_seq.relkind = 'S'
+    WHERE src_dep.classid = 'pg_catalog.pg_class'::regclass AND src_dep.refclassid = 'pg_catalog.pg_class'::regclass
+      AND src_dep.deptype = 'i' AND src_nsp.nspname = source_schema
+      AND dest_ident_seq.relname <> src_ident_seq.relname;
+
   /* A destination object cannot be renamed to a source name that another relation in the destination already has.
    * The placeholder renames only free up the names of the relations renamed here. Stop before renaming anything, with
    * an error that lists every name already in use.
@@ -391,26 +418,29 @@ BEGIN
   /* Restore the path the surrounding phases run under. */
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema) || ',public,pg_catalog';
 
-  /* After cloning all tables, carry the position of every identity-backed sequence over from the source schema.
-   * LIKE ... INCLUDING ALL recreates an identity column with a fresh sequence starting at 1, and identity sequences
-   * do not appear in information_schema.sequences, so the value-carrying loop at the top never sees them. Pair the
-   * sequences through their owning (table, column), whatever the column is called.
+  /* Copy the position of every identity sequence from the source schema. CREATE TABLE ... (LIKE ... INCLUDING ALL)
+   * recreates an identity column with a new sequence that starts at 1, and the sequence loop at the top skips identity
+   * sequences. The renames above gave each destination identity sequence the name of the source identity sequence it
+   * was copied from, so the two are matched by name. A source identity sequence without a copy in the destination,
+   * such as the sequence of a table that the table loop did not copy, is skipped.
    */
-  FOR ident_rec_ IN
-    SELECT cls.relname::text AS table_name, att.attname::text AS column_name
-      FROM pg_catalog.pg_attribute att
-      JOIN pg_catalog.pg_class cls ON cls.oid = att.attrelid
-      JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
-      WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND att.attidentity <> '' AND NOT att.attisdropped
+  FOR seq_rec_ IN
+    SELECT seq_cls.relname::text AS sequence_name
+      FROM pg_catalog.pg_class seq_cls
+      JOIN pg_catalog.pg_namespace nsp ON nsp.oid = seq_cls.relnamespace
+      JOIN pg_catalog.pg_namespace dest_nsp ON dest_nsp.nspname = dest_schema
+      JOIN pg_catalog.pg_class dest_seq_cls ON dest_seq_cls.relnamespace = dest_nsp.oid
+        AND dest_seq_cls.relname = seq_cls.relname AND dest_seq_cls.relkind = 'S'
+      WHERE nsp.nspname = source_schema AND seq_cls.relkind = 'S'
+        AND EXISTS (
+          SELECT 1 FROM pg_catalog.pg_depend identity_dep
+            WHERE identity_dep.classid = 'pg_catalog.pg_class'::regclass AND identity_dep.objid = seq_cls.oid
+              AND identity_dep.deptype = 'i'
+        )
+      ORDER BY seq_cls.relname
   LOOP
-    src_seq_ := pg_get_serial_sequence(format('%I.%I', source_schema, ident_rec_.table_name),
-      ident_rec_.column_name);
-    dest_seq_ := pg_get_serial_sequence(format('%I.%I', dest_schema, ident_rec_.table_name),
-      ident_rec_.column_name);
-    IF src_seq_ IS NOT NULL AND dest_seq_ IS NOT NULL THEN
-      EXECUTE format('SELECT last_value, is_called FROM %s', src_seq_) INTO last_val_, is_called_;
-      PERFORM setval(dest_seq_, last_val_, is_called_);
-    END IF;
+    EXECUTE format('SELECT setval(%L::regclass, last_value, is_called) FROM %I.%I',
+      format('%I.%I', dest_schema, seq_rec_.sequence_name), source_schema, seq_rec_.sequence_name);
   END LOOP;
 
   /* Clone all views and materialized views from the source schema to the destination schema. Named with its schema,
