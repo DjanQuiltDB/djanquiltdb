@@ -61,3 +61,7 @@ The copy buffers each table's export in memory, so peak memory use is proportion
 Retargeting relations to PUBLIC models requires those models to declare natural keys (``unique_together`` plus a
 ``get_by_natural_key`` manager method); a PUBLIC model that forbids copying (``@public_model(allow_copy=False)``)
 stops the move when the target node misses one of its rows.
+
+The sequence reset looks up each model's sequence through its auto-incrementing primary key column, so it also works for
+a table that was renamed after it was created. If a model's auto-incrementing column has no sequence, the move stops
+with an error that names the column. It stops before any sequence is reset.

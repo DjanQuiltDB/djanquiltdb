@@ -26,7 +26,7 @@ from djanquiltdb_tests import (
     skip_without_virtual_generated_column_support,
 )
 from djanquiltdb_tests.sql import CREATE_ALLUPPERCASE, DROP_ALLUPPERCASE
-from example.models import Organization, Shard, Statement, Type, User
+from example.models import Cake, Organization, Shard, Type, User
 
 
 class GetValidatedSchemaNameTestCase(ShardingTestCase):
@@ -556,46 +556,6 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         Expected: The correct schema name to be returned.
         """
         self.assertEqual(connection.get_schema_for_sequence('example_type_id_seq'), [('public',)])
-
-    def test_reset_sequence_for_local_field(self):
-        """
-        Case: Call reset_sequence for a two models with only local fields,
-        Expected: The correct statement to be formulated and executed.
-        """
-        mock_cursor = mock.Mock()
-        mock_cursor.execute = mock.Mock()
-        connection.reset_sequence(_cursor=mock_cursor, model_list=[Organization, Statement])
-        mock_cursor.execute.assert_called_once_with(
-            "SELECT setval('example_organization_id_seq',"
-            ' GREATEST(coalesce(max("id"), 1),'
-            " coalesce(pg_sequence_last_value('example_organization_id_seq'::regclass), 1)),"
-            ' max("id") IS NOT null'
-            " OR pg_sequence_last_value('example_organization_id_seq'::regclass) IS NOT null)"
-            ' FROM "example_organization";\n'
-            "SELECT setval('example_statement_id_seq',"
-            ' GREATEST(coalesce(max("id"), 1),'
-            " coalesce(pg_sequence_last_value('example_statement_id_seq'::regclass), 1)),"
-            ' max("id") IS NOT null'
-            " OR pg_sequence_last_value('example_statement_id_seq'::regclass) IS NOT null)"
-            ' FROM "example_statement"'
-        )
-
-    def test_reset_sequence_for_m2m_field(self):
-        """
-        Case: Call reset_sequence for a model with a many-to-many field.
-        Expected: The correct statement to be formulated and executed.
-        """
-        mock_cursor = mock.Mock()
-        mock_cursor.execute = mock.Mock()
-        connection.reset_sequence(_cursor=mock_cursor, model_list=[User])
-        mock_cursor.execute.assert_called_once_with(
-            "SELECT setval('example_user_id_seq',"
-            ' GREATEST(coalesce(max("id"), 1),'
-            " coalesce(pg_sequence_last_value('example_user_id_seq'::regclass), 1)),"
-            ' max("id") IS NOT null'
-            " OR pg_sequence_last_value('example_user_id_seq'::regclass) IS NOT null)"
-            ' FROM "example_user"'
-        )
 
     def test_is_public_schema(self):
         """
@@ -1897,7 +1857,259 @@ class IdentityColumnTestCase(ShardingTransactionTestCase):
                     self.assertTrue(is_called, 'Sequence should be marked as called when max_id > 0')
 
 
+def rename_sequence_of_column(cursor, table_name, column_name, new_name):
+    cursor.execute('SELECT pg_get_serial_sequence(%s, %s)', [table_name, column_name])
+    cursor.execute('ALTER SEQUENCE {} RENAME TO {}'.format(cursor.fetchone()[0], new_name))
+
+
 class ResetSequenceTestCase(ShardingTransactionTestCase):
+    def _clone_template_into_test_schema(self):
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+    def test_reset_sequence_on_a_renamed_identity_table(self):
+        """
+        Case: example_organization's identity sequence has the name the table had before it was renamed, and the table
+              has rows inserted with explicit ids. reset_sequence is then called.
+        Expected: The next insert gets the max id + 1.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            rename_sequence_of_column(cursor, 'example_organization', 'id', 'legacy_organization_id_seq')
+            cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('c', now()) RETURNING id")
+            self.assertEqual(cursor.fetchone()[0], 10)
+
+    def test_reset_sequence_on_a_renamed_serial_table(self):
+        """
+        Case: example_organization's id is a serial column whose sequence has the name the table had before it was
+              renamed, and the table has rows inserted with explicit ids. reset_sequence is then called.
+        Expected: The next insert gets the max id + 1.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('ALTER TABLE example_organization ALTER COLUMN id DROP IDENTITY')
+            cursor.execute('CREATE SEQUENCE legacy_organization_id_seq OWNED BY example_organization.id')
+            cursor.execute(
+                "ALTER TABLE example_organization ALTER COLUMN id SET DEFAULT nextval('legacy_organization_id_seq')"
+            )
+            cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('c', now()) RETURNING id")
+            self.assertEqual(cursor.fetchone()[0], 10)
+
+    def test_reset_sequence_on_an_empty_renamed_table(self):
+        """
+        Case: example_organization's identity sequence has the name the table had before it was renamed, and the table
+              is empty. reset_sequence is then called.
+        Expected: The first insert gets id 1.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            rename_sequence_of_column(cursor, 'example_organization', 'id', 'legacy_organization_id_seq')
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('a', now()) RETURNING id")
+            self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_reset_sequence_on_a_renamed_through_table(self):
+        """
+        Case: The identity sequence of User.cake's auto-created through table has the name the table had before it was
+              renamed, and the table has a row inserted with an explicit id. reset_sequence is then called for the
+              through model, as move_shard_to_node does.
+        Expected: The next row added through the relation gets the max id + 1.
+        """
+        self._clone_template_into_test_schema()
+        through_model = User.cake.through
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            rename_sequence_of_column(cursor, through_model._meta.db_table, 'id', 'legacy_user_cake_id_seq')
+            user = User.objects.create_user(email='user@example.com', name='user')
+            first_cake = Cake.objects.create(name='first')
+            second_cake = Cake.objects.create(name='second')
+            through_model.objects.create(id=7, user=user, cake=first_cake)
+
+            env.connection.reset_sequence(model_list=[through_model])
+
+            user.cake.add(second_cake)
+            self.assertEqual(through_model.objects.get(cake=second_cake).id, 8)
+
+    def test_reset_sequence_on_a_serial_column_whose_sequence_has_no_owner(self):
+        """
+        Case: example_organization's id is a serial column whose default takes its values from a sequence that is not
+              owned by any column and has the name the table had before it was renamed. The table has rows inserted
+              with explicit ids. reset_sequence is then called.
+        Expected: The next insert gets the max id + 1.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('ALTER TABLE example_organization ALTER COLUMN id DROP IDENTITY')
+            cursor.execute('CREATE SEQUENCE legacy_organization_id_seq')
+            cursor.execute(
+                "ALTER TABLE example_organization ALTER COLUMN id SET DEFAULT nextval('legacy_organization_id_seq')"
+            )
+            cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('c', now()) RETURNING id")
+            self.assertEqual(cursor.fetchone()[0], 10)
+
+    def test_reset_sequence_on_a_serial_column_whose_default_uses_a_sequence_it_does_not_own(self):
+        """
+        Case: example_organization's id owns one sequence, but its default takes its values from another. The table
+              has rows inserted with explicit ids. reset_sequence is then called.
+        Expected: The sequence the default uses is reset, so the next insert gets the max id + 1.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('ALTER TABLE example_organization ALTER COLUMN id DROP IDENTITY')
+            cursor.execute('CREATE SEQUENCE owned_organization_id_seq OWNED BY example_organization.id')
+            cursor.execute('CREATE SEQUENCE default_organization_id_seq')
+            cursor.execute(
+                "ALTER TABLE example_organization ALTER COLUMN id SET DEFAULT nextval('default_organization_id_seq')"
+            )
+            cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('c', now()) RETURNING id")
+            self.assertEqual(cursor.fetchone()[0], 10)
+
+    def test_reset_sequence_on_a_column_whose_default_uses_two_sequences(self):
+        """
+        Case: example_organization's id has a default that names two sequences, b_organization_id_seq before
+              a_organization_id_seq, and the table has rows inserted with explicit ids. reset_sequence is then called.
+        Expected: The sequence whose name sorts first, a_organization_id_seq, is reset to the max id, and
+                  b_organization_id_seq is unchanged.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('ALTER TABLE example_organization ALTER COLUMN id DROP IDENTITY')
+            cursor.execute('CREATE SEQUENCE a_organization_id_seq')
+            cursor.execute('CREATE SEQUENCE b_organization_id_seq')
+            cursor.execute(
+                'ALTER TABLE example_organization ALTER COLUMN id'
+                " SET DEFAULT coalesce(nextval('b_organization_id_seq'), nextval('a_organization_id_seq'))"
+            )
+            cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute(
+                'SELECT a_seq.last_value, a_seq.is_called, b_seq.is_called'
+                ' FROM a_organization_id_seq a_seq, b_organization_id_seq b_seq'
+            )
+            self.assertEqual(cursor.fetchone(), (9, True, False))
+
+    def test_reset_sequence_resets_several_models_in_one_call(self):
+        """
+        Case: example_organization and example_cake both have rows inserted with explicit ids. reset_sequence is then
+              called for both models in one call.
+        Expected: The next insert into each table gets that table's max id + 1.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+            Cake.objects.create(id=7, name='first')
+
+            env.connection.reset_sequence(model_list=[Organization, Cake])
+
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('c', now()) RETURNING id")
+            self.assertEqual(cursor.fetchone()[0], 10)
+            self.assertEqual(Cake.objects.create(name='second').id, 8)
+
+    def test_reset_sequence_raises_for_a_column_without_a_sequence(self):
+        """
+        Case: example_organization's id is not an identity column and has no sequence, and example_cake has a row
+              inserted with an explicit id. reset_sequence is then called for both models in one call.
+        Expected: A ValueError that names example_organization's column, raised before any sequence is reset, so
+                  example_cake's sequence is unchanged.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('ALTER TABLE example_organization ALTER COLUMN id DROP IDENTITY')
+            Cake.objects.create(id=7, name='first')
+
+            with self.assertRaisesMessage(ValueError, 'example_organization.id'):
+                env.connection.reset_sequence(model_list=[Organization, Cake])
+
+            self.assertEqual(Cake.objects.create(name='second').id, 1)
+
+    def test_reset_sequence_raises_for_a_model_whose_table_is_missing(self):
+        """
+        Case: The schema has no example_organization table, and example_cake has a row inserted with an explicit id.
+              reset_sequence is then called for both models in one call.
+        Expected: A ValueError that names example_organization's column, raised before any sequence is reset, so
+                  example_cake's sequence is unchanged.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('DROP TABLE example_organization CASCADE')
+            Cake.objects.create(id=7, name='first')
+
+            with self.assertRaisesMessage(ValueError, 'example_organization.id'):
+                env.connection.reset_sequence(model_list=[Organization, Cake])
+
+            self.assertEqual(Cake.objects.create(name='second').id, 1)
+
+    def test_reset_sequence_raises_for_a_model_whose_column_is_missing(self):
+        """
+        Case: The schema's example_organization table has no id column, and example_cake has a row inserted with an
+              explicit id. reset_sequence is then called for both models in one call.
+        Expected: A ValueError that names example_organization's column, raised before any sequence is reset, so
+                  example_cake's sequence is unchanged.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('ALTER TABLE example_organization DROP COLUMN id CASCADE')
+            Cake.objects.create(id=7, name='first')
+
+            with self.assertRaisesMessage(ValueError, 'example_organization.id'):
+                env.connection.reset_sequence(model_list=[Organization, Cake])
+
+            self.assertEqual(Cake.objects.create(name='second').id, 1)
+
     def test_reset_sequence_never_rewinds(self):
         """
         Case: A sequence was advanced past the table's max id, as a concurrent insert on a live target shard does while

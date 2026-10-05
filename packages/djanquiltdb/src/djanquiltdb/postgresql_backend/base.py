@@ -900,36 +900,66 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         from django.db import models
 
         cursor = _cursor or self.cursor()
-        statements = []
         qn = self.ops.quote_name
-        # Move each model's sequence to at least the max pk value, or 1 if there are no records. The sequence's own
-        # position wins when it is already further along. Set the `is_called` property (the third argument to `setval`)
-        # to true when the value is in use, otherwise set it to false.
-        statement_template = (
-            "SELECT setval('{s}',"
-            " GREATEST(coalesce(max({f}), 1), coalesce(pg_sequence_last_value('{s}'::regclass), 1)),"
-            " max({f}) IS NOT null OR pg_sequence_last_value('{s}'::regclass) IS NOT null) FROM {qnm}"
-        )
+        auto_columns = []
         for model in model_list:
             for f in model._meta.local_fields:
                 if isinstance(f, models.AutoField):
-                    statements.append(
-                        statement_template.format(  # nosec
-                            s='{}_{}_seq'.format(model._meta.db_table, f.column),
-                            f=qn(f.column),
-                            qnm=qn(model._meta.db_table),
-                        )
-                    )
+                    auto_columns.append((model._meta.db_table, f.column))
                     break  # Only one AutoField is allowed per model, so don't bother continuing.
             for f in model._meta.many_to_many:
                 # Django < 2.0
                 remote_field = 'rel' if hasattr(f, 'rel') else 'remote_field'
                 if not getattr(f, remote_field).through:
-                    statements.append(
-                        statement_template.format(  # nosec
-                            s='{}_{}_seq'.format(f.m2m_db_table(), 'id'), f=qn('id'), qnm=qn(f.m2m_db_table())
-                        )
-                    )
+                    auto_columns.append((f.m2m_db_table(), 'id'))
+        if not auto_columns:
+            return
+
+        # Look up each column's sequence through the column itself, since a table that was renamed keeps the sequence
+        # it was created with. The column's sequence is the one its default takes values from, which is the one inserts
+        # use. A column without such a default uses the sequence it owns, which is how an identity column is backed. If
+        # the default takes values from several sequences, the one whose name sorts first is used. The sequence may be
+        # in any schema. If a column has no sequence, or the schema has no such table or column, a ValueError is raised
+        # before any sequence is moved.
+        cursor.execute(
+            'SELECT coalesce(('
+            'SELECT dep.refobjid::regclass FROM pg_catalog.pg_attrdef def'
+            ' JOIN pg_catalog.pg_attribute att ON att.attrelid = def.adrelid AND att.attnum = def.adnum'
+            " JOIN pg_catalog.pg_depend dep ON dep.classid = 'pg_catalog.pg_attrdef'::regclass AND dep.objid = def.oid"
+            " JOIN pg_catalog.pg_class seq_cls ON seq_cls.oid = dep.refobjid AND seq_cls.relkind = 'S'"
+            " WHERE dep.refclassid = 'pg_catalog.pg_class'::regclass"
+            ' AND def.adrelid = pg_catalog.to_regclass(pk_columns.table_name)'
+            ' AND att.attname = pk_columns.column_name'
+            ' ORDER BY seq_cls.relname LIMIT 1),'
+            ' CASE WHEN EXISTS ('
+            'SELECT 1 FROM pg_catalog.pg_attribute att'
+            ' WHERE att.attrelid = pg_catalog.to_regclass(pk_columns.table_name) AND att.attname = pk_columns.column_name'
+            ' AND NOT att.attisdropped)'
+            ' THEN pg_get_serial_sequence(pk_columns.table_name, pk_columns.column_name)::regclass END)::oid'
+            ' FROM unnest(%s::text[], %s::text[]) WITH ORDINALITY AS pk_columns(table_name, column_name, position)'
+            ' ORDER BY pk_columns.position',
+            [[qn(table_name) for table_name, _ in auto_columns], [column for _, column in auto_columns]],
+        )
+        sequence_oids = [row[0] for row in cursor.fetchall()]
+        columns_without_sequence = [
+            '{}.{}'.format(table_name, column)
+            for (table_name, column), sequence_oid in zip(auto_columns, sequence_oids)
+            if sequence_oid is None
+        ]
+        if columns_without_sequence:
+            raise ValueError('The column(s) {} have no sequence.'.format(', '.join(columns_without_sequence)))
+
+        # Move each sequence to at least the max pk value, or 1 if there are no records. A sequence that is already
+        # past that value keeps its own. Set the `is_called` property (the third argument to `setval`) to true when the
+        # value is in use, otherwise set it to false.
+        statement_template = (
+            'SELECT setval({s}, GREATEST(coalesce(max({f}), 1), coalesce(pg_sequence_last_value({s}), 1)),'
+            ' max({f}) IS NOT null OR pg_sequence_last_value({s}) IS NOT null) FROM {qnm}'
+        )
+        statements = [
+            statement_template.format(s='{:d}::regclass'.format(sequence_oid), f=qn(column), qnm=qn(table_name))  # nosec
+            for (table_name, column), sequence_oid in zip(auto_columns, sequence_oids)
+        ]
         cursor.execute(';\n'.join(statements))
 
     def make_debug_cursor(self, cursor, skip_lock=False):
