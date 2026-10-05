@@ -53,6 +53,12 @@ DECLARE
   rebind_drops_ TEXT[];
   rebind_adds_ TEXT[];
   rebind_stmt_ TEXT;
+  renames_to_placeholder_ TEXT[];
+  renames_to_source_ TEXT[];
+  renamed_relation_oids_ OID[];
+  rename_current_names_ TEXT[];
+  rename_target_names_ TEXT[];
+  name_clashes_ TEXT;
   entry_search_path_ TEXT;
 
 BEGIN
@@ -149,11 +155,66 @@ BEGIN
    */
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema);
 
+  /* Give the destination's objects the names of their source objects. CREATE TABLE ... (LIKE ... INCLUDING ALL) in
+   * the table loop above names every object it copies along with a table, such as the primary key, after the new
+   * table. The source's objects keep the names they were created with, and a table that was renamed later keeps those
+   * old names. Each query below pairs a destination object with the source object it was copied from, and renames it
+   * to the source object's name.
+   *
+   * One table can have the name that another table's object needs, for example when a newer table was created under
+   * a renamed table's old name. So every rename first moves the destination object to a placeholder name, and only
+   * then to the source's name. Each placeholder is named after the pg_class OID of the relation being renamed, which
+   * keeps the placeholders unique across all kinds of objects renamed here.
+   *
+   * The renames run first among the statements below, because an expression rebound after them may refer to an
+   * object by the source's name. A partitioned source table ('p') is paired like a plain one, since LIKE copies it as
+   * a plain table.
+   *
+   * Primary keys: renaming the constraint also renames its index. A foreign key refers to the index itself, not to its
+   * name.
+   */
+  SELECT coalesce(array_agg(format('ALTER TABLE %I.%I RENAME CONSTRAINT %I TO %I',
+        dest_schema, dest_cls.relname, dest_con.conname, 'clone_placeholder_' || dest_con.conindid)
+        ORDER BY dest_cls.relname), ARRAY[]::text[]),
+      coalesce(array_agg(format('ALTER TABLE %I.%I RENAME CONSTRAINT %I TO %I',
+        dest_schema, dest_cls.relname, 'clone_placeholder_' || dest_con.conindid, src_con.conname)
+        ORDER BY dest_cls.relname), ARRAY[]::text[]),
+      coalesce(array_agg(dest_con.conindid ORDER BY dest_cls.relname), ARRAY[]::oid[]),
+      coalesce(array_agg(dest_con.conname::text ORDER BY dest_cls.relname), ARRAY[]::text[]),
+      coalesce(array_agg(src_con.conname::text ORDER BY dest_cls.relname), ARRAY[]::text[])
+    INTO renames_to_placeholder_, renames_to_source_, renamed_relation_oids_, rename_current_names_,
+      rename_target_names_
+    FROM pg_catalog.pg_constraint src_con
+    JOIN pg_catalog.pg_class src_cls ON src_cls.oid = src_con.conrelid
+    JOIN pg_catalog.pg_namespace src_nsp ON src_nsp.oid = src_cls.relnamespace
+    JOIN pg_catalog.pg_namespace dest_nsp ON dest_nsp.nspname = dest_schema
+    JOIN pg_catalog.pg_class dest_cls ON dest_cls.relnamespace = dest_nsp.oid AND dest_cls.relname = src_cls.relname
+    JOIN pg_catalog.pg_constraint dest_con ON dest_con.conrelid = dest_cls.oid AND dest_con.contype = 'p'
+    WHERE src_nsp.nspname = source_schema AND src_cls.relkind IN ('r', 'p') AND src_con.contype = 'p'
+      AND dest_con.conname <> src_con.conname;
+
+  /* A destination object cannot be renamed to a source name that another relation in the destination already has.
+   * The placeholder renames only free up the names of the relations renamed here. Stop before renaming anything, with
+   * an error that lists every name already in use.
+   */
+  SELECT string_agg(format('%I.%I already exists, so %I cannot be renamed to it',
+        dest_schema, rename.target_name, rename.current_name), '; ' ORDER BY rename.target_name)
+    INTO name_clashes_
+    FROM unnest(renamed_relation_oids_, rename_current_names_, rename_target_names_)
+      AS rename(relation_oid, current_name, target_name)
+    JOIN pg_catalog.pg_namespace dest_nsp ON dest_nsp.nspname = dest_schema
+    JOIN pg_catalog.pg_class taken ON taken.relnamespace = dest_nsp.oid AND taken.relname = rename.target_name
+    WHERE taken.oid <> ALL (renamed_relation_oids_);
+  IF name_clashes_ IS NOT NULL THEN
+    RAISE EXCEPTION 'Schema % cannot use the names of schema %: %', dest_schema, source_schema, name_clashes_;
+  END IF;
+  rebind_stmts_ := renames_to_placeholder_ || renames_to_source_;
+
   /* Plain column defaults. This is also what re-points a nextval() default at the sequence created for this schema:
    * a regclass literal prints schema-qualified only when the sequence is not visible on the path. Identity columns
    * stay clear of this by themselves, since an identity is not a default and has no pg_attrdef row.
    */
-  SELECT coalesce(array_agg(
+  SELECT rebind_stmts_ || coalesce(array_agg(
       format('ALTER TABLE %I.%I ALTER COLUMN %I SET DEFAULT %s',
              dest_schema, cls.relname, att.attname, pg_catalog.pg_get_expr(def.adbin, def.adrelid, true))
       ORDER BY cls.relname, att.attnum), ARRAY[]::text[])
@@ -215,8 +276,8 @@ BEGIN
    * constraint has to be dropped and added back the way the CHECK constraints above are.
    *
    * This runs before the foreign keys are added, so nothing references these yet: dropping a unique constraint that
-   * an FK had already been pointed at would fail. Restricted to contype 'u' and 'x'; primary keys are left alone,
-   * since Django and PostgreSQL both name those <table>_pkey and they already match.
+   * an FK had already been pointed at would fail. Restricted to contype 'u' and 'x'; primary keys are renamed in
+   * place above.
    */
   SELECT coalesce(array_agg(format('ALTER TABLE %I.%I DROP CONSTRAINT %I', dest_schema, cls.relname, con.conname)
       ORDER BY cls.relname, con.conname), ARRAY[]::text[])
