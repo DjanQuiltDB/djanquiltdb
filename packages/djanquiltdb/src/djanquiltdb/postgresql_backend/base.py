@@ -200,8 +200,6 @@ CREATE OR REPLACE FUNCTION public.clone_schema(source_schema TEXT, dest_schema T
 $BODY$
 DECLARE
   dest_table TEXT;
-  seq_name TEXT;
-  tbl_name TEXT;
   seq_rec_ RECORD;
   last_val_ BIGINT;
   is_called_ BOOLEAN;
@@ -1379,11 +1377,6 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 if isinstance(f, models.AutoField):
                     auto_columns.append((model._meta.db_table, f.column))
                     break  # Only one AutoField is allowed per model, so don't bother continuing.
-            for f in model._meta.many_to_many:
-                # Django < 2.0
-                remote_field = 'rel' if hasattr(f, 'rel') else 'remote_field'
-                if not getattr(f, remote_field).through:
-                    auto_columns.append((f.m2m_db_table(), 'id'))
         if not auto_columns:
             return
 
