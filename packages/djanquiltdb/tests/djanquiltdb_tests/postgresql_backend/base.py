@@ -2617,6 +2617,28 @@ class SequenceCloningTestCase(ShardingTransactionTestCase):
         cursor.execute("SELECT nextval('test_schema.countdown')")
         self.assertEqual(cursor.fetchone()[0], 9)
 
+    def test_clone_schema_gives_an_existing_sequence_in_the_destination_the_template_settings(self):
+        """
+        Case: The template has an unlogged sequence with non-default settings, and the schema cloned into already has
+              a logged sequence with the same name and the default settings.
+        Expected: After the clone, that sequence has the template's settings and persistence.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute(
+            'CREATE UNLOGGED SEQUENCE template.ticket_number AS integer'
+            ' START WITH 50 INCREMENT BY 10 MINVALUE 5 MAXVALUE 1000 CACHE 3 CYCLE'
+        )
+        connection.create_schema('test_schema')
+        cursor.execute('CREATE SEQUENCE test_schema.ticket_number')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(self._sequence_settings('test_schema', 'ticket_number'), ('integer', 50, 10, 5, 1000, 3, True))
+        cursor.execute(
+            "SELECT relpersistence FROM pg_catalog.pg_class WHERE oid = 'test_schema.ticket_number'::regclass"
+        )
+        self.assertEqual(cursor.fetchone()[0], 'u')
+
     def test_clone_schema_keeps_an_unlogged_sequence_unlogged(self):
         """
         Case: The template has an unlogged sequence and a logged one.
@@ -3074,6 +3096,34 @@ class ExpressionRebindTestCase(ShardingTransactionTestCase):
             self._expressions(self.DEST_SCHEMA)['column id'],
             "nextval('{}.rebind_example_id_seq'::regclass)".format(self.DEST_SCHEMA),
         )
+
+    def test_clone_schema_keeps_a_serial_default_that_uses_a_sequence_in_another_schema(self):
+        """
+        Case: Clone a schema with a table whose serial primary key owns its sequence, which was never used. The column's
+              default takes its values from shared.code_number instead, a sequence in another schema that was advanced
+              to 50.
+        Expected: The clone's default also takes its values from shared.code_number, and the clone's own sequence
+                  stays at the source sequence's position.
+        """
+        cursor = connection.cursor()
+        cursor.execute('CREATE SCHEMA shared')
+        cursor.execute('CREATE SEQUENCE shared.code_number')
+        cursor.execute("SELECT setval('shared.code_number', 50)")
+        cursor.execute('CREATE TABLE {}.gizmo (id SERIAL PRIMARY KEY)'.format(self.SOURCE_SCHEMA))
+        cursor.execute(
+            "ALTER TABLE {}.gizmo ALTER COLUMN id SET DEFAULT nextval('shared.code_number')".format(self.SOURCE_SCHEMA)
+        )
+
+        connection.clone_schema(self.SOURCE_SCHEMA, self.DEST_SCHEMA)
+
+        cursor.execute(
+            'SELECT pg_get_expr(def.adbin, def.adrelid) FROM pg_catalog.pg_attrdef def'
+            ' WHERE def.adrelid = %s::regclass AND def.adnum = 1',
+            ['{}.gizmo'.format(self.DEST_SCHEMA)],
+        )
+        self.assertEqual(cursor.fetchone()[0], "nextval('shared.code_number'::regclass)")
+        cursor.execute('SELECT last_value, is_called FROM {}.gizmo_id_seq'.format(self.DEST_SCHEMA))
+        self.assertEqual(cursor.fetchone(), (1, False))
 
     def test_clone_schema_leaves_the_clone_working_after_the_source_schema_is_dropped(self):
         """
