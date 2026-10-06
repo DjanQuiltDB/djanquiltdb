@@ -2501,6 +2501,41 @@ class RenamedTableTestCase(ShardingTransactionTestCase):
         cursor.execute('INSERT INTO test_schema.widget DEFAULT VALUES RETURNING code')
         self.assertEqual(cursor.fetchone()[0], 1)
 
+    def test_clone_schema_with_a_mixed_case_table(self):
+        """
+        Case: The template has a table with a mixed-case name, a serial primary key and two rows.
+        Expected: The clone has a table with the same name and both rows, and its serial sequence continues after
+                  them.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template."LegacyWidget" (code SERIAL PRIMARY KEY, label TEXT)')
+        cursor.execute("INSERT INTO template.\"LegacyWidget\" (label) VALUES ('first'), ('second')")
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        cursor.execute('SELECT label FROM test_schema."LegacyWidget" ORDER BY code')
+        self.assertEqual(cursor.fetchall(), [('first',), ('second',)])
+        self.assertEqual(
+            self._sequence_name('test_schema', '"LegacyWidget"', 'code'), 'test_schema."LegacyWidget_code_seq"'
+        )
+        cursor.execute('INSERT INTO test_schema."LegacyWidget" (label) VALUES (\'third\') RETURNING code')
+        self.assertEqual(cursor.fetchone()[0], 3)
+
+    def test_clone_schema_into_a_mixed_case_schema(self):
+        """
+        Case: A schema with a mixed-case name is cloned from the template.
+        Expected: The clone has the template's tables and their rows.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute("INSERT INTO template.example_organization (name, created_at) VALUES ('a', now())")
+        connection.create_schema('North_Shard')
+        connection.clone_schema('template', 'North_Shard')
+
+        cursor.execute('SELECT name FROM "North_Shard".example_organization')
+        self.assertEqual(cursor.fetchall(), [('a',)])
+
     def test_reset_sequence_on_a_clone_of_a_renamed_table(self):
         """
         Case: The primary key and identity sequence of the template's example_organization have names based on a name

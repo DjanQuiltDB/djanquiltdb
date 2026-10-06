@@ -35,7 +35,6 @@ CREATE OR REPLACE FUNCTION public.clone_schema(source_schema TEXT, dest_schema T
 $BODY$
 DECLARE
   dest_table TEXT;
-  dest_table_path TEXT;
   seq_name TEXT;
   tbl_name TEXT;
   seq_rec_ RECORD;
@@ -126,9 +125,8 @@ BEGIN
     SELECT TABLE_NAME::text FROM information_schema.TABLES
       WHERE table_schema = source_schema AND table_type = 'BASE TABLE'
   LOOP
-    dest_table_path := dest_schema || '.' || dest_table;
     /* Create all tables on the target schema. */
-    EXECUTE 'CREATE TABLE ' || dest_table_path || ' (LIKE ' || source_schema || '.' || dest_table || ' INCLUDING ALL)';
+    EXECUTE format('CREATE TABLE %I.%I (LIKE %I.%I INCLUDING ALL)', dest_schema, dest_table, source_schema, dest_table);
 
     /* Copy over rows naming each column explicitly to avoid errors on generated columns (i.e. without SELECT *). Keep
      * this predicate in sync with DatabaseWrapper.get_copyable_column_names and get_copyable_column_names_by_table.
@@ -142,8 +140,8 @@ BEGIN
         AND attgenerated = '';
 
     IF copyable_columns_ IS NOT NULL THEN
-      EXECUTE 'INSERT INTO ' || dest_table_path || ' (' || copyable_columns_ || ')'
-        || ' SELECT ' || copyable_columns_ || ' FROM ' || source_schema || '.' || dest_table;
+      EXECUTE format('INSERT INTO %I.%I (%s) SELECT %s FROM %I.%I',
+        dest_schema, dest_table, copyable_columns_, copyable_columns_, source_schema, dest_table);
     END IF;
   END LOOP;
 
