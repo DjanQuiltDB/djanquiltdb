@@ -2639,6 +2639,33 @@ class SequenceCloningTestCase(ShardingTransactionTestCase):
         )
         self.assertEqual(cursor.fetchone()[0], 'u')
 
+    def test_clone_schema_moves_an_existing_sequence_in_the_destination_outside_its_old_bounds(self):
+        """
+        Case: The template has a descending sequence at -1 and a sequence that starts at 0. The schema cloned into
+              already has an ascending sequence with each of these names and the default settings.
+        Expected: After the clone, each sequence has the template's settings, and its next value follows the
+                  template's.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE SEQUENCE template.countdown INCREMENT BY -1 MINVALUE -10 MAXVALUE -1')
+        cursor.execute("SELECT nextval('template.countdown')")
+        cursor.execute('CREATE SEQUENCE template.ticket_number MINVALUE 0 START WITH 0')
+        cursor.execute("SELECT nextval('template.ticket_number')")
+        connection.create_schema('test_schema')
+        cursor.execute('CREATE SEQUENCE test_schema.countdown')
+        cursor.execute('CREATE SEQUENCE test_schema.ticket_number')
+        connection.clone_schema('template', 'test_schema')
+
+        for sequence_name, next_value in (('countdown', -2), ('ticket_number', 1)):
+            with self.subTest(sequence=sequence_name):
+                self.assertEqual(
+                    self._sequence_settings('test_schema', sequence_name),
+                    self._sequence_settings('template', sequence_name),
+                )
+                cursor.execute('SELECT nextval(%s)', ['test_schema.{}'.format(sequence_name)])
+                self.assertEqual(cursor.fetchone()[0], next_value)
+
     def test_clone_schema_keeps_an_unlogged_sequence_unlogged(self):
         """
         Case: The template has an unlogged sequence and a logged one.

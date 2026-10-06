@@ -203,6 +203,8 @@ DECLARE
   seq_name TEXT;
   tbl_name TEXT;
   seq_rec_ RECORD;
+  last_val_ BIGINT;
+  is_called_ BOOLEAN;
   alignment_stmt_ TEXT;
   trigger_defs_ TEXT[];
   trigger_def_ TEXT;
@@ -235,9 +237,9 @@ BEGIN
    *
    * Identity sequences are skipped, since LIKE recreates them together with their identity columns. An identity
    * sequence has an internal ('i') dependency on its column, and a serial column's sequence an automatic ('a') one. If
-   * the destination already has a sequence with the same name, that sequence is reused and moved to the source's
-   * position, and the alignment statements below give it the source's settings. A sequence that the cloning role
-   * cannot read is skipped, like a table it cannot see.
+   * the destination already has a sequence with the same name, that sequence is reused and gets the source's settings
+   * and position, and the alignment statements below give it the source's persistence. A sequence that the cloning
+   * role cannot read is skipped, like a table it cannot see.
    */
   FOR seq_rec_ IN
     SELECT seq_cls.relname::text AS sequence_name,
@@ -252,10 +254,16 @@ BEGIN
         AND NOT {identity_sequence_condition('seq_cls.oid')}
       ORDER BY seq_cls.relname
   LOOP
-    EXECUTE format('CREATE %sSEQUENCE IF NOT EXISTS %I.%I %s',
-      seq_rec_.persistence, dest_schema, seq_rec_.sequence_name, seq_rec_.settings);
-    EXECUTE format('SELECT setval(%L::regclass, last_value, is_called) FROM %I.%I',
-      format('%I.%I', dest_schema, seq_rec_.sequence_name), source_schema, seq_rec_.sequence_name);
+    EXECUTE format('CREATE %sSEQUENCE IF NOT EXISTS %I.%I', seq_rec_.persistence, dest_schema, seq_rec_.sequence_name);
+    /* Change the settings and the position in one statement, for a new sequence and a reused one alike. PostgreSQL
+     * then checks the position against the source's bounds, not against the sequence's current bounds. RESTART sets
+     * is_called to false, and setval then copies the source's is_called.
+     */
+    EXECUTE format('SELECT last_value, is_called FROM %I.%I', source_schema, seq_rec_.sequence_name)
+      INTO last_val_, is_called_;
+    EXECUTE format('ALTER SEQUENCE %I.%I %s RESTART WITH %s',
+      dest_schema, seq_rec_.sequence_name, seq_rec_.settings, last_val_);
+    PERFORM setval(format('%I.%I', dest_schema, seq_rec_.sequence_name)::regclass, last_val_, is_called_);
   END LOOP;
 
   /* Only base tables are copied here (views are handled separately below) */
@@ -285,8 +293,8 @@ BEGIN
 
   /* Now that the tables exist, make the copies created above match the source where they still differ from it, with
    * the statements from template_alignment_statements(). These make the serial sequences owned by their columns, give
-   * a reused sequence the source's settings, and give the primary keys and identity sequences the names that LIKE did
-   * not keep. This runs before the expressions are rebound below, because an expression may refer to one of those
+   * a reused sequence the source's persistence, and give the primary keys and identity sequences the names that LIKE
+   * did not keep. This runs before the expressions are rebound below, because an expression may refer to one of those
    * objects by the source's name. If a source name is already in use in the destination,
    * template_alignment_statements() raises an error that lists it.
    *
