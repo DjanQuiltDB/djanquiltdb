@@ -2532,6 +2532,77 @@ class RenamedTableTestCase(ShardingTransactionTestCase):
             self.assertEqual(shard_cursor.fetchone()[0], 10)
 
 
+class SequenceCloningTestCase(ShardingTransactionTestCase):
+    @staticmethod
+    def _sequence_settings(schema_name, sequence_name):
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT seqtypid::regtype::text, seqstart, seqincrement, seqmin, seqmax, seqcache, seqcycle
+              FROM pg_catalog.pg_sequence
+              WHERE seqrelid = %s::regclass
+            """,
+            ['{}.{}'.format(schema_name, sequence_name)],
+        )
+        return cursor.fetchone()
+
+    def test_clone_schema_copies_the_settings_of_a_sequence(self):
+        """
+        Case: The template has a sequence with a non-default data type, start, increment, bounds, cache size and
+              cycling.
+        Expected: The clone's sequence has the same settings as the template's.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute(
+            'CREATE SEQUENCE template.ticket_number AS integer'
+            ' START WITH 50 INCREMENT BY 10 MINVALUE 5 MAXVALUE 1000 CACHE 3 CYCLE'
+        )
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(self._sequence_settings('test_schema', 'ticket_number'), ('integer', 50, 10, 5, 1000, 3, True))
+
+    def test_clone_schema_copies_the_settings_of_a_descending_sequence(self):
+        """
+        Case: The template has a descending sequence that was advanced once.
+        Expected: The clone's sequence has the same settings as the template's, and its next value follows the
+                  template's.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE SEQUENCE template.countdown INCREMENT BY -1 MINVALUE 1 MAXVALUE 10')
+        cursor.execute("SELECT nextval('template.countdown')")
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(
+            self._sequence_settings('test_schema', 'countdown'), self._sequence_settings('template', 'countdown')
+        )
+        cursor.execute("SELECT nextval('test_schema.countdown')")
+        self.assertEqual(cursor.fetchone()[0], 9)
+
+    def test_clone_schema_keeps_an_unlogged_sequence_unlogged(self):
+        """
+        Case: The template has an unlogged sequence and a logged one.
+        Expected: The clone's copy of each sequence keeps its persistence.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE UNLOGGED SEQUENCE template.scratch_number')
+        cursor.execute('CREATE SEQUENCE template.ticket_number')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        for sequence_name, persistence in (('scratch_number', 'u'), ('ticket_number', 'p')):
+            with self.subTest(sequence=sequence_name):
+                cursor.execute(
+                    'SELECT relpersistence FROM pg_catalog.pg_class WHERE oid = %s::regclass',
+                    ['test_schema.{}'.format(sequence_name)],
+                )
+                self.assertEqual(cursor.fetchone()[0], persistence)
+
+
 class TriggersTestCase(ShardingTransactionTestCase):
     def test_clone_schema_with_triggers(self):
         """

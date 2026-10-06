@@ -71,9 +71,10 @@ BEGIN
    */
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema) || ',public,pg_catalog';
 
-  /* Create every sequence of the source schema in the destination schema, at the source sequence's position. This
-   * runs before the tables are created, so that the copies get the source sequences' names: CREATE TABLE ...
-   * (LIKE ...) in the table loop below picks a name that is not in use yet for each identity sequence it creates.
+  /* Create every sequence of the source schema in the destination schema, with the source sequence's settings,
+   * persistence and position. This runs before the tables are created, so that the copies get the source sequences'
+   * names: CREATE TABLE ... (LIKE ...) in the table loop below picks a name that is not in use yet for each identity
+   * sequence it creates.
    *
    * A sequence that is owned by a serial column in the source becomes owned by the destination's copy of that column,
    * once the tables exist. pg_get_serial_sequence() follows that link, and it makes dropping the table drop the
@@ -84,8 +85,13 @@ BEGIN
    */
   owned_by_stmts_ := ARRAY[]::text[];
   FOR seq_rec_ IN
-    SELECT seq_cls.relname::text AS sequence_name, owner.table_name, owner.column_name
+    SELECT seq_cls.relname::text AS sequence_name, seq_owner.table_name, seq_owner.column_name,
+        CASE WHEN seq_cls.relpersistence = 'u' THEN 'UNLOGGED ' ELSE '' END AS persistence,
+        format('AS %s INCREMENT BY %s MINVALUE %s MAXVALUE %s START WITH %s CACHE %s %s',
+               pg_catalog.format_type(seq.seqtypid, NULL), seq.seqincrement, seq.seqmin, seq.seqmax, seq.seqstart,
+               seq.seqcache, CASE WHEN seq.seqcycle THEN 'CYCLE' ELSE 'NO CYCLE' END) AS settings
       FROM pg_catalog.pg_class seq_cls
+      JOIN pg_catalog.pg_sequence seq ON seq.seqrelid = seq_cls.oid
       JOIN pg_catalog.pg_namespace nsp ON nsp.oid = seq_cls.relnamespace
       LEFT JOIN (
         SELECT dep.objid, cls.relnamespace, cls.relname::text AS table_name, att.attname::text AS column_name
@@ -94,7 +100,7 @@ BEGIN
           JOIN pg_catalog.pg_attribute att ON att.attrelid = dep.refobjid AND att.attnum = dep.refobjsubid
           WHERE dep.classid = 'pg_catalog.pg_class'::regclass AND dep.refclassid = 'pg_catalog.pg_class'::regclass
             AND dep.deptype = 'a'
-      ) owner ON owner.objid = seq_cls.oid AND owner.relnamespace = seq_cls.relnamespace
+      ) seq_owner ON seq_owner.objid = seq_cls.oid AND seq_owner.relnamespace = seq_cls.relnamespace
       WHERE nsp.nspname = source_schema AND seq_cls.relkind = 'S'
         /* Guarded, since the planner may evaluate this before the relkind test and it raises for anything else. */
         AND CASE WHEN seq_cls.relkind = 'S' THEN pg_catalog.has_sequence_privilege(seq_cls.oid, 'SELECT') END
@@ -105,7 +111,8 @@ BEGIN
         )
       ORDER BY seq_cls.relname
   LOOP
-    EXECUTE format('CREATE SEQUENCE IF NOT EXISTS %I.%I', dest_schema, seq_rec_.sequence_name);
+    EXECUTE format('CREATE %sSEQUENCE IF NOT EXISTS %I.%I %s',
+      seq_rec_.persistence, dest_schema, seq_rec_.sequence_name, seq_rec_.settings);
     EXECUTE format('SELECT setval(%L::regclass, last_value, is_called) FROM %I.%I',
       format('%I.%I', dest_schema, seq_rec_.sequence_name), source_schema, seq_rec_.sequence_name);
     IF seq_rec_.table_name IS NOT NULL THEN
