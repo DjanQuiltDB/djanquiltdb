@@ -18,8 +18,9 @@ Steps
    locks for the length of their transactions, and blocks new ones.
 
 2. Inside one transaction spanning both nodes: create the schema on the target node by cloning its template, copy
-   every table's rows over, retarget relations that point at PUBLIC models (whose ids may differ per node), reset the
-   sequences, and repopulate the materialized views the source keeps populated.
+   every table's rows over, retarget relations that point at PUBLIC models (whose ids may differ per node), move every
+   sequence to its position on the source, reset the sequences of the models, and repopulate the materialized views the
+   source keeps populated.
 
 3. On success, point the shard's registry row at the target node and restore the shard and mapping objects to their
    previous state. On failure the transaction rolls back, the states are restored, and the command can simply be run
@@ -62,6 +63,16 @@ Retargeting relations to PUBLIC models requires those models to declare natural 
 ``get_by_natural_key`` manager method); a PUBLIC model that forbids copying (``@public_model(allow_copy=False)``)
 stops the move when the target node misses one of its rows.
 
-The sequence reset looks up each model's sequence through its auto-incrementing primary key column, so it also works for
-a table that was renamed after it was created. If a model's auto-incrementing column has no sequence, the move stops
-with an error that names the column. It stops before any sequence is reset.
+Every sequence of the target, including sequences that no model uses, is first moved forward to the position of the
+matching sequence on the source. The matching sequence is the one owned by the same column. If there is none, it is the
+sequence with the same name that no column owns. For a source sequence that no column owns, it can also be the sequence
+with the same name that a serial column owns: on a shard cloned before 4.1.0, serial columns own no sequence, so only
+the name links its sequences to those of a newer clone. A target sequence that the target's template has already
+advanced further keeps its own position, so that the migration table, whose rows come from the target's template, can
+still take new rows. The sequence reset then looks up each model's sequence through its auto-incrementing primary key
+column, so it also works for a table that was renamed after it was created. If a model's auto-incrementing column has
+no sequence, or the shard has no such table or column, the move stops with an error that names the column. It stops
+before any sequence is reset.
+
+Reading the source's positions requires ``SELECT`` on every sequence of the source shard. If the role can use a
+sequence but not read it, the move stops with a permission error, the same as cloning a schema does.

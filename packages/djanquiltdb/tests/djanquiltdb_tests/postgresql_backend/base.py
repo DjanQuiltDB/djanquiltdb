@@ -2251,6 +2251,122 @@ class ResetSequenceTestCase(ShardingTransactionTestCase):
             self.assertEqual(cursor.fetchone()[0], 500)
 
 
+class SequencePositionsTestCase(ShardingTransactionTestCase):
+    def setUp(self):
+        super().setUp()
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+    def test_read_sequence_positions_reads_a_position_whose_value_was_not_returned_yet(self):
+        """
+        Case: A sequence that no column owns was set to 50 without returning that value, and a sequence owned by a
+              serial column returned 7. read_sequence_positions is then called.
+        Expected: Both positions are returned unchanged, the first with is_called false and the second with is_called
+                  true.
+        """
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE SEQUENCE ticket_number')
+            cursor.execute("SELECT setval('ticket_number', 50, false)")
+            cursor.execute('CREATE TABLE gizmo (code serial)')
+            cursor.execute("SELECT setval('gizmo_code_seq', 7)")
+
+            positions = env.connection.read_sequence_positions()
+
+        self.assertIn(('ticket_number', None, None, 50, False), positions)
+        self.assertIn(('gizmo_code_seq', 'gizmo', 'code', 7, True), positions)
+
+    def test_move_sequences_to_positions_skips_a_position_without_a_matching_sequence(self):
+        """
+        Case: move_sequences_to_positions is given three positions: one of a sequence owned by a table that is not in
+              the schema, one of a sequence owned by a column that is not in the table, and one of a sequence that no
+              column owns and that is in the schema.
+        Expected: The two positions without a matching sequence are skipped without an error, and the sequence in the
+                  schema is moved.
+        """
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE SEQUENCE ticket_number')
+
+            env.connection.move_sequences_to_positions(
+                [
+                    ('missing_id_seq', 'missing_table', 'id', 40, True),
+                    ('example_cake_missing_seq', 'example_cake', 'missing_column', 40, True),
+                    ('ticket_number', None, None, 30, True),
+                ]
+            )
+
+            cursor.execute("SELECT nextval('ticket_number')")
+            self.assertEqual(cursor.fetchone()[0], 31)
+
+    def test_move_sequences_to_positions_moves_an_owned_sequence_to_the_position_of_an_unowned_one(self):
+        """
+        Case: move_sequences_to_positions is given the position of a sequence that no column owns, and the schema has a
+              sequence with that name that is owned by a serial column.
+        Expected: The owned sequence is moved to the position.
+        """
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE TABLE gizmo (code serial)')
+
+            env.connection.move_sequences_to_positions([('gizmo_code_seq', None, None, 40, True)])
+
+            cursor.execute("SELECT nextval('gizmo_code_seq')")
+            self.assertEqual(cursor.fetchone()[0], 41)
+
+    def test_move_sequences_to_positions_moves_an_unowned_sequence_to_the_position_of_an_owned_one(self):
+        """
+        Case: move_sequences_to_positions is given the position of a sequence owned by a serial column. The schema has a
+              sequence with that name that no column owns, and the schema's copy of the column takes its values from it.
+        Expected: The unowned sequence is moved to the position.
+        """
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE SEQUENCE gizmo_code_seq')
+            cursor.execute("CREATE TABLE gizmo (code integer DEFAULT nextval('gizmo_code_seq'))")
+
+            env.connection.move_sequences_to_positions([('gizmo_code_seq', 'gizmo', 'code', 40, True)])
+
+            cursor.execute("SELECT nextval('gizmo_code_seq')")
+            self.assertEqual(cursor.fetchone()[0], 41)
+
+    def test_move_sequences_to_positions_prefers_the_sequence_owned_by_the_same_column(self):
+        """
+        Case: move_sequences_to_positions is given the position of a sequence owned by a serial column. The schema has
+              a sequence with that name that no column owns, and a sequence with another name that is owned by the
+              schema's copy of the column.
+        Expected: The sequence owned by the column is moved, and the sequence with the same name is unchanged.
+        """
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE SEQUENCE gizmo_code_seq')
+            cursor.execute('CREATE TABLE gizmo (code serial)')
+
+            env.connection.move_sequences_to_positions([('gizmo_code_seq', 'gizmo', 'code', 40, True)])
+
+            cursor.execute("SELECT nextval('gizmo_code_seq1')")
+            self.assertEqual(cursor.fetchone()[0], 41)
+            cursor.execute("SELECT nextval('gizmo_code_seq')")
+            self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_move_sequences_to_positions_compares_positions_beyond_the_precision_of_a_double(self):
+        """
+        Case: A bigint sequence is one step before the position that move_sequences_to_positions is given, at the
+              point where a double precision number can no longer tell an integer apart from the next one.
+        Expected: The sequence is moved to the position, so the next value is the one after it.
+        """
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE SEQUENCE big_number AS bigint')
+            cursor.execute("SELECT setval('big_number', 9007199254740991)")
+
+            env.connection.move_sequences_to_positions([('big_number', None, None, 9007199254740992, True)])
+
+            cursor.execute("SELECT nextval('big_number')")
+            self.assertEqual(cursor.fetchone()[0], 9007199254740993)
+
+
 class RenamedTableTestCase(ShardingTransactionTestCase):
     @staticmethod
     def _primary_key_names(schema_name, table_name):

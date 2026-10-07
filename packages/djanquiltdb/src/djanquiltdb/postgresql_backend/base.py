@@ -991,6 +991,22 @@ LANGUAGE plpgsql STABLE;
 # created some other way. The align_shards_with_template command calls template_alignment_statements on its own.
 clone_function = clone_views_function + template_alignment_function + clone_schema_function
 
+# Every sequence in the current schema, with the table and column of the serial or identity column that owns it. Both
+# are null for a sequence that no column owns.
+SEQUENCES_WITH_OWNING_COLUMN_QUERY = """
+SELECT seq_cls.oid AS sequence_oid, seq_cls.relname::text AS sequence_name, owner_cls.relname::text AS table_name,
+    owner_att.attname::text AS column_name, coalesce(owner_dep.deptype = 'i', false) AS owned_by_identity
+  FROM pg_catalog.pg_class seq_cls
+  JOIN pg_catalog.pg_namespace nsp ON nsp.oid = seq_cls.relnamespace
+  LEFT JOIN pg_catalog.pg_depend owner_dep ON owner_dep.classid = 'pg_catalog.pg_class'::regclass
+    AND owner_dep.objid = seq_cls.oid AND owner_dep.refclassid = 'pg_catalog.pg_class'::regclass
+    AND owner_dep.deptype IN ('a', 'i') AND owner_dep.refobjsubid > 0
+  LEFT JOIN pg_catalog.pg_class owner_cls ON owner_cls.oid = owner_dep.refobjid
+  LEFT JOIN pg_catalog.pg_attribute owner_att ON owner_att.attrelid = owner_dep.refobjid
+    AND owner_att.attnum = owner_dep.refobjsubid
+  WHERE nsp.nspname = current_schema() AND seq_cls.relkind = 'S'
+"""
+
 PUBLIC_SCHEMA_NAME = 'public'
 
 
@@ -1425,6 +1441,97 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             statement_template.format(s='{:d}::regclass'.format(sequence_oid), f=qn(column), qnm=qn(table_name))  # nosec
             for (table_name, column), sequence_oid in zip(auto_columns, sequence_oids)
         ]
+        cursor.execute(';\n'.join(statements))
+
+    def read_sequence_positions(self, _cursor=None):
+        """
+        Return the position of every sequence in the current schema, as (sequence name, owning table, owning column,
+        last value, is_called) tuples. The owning table and column are those of the serial or identity column that owns
+        the sequence, or None for a sequence that no column owns.
+        """
+        cursor = _cursor or self.cursor()
+        cursor.execute(
+            'SELECT sequence_name, table_name, column_name FROM ({}) sequence ORDER BY sequence_name'.format(
+                SEQUENCES_WITH_OWNING_COLUMN_QUERY
+            )
+        )
+        sequences = cursor.fetchall()
+        if not sequences:
+            return []
+
+        # Read every position in one statement. Only the sequence's own relation has its position whether or not
+        # nextval() was ever called on it.
+        cursor.execute(
+            ' UNION ALL '.join(
+                'SELECT {:d}, last_value, is_called FROM {}'.format(index, self.ops.quote_name(sequence_name))  # nosec
+                for index, (sequence_name, _, _) in enumerate(sequences)
+            )
+        )
+        positions_by_index = {index: (last_value, is_called) for index, last_value, is_called in cursor.fetchall()}
+        return [
+            (sequence_name, table_name, column_name, *positions_by_index[index])
+            for index, (sequence_name, table_name, column_name) in enumerate(sequences)
+        ]
+
+    def move_sequences_to_positions(self, positions, _cursor=None):
+        """
+        Move each sequence in the current schema forward to the position that read_sequence_positions returned for the
+        matching sequence. The matching sequence is the one owned by the same table and column. If there is none, it is
+        the sequence with the same name that no column owns. For the position of a sequence that no column owns, it can
+        also be the sequence with the same name that a serial column owns: the name is the only link between a sequence
+        owned by a serial column and one that no column owns. A sequence that is already at or past the position, in
+        the direction it counts, keeps its own position. A position without a matching sequence is skipped.
+        """
+        if not positions:
+            return
+
+        cursor = _cursor or self.cursor()
+        sequence_names, table_names, column_names, _, _ = zip(*positions)
+        cursor.execute(
+            """
+            SELECT DISTINCT ON (position.index) position.index::int, sequence.sequence_oid, sequence.sequence_name,
+                seq.seqincrement
+              FROM unnest(%s::text[], %s::text[], %s::text[])
+                WITH ORDINALITY AS position(sequence_name, table_name, column_name, index)
+              JOIN ({}) sequence
+                ON sequence.table_name = position.table_name AND sequence.column_name = position.column_name
+                OR sequence.sequence_name = position.sequence_name AND (
+                  sequence.table_name IS NULL OR position.table_name IS NULL AND NOT sequence.owned_by_identity
+                )
+              JOIN pg_catalog.pg_sequence seq ON seq.seqrelid = sequence.sequence_oid
+              ORDER BY position.index,
+                coalesce(sequence.table_name = position.table_name AND sequence.column_name = position.column_name,
+                  false) DESC,
+                sequence.sequence_name
+            """.format(SEQUENCES_WITH_OWNING_COLUMN_QUERY),
+            [list(sequence_names), list(table_names), list(column_names)],
+        )
+        matching_sequences = cursor.fetchall()
+        if not matching_sequences:
+            return
+
+        # The position's next value is computed with the matching sequence's increment, since the sequence counts with
+        # that increment once it is at the position.
+        statement_template = (
+            'SELECT setval({sequence_oid:d}::regclass, {last_value:d}, {is_called}) FROM {qn} WHERE '
+            + sequence_position_ahead_condition(
+                sequence_next_value_expression('{last_value:d}', '{is_called}', '{increment:d}'),
+                sequence_next_value_expression('last_value', 'is_called', '{increment:d}'),
+                '{increment:d}',
+            )
+        )
+        statements = []
+        for index, sequence_oid, sequence_name, increment in matching_sequences:
+            _, _, _, last_value, is_called = positions[index - 1]
+            statements.append(
+                statement_template.format(  # nosec
+                    sequence_oid=sequence_oid,
+                    qn=self.ops.quote_name(sequence_name),
+                    last_value=last_value,
+                    is_called='true' if is_called else 'false',
+                    increment=increment,
+                )
+            )
         cursor.execute(';\n'.join(statements))
 
     def make_debug_cursor(self, cursor, skip_lock=False):
