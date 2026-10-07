@@ -556,6 +556,69 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         self.assertIsNotNone(organization_table)
         self.assertIsNone(ticket_number_sequence)
 
+    def test_clone_schema_fails_on_a_sequence_it_can_use_but_not_read(self):
+        """
+        Case: The template has a table with a serial column. The role cloning the schema has every privilege on the
+              table, but only USAGE on the sequence, which lets it call nextval() on the sequence but not read its
+              position.
+        Expected: The clone fails with an error that names the sequence the role cannot read.
+        """
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+        cursor = connection.cursor()
+        role = create_role_for_this_test_database(self, cursor, 'clone_with_sequence_usage')
+        cursor.execute('CREATE TABLE template.widget (code SERIAL PRIMARY KEY)')
+        cursor.execute('GRANT ALL ON SCHEMA template, test_schema TO {}'.format(role))
+        cursor.execute('GRANT ALL ON ALL TABLES IN SCHEMA public, template TO {}'.format(role))
+        cursor.execute('GRANT ALL ON ALL SEQUENCES IN SCHEMA template TO {}'.format(role))
+        cursor.execute('REVOKE SELECT, UPDATE ON SEQUENCE template.widget_code_seq FROM {}'.format(role))
+
+        connection.set_clone_function()
+
+        cursor.execute('SET ROLE {}'.format(role))
+        self.addCleanup(cursor.execute, 'RESET ROLE')
+        with self.assertRaisesMessage(DatabaseError, 'permission denied for sequence widget_code_seq'):
+            cursor.execute("SELECT public.clone_schema('template', 'test_schema')")
+
+    def test_clone_schema_skips_a_table_it_cannot_see(self):
+        """
+        Case: The template has a table with a serial column, a CHECK constraint, an index and a trigger. The role
+              cloning the schema has no privileges on the table or on its sequence.
+        Expected: The clone succeeds and has every other table, but not the table and sequence the role cannot see.
+        """
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+        cursor = connection.cursor()
+        role = create_role_for_this_test_database(self, cursor, 'clone_without_widget_access')
+        cursor.execute('GRANT ALL ON SCHEMA template, test_schema TO {}'.format(role))
+        cursor.execute('GRANT ALL ON ALL TABLES IN SCHEMA public, template TO {}'.format(role))
+        cursor.execute('GRANT ALL ON ALL SEQUENCES IN SCHEMA template TO {}'.format(role))
+        cursor.execute('CREATE TABLE template.widget (code SERIAL PRIMARY KEY, size INTEGER CHECK (size > 0))')
+        cursor.execute('CREATE INDEX widget_size ON template.widget (size)')
+        cursor.execute(
+            'CREATE FUNCTION template.keep_widget() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$'
+        )
+        cursor.execute(
+            'CREATE TRIGGER keep_widget BEFORE INSERT ON template.widget FOR EACH ROW EXECUTE FUNCTION'
+            ' template.keep_widget()'
+        )
+
+        connection.set_clone_function()
+
+        cursor.execute('SET ROLE {}'.format(role))
+        self.addCleanup(cursor.execute, 'RESET ROLE')
+        cursor.execute("SELECT public.clone_schema('template', 'test_schema')")
+        cursor.execute('RESET ROLE')
+
+        cursor.execute(
+            "SELECT to_regclass('test_schema.example_organization'), to_regclass('test_schema.widget'),"
+            " to_regclass('test_schema.widget_code_seq')"
+        )
+        organization_table, widget_table, widget_sequence = cursor.fetchone()
+        self.assertIsNotNone(organization_table)
+        self.assertIsNone(widget_table)
+        self.assertIsNone(widget_sequence)
+
     def test_clone_schema_wo_template(self):
         """
         Case: Call connection.migrate_schema with missing template schema.

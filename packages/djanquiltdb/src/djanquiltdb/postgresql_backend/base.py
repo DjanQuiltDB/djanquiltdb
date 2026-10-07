@@ -236,8 +236,9 @@ BEGIN
    * Identity sequences are skipped, since LIKE recreates them together with their identity columns. An identity
    * sequence has an internal ('i') dependency on its column, and a serial column's sequence an automatic ('a') one. If
    * the destination already has a sequence with the same name, that sequence is reused and gets the source's settings
-   * and position, and the alignment statements below give it the source's persistence. A sequence that the cloning
-   * role cannot read is skipped, like a table it cannot see.
+   * and position, and the alignment statements below give it the source's persistence. A sequence on which the
+   * cloning role has no privileges at all is skipped, like a table it cannot see. If the role can see a sequence but
+   * not read it, the clone fails when it reads the sequence's position.
    */
   FOR seq_rec_ IN
     SELECT seq_cls.relname::text AS sequence_name,
@@ -248,7 +249,8 @@ BEGIN
       JOIN pg_catalog.pg_namespace nsp ON nsp.oid = seq_cls.relnamespace
       WHERE nsp.nspname = source_schema AND seq_cls.relkind = 'S'
         /* Guarded, since the planner may evaluate this before the relkind test and it raises for anything else. */
-        AND CASE WHEN seq_cls.relkind = 'S' THEN pg_catalog.has_sequence_privilege(seq_cls.oid, 'SELECT') END
+        AND CASE WHEN seq_cls.relkind = 'S'
+          THEN pg_catalog.has_sequence_privilege(seq_cls.oid, 'SELECT, UPDATE, USAGE') END
         AND NOT {identity_sequence_condition('seq_cls.oid')}
       ORDER BY seq_cls.relname
   LOOP
@@ -346,6 +348,8 @@ BEGIN
    * This must run after the functions were cloned above, since the copies have to exist to be bound to, and before
    * the triggers and views are created below, so nothing fires or depends on the columns while they are altered.
    * Every rendering below is a single statement, so the search_path cannot change midway through evaluating it.
+   * Only the source tables that have a copy in the destination are read. A table that the cloning role cannot see is
+   * not copied above, so the destination has nothing of it to rebind.
    */
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema);
 
@@ -362,7 +366,8 @@ BEGIN
     JOIN pg_catalog.pg_attribute att ON att.attrelid = def.adrelid AND att.attnum = def.adnum
     JOIN pg_catalog.pg_class cls ON cls.oid = def.adrelid
     JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
-    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND att.attgenerated = '';
+    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND att.attgenerated = ''
+      AND pg_catalog.to_regclass(format('%I.%I', dest_schema, cls.relname)) IS NOT NULL;
 
   /* Generated columns. SET EXPRESSION swaps in the re-rendered expression and rewrites the table to recompute the
    * stored values, which is harmless: the rows were copied above through the source schema's copy of the function,
@@ -381,7 +386,8 @@ BEGIN
     JOIN pg_catalog.pg_attribute att ON att.attrelid = def.adrelid AND att.attnum = def.adnum
     JOIN pg_catalog.pg_class cls ON cls.oid = def.adrelid
     JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
-    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND att.attgenerated = 's';
+    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND att.attgenerated = 's'
+      AND pg_catalog.to_regclass(format('%I.%I', dest_schema, cls.relname)) IS NOT NULL;
 
   /* CHECK constraints have no ALTER ... SET form, so drop the copies LIKE made and add them back from the source's
    * definition. The copies are dropped by the name they actually carry on the destination and added back under the
@@ -405,7 +411,8 @@ BEGIN
     FROM pg_catalog.pg_constraint con
     JOIN pg_catalog.pg_class cls ON cls.oid = con.conrelid
     JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
-    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND con.contype = 'c';
+    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND con.contype = 'c'
+      AND pg_catalog.to_regclass(format('%I.%I', dest_schema, cls.relname)) IS NOT NULL;
   rebind_stmts_ := rebind_stmts_ || rebind_drops_ || rebind_adds_;
 
   /* Unique and exclusion constraints, for their names. LIKE brings the constraints themselves across but names them
@@ -433,7 +440,8 @@ BEGIN
     FROM pg_catalog.pg_constraint con
     JOIN pg_catalog.pg_class cls ON cls.oid = con.conrelid
     JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
-    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND con.contype IN ('u', 'x');
+    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND con.contype IN ('u', 'x')
+      AND pg_catalog.to_regclass(format('%I.%I', dest_schema, cls.relname)) IS NOT NULL;
   rebind_stmts_ := rebind_stmts_ || rebind_drops_ || rebind_adds_;
 
   /* Foreign keys. LIKE copies none at all, so add each of the source's from its own definition, rendered under the
@@ -449,7 +457,8 @@ BEGIN
     FROM pg_catalog.pg_constraint con
     JOIN pg_catalog.pg_class cls ON cls.oid = con.conrelid
     JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
-    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND con.contype = 'f';
+    WHERE nsp.nspname = source_schema AND cls.relkind = 'r' AND con.contype = 'f'
+      AND pg_catalog.to_regclass(format('%I.%I', dest_schema, cls.relname)) IS NOT NULL;
   rebind_stmts_ := rebind_stmts_ || rebind_adds_;
 
   /* Indexes that do not back a constraint. An index owned by a primary key, unique or exclusion constraint cannot
@@ -480,6 +489,7 @@ BEGIN
     JOIN pg_catalog.pg_class cls ON cls.oid = idx.indrelid
     JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
     WHERE nsp.nspname = source_schema AND cls.relkind = 'r'
+      AND pg_catalog.to_regclass(format('%I.%I', dest_schema, cls.relname)) IS NOT NULL
       AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_constraint con WHERE con.conindid = idx.indexrelid);
   rebind_stmts_ := rebind_stmts_ || rebind_drops_ || rebind_adds_;
 
@@ -525,7 +535,8 @@ BEGIN
    * rebinding above: the trigger's table and a same-schema function print unqualified and bind to this schema's
    * copies when the statement runs with the destination schema first on the path, while functions from other
    * schemas (public, most notably) stay qualified. The definition text itself is never rewritten, so WHEN clauses
-   * and argument string literals survive untouched.
+   * and argument string literals survive untouched. A relation without a copy in the destination, such as a table that
+   * the cloning role cannot see, gets no triggers.
    */
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema);
 
@@ -535,6 +546,7 @@ BEGIN
     JOIN pg_catalog.pg_class cls ON tg.tgrelid = cls.oid
     JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
     WHERE nsp.nspname = source_schema
+      AND pg_catalog.to_regclass(format('%I.%I', dest_schema, cls.relname)) IS NOT NULL
       AND NOT tg.tgisinternal;  /* Exclude internal triggers (e.g., for foreign keys) */
 
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(dest_schema) || ',public,pg_catalog';
