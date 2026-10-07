@@ -201,6 +201,7 @@ $BODY$
 DECLARE
   dest_table TEXT;
   seq_rec_ RECORD;
+  dest_seq_oid_ OID;
   last_val_ BIGINT;
   is_called_ BOOLEAN;
   alignment_stmt_ TEXT;
@@ -236,9 +237,11 @@ BEGIN
    * Identity sequences are skipped, since LIKE recreates them together with their identity columns. An identity
    * sequence has an internal ('i') dependency on its column, and a serial column's sequence an automatic ('a') one. If
    * the destination already has a sequence with the same name, that sequence is reused and gets the source's settings
-   * and position, and the alignment statements below give it the source's persistence. A sequence on which the
-   * cloning role has no privileges at all is skipped, like a table it cannot see. If the role can see a sequence but
-   * not read it, the clone fails when it reads the sequence's position.
+   * and position, and the alignment statements below give it the source's persistence. If that existing sequence is an
+   * identity sequence, it belongs to a table in the destination, so it keeps its settings and position, and the
+   * alignment statements do not change it either. A sequence on which the cloning role has no privileges at all is
+   * skipped, like a table it cannot see. If the role can see a sequence but not read it, the clone fails when it reads
+   * the sequence's position.
    */
   FOR seq_rec_ IN
     SELECT seq_cls.relname::text AS sequence_name,
@@ -254,6 +257,8 @@ BEGIN
         AND NOT {identity_sequence_condition('seq_cls.oid')}
       ORDER BY seq_cls.relname
   LOOP
+    dest_seq_oid_ := pg_catalog.to_regclass(format('%I.%I', dest_schema, seq_rec_.sequence_name));
+    CONTINUE WHEN {identity_sequence_condition('dest_seq_oid_')};
     EXECUTE format('CREATE %sSEQUENCE IF NOT EXISTS %I.%I', seq_rec_.persistence, dest_schema, seq_rec_.sequence_name);
     /* Change the settings and the position in one statement, for a new sequence and a reused one alike. PostgreSQL
      * then checks the position against the source's bounds, not against the sequence's current bounds. RESTART sets
