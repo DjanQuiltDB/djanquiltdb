@@ -721,3 +721,18 @@ class AlignShardsWithTemplateTestCase(ShardingTransactionTestCase):
             " WHERE seqrelid = 'el_chapo.gizmo_id_seq'::regclass"
         )
         self.assertEqual(cursor.fetchone(), ('bigint', 9223372036854775807))
+
+    def test_leaves_a_serial_columns_sequence_with_the_name_of_a_standalone_sequence_unchanged(self):
+        """
+        Case: The template has a standalone sequence gizmo_id_seq with a bound of 1000, and on el_chapo, gizmo_id_seq is
+              the sequence owned by a serial column of a table.
+        Expected: The serial column's sequence keeps its settings.
+        """
+        cursor = connection.cursor()
+        cursor.execute('CREATE SEQUENCE template.gizmo_id_seq AS integer MAXVALUE 1000')
+        cursor.execute('CREATE TABLE el_chapo.gizmo (id SERIAL PRIMARY KEY)')
+
+        self.call_command()
+
+        cursor.execute("SELECT seqmax FROM pg_catalog.pg_sequence WHERE seqrelid = 'el_chapo.gizmo_id_seq'::regclass")
+        self.assertEqual(cursor.fetchone()[0], 2147483647)

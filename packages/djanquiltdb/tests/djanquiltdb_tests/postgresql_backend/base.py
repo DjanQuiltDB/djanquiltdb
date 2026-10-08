@@ -2866,6 +2866,27 @@ class SequenceCloningTestCase(ShardingTransactionTestCase):
         cursor.execute('INSERT INTO test_schema.gizmo DEFAULT VALUES RETURNING id')
         self.assertEqual(cursor.fetchone()[0], 1)
 
+    def test_clone_schema_keeps_an_existing_serial_columns_sequence_with_a_template_sequence_name_unchanged(self):
+        """
+        Case: The template has a standalone sequence gizmo_id_seq with a bound of 1000, advanced to 5, and no table
+              gizmo. The schema cloned into already has a table gizmo whose serial column owns gizmo_id_seq.
+        Expected: After the clone, gizmo's serial sequence keeps its settings and position, so gizmo's next row gets
+                  id 1.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE SEQUENCE template.gizmo_id_seq AS integer MAXVALUE 1000')
+        cursor.execute("SELECT setval('template.gizmo_id_seq', 5)")
+        connection.create_schema('test_schema')
+        cursor.execute('CREATE TABLE test_schema.gizmo (id SERIAL PRIMARY KEY)')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(
+            self._sequence_settings('test_schema', 'gizmo_id_seq'), ('integer', 1, 1, 1, 2147483647, 1, False)
+        )
+        cursor.execute('INSERT INTO test_schema.gizmo DEFAULT VALUES RETURNING id')
+        self.assertEqual(cursor.fetchone()[0], 1)
+
     def test_clone_schema_keeps_an_unlogged_sequence_unlogged(self):
         """
         Case: The template has an unlogged sequence and a logged one.

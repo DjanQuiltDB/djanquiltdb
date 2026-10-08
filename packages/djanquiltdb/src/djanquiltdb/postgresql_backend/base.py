@@ -114,8 +114,8 @@ def sequence_position_ahead_condition(next_value, current_next_value, increment)
 #   in the destination schema counts, and never one that uses an identity sequence, because a pair consists of two of
 #   a shard's own sequences with the same role. (reset_sequence does follow a default into any schema, because it looks
 #   for the sequence that inserts use, wherever that is);
-# - any other sequence ('standalone') is paired with the destination sequence with the same name, unless that is an
-#   identity sequence.
+# - any other sequence ('standalone') is paired with the destination sequence with the same name, unless that sequence
+#   is owned by a column.
 # A destination sequence in another schema is never paired, and an identity sequence is only paired as 'identity'. Each
 # destination sequence is paired at most once. An identity pairing comes first, then a standalone one (for example
 # when a serial column's default uses the sequence in the destination, while the source has it as a standalone
@@ -187,7 +187,7 @@ SELECT src_seq.oid, src_seq.relname, dest_seq.oid, dest_seq.relname, 'standalone
         WHERE owner_dep.classid = 'pg_catalog.pg_class'::regclass AND owner_dep.objid = src_seq.oid
           AND owner_dep.refclassid = 'pg_catalog.pg_class'::regclass AND owner_dep.deptype IN ('a', 'i')
     )
-    AND NOT {identity_sequence_condition('dest_seq.oid')}
+    AND NOT {column_owned_sequence_condition('dest_seq.oid')}
   ) pair
   ORDER BY pair.dest_seq_oid, array_position(ARRAY['identity', 'standalone', 'serial'], pair.sequence_role),
     pair.src_seq_name
@@ -237,11 +237,11 @@ BEGIN
    * Identity sequences are skipped, since LIKE recreates them together with their identity columns. An identity
    * sequence has an internal ('i') dependency on its column, and a serial column's sequence an automatic ('a') one. If
    * the destination already has a sequence with the same name, that sequence is reused and gets the source's settings
-   * and position, and the alignment statements below give it the source's persistence. If that existing sequence is an
-   * identity sequence, it belongs to a table in the destination, so it keeps its settings and position, and the
-   * alignment statements do not change it either. A sequence on which the cloning role has no privileges at all is
-   * skipped, like a table it cannot see. If the role can see a sequence but not read it, the clone fails when it reads
-   * the sequence's position.
+   * and position, and the alignment statements below give it the source's persistence. If that existing sequence is
+   * owned by a column, as a serial or identity sequence, it belongs to a table in the destination, so it keeps its
+   * settings and position, and the alignment statements do not change it either. A sequence on which the cloning role
+   * has no privileges at all is skipped, like a table it cannot see. If the role can see a sequence but not read it,
+   * the clone fails when it reads the sequence's position.
    */
   FOR seq_rec_ IN
     SELECT seq_cls.relname::text AS sequence_name,
@@ -258,7 +258,7 @@ BEGIN
       ORDER BY seq_cls.relname
   LOOP
     dest_seq_oid_ := pg_catalog.to_regclass(format('%I.%I', dest_schema, seq_rec_.sequence_name));
-    CONTINUE WHEN {identity_sequence_condition('dest_seq_oid_')};
+    CONTINUE WHEN {column_owned_sequence_condition('dest_seq_oid_')};
     EXECUTE format('CREATE %sSEQUENCE IF NOT EXISTS %I.%I', seq_rec_.persistence, dest_schema, seq_rec_.sequence_name);
     /* Change the settings and the position in one statement, for a new sequence and a reused one alike. PostgreSQL
      * then checks the position against the source's bounds, not against the sequence's current bounds. RESTART sets
