@@ -25,7 +25,7 @@ from django.utils.module_loading import import_string
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import atomic_write_to_every_node, override_sharding_setting
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.postgresql_backend.base import DatabaseWrapper
+from djanquiltdb.postgresql_backend.base import DatabaseWrapper, ShardDatabaseWrapper
 from djanquiltdb.postgresql_backend.utils import LockCursorWrapperMixin
 from djanquiltdb.router import get_active_connection, set_active_connection
 from djanquiltdb.utils import (
@@ -467,6 +467,21 @@ class UseShardTestCase(ShardingTestCase):
         use_shard(self.shard).enable()
         mock_acquire_lock.assert_called_once_with()
 
+    def test_enter_a_schema_without_a_shard_id(self):
+        """
+        Case: Enter and leave use_shard for a node and a schema, without a shard id or a mapping value, and without
+              reading the connection of the use_shard.
+        Expected: No shard connection is built and no statements run, because the use_shard has no advisory locks to
+                  take.
+        """
+        with CaptureQueriesContext(connections['default']) as captured:
+            with mock.patch('djanquiltdb.apps.ShardDatabaseWrapper', wraps=ShardDatabaseWrapper) as mock_wrapper:
+                with use_shard(node_name='default', schema_name=self.shard.schema_name):
+                    pass
+
+        self.assertEqual(mock_wrapper.call_count, 0)
+        self.assertEqual(captured.captured_queries, [])
+
     def test_enter_a_shard_inside_a_shard_without_the_public_schema(self):
         """
         Case: Enter use_shard for a shard while a use_shard for another shard on the same node is entered with
@@ -600,13 +615,14 @@ class UseShardTestCase(ShardingTestCase):
     @mock.patch('djanquiltdb.utils.use_shard.release_lock')
     def test_disable_release_advisory_lock(self, mock_release_lock):
         """
-        Case: Use use_shard.disable().
+        Case: Use use_shard.disable() on a use_shard that is entered and holds the locks of its shard itself.
         Expected: release_lock to be called.
         """
         env = use_shard(self.shard)
         env._old_connection = 'default'
         env.connection = connection
         env._enabled = True
+        env._holds_its_own_locks = True
 
         env.disable()
         mock_release_lock.assert_called_once_with()
@@ -952,6 +968,20 @@ class UseShardInsideEnteredUseShardTestCase(ShardingTransactionTestCase):
                     pass
 
         self.assertEqual(captured.captured_queries, [])
+
+    def test_inner_use_shard_builds_no_connection(self):
+        """
+        Case: Enter and leave use_shard for a shard while a use_shard for that shard is entered, without reading the
+              connection of the inner use_shard.
+        Expected: No shard connection is built, because the inner use_shard takes no locks and no code reads its
+                  connection.
+        """
+        with use_shard(self.shard):
+            with mock.patch('djanquiltdb.apps.ShardDatabaseWrapper', wraps=ShardDatabaseWrapper) as mock_wrapper:
+                with use_shard(self.shard):
+                    pass
+
+        self.assertEqual(mock_wrapper.call_count, 0)
 
     def test_outer_use_shard_keeps_its_locks_after_inner_use_shard(self):
         """

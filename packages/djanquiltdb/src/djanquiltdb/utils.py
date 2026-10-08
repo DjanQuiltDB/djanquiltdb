@@ -158,9 +158,27 @@ class use_shard(object):
         # The lock keys that this context adds to the lock counts of the node connection, and removes from those counts
         # when it is left.
         self._counted_session_lock_keys = []
-        # Whether other entered use_shard contexts hold all the locks of the shard, so that this context takes no locks
-        # of its own.
-        self._uses_held_locks = False
+        # Whether this context took the locks of the shard itself, so that it releases them when it is left. A context
+        # whose locks are held by other entered use_shard contexts takes no locks of its own, and neither does a
+        # context that has no lock keys.
+        self._holds_its_own_locks = False
+        self._node_connection = None
+        self._connection = None
+
+    @property
+    def connection(self):
+        """
+        The connection to the target, which this property builds the first time that code reads it. A use_shard that
+        enters a shard whose locks are held by other entered use_shard contexts does not need this connection, so
+        enable() does not build it.
+        """
+        if self._connection is None:
+            self._connection = connections[self.options]
+        return self._connection
+
+    @connection.setter
+    def connection(self, value):
+        self._connection = value
 
     def __enter__(self):
         return self.enable()
@@ -250,8 +268,10 @@ class use_shard(object):
     def enable(self):
         from djanquiltdb.router import get_active_connection, set_active_connection  # Prevent cyclic imports
 
-        # First: Set the connection
-        self.connection = connections[self.options]
+        # First: Look up the connection of the node, so that an unknown node raises an error here. The connection
+        # property builds the connection to the target the first time that code reads it.
+        self._node_connection = connections[self.options.node_name]
+        self._connection = None
 
         # Second: Save the old connection
         self._old_connection = get_active_connection()
@@ -260,23 +280,25 @@ class use_shard(object):
         # again once this context holds the locks. Locks that are held for the session are added to the lock counts of
         # the node connection. When other entered use_shard contexts hold all of these locks for the session, this
         # context takes no locks and does not check the shard: those contexts hold the locks until after this context is
-        # left, so the move commands cannot change the shard in the meantime.
-        if self.options.lock:
-            if self.connection.entered_use_shards_hold_session_locks(self.options.lock_keys):
-                self._uses_held_locks = True
-            else:
-                self.acquire_lock()
+        # left, so the move commands cannot change the shard in the meantime. A context for a node and a schema without
+        # a shard id or a mapping value has no locks to take, so it takes none and builds no connection.
+        lock_keys = self.options.lock_keys if self.options.lock else []
 
-                if self.options.shard_id is not None:
-                    try:
-                        self.check_shard_after_locking()
-                    except BaseException:
-                        self.release_lock()
-                        raise
+        if lock_keys and not self._node_connection.entered_use_shards_hold_session_locks(lock_keys):
+            self.acquire_lock()
 
-                if not self._locks_are_xact:
-                    self._counted_session_lock_keys = self.options.lock_keys
-                    self.connection.session_locks_of_entered_use_shards.update(self._counted_session_lock_keys)
+            if self.options.shard_id is not None:
+                try:
+                    self.check_shard_after_locking()
+                except BaseException:
+                    self.release_lock()
+                    raise
+
+            self._holds_its_own_locks = True
+
+            if not self._locks_are_xact:
+                self._counted_session_lock_keys = lock_keys
+                self._node_connection.session_locks_of_entered_use_shards.update(self._counted_session_lock_keys)
 
         # Fourth: Set the new active schema
         set_active_connection(self.options)
@@ -291,17 +313,18 @@ class use_shard(object):
 
         from djanquiltdb.router import set_active_connection  # Prevent cyclic imports
 
-        if self.options.lock and not self._uses_held_locks:
-            # Closing the connection resets the counts, so a count can be gone before its context is left. The unary
-            # plus drops the counts that end up below one.
-            held_lock_keys = self.connection.session_locks_of_entered_use_shards
-            held_lock_keys.subtract(self._counted_session_lock_keys)
-            self.connection.session_locks_of_entered_use_shards = +held_lock_keys
-            self._counted_session_lock_keys = []
+        if self._holds_its_own_locks:
+            if self._counted_session_lock_keys:
+                # Closing the connection resets the counts, so the count of a key can be zero before the context that
+                # added the key is left. The unary plus removes the counts that drop below one.
+                held_lock_keys = self._node_connection.session_locks_of_entered_use_shards
+                held_lock_keys.subtract(self._counted_session_lock_keys)
+                self._node_connection.session_locks_of_entered_use_shards = +held_lock_keys
+                self._counted_session_lock_keys = []
 
             self.release_lock()
 
-        self._uses_held_locks = False
+        self._holds_its_own_locks = False
 
         # Set the active connection to the old connection
         set_active_connection(self._old_connection)
