@@ -1,6 +1,7 @@
 import functools
 
-from djanquiltdb.utils import get_shard_for, use_shard
+from djanquiltdb.models import BaseShard
+from djanquiltdb.utils import get_shard_class, get_shard_for, public_schema_alias_for_reading, use_shard
 
 """
 Proxy objects that ensure that even if the current request is on a different shard than where the user is stored,
@@ -19,9 +20,9 @@ class _BaseCrossShardUserProxy:
     _OWN_ATTRS = frozenset({'_user', '_selector', '_home_shard', '_attr_cache'})
 
     def __init__(self, user, selector):
-        # Set real instance attributes before any __getattr__ can fire, to avoid recursion.
+        # Set the instance attributes before the first call to __getattr__, so that __getattr__ does not recurse.
         self._user = user
-        self._selector = selector  # a Shard object (id mode) or a mapping value (mapping mode)
+        self._selector = selector  # a Shard or a shard id (id mode), or a mapping value (mapping mode)
         self._home_shard = None
         self._attr_cache = {}
 
@@ -54,10 +55,21 @@ class _BaseCrossShardUserProxy:
 
 
 class CrossShardUserProxy(_BaseCrossShardUserProxy):
-    """Shard-id mode: the selector is an already-resolved Shard object."""
+    """
+    Shard-id mode: the selector is the id of the home shard, as the session stores it. The proxy looks up the Shard once
+    and reuses it. A selector that is a Shard object is used unchanged.
+    """
 
     def _enter_home_shard(self):
-        return use_shard(self._selector)
+        if self._home_shard is None:
+            if isinstance(self._selector, BaseShard):
+                self._home_shard = self._selector
+            else:
+                shard_class = get_shard_class()
+                self._home_shard = shard_class.objects.using(public_schema_alias_for_reading(shard_class)).get(
+                    id=self._selector
+                )
+        return use_shard(self._home_shard)
 
 
 class CrossShardMappingUserProxy(_BaseCrossShardUserProxy):

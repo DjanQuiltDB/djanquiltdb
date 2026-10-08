@@ -7,6 +7,7 @@ from djanquiltdb.contrib.quilt_admin.utils import (
     CrossShardUserProxy,
     route_admin_log_to_home_shard,
 )
+from example.models import Shard
 
 
 class _ShardActivationRecorder:
@@ -54,10 +55,10 @@ class _RecordingUser:
 
 
 class CrossShardUserProxyTests(SimpleTestCase):
-    """Shard-id mode: the proxy is constructed with an already-resolved Shard object."""
+    """Shard-id mode: the proxy is constructed with a Shard object, or with a shard id to be resolved once."""
 
     def setUp(self):
-        self.shard = object()  # sentinel Shard object
+        self.shard = Shard(id=3, alias='home', schema_name='home_schema', node_name='default')
         self.user = mock.Mock(is_staff=True, is_superuser=False, pk=7)
         self.recorder = _ShardActivationRecorder()
         patcher = mock.patch('djanquiltdb.contrib.quilt_admin.utils.use_shard', self.recorder)
@@ -101,6 +102,32 @@ class CrossShardUserProxyTests(SimpleTestCase):
 
         proxy.is_staff
 
+        (args, _kwargs) = self.recorder.calls[0]
+        self.assertIs(args[0], self.shard)
+
+    def test_shard_id_is_looked_up_once_across_many_accesses(self):
+        """
+        Case: Read is_staff and pk 50 times each through a proxy that is constructed with the shard id '3'.
+        Expected: The shard is looked up once, in the public schema of the node that the router picks, and use_shard is
+                  called with the Shard object that the lookup returns.
+        """
+        with (
+            mock.patch('djanquiltdb.contrib.quilt_admin.utils.get_shard_class') as get_shard_class,
+            mock.patch(
+                'djanquiltdb.contrib.quilt_admin.utils.public_schema_alias_for_reading', return_value='default'
+            ) as public_schema_alias_for_reading,
+        ):
+            shards = get_shard_class.return_value.objects.using.return_value
+            shards.get.return_value = self.shard
+            proxy = CrossShardUserProxy(self.user, '3')
+
+            for _ in range(50):
+                proxy.is_staff
+                proxy.pk
+
+        public_schema_alias_for_reading.assert_called_once_with(get_shard_class.return_value)
+        get_shard_class.return_value.objects.using.assert_called_once_with('default')
+        shards.get.assert_called_once_with(id='3')
         (args, _kwargs) = self.recorder.calls[0]
         self.assertIs(args[0], self.shard)
 
@@ -219,7 +246,7 @@ class RouteAdminLogToHomeShardTests(SimpleTestCase):
         patcher = mock.patch('djanquiltdb.contrib.quilt_admin.utils.use_shard', self.recorder)
         patcher.start()
         self.addCleanup(patcher.stop)
-        self.shard = object()  # sentinel home Shard object
+        self.shard = Shard(id=3, alias='home', schema_name='home_schema', node_name='default')
 
         recorder = self.recorder
         self.observed_active = []

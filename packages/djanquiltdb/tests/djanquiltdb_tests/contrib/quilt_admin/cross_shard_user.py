@@ -4,7 +4,7 @@ from django.db import connections
 from django.test.utils import CaptureQueriesContext
 
 from djanquiltdb import State
-from djanquiltdb.contrib.quilt_admin.utils import CrossShardMappingUserProxy
+from djanquiltdb.contrib.quilt_admin.utils import CrossShardMappingUserProxy, CrossShardUserProxy
 from djanquiltdb.utils import StateException, create_template_schema, use_shard, use_shard_for
 from djanquiltdb_tests import ShardingTransactionTestCase
 from example.models import OrganizationShard, Shard, User
@@ -68,6 +68,32 @@ class CrossShardUserMethodsTestCase(ShardingTransactionTestCase):
                 '\n'.join(query['sql'] for query in second_round.captured_queries),
             ),
         )
+
+    def test_method_call_with_the_shard_id_from_the_session(self):
+        """
+        Case: Enter the home shard and then the shown shard, and call a method of a user whose proxy is constructed with
+              the id of the home shard as the session stores it, which is a string.
+        Expected: The method runs in the home shard and returns the user's value.
+        """
+        with use_shard(self.home_shard):
+            user = CrossShardUserProxy(User.objects.get(email='admin@home.test'), str(self.home_shard.id))
+
+            with use_shard(self.shown_shard):
+                self.assertEqual(user.get_username(), 'admin@home.test')
+
+    def test_method_call_with_the_shard_id_inside_a_shard_without_the_public_schema(self):
+        """
+        Case: Enter the home shard, and then the shown shard with include_public set to False, and call a method of a
+              user whose proxy is constructed with the id of the home shard as the session stores it.
+        Expected: The method runs in the home shard and returns the user's value, because the proxy reads the Shard
+                  table in the public schema of the active node, which the search_path of the shown shard does not
+                  have.
+        """
+        with use_shard(self.home_shard):
+            user = CrossShardUserProxy(User.objects.get(email='admin@home.test'), str(self.home_shard.id))
+
+            with use_shard(self.shown_shard, include_public=False):
+                self.assertEqual(user.get_username(), 'admin@home.test')
 
     def test_method_call_after_the_mapping_value_of_the_user_moves_to_another_shard(self):
         """
