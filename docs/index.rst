@@ -6,43 +6,70 @@ Easy horizontal database sharding that allows for scaling and faster queries.
 Release |version|.
 
 
-The User Guide
---------------
+.. toctree::
+    :maxdepth: 2
+    :caption: Getting started
+
+    getting_started/overview
+    getting_started/installation
 
 .. toctree::
     :maxdepth: 2
+    :caption: Guides
 
-    modules/overview
-    modules/installation
-    modules/sharding_modes
-    modules/queries
-    modules/views
-    modules/forms
-    modules/decorators
-    modules/utils
-    modules/connection
-    modules/migrations
-    modules/database_views
-    modules/database_functions
-    modules/triggers
-    modules/generated_columns
-    modules/fixtures
-    modules/celery
-    modules/commands
-    modules/contrib
-    modules/api
+    guides/sharding_modes
+    guides/queries
+    guides/requests
+    guides/forms
+    guides/migrations
+    guides/fixtures
 
+.. toctree::
+    :maxdepth: 2
+    :caption: Database objects
 
-Plugins
--------
+    database_objects/views
+    database_objects/functions
+    database_objects/triggers
+    database_objects/generated_columns
+
+.. toctree::
+    :maxdepth: 2
+    :caption: Shard operations
+
+    operations/align_shards_with_template
+    operations/move_data_to_shard
+    operations/move_shard_to_node
+    operations/purge_shard_data
+
+Contrib packages are optional Django apps that ship inside ``djanquiltdb``, under ``djanquiltdb.contrib``. Each one is
+enabled by adding it to ``INSTALLED_APPS``.
+
+.. toctree::
+    :maxdepth: 2
+    :caption: Contrib packages
+
+    contrib/authentication
+    contrib/admin_shard_switcher
 
 Optional features ship as plugins: separately installed distributions DjanQuiltDB discovers through the
 ``djanquiltdb.plugins`` entry-point group. Each is installed through an extra of ``djanquiltdb`` itself.
 
 .. toctree::
     :maxdepth: 2
+    :caption: Integrations
 
+    integrations/celery
     plugins/postgres-objects/index
+
+.. toctree::
+    :maxdepth: 2
+    :caption: Reference
+
+    reference/settings
+    reference/checks
+    reference/api
+    reference/changelog
 
 
 Indices and tables

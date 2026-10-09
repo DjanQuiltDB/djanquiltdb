@@ -32,7 +32,7 @@ Creating a function
 
 The sharding mode goes in the ``hints`` dictionary, which ``RunSQL`` passes straight to the router's
 ``allow_migrate``; without it the router cannot tell where the operation belongs and raises a ``ProgrammingError``.
-See :doc:`migrations`.
+See :doc:`/guides/migrations`.
 
 Anything that references the function has to be able to find it, so the migration creating it must run before the one
 adding whatever calls it.
@@ -79,9 +79,9 @@ Three parts of the library lean on the placement rule above, and all three follo
 is copied into every shard and each shard uses its own copy, while a ``PUBLIC`` function has a single copy that every
 shard shares:
 
-* the function a stored generated column's expression calls, see :doc:`generated_columns`
-* the function a trigger executes, see :doc:`triggers`
-* the functions a view's body calls, see :doc:`database_views`
+* the function a stored generated column's expression calls, see :doc:`/database_objects/generated_columns`
+* the function a trigger executes, see :doc:`/database_objects/triggers`
+* the functions a view's body calls, see :doc:`/database_objects/views`
 
 
 Calling a function from Django

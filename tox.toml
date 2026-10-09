@@ -136,7 +136,7 @@ deps = [
     "Django>=6.0,<6.1",
     "psycopg[binary]>=3.0.0",
     # Only this environment installs it: pgtrigger is not a dependency of the package, it is what the suites under
-    # test react to. The pin matches the version docs/modules/triggers.rst records as tested.
+    # test react to. The pin matches the version docs/database_objects/triggers.rst records as tested.
     "django-pgtrigger>=4.17,<5.0",
     "-e {tox_root}/packages/djanquiltdb[test]",
 ]

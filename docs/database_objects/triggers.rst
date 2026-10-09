@@ -2,8 +2,8 @@
 Triggers
 ========
 
-A trigger is a database object rather than model state, so it is created through a hinted ``RunSQL`` in a migration,
-the same way a view is (see :doc:`database_views`). What needs explaining on its own is how a trigger reaches a new
+A trigger is a database object rather than model state, so it is created through a hinted ``RunSQL`` in a migration, the
+same way a view is (see :doc:`/database_objects/views`). What needs explaining on its own is how a trigger reaches a new
 shard.
 
 A shard is not migrated from empty, it is cloned from the template schema, and a trigger only keeps working in that
@@ -28,9 +28,9 @@ themselves.
 
 This is the same visibility principle the rest of the clone uses for expressions and views, and like there, the
 definition text is never rewritten: a ``WHEN`` clause or trigger argument holding a string literal survives
-byte-identical, whatever it contains. The function placement that falls out is the rule :doc:`database_functions`
-describes, and it holds for a trigger function as it does for any other: sharded ones are per shard, public ones
-shared.
+byte-identical, whatever it contains. The function placement that falls out is the rule
+:doc:`/database_objects/functions` describes, and it holds for a trigger function as it does for any other: sharded ones
+are per shard, public ones shared.
 
 Triggers need this pass of their own because ``CREATE TABLE ... (LIKE ... INCLUDING ALL)``, which is what carries the
 columns, defaults, indexes and constraints into the clone, does not copy them. For what cloning deliberately does not
@@ -57,9 +57,9 @@ Leave both of its settings at their defaults:
     PGTRIGGER_INSTALL_ON_MIGRATE = False
 
 DjanQuiltDB checks both of them for you. When pgtrigger is installed and either has been turned away from its default,
-``manage.py check`` reports ``djanquiltdb.W001`` or ``djanquiltdb.W002`` and names the setting to put back. Should you
-have a reason to run that way regardless, silence the check with ``MUTE_PGTRIGGER_COMPATIBILITY_WARNING``, described in
-:doc:`installation`.
+``manage.py check`` reports ``djanquiltdb.W001`` or ``djanquiltdb.W002`` (see :doc:`/reference/checks`) and names the
+setting to put back. Should you have a reason to run that way regardless, silence the check with
+``MUTE_PGTRIGGER_COMPATIBILITY_WARNING``, described in :doc:`/reference/settings`.
 
 pgtrigger creates the function backing a trigger unqualified, so it is created in whichever schema the connection is
 pointed at and ends up in the template and in each shard, next to the tables it belongs to. The clone then binds each

@@ -17,7 +17,7 @@ Declaring a generated column
 
 A generation expression usually calls a function, and that function has to exist in the database before the column
 referencing it can be created. Create it in a migration that runs before the one adding the column;
-:doc:`database_functions` covers how, and which schema to put it in.
+:doc:`/database_objects/functions` covers how, and which schema to put it in.
 
 Reference it using Django's ``GeneratedField``, naming the function unqualified so that each shard resolves it through
 its own search path:
@@ -52,8 +52,8 @@ path, and applied again with the new shard first on it.
 
 A generation expression consequently ends up on the same function the equivalent query would find from that shard. A
 ``SHARDED`` function is copied into every shard, and each shard's generated column calls its own copy; a ``PUBLIC``
-function has a single copy in the public schema, and every shard's generated column keeps calling that one. This is
-the rule :doc:`database_functions` describes, and the rebinding is what makes the stored expression agree with it.
+function has a single copy in the public schema, and every shard's generated column keeps calling that one. This is the
+rule :doc:`/database_objects/functions` describes, and the rebinding is what makes the stored expression agree with it.
 
 Three other kinds of expression are rebound in the same pass and follow the same rule:
 

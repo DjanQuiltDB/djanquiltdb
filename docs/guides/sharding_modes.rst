@@ -21,4 +21,4 @@ Special decorator:
   of helper functions to select shards based on the mapping values. Specifically the field designated as mapping field
   in the decorator.
 
-`More info <decorators.html>`__  on decorators and how to use them.
+:ref:`More info <api_decorators>` on decorators and how to use them.

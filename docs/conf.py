@@ -55,8 +55,38 @@ extensions = [
     'sphinx.ext.coverage',
     'sphinx.ext.imgmath',
     'sphinx.ext.githubpages',
+    'sphinx_reredirects',
     'sphinx_rtd_theme',
 ]
+
+# Released READMEs on PyPI link to the modules/ paths, so each of those paths redirects to the page that covers its
+# topic. The targets are relative to the redirecting page, so they work under any version prefix that Read the Docs
+# serves the build under.
+redirects = {
+    'modules/overview': '../getting_started/overview.html',
+    'modules/installation': '../getting_started/installation.html',
+    'modules/sharding_modes': '../guides/sharding_modes.html',
+    'modules/queries': '../guides/queries.html',
+    'modules/connection': '../guides/queries.html#connections',
+    'modules/views': '../guides/requests.html',
+    'modules/forms': '../guides/forms.html',
+    'modules/migrations': '../guides/migrations.html',
+    'modules/fixtures': '../guides/fixtures.html',
+    'modules/database_views': '../database_objects/views.html',
+    'modules/database_functions': '../database_objects/functions.html',
+    'modules/triggers': '../database_objects/triggers.html',
+    'modules/generated_columns': '../database_objects/generated_columns.html',
+    'modules/commands': '../index.html',
+    'modules/commands/align_shards_with_template': '../../operations/align_shards_with_template.html',
+    'modules/commands/move_data_to_shard': '../../operations/move_data_to_shard.html',
+    'modules/commands/move_shard_to_node': '../../operations/move_shard_to_node.html',
+    'modules/commands/purge_shard_data': '../../operations/purge_shard_data.html',
+    'modules/celery': '../integrations/celery.html',
+    'modules/contrib': '../contrib/authentication.html',
+    'modules/decorators': '../reference/api.html#decorators',
+    'modules/utils': '../reference/api.html#utilities',
+    'modules/api': '../reference/api.html',
+}
 
 # The suffix(es) of source filenames.
 # You can specify multiple suffix as a list of string:

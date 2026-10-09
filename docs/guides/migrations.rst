@@ -103,7 +103,7 @@ It does this so a node will be in a single state as much as possible. But when a
 other nodes. Instead it will prompt the error.
 You can try to roll back the failed migration on the damaged node if you want, or alter the migration and try again.
 
-.. image:: migration_flow.svg
+.. image:: /images/migration_flow.svg
    :scale: 100%
    :alt: DjanQuiltDB migration flow
    :align: center

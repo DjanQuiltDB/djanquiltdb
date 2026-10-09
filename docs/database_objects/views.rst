@@ -3,7 +3,7 @@ Database views
 ==============
 
 This chapter is about views in the database. For the middleware that wraps a Django view in a sharding context, see
-:doc:`views`.
+:doc:`/guides/requests`.
 
 
 Creating a view
@@ -23,7 +23,7 @@ A view is not model state, so it needs no ``SeparateDatabaseAndState``: a plain 
 
 The sharding mode goes in the ``hints`` dictionary, which ``RunSQL`` passes straight to the router's
 ``allow_migrate``; without it the router cannot tell where the operation belongs and raises a ``ProgrammingError``.
-See :doc:`migrations`.
+See :doc:`/guides/migrations`.
 
 
 Where a view belongs
@@ -34,7 +34,7 @@ the public schema. ``ShardingMode.PUBLIC`` and ``ShardingMode.MIRRORED`` put it 
 
 A view over sharded tables has to be sharded itself. A view's body is resolved when the view is *created*, binding it to
 the tables of the schema it was created in. A public view over a sharded table would therefore read the public schema's
-copy for ever, whichever shard the query came from. See :doc:`database_functions`.
+copy for ever, whichever shard the query came from. See :doc:`/database_objects/functions`.
 
 
 What a new shard inherits
@@ -106,7 +106,7 @@ Triggers on views
 -----------------
 
 An ``INSTEAD OF`` trigger, which is what makes a view that is not automatically updatable writable, is cloned along
-with the view it is attached to. See :doc:`triggers`.
+with the view it is attached to. See :doc:`/database_objects/triggers`.
 
 
 Renaming a table during a rolling deploy

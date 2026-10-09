@@ -11,7 +11,7 @@ desired. Since the user data is contained, users on database A do not have to no
 This library provides tools to easily create shards, select a shard to query, migrate all shards, and move data from
 one shard to another.
 
-.. image:: data_sharding.svg
+.. image:: /images/data_sharding.svg
    :scale: 100 %
    :alt: Vanilla vs Sharded situation
    :align: center
@@ -24,7 +24,7 @@ single datapoint. It does not matter what data point that is. Usually it's a Use
 
 Example data structure with 'organization' as top-level object.
 
-.. image:: data_structure.svg
+.. image:: /images/data_structure.svg
    :scale: 100 %
    :height: 300
    :alt: Data structure
@@ -53,7 +53,7 @@ Shards
 What we call a shard is both the concept of "a container where client data is stored", and the implementation of this:
 a location of a PostgreSQL schema with the client data in it.
 
-.. image:: shard_table.svg
+.. image:: /images/shard_table.svg
    :scale: 100 %
    :alt: Shard table
    :align: center
@@ -80,7 +80,7 @@ Mapping table
 The Shard model keeps a list of all the shards we have created, but not what's in them. That job belongs to the
 mapping table.
 
-.. image:: mapping_table.svg
+.. image:: /images/mapping_table.svg
    :scale: 100 %
    :alt: Mapping table
    :align: center
@@ -97,7 +97,7 @@ Shared data and schema selection
 Not all data in your database are bound to clients. There are tables containing 'general' data as well. These remain on
 the public schema, like before.
 
-.. image:: selection.svg
+.. image:: /images/selection.svg
    :height: 800
    :alt: Schema selection
    :align: center
@@ -113,7 +113,7 @@ Every shard has their own complete set of tables. So all those tables will start
 same table from different shards cannot be taken together, since all their ids will collide. The data within a shard
 can have relations to the 'general' table living in the public schema, but not the other way around.
 
-.. image:: relations.svg
+.. image:: /images/relations.svg
    :scale: 100 %
    :alt: Relations 1
    :align: center
@@ -122,7 +122,7 @@ can have relations to the 'general' table living in the public schema, but not t
 
 For a more detailed example:
 
-.. image:: relations_2.svg
+.. image:: /images/relations_2.svg
    :scale: 100 %
    :alt: Relations 2
    :align: center
@@ -155,7 +155,7 @@ Since we are separating data, there is not reason to stop with creating multiple
 We can just as easy spread shards out over multiple databases/nodes.
 This is mostly transparent, since we are telling Django on what shard we are working on anyway.
 
-.. image:: multi_node.svg
+.. image:: /images/multi_node.svg
    :scale: 100 %
    :alt: Multi Node
    :align: center

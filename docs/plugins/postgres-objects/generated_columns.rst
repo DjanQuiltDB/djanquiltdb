@@ -12,4 +12,4 @@ updated in public, but recalculation to occur on each shard individually.
 
 For more information on how ``postgres_objects.GeneratedField`` works, refer to
 `django-postgres-objects' own documentation
-<https://django-postgres-objects.readthedocs.io/en/latest/modules/queries.html#generated-columns>`_.
+<https://django-postgres-objects.readthedocs.io/en/latest/guides/generated_columns.html>`_.

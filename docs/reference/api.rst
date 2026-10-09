@@ -2,8 +2,7 @@
 API reference
 =============
 
-The rest of the guide explains what each piece is for; this page is the reference for what it takes and returns. The
-decorators and the utility functions have pages of their own: see :doc:`decorators` and :doc:`utils`.
+The rest of the documentation explains what each part is for. This page describes what each part takes and returns.
 
 
 Sharding modes
@@ -18,6 +17,15 @@ Sharding modes
 .. autoclass:: State
     :members:
     :undoc-members:
+
+
+.. _api_decorators:
+
+Decorators
+==========
+
+.. automodule:: djanquiltdb.decorators
+    :members:
 
 
 Models
@@ -57,6 +65,15 @@ whichever shard is active on the current thread.
 .. autofunction:: get_active_connection
 
 .. autofunction:: set_active_connection
+
+
+.. _api_utils:
+
+Utilities
+=========
+
+.. automodule:: djanquiltdb.utils
+   :members: use_shard, use_shard_for, create_schema_on_node, create_template_schema, migrate_schema
 
 
 Transactions
