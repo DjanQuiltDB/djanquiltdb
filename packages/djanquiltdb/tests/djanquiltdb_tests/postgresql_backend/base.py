@@ -26,7 +26,23 @@ from djanquiltdb_tests import (
     skip_without_virtual_generated_column_support,
 )
 from djanquiltdb_tests.sql import CREATE_ALLUPPERCASE, DROP_ALLUPPERCASE
-from example.models import Organization, Shard, Statement, Type, User
+from example.models import Cake, Organization, Shard, Type, User
+
+
+def create_role_for_this_test_database(test_case, cursor, role_name):
+    """
+    Create a role whose name combines role_name and the test database's name, and return its quoted name. The test
+    case's cleanup drops the role and everything it owns. A role belongs to the whole cluster, and the parallel test
+    workers share that cluster, so a role with a fixed name would clash between workers.
+    """
+    default_connection = connections['default']
+    quoted_role_name = default_connection.ops.quote_name(
+        '{}_{}'.format(role_name, default_connection.settings_dict['NAME'])
+    )
+    cursor.execute('CREATE ROLE {}'.format(quoted_role_name))
+    test_case.addCleanup(cursor.execute, 'DROP ROLE {}'.format(quoted_role_name))
+    test_case.addCleanup(cursor.execute, 'DROP OWNED BY {}'.format(quoted_role_name))
+    return quoted_role_name
 
 
 class GetValidatedSchemaNameTestCase(ShardingTestCase):
@@ -495,6 +511,114 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         self.assertNotEqual(user_1.id, user_3.id)  # Both on same schema
         self.assertNotEqual(user_2.id, user_4.id)  # Both on same schema
 
+    def test_clone_schema_into_a_schema_that_already_has_a_sequence_with_the_same_name(self):
+        """
+        Case: The template has a sequence that was advanced, and the schema cloned into already has a sequence with
+              the same name.
+        Expected: The clone succeeds, and the existing sequence continues from the template sequence's position.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE SEQUENCE template.ticket_number')
+        cursor.execute("SELECT setval('template.ticket_number', 41)")
+        connection.create_schema('test_schema')
+        cursor.execute('CREATE SEQUENCE test_schema.ticket_number')
+        connection.clone_schema('template', 'test_schema')
+
+        cursor.execute("SELECT nextval('test_schema.ticket_number')")
+        self.assertEqual(cursor.fetchone()[0], 42)
+
+    def test_clone_schema_skips_a_sequence_it_cannot_read(self):
+        """
+        Case: The template has a sequence on which the role cloning the schema has no privileges.
+        Expected: The clone succeeds and has every table, but not the sequence the role cannot read.
+        """
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+        cursor = connection.cursor()
+        role = create_role_for_this_test_database(self, cursor, 'clone_without_sequence_access')
+        cursor.execute('GRANT ALL ON SCHEMA template, test_schema TO {}'.format(role))
+        cursor.execute('GRANT ALL ON ALL TABLES IN SCHEMA public, template TO {}'.format(role))
+        cursor.execute('GRANT ALL ON ALL SEQUENCES IN SCHEMA template TO {}'.format(role))
+        cursor.execute('CREATE SEQUENCE template.ticket_number')
+
+        connection.set_clone_function()
+
+        cursor.execute('SET ROLE {}'.format(role))
+        self.addCleanup(cursor.execute, 'RESET ROLE')
+        cursor.execute("SELECT public.clone_schema('template', 'test_schema')")
+        cursor.execute('RESET ROLE')
+
+        cursor.execute(
+            "SELECT to_regclass('test_schema.example_organization'), to_regclass('test_schema.ticket_number')"
+        )
+        organization_table, ticket_number_sequence = cursor.fetchone()
+        self.assertIsNotNone(organization_table)
+        self.assertIsNone(ticket_number_sequence)
+
+    def test_clone_schema_fails_on_a_sequence_it_can_use_but_not_read(self):
+        """
+        Case: The template has a table with a serial column. The role cloning the schema has every privilege on the
+              table, but only USAGE on the sequence, which lets it call nextval() on the sequence but not read its
+              position.
+        Expected: The clone fails with an error that names the sequence the role cannot read.
+        """
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+        cursor = connection.cursor()
+        role = create_role_for_this_test_database(self, cursor, 'clone_with_sequence_usage')
+        cursor.execute('CREATE TABLE template.widget (code SERIAL PRIMARY KEY)')
+        cursor.execute('GRANT ALL ON SCHEMA template, test_schema TO {}'.format(role))
+        cursor.execute('GRANT ALL ON ALL TABLES IN SCHEMA public, template TO {}'.format(role))
+        cursor.execute('GRANT ALL ON ALL SEQUENCES IN SCHEMA template TO {}'.format(role))
+        cursor.execute('REVOKE SELECT, UPDATE ON SEQUENCE template.widget_code_seq FROM {}'.format(role))
+
+        connection.set_clone_function()
+
+        cursor.execute('SET ROLE {}'.format(role))
+        self.addCleanup(cursor.execute, 'RESET ROLE')
+        with self.assertRaisesMessage(DatabaseError, 'permission denied for sequence widget_code_seq'):
+            cursor.execute("SELECT public.clone_schema('template', 'test_schema')")
+
+    def test_clone_schema_skips_a_table_it_cannot_see(self):
+        """
+        Case: The template has a table with a serial column, a CHECK constraint, an index and a trigger. The role
+              cloning the schema has no privileges on the table or on its sequence.
+        Expected: The clone succeeds and has every other table, but not the table and sequence the role cannot see.
+        """
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+        cursor = connection.cursor()
+        role = create_role_for_this_test_database(self, cursor, 'clone_without_widget_access')
+        cursor.execute('GRANT ALL ON SCHEMA template, test_schema TO {}'.format(role))
+        cursor.execute('GRANT ALL ON ALL TABLES IN SCHEMA public, template TO {}'.format(role))
+        cursor.execute('GRANT ALL ON ALL SEQUENCES IN SCHEMA template TO {}'.format(role))
+        cursor.execute('CREATE TABLE template.widget (code SERIAL PRIMARY KEY, size INTEGER CHECK (size > 0))')
+        cursor.execute('CREATE INDEX widget_size ON template.widget (size)')
+        cursor.execute(
+            'CREATE FUNCTION template.keep_widget() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RETURN NEW; END $$'
+        )
+        cursor.execute(
+            'CREATE TRIGGER keep_widget BEFORE INSERT ON template.widget FOR EACH ROW EXECUTE FUNCTION'
+            ' template.keep_widget()'
+        )
+
+        connection.set_clone_function()
+
+        cursor.execute('SET ROLE {}'.format(role))
+        self.addCleanup(cursor.execute, 'RESET ROLE')
+        cursor.execute("SELECT public.clone_schema('template', 'test_schema')")
+        cursor.execute('RESET ROLE')
+
+        cursor.execute(
+            "SELECT to_regclass('test_schema.example_organization'), to_regclass('test_schema.widget'),"
+            " to_regclass('test_schema.widget_code_seq')"
+        )
+        organization_table, widget_table, widget_sequence = cursor.fetchone()
+        self.assertIsNotNone(organization_table)
+        self.assertIsNone(widget_table)
+        self.assertIsNone(widget_sequence)
+
     def test_clone_schema_wo_template(self):
         """
         Case: Call connection.migrate_schema with missing template schema.
@@ -556,46 +680,6 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         Expected: The correct schema name to be returned.
         """
         self.assertEqual(connection.get_schema_for_sequence('example_type_id_seq'), [('public',)])
-
-    def test_reset_sequence_for_local_field(self):
-        """
-        Case: Call reset_sequence for a two models with only local fields,
-        Expected: The correct statement to be formulated and executed.
-        """
-        mock_cursor = mock.Mock()
-        mock_cursor.execute = mock.Mock()
-        connection.reset_sequence(_cursor=mock_cursor, model_list=[Organization, Statement])
-        mock_cursor.execute.assert_called_once_with(
-            "SELECT setval('example_organization_id_seq',"
-            ' GREATEST(coalesce(max("id"), 1),'
-            " coalesce(pg_sequence_last_value('example_organization_id_seq'::regclass), 1)),"
-            ' max("id") IS NOT null'
-            " OR pg_sequence_last_value('example_organization_id_seq'::regclass) IS NOT null)"
-            ' FROM "example_organization";\n'
-            "SELECT setval('example_statement_id_seq',"
-            ' GREATEST(coalesce(max("id"), 1),'
-            " coalesce(pg_sequence_last_value('example_statement_id_seq'::regclass), 1)),"
-            ' max("id") IS NOT null'
-            " OR pg_sequence_last_value('example_statement_id_seq'::regclass) IS NOT null)"
-            ' FROM "example_statement"'
-        )
-
-    def test_reset_sequence_for_m2m_field(self):
-        """
-        Case: Call reset_sequence for a model with a many-to-many field.
-        Expected: The correct statement to be formulated and executed.
-        """
-        mock_cursor = mock.Mock()
-        mock_cursor.execute = mock.Mock()
-        connection.reset_sequence(_cursor=mock_cursor, model_list=[User])
-        mock_cursor.execute.assert_called_once_with(
-            "SELECT setval('example_user_id_seq',"
-            ' GREATEST(coalesce(max("id"), 1),'
-            " coalesce(pg_sequence_last_value('example_user_id_seq'::regclass), 1)),"
-            ' max("id") IS NOT null'
-            " OR pg_sequence_last_value('example_user_id_seq'::regclass) IS NOT null)"
-            ' FROM "example_user"'
-        )
 
     def test_is_public_schema(self):
         """
@@ -1412,6 +1496,35 @@ class IdentityColumnTestCase(ShardingTransactionTestCase):
         cursor.execute("INSERT INTO test_schema.widget (name) VALUES ('c') RETURNING code")
         self.assertEqual(cursor.fetchone()[0], 3)
 
+    def test_clone_schema_skips_the_identity_sequence_of_a_table_it_does_not_copy(self):
+        """
+        Case: The template has a table with an identity column. The role cloning the schema has no privileges on the
+              table, so the clone does not copy it.
+        Expected: The clone succeeds and has every other table, but not the one it did not copy.
+        """
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+        cursor = connection.cursor()
+        role = create_role_for_this_test_database(self, cursor, 'clone_without_widget_access')
+        cursor.execute('GRANT ALL ON SCHEMA template, test_schema TO {}'.format(role))
+        cursor.execute('GRANT ALL ON ALL TABLES IN SCHEMA public, template TO {}'.format(role))
+        cursor.execute('GRANT ALL ON ALL SEQUENCES IN SCHEMA template TO {}'.format(role))
+        cursor.execute(
+            'CREATE TABLE template.widget (code BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY, name TEXT)'
+        )
+
+        connection.set_clone_function()
+
+        cursor.execute('SET ROLE {}'.format(role))
+        self.addCleanup(cursor.execute, 'RESET ROLE')
+        cursor.execute("SELECT public.clone_schema('template', 'test_schema')")
+        cursor.execute('RESET ROLE')
+
+        cursor.execute("SELECT to_regclass('test_schema.example_organization'), to_regclass('test_schema.widget')")
+        organization_table, widget_table = cursor.fetchone()
+        self.assertIsNotNone(organization_table)
+        self.assertIsNone(widget_table)
+
     def test_get_all_table_sequences_with_identity_columns(self):
         """
         Case: Call get_all_table_sequences on a schema with identity columns (Django 6.0+).
@@ -1897,7 +2010,287 @@ class IdentityColumnTestCase(ShardingTransactionTestCase):
                     self.assertTrue(is_called, 'Sequence should be marked as called when max_id > 0')
 
 
+def rename_sequence_of_column(cursor, table_name, column_name, new_name):
+    cursor.execute('SELECT pg_get_serial_sequence(%s, %s)', [table_name, column_name])
+    cursor.execute('ALTER SEQUENCE {} RENAME TO {}'.format(cursor.fetchone()[0], new_name))
+
+
 class ResetSequenceTestCase(ShardingTransactionTestCase):
+    def _clone_template_into_test_schema(self):
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+    def test_reset_sequence_on_a_renamed_identity_table(self):
+        """
+        Case: example_organization's identity sequence has the name the table had before it was renamed, and the table
+              has rows inserted with explicit ids. reset_sequence is then called.
+        Expected: The next insert gets the max id + 1.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            rename_sequence_of_column(cursor, 'example_organization', 'id', 'legacy_organization_id_seq')
+            cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('c', now()) RETURNING id")
+            self.assertEqual(cursor.fetchone()[0], 10)
+
+    def test_reset_sequence_on_a_renamed_serial_table(self):
+        """
+        Case: example_organization's id is a serial column whose sequence has the name the table had before it was
+              renamed, and the table has rows inserted with explicit ids. reset_sequence is then called.
+        Expected: The next insert gets the max id + 1.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('ALTER TABLE example_organization ALTER COLUMN id DROP IDENTITY')
+            cursor.execute('CREATE SEQUENCE legacy_organization_id_seq OWNED BY example_organization.id')
+            cursor.execute(
+                "ALTER TABLE example_organization ALTER COLUMN id SET DEFAULT nextval('legacy_organization_id_seq')"
+            )
+            cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('c', now()) RETURNING id")
+            self.assertEqual(cursor.fetchone()[0], 10)
+
+    def test_reset_sequence_on_an_empty_renamed_table(self):
+        """
+        Case: example_organization's identity sequence has the name the table had before it was renamed, and the table
+              is empty. reset_sequence is then called.
+        Expected: The first insert gets id 1.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            rename_sequence_of_column(cursor, 'example_organization', 'id', 'legacy_organization_id_seq')
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('a', now()) RETURNING id")
+            self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_reset_sequence_on_a_renamed_through_table(self):
+        """
+        Case: The identity sequence of User.cake's auto-created through table has the name the table had before it was
+              renamed, and the table has a row inserted with an explicit id. reset_sequence is then called for the
+              through model, as move_shard_to_node does.
+        Expected: The next row added through the relation gets the max id + 1.
+        """
+        self._clone_template_into_test_schema()
+        through_model = User.cake.through
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            rename_sequence_of_column(cursor, through_model._meta.db_table, 'id', 'legacy_user_cake_id_seq')
+            user = User.objects.create_user(email='user@example.com', name='user')
+            first_cake = Cake.objects.create(name='first')
+            second_cake = Cake.objects.create(name='second')
+            through_model.objects.create(id=7, user=user, cake=first_cake)
+
+            env.connection.reset_sequence(model_list=[through_model])
+
+            user.cake.add(second_cake)
+            self.assertEqual(through_model.objects.get(cake=second_cake).id, 8)
+
+    def test_reset_sequence_on_a_clone_of_a_serial_table(self):
+        """
+        Case: The template's example_organization has a serial id column. A schema is cloned from the template, rows
+              with explicit ids are inserted into the clone, and reset_sequence is called on the clone.
+        Expected: The next insert gets the max id + 1.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('ALTER TABLE template.example_organization ALTER COLUMN id DROP IDENTITY')
+        cursor.execute('CREATE SEQUENCE template.example_organization_id_seq OWNED BY template.example_organization.id')
+        cursor.execute(
+            'ALTER TABLE template.example_organization ALTER COLUMN id'
+            " SET DEFAULT nextval('template.example_organization_id_seq')"
+        )
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('c', now()) RETURNING id")
+            self.assertEqual(cursor.fetchone()[0], 10)
+
+    def test_reset_sequence_on_a_serial_column_whose_sequence_has_no_owner(self):
+        """
+        Case: example_organization's id is a serial column whose default takes its values from a sequence that is not
+              owned by any column and has the name the table had before it was renamed. The table has rows inserted
+              with explicit ids. reset_sequence is then called.
+        Expected: The next insert gets the max id + 1.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('ALTER TABLE example_organization ALTER COLUMN id DROP IDENTITY')
+            cursor.execute('CREATE SEQUENCE legacy_organization_id_seq')
+            cursor.execute(
+                "ALTER TABLE example_organization ALTER COLUMN id SET DEFAULT nextval('legacy_organization_id_seq')"
+            )
+            cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('c', now()) RETURNING id")
+            self.assertEqual(cursor.fetchone()[0], 10)
+
+    def test_reset_sequence_on_a_serial_column_whose_default_uses_a_sequence_it_does_not_own(self):
+        """
+        Case: example_organization's id owns one sequence, but its default takes its values from another. The table
+              has rows inserted with explicit ids. reset_sequence is then called.
+        Expected: The sequence the default uses is reset, so the next insert gets the max id + 1.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('ALTER TABLE example_organization ALTER COLUMN id DROP IDENTITY')
+            cursor.execute('CREATE SEQUENCE owned_organization_id_seq OWNED BY example_organization.id')
+            cursor.execute('CREATE SEQUENCE default_organization_id_seq')
+            cursor.execute(
+                "ALTER TABLE example_organization ALTER COLUMN id SET DEFAULT nextval('default_organization_id_seq')"
+            )
+            cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('c', now()) RETURNING id")
+            self.assertEqual(cursor.fetchone()[0], 10)
+
+    def test_reset_sequence_on_a_column_whose_default_uses_two_sequences(self):
+        """
+        Case: example_organization's id has a default that names two sequences, b_organization_id_seq before
+              a_organization_id_seq, and the table has rows inserted with explicit ids. reset_sequence is then called.
+        Expected: The sequence whose name sorts first, a_organization_id_seq, is reset to the max id, and
+                  b_organization_id_seq is unchanged.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('ALTER TABLE example_organization ALTER COLUMN id DROP IDENTITY')
+            cursor.execute('CREATE SEQUENCE a_organization_id_seq')
+            cursor.execute('CREATE SEQUENCE b_organization_id_seq')
+            cursor.execute(
+                'ALTER TABLE example_organization ALTER COLUMN id'
+                " SET DEFAULT coalesce(nextval('b_organization_id_seq'), nextval('a_organization_id_seq'))"
+            )
+            cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+
+            env.connection.reset_sequence(model_list=[Organization])
+
+            cursor.execute(
+                'SELECT a_seq.last_value, a_seq.is_called, b_seq.is_called'
+                ' FROM a_organization_id_seq a_seq, b_organization_id_seq b_seq'
+            )
+            self.assertEqual(cursor.fetchone(), (9, True, False))
+
+    def test_reset_sequence_resets_several_models_in_one_call(self):
+        """
+        Case: example_organization and example_cake both have rows inserted with explicit ids. reset_sequence is then
+              called for both models in one call.
+        Expected: The next insert into each table gets that table's max id + 1.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+            Cake.objects.create(id=7, name='first')
+
+            env.connection.reset_sequence(model_list=[Organization, Cake])
+
+            cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('c', now()) RETURNING id")
+            self.assertEqual(cursor.fetchone()[0], 10)
+            self.assertEqual(Cake.objects.create(name='second').id, 8)
+
+    def test_reset_sequence_raises_for_a_column_without_a_sequence(self):
+        """
+        Case: example_organization's id is not an identity column and has no sequence, and example_cake has a row
+              inserted with an explicit id. reset_sequence is then called for both models in one call.
+        Expected: A ValueError that names example_organization's column, raised before any sequence is reset, so
+                  example_cake's sequence is unchanged.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('ALTER TABLE example_organization ALTER COLUMN id DROP IDENTITY')
+            Cake.objects.create(id=7, name='first')
+
+            with self.assertRaisesMessage(ValueError, 'example_organization.id'):
+                env.connection.reset_sequence(model_list=[Organization, Cake])
+
+            self.assertEqual(Cake.objects.create(name='second').id, 1)
+
+    def test_reset_sequence_raises_for_a_model_whose_table_is_missing(self):
+        """
+        Case: The schema has no example_organization table, and example_cake has a row inserted with an explicit id.
+              reset_sequence is then called for both models in one call.
+        Expected: A ValueError that names example_organization's column, raised before any sequence is reset, so
+                  example_cake's sequence is unchanged.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('DROP TABLE example_organization CASCADE')
+            Cake.objects.create(id=7, name='first')
+
+            with self.assertRaisesMessage(ValueError, 'example_organization.id'):
+                env.connection.reset_sequence(model_list=[Organization, Cake])
+
+            self.assertEqual(Cake.objects.create(name='second').id, 1)
+
+    def test_reset_sequence_raises_for_a_model_whose_column_is_missing(self):
+        """
+        Case: The schema's example_organization table has no id column, and example_cake has a row inserted with an
+              explicit id. reset_sequence is then called for both models in one call.
+        Expected: A ValueError that names example_organization's column, raised before any sequence is reset, so
+                  example_cake's sequence is unchanged.
+        """
+        self._clone_template_into_test_schema()
+
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('ALTER TABLE example_organization DROP COLUMN id CASCADE')
+            Cake.objects.create(id=7, name='first')
+
+            with self.assertRaisesMessage(ValueError, 'example_organization.id'):
+                env.connection.reset_sequence(model_list=[Organization, Cake])
+
+            self.assertEqual(Cake.objects.create(name='second').id, 1)
+
     def test_reset_sequence_never_rewinds(self):
         """
         Case: A sequence was advanced past the table's max id, as a concurrent insert on a live target shard does while
@@ -1919,6 +2312,600 @@ class ResetSequenceTestCase(ShardingTransactionTestCase):
 
             cursor.execute('SELECT last_value FROM {}'.format(sequence))
             self.assertEqual(cursor.fetchone()[0], 500)
+
+
+class SequencePositionsTestCase(ShardingTransactionTestCase):
+    def setUp(self):
+        super().setUp()
+        create_template_schema('default')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+    def test_read_sequence_positions_reads_a_position_whose_value_was_not_returned_yet(self):
+        """
+        Case: A sequence that no column owns was set to 50 without returning that value, and a sequence owned by a
+              serial column returned 7. read_sequence_positions is then called.
+        Expected: Both positions are returned unchanged, the first with is_called false and the second with is_called
+                  true.
+        """
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE SEQUENCE ticket_number')
+            cursor.execute("SELECT setval('ticket_number', 50, false)")
+            cursor.execute('CREATE TABLE gizmo (code serial)')
+            cursor.execute("SELECT setval('gizmo_code_seq', 7)")
+
+            positions = env.connection.read_sequence_positions()
+
+        self.assertIn(('ticket_number', None, None, 50, False), positions)
+        self.assertIn(('gizmo_code_seq', 'gizmo', 'code', 7, True), positions)
+
+    def test_move_sequences_to_positions_skips_a_position_without_a_matching_sequence(self):
+        """
+        Case: move_sequences_to_positions is given three positions: one of a sequence owned by a table that is not in
+              the schema, one of a sequence owned by a column that is not in the table, and one of a sequence that no
+              column owns and that is in the schema.
+        Expected: The two positions without a matching sequence are skipped without an error, and the sequence in the
+                  schema is moved.
+        """
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE SEQUENCE ticket_number')
+
+            env.connection.move_sequences_to_positions(
+                [
+                    ('missing_id_seq', 'missing_table', 'id', 40, True),
+                    ('example_cake_missing_seq', 'example_cake', 'missing_column', 40, True),
+                    ('ticket_number', None, None, 30, True),
+                ]
+            )
+
+            cursor.execute("SELECT nextval('ticket_number')")
+            self.assertEqual(cursor.fetchone()[0], 31)
+
+    def test_move_sequences_to_positions_moves_an_owned_sequence_to_the_position_of_an_unowned_one(self):
+        """
+        Case: move_sequences_to_positions is given the position of a sequence that no column owns, and the schema has a
+              sequence with that name that is owned by a serial column.
+        Expected: The owned sequence is moved to the position.
+        """
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE TABLE gizmo (code serial)')
+
+            env.connection.move_sequences_to_positions([('gizmo_code_seq', None, None, 40, True)])
+
+            cursor.execute("SELECT nextval('gizmo_code_seq')")
+            self.assertEqual(cursor.fetchone()[0], 41)
+
+    def test_move_sequences_to_positions_moves_an_unowned_sequence_to_the_position_of_an_owned_one(self):
+        """
+        Case: move_sequences_to_positions is given the position of a sequence owned by a serial column. The schema has a
+              sequence with that name that no column owns, and the schema's copy of the column takes its values from it.
+        Expected: The unowned sequence is moved to the position.
+        """
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE SEQUENCE gizmo_code_seq')
+            cursor.execute("CREATE TABLE gizmo (code integer DEFAULT nextval('gizmo_code_seq'))")
+
+            env.connection.move_sequences_to_positions([('gizmo_code_seq', 'gizmo', 'code', 40, True)])
+
+            cursor.execute("SELECT nextval('gizmo_code_seq')")
+            self.assertEqual(cursor.fetchone()[0], 41)
+
+    def test_move_sequences_to_positions_prefers_the_sequence_owned_by_the_same_column(self):
+        """
+        Case: move_sequences_to_positions is given the position of a sequence owned by a serial column. The schema has
+              a sequence with that name that no column owns, and a sequence with another name that is owned by the
+              schema's copy of the column.
+        Expected: The sequence owned by the column is moved, and the sequence with the same name is unchanged.
+        """
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE SEQUENCE gizmo_code_seq')
+            cursor.execute('CREATE TABLE gizmo (code serial)')
+
+            env.connection.move_sequences_to_positions([('gizmo_code_seq', 'gizmo', 'code', 40, True)])
+
+            cursor.execute("SELECT nextval('gizmo_code_seq1')")
+            self.assertEqual(cursor.fetchone()[0], 41)
+            cursor.execute("SELECT nextval('gizmo_code_seq')")
+            self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_move_sequences_to_positions_compares_positions_beyond_the_precision_of_a_double(self):
+        """
+        Case: A bigint sequence is one step before the position that move_sequences_to_positions is given, at the
+              point where a double precision number can no longer tell an integer apart from the next one.
+        Expected: The sequence is moved to the position, so the next value is the one after it.
+        """
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE SEQUENCE big_number AS bigint')
+            cursor.execute("SELECT setval('big_number', 9007199254740991)")
+
+            env.connection.move_sequences_to_positions([('big_number', None, None, 9007199254740992, True)])
+
+            cursor.execute("SELECT nextval('big_number')")
+            self.assertEqual(cursor.fetchone()[0], 9007199254740993)
+
+
+class RenamedTableTestCase(ShardingTransactionTestCase):
+    @staticmethod
+    def _primary_key_names(schema_name, table_name):
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT con.conname::text, idx_cls.relname::text
+              FROM pg_catalog.pg_constraint con
+              JOIN pg_catalog.pg_class cls ON cls.oid = con.conrelid
+              JOIN pg_catalog.pg_namespace nsp ON nsp.oid = cls.relnamespace
+              JOIN pg_catalog.pg_class idx_cls ON idx_cls.oid = con.conindid
+              WHERE nsp.nspname = %s AND cls.relname = %s AND con.contype = 'p'
+            """,
+            [schema_name, table_name],
+        )
+        return cursor.fetchone()
+
+    @staticmethod
+    def _sequence_name(schema_name, table_name, column_name):
+        cursor = connection.cursor()
+        cursor.execute('SELECT pg_get_serial_sequence(%s, %s)', ['{}.{}'.format(schema_name, table_name), column_name])
+        return cursor.fetchone()[0]
+
+    def test_clone_schema_keeps_the_primary_key_name_of_a_renamed_table(self):
+        """
+        Case: The template has a table with an identity primary key, and the table was renamed after it was created.
+        Expected: The clone's primary key constraint and its index have the template's names, not names based on the
+                  table's current name.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template.legacy_widget (code BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY)')
+        cursor.execute('ALTER TABLE template.legacy_widget RENAME TO widget')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(self._primary_key_names('test_schema', 'widget'), ('legacy_widget_pkey', 'legacy_widget_pkey'))
+
+    def test_clone_schema_keeps_the_primary_key_name_of_a_renamed_partitioned_table(self):
+        """
+        Case: The template has a partitioned table with a primary key, and the table was renamed after it was created.
+        Expected: The clone's primary key constraint and its index have the template's names, not names based on the
+                  table's current name.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template.legacy_widget (code INTEGER PRIMARY KEY) PARTITION BY RANGE (code)')
+        cursor.execute('ALTER TABLE template.legacy_widget RENAME TO widget')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(self._primary_key_names('test_schema', 'widget'), ('legacy_widget_pkey', 'legacy_widget_pkey'))
+
+    def test_clone_schema_names_the_primary_key_after_a_table_that_was_never_renamed(self):
+        """
+        Case: The template has a table with an identity primary key, and the table was never renamed.
+        Expected: The clone's primary key and identity sequence are named after the table.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template.widget (code BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY)')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(self._primary_key_names('test_schema', 'widget'), ('widget_pkey', 'widget_pkey'))
+        self.assertEqual(self._sequence_name('test_schema', 'widget', 'code'), 'test_schema.widget_code_seq')
+
+    def test_clone_schema_with_a_newer_table_that_has_a_renamed_tables_old_name(self):
+        """
+        Case: The template has a table that was renamed from widget to gadget, and a newer table named widget. So the
+              renamed table's primary key and identity sequence have the names that the newer table's would get.
+        Expected: The clone succeeds, and both tables have the template's primary key and identity sequence names.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template.widget (code BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY)')
+        cursor.execute('ALTER TABLE template.widget RENAME TO gadget')
+        cursor.execute('CREATE TABLE template.widget (code BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY)')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        for table_name in ('gadget', 'widget'):
+            with self.subTest(table=table_name):
+                self.assertEqual(
+                    self._primary_key_names('test_schema', table_name),
+                    self._primary_key_names('template', table_name),
+                )
+                self.assertEqual(
+                    self._sequence_name('test_schema', table_name, 'code').split('.')[1],
+                    self._sequence_name('template', table_name, 'code').split('.')[1],
+                )
+
+    def test_clone_schema_keeps_the_identity_sequence_name_of_a_renamed_table(self):
+        """
+        Case: The template has a table with an identity primary key, and the table was renamed after it was created.
+        Expected: The clone's identity sequence has the template's name, not a name based on the table's current
+                  name.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template.legacy_widget (code BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY)')
+        cursor.execute('ALTER TABLE template.legacy_widget RENAME TO widget')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(self._sequence_name('test_schema', 'widget', 'code'), 'test_schema.legacy_widget_code_seq')
+
+    def test_clone_schema_with_a_default_using_the_identity_sequence_of_a_renamed_table(self):
+        """
+        Case: The template has a table with an identity primary key that was renamed from widget to gadget, so its
+              identity sequence is named widget_code_seq. Another column's default takes its values from that sequence,
+              by name.
+        Expected: The clone succeeds, and the default takes its values from the clone's own identity sequence.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template.widget (code BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY)')
+        cursor.execute('ALTER TABLE template.widget RENAME TO gadget')
+        cursor.execute(
+            "ALTER TABLE template.gadget ADD COLUMN ticket BIGINT DEFAULT nextval('template.widget_code_seq')"
+        )
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        cursor.execute('INSERT INTO test_schema.gadget (code) VALUES (100) RETURNING ticket')
+        self.assertEqual(cursor.fetchone()[0], 1)
+        cursor.execute('SELECT last_value FROM test_schema.widget_code_seq')
+        self.assertEqual(cursor.fetchone()[0], 1)
+        cursor.execute('SELECT is_called FROM template.widget_code_seq')
+        self.assertFalse(cursor.fetchone()[0])
+
+    def test_clone_schema_into_a_schema_that_has_a_relation_with_a_primary_key_name(self):
+        """
+        Case: The template has a table that was renamed from legacy_widget, with a primary key named legacy_widget_pkey.
+              The schema cloned into already has a sequence named legacy_widget_pkey.
+        Expected: The clone raises an error that lists the name already in use, and the schema is unchanged.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template.legacy_widget (code INTEGER PRIMARY KEY)')
+        cursor.execute('ALTER TABLE template.legacy_widget RENAME TO widget')
+        connection.create_schema('test_schema')
+        cursor.execute('CREATE SEQUENCE test_schema.legacy_widget_pkey')
+
+        with self.assertRaisesMessage(
+            DatabaseError, 'test_schema.legacy_widget_pkey already exists, so widget_pkey cannot be renamed to it'
+        ):
+            connection.clone_schema('template', 'test_schema')
+
+        cursor.execute("SELECT to_regclass('test_schema.widget')")
+        self.assertIsNone(cursor.fetchone()[0])
+
+    def test_clone_schema_into_a_schema_that_has_a_relation_with_an_identity_sequence_name(self):
+        """
+        Case: The template has a table with an identity primary key that was renamed from legacy_widget, so its
+              identity sequence is named legacy_widget_code_seq. The schema cloned into already has a sequence named
+              legacy_widget_code_seq.
+        Expected: The clone raises an error that lists the name already in use, and the schema is unchanged.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template.legacy_widget (code BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY)')
+        cursor.execute('ALTER TABLE template.legacy_widget RENAME TO widget')
+        cursor.execute('ALTER TABLE template.widget RENAME CONSTRAINT legacy_widget_pkey TO widget_pkey')
+        connection.create_schema('test_schema')
+        cursor.execute('CREATE SEQUENCE test_schema.legacy_widget_code_seq')
+
+        with self.assertRaisesMessage(
+            DatabaseError,
+            'test_schema.legacy_widget_code_seq already exists, so widget_code_seq cannot be renamed to it',
+        ):
+            connection.clone_schema('template', 'test_schema')
+
+        cursor.execute("SELECT to_regclass('test_schema.widget')")
+        self.assertIsNone(cursor.fetchone()[0])
+
+    def test_clone_schema_keeps_the_serial_sequence_name_of_a_renamed_table(self):
+        """
+        Case: The template has a table with a serial primary key, and the table was renamed after it was created.
+        Expected: The clone's serial sequence has the template's name, and the column's default takes its values from
+                  it.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template.legacy_widget (code SERIAL PRIMARY KEY)')
+        cursor.execute('ALTER TABLE template.legacy_widget RENAME TO widget')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(self._sequence_name('test_schema', 'widget', 'code'), 'test_schema.legacy_widget_code_seq')
+        cursor.execute('INSERT INTO test_schema.widget DEFAULT VALUES RETURNING code')
+        self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_clone_schema_makes_the_serial_sequence_of_a_partitioned_table_owned_by_its_column(self):
+        """
+        Case: The template has a partitioned table with a serial primary key.
+        Expected: The clone's serial sequence is owned by the clone's column, so dropping the table also drops the
+                  sequence.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template.widget (code SERIAL PRIMARY KEY) PARTITION BY RANGE (code)')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(self._sequence_name('test_schema', 'widget', 'code'), 'test_schema.widget_code_seq')
+        cursor.execute('DROP TABLE test_schema.widget')
+        cursor.execute("SELECT to_regclass('test_schema.widget_code_seq')")
+        self.assertIsNone(cursor.fetchone()[0])
+
+    def test_clone_schema_with_a_newer_identity_table_that_has_a_renamed_serial_tables_old_name(self):
+        """
+        Case: The template has a table with a serial primary key that was renamed from widget to gadget, and a newer
+              table named widget with an identity primary key. So the serial sequence has the name that the newer
+              table's identity sequence would get.
+        Expected: The clone succeeds, and both tables have the template's sequence names.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template.widget (code SERIAL PRIMARY KEY)')
+        cursor.execute('ALTER TABLE template.widget RENAME TO gadget')
+        cursor.execute('CREATE TABLE template.widget (code BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY)')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        for table_name in ('gadget', 'widget'):
+            with self.subTest(table=table_name):
+                self.assertEqual(
+                    self._sequence_name('test_schema', table_name, 'code').split('.')[1],
+                    self._sequence_name('template', table_name, 'code').split('.')[1],
+                )
+
+    def test_clone_schema_keeps_a_mixed_case_serial_sequence_name(self):
+        """
+        Case: The template has a table with a serial primary key. The table was created with a mixed-case name, which
+              its sequence's name is based on, and was then renamed.
+        Expected: The clone's serial sequence has the template's mixed-case name, and the column's default takes its
+                  values from it.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template."Legacy_Widget" (code SERIAL PRIMARY KEY)')
+        cursor.execute('ALTER TABLE template."Legacy_Widget" RENAME TO widget')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(self._sequence_name('test_schema', 'widget', 'code'), 'test_schema."Legacy_Widget_code_seq"')
+        cursor.execute('INSERT INTO test_schema.widget DEFAULT VALUES RETURNING code')
+        self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_clone_schema_with_a_mixed_case_table(self):
+        """
+        Case: The template has a table with a mixed-case name, a serial primary key and two rows.
+        Expected: The clone has a table with the same name and both rows, and its serial sequence continues after
+                  them.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE TABLE template."LegacyWidget" (code SERIAL PRIMARY KEY, label TEXT)')
+        cursor.execute("INSERT INTO template.\"LegacyWidget\" (label) VALUES ('first'), ('second')")
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        cursor.execute('SELECT label FROM test_schema."LegacyWidget" ORDER BY code')
+        self.assertEqual(cursor.fetchall(), [('first',), ('second',)])
+        self.assertEqual(
+            self._sequence_name('test_schema', '"LegacyWidget"', 'code'), 'test_schema."LegacyWidget_code_seq"'
+        )
+        cursor.execute('INSERT INTO test_schema."LegacyWidget" (label) VALUES (\'third\') RETURNING code')
+        self.assertEqual(cursor.fetchone()[0], 3)
+
+    def test_clone_schema_into_a_mixed_case_schema(self):
+        """
+        Case: A schema with a mixed-case name is cloned from the template.
+        Expected: The clone has the template's tables and their rows.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute("INSERT INTO template.example_organization (name, created_at) VALUES ('a', now())")
+        connection.create_schema('North_Shard')
+        connection.clone_schema('template', 'North_Shard')
+
+        cursor.execute('SELECT name FROM "North_Shard".example_organization')
+        self.assertEqual(cursor.fetchall(), [('a',)])
+
+    def test_reset_sequence_on_a_clone_of_a_renamed_table(self):
+        """
+        Case: The primary key and identity sequence of the template's example_organization have names based on a name
+              the table had before it was renamed. A schema is cloned from the template, rows with explicit ids are
+              inserted into the clone, and reset_sequence is called on the clone.
+        Expected: The clone has the template's names, and the next insert gets the max id + 1.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        rename_sequence_of_column(cursor, 'template.example_organization', 'id', 'legacy_organization_id_seq')
+        cursor.execute(
+            'ALTER TABLE template.example_organization RENAME CONSTRAINT example_organization_pkey'
+            ' TO legacy_organization_pkey'
+        )
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(
+            self._sequence_name('test_schema', 'example_organization', 'id'), 'test_schema.legacy_organization_id_seq'
+        )
+        self.assertEqual(self._primary_key_names('test_schema', 'example_organization')[0], 'legacy_organization_pkey')
+        with use_shard(node_name='default', schema_name='test_schema') as env:
+            shard_cursor = env.connection.cursor()
+            shard_cursor.execute(
+                "INSERT INTO example_organization (id, name, created_at) VALUES (5, 'a', now()), (9, 'b', now())"
+            )
+            env.connection.reset_sequence(model_list=[Organization])
+            shard_cursor.execute("INSERT INTO example_organization (name, created_at) VALUES ('c', now()) RETURNING id")
+            self.assertEqual(shard_cursor.fetchone()[0], 10)
+
+
+class SequenceCloningTestCase(ShardingTransactionTestCase):
+    @staticmethod
+    def _sequence_settings(schema_name, sequence_name):
+        cursor = connection.cursor()
+        cursor.execute(
+            """
+            SELECT seqtypid::regtype::text, seqstart, seqincrement, seqmin, seqmax, seqcache, seqcycle
+              FROM pg_catalog.pg_sequence
+              WHERE seqrelid = %s::regclass
+            """,
+            ['{}.{}'.format(schema_name, sequence_name)],
+        )
+        return cursor.fetchone()
+
+    def test_clone_schema_copies_the_settings_of_a_sequence(self):
+        """
+        Case: The template has a sequence with a non-default data type, start, increment, bounds, cache size and
+              cycling.
+        Expected: The clone's sequence has the same settings as the template's.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute(
+            'CREATE SEQUENCE template.ticket_number AS integer'
+            ' START WITH 50 INCREMENT BY 10 MINVALUE 5 MAXVALUE 1000 CACHE 3 CYCLE'
+        )
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(self._sequence_settings('test_schema', 'ticket_number'), ('integer', 50, 10, 5, 1000, 3, True))
+
+    def test_clone_schema_copies_the_settings_of_a_descending_sequence(self):
+        """
+        Case: The template has a descending sequence that was advanced once.
+        Expected: The clone's sequence has the same settings as the template's, and its next value follows the
+                  template's.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE SEQUENCE template.countdown INCREMENT BY -1 MINVALUE 1 MAXVALUE 10')
+        cursor.execute("SELECT nextval('template.countdown')")
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(
+            self._sequence_settings('test_schema', 'countdown'), self._sequence_settings('template', 'countdown')
+        )
+        cursor.execute("SELECT nextval('test_schema.countdown')")
+        self.assertEqual(cursor.fetchone()[0], 9)
+
+    def test_clone_schema_gives_an_existing_sequence_in_the_destination_the_template_settings(self):
+        """
+        Case: The template has an unlogged sequence with non-default settings, and the schema cloned into already has
+              a logged sequence with the same name and the default settings.
+        Expected: After the clone, that sequence has the template's settings and persistence.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute(
+            'CREATE UNLOGGED SEQUENCE template.ticket_number AS integer'
+            ' START WITH 50 INCREMENT BY 10 MINVALUE 5 MAXVALUE 1000 CACHE 3 CYCLE'
+        )
+        connection.create_schema('test_schema')
+        cursor.execute('CREATE SEQUENCE test_schema.ticket_number')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(self._sequence_settings('test_schema', 'ticket_number'), ('integer', 50, 10, 5, 1000, 3, True))
+        cursor.execute(
+            "SELECT relpersistence FROM pg_catalog.pg_class WHERE oid = 'test_schema.ticket_number'::regclass"
+        )
+        self.assertEqual(cursor.fetchone()[0], 'u')
+
+    def test_clone_schema_moves_an_existing_sequence_in_the_destination_outside_its_old_bounds(self):
+        """
+        Case: The template has a descending sequence at -1 and a sequence that starts at 0. The schema cloned into
+              already has an ascending sequence with each of these names and the default settings.
+        Expected: After the clone, each sequence has the template's settings, and its next value follows the
+                  template's.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE SEQUENCE template.countdown INCREMENT BY -1 MINVALUE -10 MAXVALUE -1')
+        cursor.execute("SELECT nextval('template.countdown')")
+        cursor.execute('CREATE SEQUENCE template.ticket_number MINVALUE 0 START WITH 0')
+        cursor.execute("SELECT nextval('template.ticket_number')")
+        connection.create_schema('test_schema')
+        cursor.execute('CREATE SEQUENCE test_schema.countdown')
+        cursor.execute('CREATE SEQUENCE test_schema.ticket_number')
+        connection.clone_schema('template', 'test_schema')
+
+        for sequence_name, next_value in (('countdown', -2), ('ticket_number', 1)):
+            with self.subTest(sequence=sequence_name):
+                self.assertEqual(
+                    self._sequence_settings('test_schema', sequence_name),
+                    self._sequence_settings('template', sequence_name),
+                )
+                cursor.execute('SELECT nextval(%s)', ['test_schema.{}'.format(sequence_name)])
+                self.assertEqual(cursor.fetchone()[0], next_value)
+
+    def test_clone_schema_keeps_an_existing_identity_sequence_with_a_template_sequence_name_unchanged(self):
+        """
+        Case: The template has a standalone sequence gizmo_id_seq with a bound of 1000, advanced to 5, and no table
+              gizmo. The schema cloned into already has a table gizmo whose identity sequence is gizmo_id_seq.
+        Expected: After the clone, gizmo's identity sequence keeps its settings and position, so gizmo's next row gets
+                  id 1.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE SEQUENCE template.gizmo_id_seq AS integer MAXVALUE 1000')
+        cursor.execute("SELECT setval('template.gizmo_id_seq', 5)")
+        connection.create_schema('test_schema')
+        cursor.execute('CREATE TABLE test_schema.gizmo (id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY)')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(
+            self._sequence_settings('test_schema', 'gizmo_id_seq'), ('bigint', 1, 1, 1, 9223372036854775807, 1, False)
+        )
+        cursor.execute('INSERT INTO test_schema.gizmo DEFAULT VALUES RETURNING id')
+        self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_clone_schema_keeps_an_existing_serial_columns_sequence_with_a_template_sequence_name_unchanged(self):
+        """
+        Case: The template has a standalone sequence gizmo_id_seq with a bound of 1000, advanced to 5, and no table
+              gizmo. The schema cloned into already has a table gizmo whose serial column owns gizmo_id_seq.
+        Expected: After the clone, gizmo's serial sequence keeps its settings and position, so gizmo's next row gets
+                  id 1.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE SEQUENCE template.gizmo_id_seq AS integer MAXVALUE 1000')
+        cursor.execute("SELECT setval('template.gizmo_id_seq', 5)")
+        connection.create_schema('test_schema')
+        cursor.execute('CREATE TABLE test_schema.gizmo (id SERIAL PRIMARY KEY)')
+        connection.clone_schema('template', 'test_schema')
+
+        self.assertEqual(
+            self._sequence_settings('test_schema', 'gizmo_id_seq'), ('integer', 1, 1, 1, 2147483647, 1, False)
+        )
+        cursor.execute('INSERT INTO test_schema.gizmo DEFAULT VALUES RETURNING id')
+        self.assertEqual(cursor.fetchone()[0], 1)
+
+    def test_clone_schema_keeps_an_unlogged_sequence_unlogged(self):
+        """
+        Case: The template has an unlogged sequence and a logged one.
+        Expected: The clone's copy of each sequence keeps its persistence.
+        """
+        create_template_schema('default')
+        cursor = connection.cursor()
+        cursor.execute('CREATE UNLOGGED SEQUENCE template.scratch_number')
+        cursor.execute('CREATE SEQUENCE template.ticket_number')
+        connection.create_schema('test_schema')
+        connection.clone_schema('template', 'test_schema')
+
+        for sequence_name, persistence in (('scratch_number', 'u'), ('ticket_number', 'p')):
+            with self.subTest(sequence=sequence_name):
+                cursor.execute(
+                    'SELECT relpersistence FROM pg_catalog.pg_class WHERE oid = %s::regclass',
+                    ['test_schema.{}'.format(sequence_name)],
+                )
+                self.assertEqual(cursor.fetchone()[0], persistence)
 
 
 class TriggersTestCase(ShardingTransactionTestCase):
@@ -2357,6 +3344,34 @@ class ExpressionRebindTestCase(ShardingTransactionTestCase):
             self._expressions(self.DEST_SCHEMA)['column id'],
             "nextval('{}.rebind_example_id_seq'::regclass)".format(self.DEST_SCHEMA),
         )
+
+    def test_clone_schema_keeps_a_serial_default_that_uses_a_sequence_in_another_schema(self):
+        """
+        Case: Clone a schema with a table whose serial primary key owns its sequence, which was never used. The column's
+              default takes its values from shared.code_number instead, a sequence in another schema that was advanced
+              to 50.
+        Expected: The clone's default also takes its values from shared.code_number, and the clone's own sequence
+                  stays at the source sequence's position.
+        """
+        cursor = connection.cursor()
+        cursor.execute('CREATE SCHEMA shared')
+        cursor.execute('CREATE SEQUENCE shared.code_number')
+        cursor.execute("SELECT setval('shared.code_number', 50)")
+        cursor.execute('CREATE TABLE {}.gizmo (id SERIAL PRIMARY KEY)'.format(self.SOURCE_SCHEMA))
+        cursor.execute(
+            "ALTER TABLE {}.gizmo ALTER COLUMN id SET DEFAULT nextval('shared.code_number')".format(self.SOURCE_SCHEMA)
+        )
+
+        connection.clone_schema(self.SOURCE_SCHEMA, self.DEST_SCHEMA)
+
+        cursor.execute(
+            'SELECT pg_get_expr(def.adbin, def.adrelid) FROM pg_catalog.pg_attrdef def'
+            ' WHERE def.adrelid = %s::regclass AND def.adnum = 1',
+            ['{}.gizmo'.format(self.DEST_SCHEMA)],
+        )
+        self.assertEqual(cursor.fetchone()[0], "nextval('shared.code_number'::regclass)")
+        cursor.execute('SELECT last_value, is_called FROM {}.gizmo_id_seq'.format(self.DEST_SCHEMA))
+        self.assertEqual(cursor.fetchone(), (1, False))
 
     def test_clone_schema_leaves_the_clone_working_after_the_source_schema_is_dropped(self):
         """

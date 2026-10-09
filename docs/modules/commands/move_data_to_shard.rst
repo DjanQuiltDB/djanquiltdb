@@ -50,7 +50,10 @@ before the exclusive lock is granted.
 
 Because the target shard stays live, its sequences may advance while the move runs; the sequence reset at the end
 only ever moves a sequence forward, never back, so a concurrent writer's ids are not reissued. Id *collisions* with
-pre-existing target data remain the operator's responsibility, as described under get_target_shard below.
+pre-existing target data remain the operator's responsibility, as described under get_target_shard below. The reset
+looks up each model's sequence through its auto-incrementing primary key column, so it also works for a table that was
+renamed after it was created. If a model's auto-incrementing column has no sequence, or the shard has no such table or
+column, the command stops with an error that names the column. It stops before any sequence is reset.
 
 Two more operational notes. The rows deleted from the source in step 5 are the rows just copied to the target, so the
 ``pre_delete``/``post_delete`` signals are disconnected during that deletion - a handler cleaning up external

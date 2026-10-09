@@ -182,8 +182,14 @@ The fixture loader will automatically:
 1. Ensure the template schema exists and has all migrations applied
 2. Create any shard schemas that don't exist yet (cloning them from the template schema)
 3. Load entries into their respective schemas
+4. Reset the sequences of the loaded models in each schema, so that the next row created gets a higher id than the
+   loaded rows
 
 This means you don't need to manually create schemas before loading fixtures - the loader handles this for you.
+
+The sequence reset looks up each model's sequence through its auto-incrementing primary key column, so it also works for
+a table that was renamed after it was created. If a model's auto-incrementing column has no sequence, or the schema has
+no such table or column, the load stops with an error that names the column.
 
 One scope note for multi-node projects: fixtures are per node. A dump records each entry's schema (``_schema``) but
 not the node it lived on, and a load sends every entry to the node named by ``--database``. Dumping a project whose

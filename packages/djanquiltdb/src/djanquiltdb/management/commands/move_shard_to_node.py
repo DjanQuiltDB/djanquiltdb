@@ -186,7 +186,8 @@ class Command(BaseCommand):
         1) Make a schema on the target node
         2) Copy the data from the source schema to the target schema
         3) Retarget the relations between the target schema and the public schema if needed
-        4) Reset all sequences to match the new data
+        4) Move every sequence to its position on the source schema, then reset the sequences of the models to match
+           the new data
         5) Upon transaction close, all fkeys constrains will be checked by postgres
         """
         nodes = list({self.source_shard.node_name, self.target_node})
@@ -199,6 +200,7 @@ class Command(BaseCommand):
 
             self.copy_data()
             self.retarget_relations()
+            self.copy_sequence_positions()
             self.reset_sequences()
             self.refresh_materialized_views()
 
@@ -496,6 +498,25 @@ class Command(BaseCommand):
                     current_id += self.batch_size
 
         self.bar_finish(bar)
+
+    def copy_sequence_positions(self):
+        """
+        Move every sequence of the target schema forward to the position of the matching sequence on the source schema.
+        The target was cloned from the template, so its sequences start at the template's positions, and
+        reset_sequences only covers the sequences of the models' primary keys. A sequence is never moved back: the
+        migration table's rows come from the target's template, not from the source, and its sequence must stay past
+        them.
+
+        Reading the positions requires SELECT on every sequence of the source schema. If the role can use a sequence
+        but not read it, the move stops, the same as a clone does. Skipping the sequence would silently leave the
+        matching target sequence at the template's position, and a role that cannot read the shard it moves is an
+        operator error.
+        """
+        with self.source_shard.use(include_public=False, active_only_schemas=False, lock=False) as env:
+            positions = env.connection.read_sequence_positions()
+
+        with self.target_shard_options.use() as env:
+            env.connection.move_sequences_to_positions(positions)
 
     def reset_sequences(self):
         """

@@ -1,3 +1,28 @@
+v 4.1.0
+-------
+Added:
+ * The `align_shards_with_template` command, to repair various issues in shards cloned in previous versions related to
+   sequences, primary key names and serial columns, which were all fixed in this version. Run it once after upgrading.
+
+Altered:
+ * Fixed `move_shard_to_node`, `move_data_to_shard` and `loaddata` failing on, or resetting the wrong sequence of, a
+   table whose sequence is not named after it (e.g. a table that was renamed after it was created).
+ * Fixed `move_shard_to_node` leaving a moved shard's sequences that no model's primary key uses at the template's
+   position.
+ * Fixed cloned primary keys and identity sequences being named after their table instead of having the names they have
+   on the template.
+ * Fixed cloned serial sequences not being owned by their column (which would leave them orphaned upon dropping the
+   table/column).
+ * Fixed cloned sequences losing their data type, start, increment, bounds, cache size, cycling and persistence, and
+   cloning failing on a sequence with a mixed-case name.
+ * Fixed cloning failing when the schema cloned into already has a sequence with the same name as a template sequence
+   whose position is outside that sequence's bounds.
+ * Fixed cloning failing on a table or schema with a mixed-case name.
+ * Fixed cloning failing on a template with a table that the cloning role cannot see, if that table has a column
+   default, such as a serial column, or a constraint, index or trigger.
+ * Fixed cloning overwriting the settings and position of an identity sequence or a serial column's sequence that the
+   schema cloned into already has under the name of a template sequence.
+
 v 4.0.1
 -------
 Deprecated:

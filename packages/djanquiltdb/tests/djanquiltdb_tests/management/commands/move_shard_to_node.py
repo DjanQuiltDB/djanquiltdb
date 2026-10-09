@@ -399,6 +399,127 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
             new_row = self.user_cake_model.objects.get(cake=cake_4, user=user_2)
             self.assertEqual(new_row.id, max_id + 1)
 
+    def test_a_sequence_no_model_uses_keeps_its_position_after_moving(self):
+        """
+        Case: Both templates have a sequence that no model's primary key uses, and the shard advanced its copy.
+        Expected: After the move, the shard's copy continues from its position on the old node.
+        """
+        for node_name in ('default', 'other'):
+            with use_shard(node_name=node_name, schema_name='public') as env:
+                env.connection.cursor().execute('CREATE SEQUENCE template.ticket_number')
+        with use_shard(node_name='default', schema_name='public') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE SEQUENCE test_source.ticket_number')
+            cursor.execute("SELECT setval('test_source.ticket_number', 5000)")
+
+        call_command('move_shard_to_node', *self.format_options_to_args())
+
+        with use_shard(node_name='other', schema_name='public') as env:
+            cursor = env.connection.cursor()
+            cursor.execute("SELECT nextval('test_source.ticket_number')")
+            self.assertEqual(cursor.fetchone()[0], 5001)
+
+    def test_a_sequence_that_is_ahead_on_the_target_keeps_its_position_after_moving(self):
+        """
+        Case: The target node's template advanced a sequence that no model uses past the shard's copy of it.
+        Expected: After the move, the shard's copy continues from the target template's position, not from the
+                  shard's lower position.
+        """
+        for node_name in ('default', 'other'):
+            with use_shard(node_name=node_name, schema_name='public') as env:
+                env.connection.cursor().execute('CREATE SEQUENCE template.ticket_number')
+        with use_shard(node_name='other', schema_name='public') as env:
+            env.connection.cursor().execute("SELECT setval('template.ticket_number', 9000)")
+        with use_shard(node_name='default', schema_name='public') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE SEQUENCE test_source.ticket_number')
+            cursor.execute("SELECT setval('test_source.ticket_number', 5000)")
+
+        call_command('move_shard_to_node', *self.format_options_to_args())
+
+        with use_shard(node_name='other', schema_name='public') as env:
+            cursor = env.connection.cursor()
+            cursor.execute("SELECT nextval('test_source.ticket_number')")
+            self.assertEqual(cursor.fetchone()[0], 9001)
+
+    def test_a_descending_sequence_keeps_the_position_furthest_ahead_after_moving(self):
+        """
+        Case: Both templates and the shard have a descending sequence that no model uses, and the shard counted it
+              further down than the target node's template.
+        Expected: After the move, the shard's copy continues downward from the shard's position.
+        """
+        for node_name in ('default', 'other'):
+            with use_shard(node_name=node_name, schema_name='public') as env:
+                env.connection.cursor().execute('CREATE SEQUENCE template.countdown INCREMENT BY -1')
+        with use_shard(node_name='other', schema_name='public') as env:
+            env.connection.cursor().execute("SELECT setval('template.countdown', -100)")
+        with use_shard(node_name='default', schema_name='public') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('CREATE SEQUENCE test_source.countdown INCREMENT BY -1')
+            cursor.execute("SELECT setval('test_source.countdown', -5000)")
+
+        call_command('move_shard_to_node', *self.format_options_to_args())
+
+        with use_shard(node_name='other', schema_name='public') as env:
+            cursor = env.connection.cursor()
+            cursor.execute("SELECT nextval('test_source.countdown')")
+            self.assertEqual(cursor.fetchone()[0], -5001)
+
+    def test_the_migration_table_takes_new_rows_after_moving(self):
+        """
+        Case: The target node's template recorded more migrations than the shard did, so its migration table's sequence
+              is ahead of the shard's.
+        Expected: After the move, the shard's migration table, which has the target template's rows, takes a new row.
+        """
+        with use_shard(node_name='other', schema_name='public') as env:
+            cursor = env.connection.cursor()
+            cursor.execute('SELECT max(id) FROM template.django_migrations')
+            next_id = cursor.fetchone()[0] + 100
+            cursor.execute(
+                "INSERT INTO template.django_migrations (id, app, name, applied) VALUES (%s, 'example', 'later', now())",
+                [next_id],
+            )
+            cursor.execute("SELECT setval(pg_get_serial_sequence('template.django_migrations', 'id'), %s)", [next_id])
+
+        call_command('move_shard_to_node', *self.format_options_to_args())
+
+        with use_shard(node_name='other', schema_name='public') as env:
+            cursor = env.connection.cursor()
+            cursor.execute(
+                "INSERT INTO test_source.django_migrations (app, name, applied) VALUES ('example', 'latest', now())"
+                ' RETURNING id'
+            )
+            self.assertEqual(cursor.fetchone()[0], next_id + 1)
+
+    def test_an_unowned_sequence_does_not_move_an_identity_sequence_with_its_name(self):
+        """
+        Case: The shard has a sequence that no column owns, with the name that the target node's template gives to the
+              identity sequence of a table. The shard's copy of that table has an identity sequence with another name.
+        Expected: After the move, the identity sequence continues from the position of the shard's identity sequence,
+                  not from the position of the sequence with the same name.
+        """
+        for node_name in ('default', 'other'):
+            with use_shard(node_name=node_name, schema_name='public') as env:
+                env.connection.cursor().execute(
+                    'CREATE TABLE template.badge (id integer GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY)'
+                )
+        with use_shard(node_name='default', schema_name='public') as env:
+            cursor = env.connection.cursor()
+            cursor.execute(
+                'CREATE TABLE test_source.badge'
+                ' (id integer GENERATED BY DEFAULT AS IDENTITY (SEQUENCE NAME test_source.badge_a_identity) PRIMARY KEY)'
+            )
+            cursor.execute("SELECT setval('test_source.badge_a_identity', 20)")
+            cursor.execute('CREATE SEQUENCE test_source.badge_id_seq')
+            cursor.execute("SELECT setval('test_source.badge_id_seq', 5000)")
+
+        call_command('move_shard_to_node', *self.format_options_to_args())
+
+        with use_shard(node_name='other', schema_name='public') as env:
+            cursor = env.connection.cursor()
+            cursor.execute("SELECT nextval(pg_get_serial_sequence('test_source.badge', 'id'))")
+            self.assertEqual(cursor.fetchone()[0], 21)
+
     def test_moving_a_shard_with_an_empty_sharded_table(self):
         """
         Case: Move a shard on which the sharded model with retargetable relations (Cake) holds no rows.
@@ -592,12 +713,14 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.create_schema_on_node')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.copy_data')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.retarget_relations')
+    @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.copy_sequence_positions')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.reset_sequences')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.refresh_materialized_views')
     def test_move_shard(
         self,
         mock_refresh_materialized_views,
         mock_reset_sequences,
+        mock_copy_sequence_positions,
         mock_retarget_relations,
         mock_copy_data,
         mock_create_schema_on_node,
@@ -621,6 +744,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         mock_create_schema_on_node.assert_called_once_with(schema_name='test_source', node_name='other', migrate=True)
         mock_copy_data.assert_called_once_with()
         mock_retarget_relations.assert_called_once_with()
+        mock_copy_sequence_positions.assert_called_once_with()
         mock_reset_sequences.assert_called_once_with()
         mock_refresh_materialized_views.assert_called_once_with()
 
