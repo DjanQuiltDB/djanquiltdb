@@ -388,7 +388,7 @@ def atomic_write_to_every_node(schema_name=PUBLIC_SCHEMA_NAME, lock_models=(), p
     :Example:
         .. code-block:: python
 
-            from djanquiltdb.utils import atomic_write_to_every_node
+            from djanquiltdb.decorators import atomic_write_to_every_node
 
 
             @atomic_write_to_every_node('public')
