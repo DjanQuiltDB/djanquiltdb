@@ -2,7 +2,7 @@
 Overview
 ========
 
-DjangoSharding is a library meant for Django projects that use PostgreSQL as database. It aims to separate data per
+DjanQuiltDB is a library meant for Django projects that use PostgreSQL as database. It aims to separate data per
 user, groups of users or tenants. And thus keep the size of the tables small in order to make querying them efficient.
 In addition, data between users cannot contaminate or influence each other.
 To do this, it creates a PostgreSQL schema per tenant, which we call a shard. All data belonging to that tenant will be
