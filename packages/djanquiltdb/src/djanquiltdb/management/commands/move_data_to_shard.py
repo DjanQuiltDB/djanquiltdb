@@ -483,14 +483,13 @@ class Command(BaseCommand):
 
     def pre_execution(self, root_objects):
         """
-        Called before we enter the transaction.
+        Runs before the transaction of the move starts. With a mapping model, takes the exclusive advisory lock of the
+        mapping value of each root object, which is the id of the root object, and puts the mapping object of that
+        mapping value in maintenance. Without a mapping model, takes the exclusive advisory lock of the source shard and
+        puts the source shard in maintenance.
 
-        Before we set something into maintenance, we acquire an exclusive advisory lock.
-        We do this so we wait until all current usages of the shard are done (since they set a shared lock),
-        and cause all new usages to wait for this lock the be released.
-
-        If there is a mapping model, we can set that into maintenance.
-        If not, we set the source shard into maintenance.
+        An exclusive lock waits until every use_shard that holds the shared lock of the same key is left, and makes each
+        use_shard that is entered later wait until the command releases the lock.
         """
         source_connection = connections[self.source_shard.node_name]
         mapping_model = get_mapping_class()
@@ -513,7 +512,7 @@ class Command(BaseCommand):
                 mapping_object.state = State.MAINTENANCE
                 mapping_object.save(update_fields=['state'])
         else:
-            # Get exclusive advisory lock on the sharding object.
+            # Take the exclusive advisory lock of the source shard, whose shared lock use_shard takes.
             source_connection.acquire_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
 
             self.old_shard_state = self.source_shard.state
@@ -525,16 +524,17 @@ class Command(BaseCommand):
 
     def post_execution(self, succeeded):
         """
-        Called after the transaction is committed. Both after success or failure.
-        Set both shards back to their original state.
-        Update the mapping object's shard field, if available.
+        Runs after the move, whether the move succeeds, fails, or is cancelled at the confirmation. With a mapping
+        model, restores the state of each mapping object that pre_execution puts in maintenance, points the mapping
+        object to the target shard when the move succeeds, and releases the lock of its mapping value. Without a mapping
+        model, restores the state of the source shard and releases the lock of the source shard.
         """
         source_connection = connections[self.source_shard.node_name]
         mapping_model = get_mapping_class()
 
         if mapping_model:
-            # No need to fetch the objects from the shards, because we can use the old_source_state dictionary here to
-            # release the locks and put the mapping objects back to their old state.
+            # The loop reads the mapping values and the old states from old_source_state, so the root objects are not
+            # read from the shards.
             for root_object_id, state in self.old_source_state.items():
                 mapping_object = mapping_model.objects.for_target(root_object_id)
                 mapping_object.state = state
@@ -547,8 +547,8 @@ class Command(BaseCommand):
                 # Release the exclusive advisory lock
                 source_connection.release_advisory_lock(key=mapping_lock_key(root_object_id), shared=False)
         else:
-            # pre_execution records the old state before flipping; when it failed before getting there, the shard was
-            # never flipped and there is nothing to restore.
+            # pre_execution records the old state of the source shard just before it puts the shard in maintenance. When
+            # pre_execution fails before that point, the shard is not in maintenance and has no state to restore.
             if hasattr(self, 'old_shard_state'):
                 self.source_shard.state = self.old_shard_state
                 self.source_shard.save(update_fields=['state'])

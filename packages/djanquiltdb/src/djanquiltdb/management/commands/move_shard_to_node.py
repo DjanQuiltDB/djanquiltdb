@@ -147,14 +147,15 @@ class Command(BaseCommand):
 
     def pre_execution(self):
         """
-        Called before we enter the transaction.
+        Runs before the move. Takes the exclusive advisory lock of the source shard and puts the source shard in
+        maintenance. Then, for each mapping object of the source shard, takes the exclusive advisory lock of its mapping
+        value and puts the mapping object in maintenance.
 
-        Before we set something into maintenance, we acquire an exclusive advisory locks.
-        We do this so we wait until all current usages of the shard are done (since they set a shared lock),
-        and cause all new usages to wait for this lock the be released.
-
-        We also set the shard in maintenance. The lock of the shard is taken before the locks of the mappings, in the
-        order that use_shard_for() takes them, so the command and a use_shard_for() do not wait for each other.
+        An exclusive lock waits until every use_shard that holds the shared lock of the same key is left, and makes each
+        use_shard that is entered later wait until the command releases the lock. use_shard_for() takes the lock of the
+        shard before the lock of the mapping value, and so does this method. A use_shard_for() that holds the lock of
+        the shard can then always take the lock of its mapping value and be left, so the command and the
+        use_shard_for() do not wait for each other.
         """
         source_connection = connections[self.source_shard.node_name]
         mapping_model = get_mapping_class()
@@ -165,7 +166,7 @@ class Command(BaseCommand):
                 widgets=[progressbar.RotatingMarker(), ' Acquiring locks; ', progressbar.Timer()],
             )
 
-        # Get exclusive advisory lock on the sharding object.
+        # Take the exclusive advisory lock of the source shard, whose shared lock use_shard takes.
         source_connection.acquire_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
 
         self.old_shard_state = self.source_shard.state
@@ -603,16 +604,16 @@ class Command(BaseCommand):
 
     def post_execution(self, succeeded):
         """
-        Called after the transaction is committed. Both after success or failure.
-        Set shard back to their original state.
-        Will update the shard's new node living accommodation if the migration was successful
+        Runs after the move, whether the move succeeds or fails. Restores the state of each mapping object and of the
+        source shard, releases the exclusive advisory locks that pre_execution takes, and sets the node of the source
+        shard to the target node when the move succeeds.
         """
         source_connection = connections[self.source_shard.node_name]
         mapping_model = get_mapping_class()
 
         if mapping_model:
-            # No need to fetch the objects from the shards, because we can use the old_source_state dictionary here to
-            # release the locks and put the mapping objects back to their old state.
+            # old_source_states has the id and the old state of each mapping object that pre_execution puts in
+            # maintenance.
             for root_object_id, state in self.old_source_states.items():
                 mapping_object = mapping_model.objects.get(id=root_object_id)
                 mapping_object.state = state
@@ -622,9 +623,10 @@ class Command(BaseCommand):
                 mapping_value = mapping_object.serializable_value(mapping_model.mapping_field)
                 source_connection.release_advisory_lock(key=mapping_lock_key(mapping_value), shared=False)
 
-        # Restore shard state and set its node to the target.
-        # pre_execution records the old state just before flipping the shard; when it failed earlier, the shard itself
-        # was never flipped and there is nothing to restore.
+        # Restore the state of the source shard, and set the node of the shard to the target node when the move
+        # succeeds. pre_execution records the old state of the source shard just before it puts the shard in
+        # maintenance. When pre_execution fails before that point, the shard is not in maintenance and has no state to
+        # restore.
         if hasattr(self, 'old_shard_state'):
             self.source_shard.state = self.old_shard_state
             if succeeded:

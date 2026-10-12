@@ -639,9 +639,9 @@ class ShardedMigrationHandleTestCase(MigrationTestCase):
 
 def assertSeparateDatabaseAndStateRan(test_case, schemas):
     """
-    Migrate the schemas with the test_migrations_separate_database migrations. Assert that each schema got the column
-    that SeparateDatabaseAndState adds, and ran its RunPython with a model that has the field. The caller rolls the
-    migrations back.
+    Migrate the schemas with the test_migrations_separate_database migrations. Assert that each schema has the column
+    that SeparateDatabaseAndState adds, and that the RunPython runs on each schema with a model that has the field. The
+    caller rolls the migrations back.
     """
     ran = import_module('migration_tests.test_migrations_separate_database.0002_pages').COUNT_PAGES_RUNS
     ran.clear()
@@ -743,8 +743,9 @@ class ShardedMigrationSharedStatesTestCase(MigrationTestCase):
                 self.assertIn('migration_tests_hometown', table_names)
                 self.assertNotIn('migration_tests_tribble', table_names)
 
-        # Three migrations in the plan, each computed once for the public schemas and once for the templates. They start
-        # from different points, because the templates are created without migrations and the public schemas are not.
+        # Three migrations in the plan, each computed once for the public schemas and once for the templates. The
+        # templates and the public schemas start from different points, because the templates are created without
+        # migrations and the public schemas are not.
         self.assertEqual(mock_compute_states_around_migration_operations.call_count, 2 * 3)
         self.assertEqual(mock_executor.call_count, len(self.schemas_to_migrate()))
         # Only the first migration of each starting point renders the historical models. Each later migration starts

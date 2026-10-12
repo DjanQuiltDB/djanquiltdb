@@ -66,12 +66,21 @@ class CrossShardUserProxyTests(SimpleTestCase):
         self.addCleanup(patcher.stop)
 
     def test_reads_attribute_value_from_wrapped_user(self):
+        """
+        Case: Read is_staff and pk of a user through a proxy that is constructed with a Shard object.
+        Expected: The values of the wrapped user.
+        """
         proxy = CrossShardUserProxy(self.user, self.shard)
 
         self.assertIs(proxy.is_staff, True)
         self.assertEqual(proxy.pk, 7)
 
     def test_repeated_access_of_same_attribute_activates_shard_once(self):
+        """
+        Case: Read is_staff 200 times through a proxy constructed with a Shard object.
+        Expected: The shard is activated once, because the proxy caches the value of each attribute after its first
+                  read.
+        """
         proxy = CrossShardUserProxy(self.user, self.shard)
 
         for _ in range(200):
@@ -80,6 +89,10 @@ class CrossShardUserProxyTests(SimpleTestCase):
         self.assertEqual(self.recorder.call_count, 1)
 
     def test_distinct_attributes_activate_shard_once_each(self):
+        """
+        Case: Read is_staff, is_superuser and pk 50 times each through a proxy constructed with a Shard object.
+        Expected: The shard is activated three times, once for the first read of each attribute.
+        """
         proxy = CrossShardUserProxy(self.user, self.shard)
 
         for _ in range(50):
@@ -90,6 +103,11 @@ class CrossShardUserProxyTests(SimpleTestCase):
         self.assertEqual(self.recorder.call_count, 3)
 
     def test_shard_context_is_active_during_attribute_resolution(self):
+        """
+        Case: Construct a proxy with a Shard object for a user that records whether a shard context is active when its
+              name is read, and read name through the proxy.
+        Expected: The shard context is active while the wrapped user reads name, and left after the read.
+        """
         user = _RecordingUser(self.recorder)
         proxy = CrossShardUserProxy(user, self.shard)
 
@@ -98,6 +116,10 @@ class CrossShardUserProxyTests(SimpleTestCase):
         self.assertEqual(self.recorder.active, 0)  # context exited afterwards
 
     def test_activation_uses_the_resolved_shard_object(self):
+        """
+        Case: Read is_staff through a proxy constructed with a Shard object.
+        Expected: use_shard is called with that Shard object.
+        """
         proxy = CrossShardUserProxy(self.user, self.shard)
 
         proxy.is_staff
@@ -132,6 +154,11 @@ class CrossShardUserProxyTests(SimpleTestCase):
         self.assertIs(args[0], self.shard)
 
     def test_dunder_access_bypasses_shard_activation(self):
+        """
+        Case: Read __class__ of a proxy constructed with a Shard object, and the repr of its wrapped user.
+        Expected: No shard is activated, because the proxy passes dunder attributes straight to the wrapped user, and
+                  _user is an attribute of the proxy itself.
+        """
         proxy = CrossShardUserProxy(self.user, self.shard)
 
         proxy.__class__
@@ -140,12 +167,20 @@ class CrossShardUserProxyTests(SimpleTestCase):
         self.assertEqual(self.recorder.call_count, 0)
 
     def test_internal_user_attribute_is_not_proxied(self):
+        """
+        Case: Read _user of a proxy constructed with a Shard object.
+        Expected: The wrapped user itself, without activating a shard.
+        """
         proxy = CrossShardUserProxy(self.user, self.shard)
 
         self.assertIs(proxy._user, self.user)
         self.assertEqual(self.recorder.call_count, 0)
 
     def test_missing_attribute_raises_and_is_not_cached(self):
+        """
+        Case: Through a proxy constructed with a Shard object, read an attribute that the wrapped user does not have.
+        Expected: AttributeError, and the attribute is not cached, so that hasattr() keeps returning False for it.
+        """
         user = object()  # has no `nope` attribute
         proxy = CrossShardUserProxy(user, self.shard)
 
@@ -173,12 +208,21 @@ class CrossShardMappingUserProxyTests(SimpleTestCase):
         self.addCleanup(mock.patch.stopall)
 
     def test_reads_attribute_value_from_wrapped_user(self):
+        """
+        Case: Read is_staff and pk of a user through a proxy that is constructed with a mapping value.
+        Expected: The values of the wrapped user.
+        """
         proxy = CrossShardMappingUserProxy(self.user, self.mapping_value)
 
         self.assertIs(proxy.is_staff, True)
         self.assertEqual(proxy.pk, 7)
 
     def test_get_shard_for_called_once_across_many_accesses(self):
+        """
+        Case: Read is_staff and pk 50 times each through a proxy constructed with a mapping value.
+        Expected: get_shard_for() is called once, with the mapping value, because the proxy stores the shard that
+                  get_shard_for() returns.
+        """
         proxy = CrossShardMappingUserProxy(self.user, self.mapping_value)
 
         for _ in range(50):
@@ -188,6 +232,11 @@ class CrossShardMappingUserProxyTests(SimpleTestCase):
         self.get_shard_for.assert_called_once_with(self.mapping_value)
 
     def test_repeated_access_of_same_attribute_activates_shard_once(self):
+        """
+        Case: Read is_staff 200 times through a proxy constructed with a mapping value.
+        Expected: The shard is activated once, because the proxy caches the value of each attribute after its first
+                  read.
+        """
         proxy = CrossShardMappingUserProxy(self.user, self.mapping_value)
 
         for _ in range(200):
@@ -196,6 +245,11 @@ class CrossShardMappingUserProxyTests(SimpleTestCase):
         self.assertEqual(self.recorder.call_count, 1)
 
     def test_activation_uses_resolved_shard_and_preserves_mapping_lock_key(self):
+        """
+        Case: Read is_staff through a proxy constructed with a mapping value.
+        Expected: use_shard is called with the shard that get_shard_for() returns and with the mapping value, so that
+                  the mapping value is locked as use_shard_for() locks it.
+        """
         proxy = CrossShardMappingUserProxy(self.user, self.mapping_value)
 
         proxy.is_staff
@@ -205,6 +259,11 @@ class CrossShardMappingUserProxyTests(SimpleTestCase):
         self.assertEqual(kwargs.get('mapping_value'), self.mapping_value)
 
     def test_shard_context_is_active_during_attribute_resolution(self):
+        """
+        Case: Construct a proxy with a mapping value for a user that records whether a shard context is active when its
+              name is read, and read name through the proxy.
+        Expected: The shard context is active while the wrapped user reads name, and left after the read.
+        """
         user = _RecordingUser(self.recorder)
         proxy = CrossShardMappingUserProxy(user, self.mapping_value)
 
@@ -213,6 +272,10 @@ class CrossShardMappingUserProxyTests(SimpleTestCase):
         self.assertEqual(self.recorder.active, 0)
 
     def test_internal_user_attribute_is_not_proxied(self):
+        """
+        Case: Read _user of a proxy constructed with a mapping value.
+        Expected: The wrapped user itself, without looking up the shard or activating it.
+        """
         proxy = CrossShardMappingUserProxy(self.user, self.mapping_value)
 
         self.assertIs(proxy._user, self.user)
@@ -224,6 +287,10 @@ class CrossShardProxyIdentityTests(SimpleTestCase):
     """The middleware branches on the concrete proxy classes, so their identities must stay distinct."""
 
     def test_proxy_classes_are_distinct(self):
+        """
+        Case: Construct a CrossShardUserProxy and a CrossShardMappingUserProxy for the same user.
+        Expected: Each proxy is an instance of its own class only, so that the middleware can tell the two apart.
+        """
         user = mock.Mock()
 
         id_proxy = CrossShardUserProxy(user, object())
@@ -262,18 +329,28 @@ class RouteAdminLogToHomeShardTests(SimpleTestCase):
         self.model_admin = object()  # stand-in for a ModelAdmin instance
 
     def test_proxied_user_runs_log_in_home_shard(self):
+        """
+        Case: Call a wrapped log_* method for a request whose user is a proxy constructed with the user's home shard.
+        Expected: The method runs once inside the home shard, the home shard is left after the call, and the result of
+                  the method is returned.
+        """
         request = mock.Mock(user=CrossShardUserProxy(mock.Mock(pk=7), self.shard))
 
         result = self.log_change(self.model_admin, request, mock.Mock(), 'changed')
 
         self.assertEqual(result, 'log-entry')
-        self.assertEqual(self.observed_active, [1])  # home shard active during the write
-        self.assertEqual(self.recorder.call_count, 1)  # home shard activated exactly once
-        self.assertEqual(self.recorder.active, 0)  # and exited afterwards
+        self.assertEqual(self.observed_active, [1])  # the home shard is active during the write
+        self.assertEqual(self.recorder.call_count, 1)  # the home shard is activated exactly once
+        self.assertEqual(self.recorder.active, 0)  # and left after the write
         (args, _kwargs) = self.recorder.calls[0]
-        self.assertIs(args[0], self.shard)  # activated the user's home shard
+        self.assertIs(args[0], self.shard)  # use_shard receives the home shard of the user
 
     def test_mapping_proxied_user_runs_log_in_home_shard(self):
+        """
+        Case: Call a wrapped log_* method for a request whose user is a proxy constructed with the mapping value 42.
+        Expected: The method runs inside the shard that get_shard_for() returns, which is entered with the mapping
+                  value.
+        """
         with mock.patch('djanquiltdb.contrib.quilt_admin.utils.get_shard_for', return_value=self.shard):
             request = mock.Mock(user=CrossShardMappingUserProxy(mock.Mock(pk=7), 42))
 
@@ -285,15 +362,23 @@ class RouteAdminLogToHomeShardTests(SimpleTestCase):
         self.assertEqual(kwargs.get('mapping_value'), 42)
 
     def test_plain_user_does_not_activate_any_shard(self):
+        """
+        Case: Call a wrapped log_* method for a request whose user is not a proxy.
+        Expected: The method runs without activating a shard, and its result is returned.
+        """
         request = mock.Mock(user=mock.Mock(pk=7))  # a regular, non-proxied user
 
         result = self.log_change(self.model_admin, request, mock.Mock(), 'changed')
 
         self.assertEqual(result, 'log-entry')
-        self.assertEqual(self.observed_active, [0])  # ran without any shard context
+        self.assertEqual(self.observed_active, [0])  # the method runs without a shard context
         self.assertEqual(self.recorder.call_count, 0)
 
     def test_request_without_user_does_not_activate_any_shard(self):
+        """
+        Case: Call a wrapped log_* method for a request that has no user attribute.
+        Expected: The method runs without activating a shard.
+        """
         request = mock.Mock(spec=[])  # request object with no `.user`
 
         self.log_change(self.model_admin, request, mock.Mock(), 'changed')

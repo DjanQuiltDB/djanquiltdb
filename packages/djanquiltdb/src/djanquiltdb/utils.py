@@ -164,7 +164,7 @@ class use_shard(object):
     def __init__(self, shard=None, node_name=None, schema_name=None, **kwargs):
         from djanquiltdb.options import ShardOptions  # Prevent cyclic imports
 
-        # Add an indication that we activated this connection from an use_shard context manager
+        # Mark that a use_shard context manager activates these options.
         kwargs['use_shard'] = True
         self._kwargs = kwargs
 

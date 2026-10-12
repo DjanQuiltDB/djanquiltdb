@@ -95,9 +95,9 @@ class ShardOptions:
     @classmethod
     def from_alias(cls, alias):
         """
-        Options for any of the forms ``connections`` accepts as an alias: an existing ``ShardOptions``, a shard
-        instance, a ``'node'`` or ``'node|schema'`` string, or a ``(node, schema)`` tuple. A string naming only the
-        node targets its public schema.
+        Options for any of the forms that ``connections`` accepts as an alias: an existing ``ShardOptions``, a shard
+        instance, a ``'node'`` or ``'node|schema'`` string, or a ``(node, schema)`` tuple. A string that has only the
+        node name targets the public schema of that node.
         """
         if isinstance(alias, cls):
             return alias
@@ -117,7 +117,10 @@ class ShardOptions:
 
     @property
     def lock_keys(self):
-        """The advisory lock names this target implies, one per shard or mapping value it was resolved from."""
+        """
+        The names of the advisory locks that use_shard takes for these options: one for the shard id and one for the
+        mapping value, when the options have them.
+        """
         lock_keys = []
 
         if self.shard_id is not None:

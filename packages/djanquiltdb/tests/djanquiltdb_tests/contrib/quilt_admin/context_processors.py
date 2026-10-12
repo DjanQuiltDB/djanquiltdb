@@ -29,9 +29,10 @@ def _make_admin_request():
 class ShardSwitcherSelectorBindingTestCase(ShardingTestCase):
     def test_selector_class_is_read_dynamically(self):
         """
-        Case: The selector class binding on the quilt_admin apps module changes after this module was mported, as
-              happens when a consumer module is imported before the app's ready() ran.
-        Expected: The context processor uses the current binding rather than a stale import-time copy.
+        Case: Change ADMIN_SHARD_SELECTOR_CLASS of the quilt_admin apps module after the context processor module is
+              imported, as happens when a module that imports the context processor is imported before ready() of the
+              app runs.
+        Expected: The context processor uses the selector class that the apps module has at the time of the call.
         """
         fake_selector = mock.Mock()
         fake_selector.retrieve_override_value.return_value = None
@@ -47,7 +48,7 @@ class ShardSwitcherPrimaryAliasTestCase(ShardingTestCase):
     def test_switcher_reads_from_the_primary_alias(self):
         """
         Case: PRIMARY_DB_ALIAS points at a non-default node.
-        Expected: The switcher lists the shards from that node instead of the literal default alias.
+        Expected: The switcher lists the shards from the shard registry on that node, not from the default node.
         """
         with use_shard(node_name='other', schema_name='public') as env:
             env.connection.cursor().execute(
@@ -65,8 +66,8 @@ class ShardSwitcherPrimaryAliasTestCase(ShardingTestCase):
 class ShardSwitcherErrorHandlingTestCase(ShardingTestCase):
     def test_a_database_error_degrades_the_switcher_but_is_logged(self):
         """
-        Case: Listing the switcher's entries fails with a database error.
-        Expected: The switcher degrades to empty context, and the failure is logged instead of vanishing.
+        Case: Listing the entries of the switcher fails with a database error.
+        Expected: The context has no switcher options, and the error is logged as a warning.
         """
         mapping_class = mock.Mock()
         mapping_class.mapping_field = 'organization_id'
@@ -84,6 +85,10 @@ class ShardSwitcherErrorHandlingTestCase(ShardingTestCase):
 class UseCspNonceContextTests(SimpleTestCase):
     @override_settings()
     def test_defaults_to_false_when_quilt_admin_unset(self):
+        """
+        Case: Build the context of a request while the project has no QUILT_ADMIN setting.
+        Expected: use_csp_nonce is False, so the shard switcher's script is rendered without a nonce attribute.
+        """
         from django.conf import settings as django_settings
 
         if hasattr(django_settings, 'QUILT_ADMIN'):
@@ -95,12 +100,20 @@ class UseCspNonceContextTests(SimpleTestCase):
 
     @override_settings(QUILT_ADMIN={})
     def test_defaults_to_false_when_setting_missing(self):
+        """
+        Case: Build the context of a request while QUILT_ADMIN is a dict without USE_CSP_NONCE.
+        Expected: use_csp_nonce is False, because USE_CSP_NONCE defaults to False.
+        """
         context = admin_shard_context(_make_anonymous_request())
 
         self.assertIs(context['use_csp_nonce'], False)
 
     @override_settings(QUILT_ADMIN={'USE_CSP_NONCE': True})
     def test_true_when_setting_enabled(self):
+        """
+        Case: Build the context of a request while QUILT_ADMIN['USE_CSP_NONCE'] is True.
+        Expected: use_csp_nonce is True, so the shard switcher's script is rendered with the nonce of the request.
+        """
         context = admin_shard_context(_make_anonymous_request())
 
         self.assertIs(context['use_csp_nonce'], True)
@@ -121,6 +134,10 @@ class ShardSwitcherScriptNonceTemplateTests(SimpleTestCase):
     )
 
     def test_no_nonce_attribute_when_disabled(self):
+        """
+        Case: Render the script fragment with use_csp_nonce False and a csp_nonce in the context.
+        Expected: A plain <script> tag without a nonce attribute, although the context has a nonce.
+        """
         rendered = Template(self.fragment).render(
             Context(
                 {
@@ -134,6 +151,10 @@ class ShardSwitcherScriptNonceTemplateTests(SimpleTestCase):
         self.assertNotIn('nonce=', rendered)
 
     def test_nonce_attribute_when_enabled(self):
+        """
+        Case: Render the script fragment with use_csp_nonce True and the csp_nonce abc123 in the context.
+        Expected: The <script> tag has the attribute nonce="abc123".
+        """
         rendered = Template(self.fragment).render(
             Context(
                 {
@@ -154,9 +175,19 @@ class BaseSiteTemplateFileTests(SimpleTestCase):
         return path.read_text()
 
     def test_inline_onchange_attribute_removed(self):
+        """
+        Case: Read admin/base_site.html of the quilt_admin app.
+        Expected: No inline onchange= attribute, because a Content-Security-Policy without 'unsafe-inline' blocks inline
+                  event handlers.
+        """
         self.assertNotIn('onchange=', self._template_contents())
 
     def test_script_block_and_conditional_nonce_present(self):
+        """
+        Case: Read admin/base_site.html of the quilt_admin app.
+        Expected: The template adds the change listener of the shard switcher in a script block, whose nonce attribute
+                  depends on use_csp_nonce.
+        """
         contents = self._template_contents()
         self.assertIn("addEventListener('change'", contents)
         self.assertIn('{% if use_csp_nonce %} nonce="{{ csp_nonce }}"{% endif %}', contents)

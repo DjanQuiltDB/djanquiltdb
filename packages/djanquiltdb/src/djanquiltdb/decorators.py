@@ -42,8 +42,10 @@ def _reset_shard_mapping_models():
 
 def class_method_use_shard(func):
     """
-    Decorator that is used to decorate all class methods of a certain class. It will make sure that the class methods
-    are run in the same shard as the instance lives in.
+    Decorator for the methods of a model class. A decorated method runs in the shard that the instance is stored in. The
+    decorator enters no use_shard when that shard is active already, or when the active shard is entered with
+    override_class_method_use_shard set to True. A method of an instance that has no database runs on the active
+    connection.
     """
 
     @functools.wraps(func)

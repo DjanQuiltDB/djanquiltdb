@@ -1117,13 +1117,12 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Replace the default introspection with a patched version of
-        # the DatabaseIntrospection that only returns the table list
-        # for the currently selected schema.
+        # Replace the default introspection with DatabaseSchemaIntrospection, which only returns the tables of the
+        # selected schema.
         self.introspection = DatabaseSchemaIntrospection(self)
 
-        # Give the library user the possibility to overwrite the database creation class. This allows them to adjust the
-        # creation of the test database, to make a default shard for example.
+        # Projects can replace the database creation class with QUILT_DB['DATABASE_CREATION_CLASS'], to change how the
+        # test database is created, for example to create a default shard.
         self.creation = get_database_creation_class()(self)
 
         self.current_search_paths = [PUBLIC_SCHEMA_NAME]
@@ -1136,7 +1135,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self.schema_name = PUBLIC_SCHEMA_NAME
         self.include_public_schema = True
 
-        # Django < 2.0 require this attribute set, in our case it should be just a noop.
+        # Django versions before 2.0 require this attribute. The function that it is set to does nothing.
         if hasattr(self, '_start_transaction_under_autocommit'):
             self._start_transaction_under_autocommit = lambda x: None
 
@@ -1709,15 +1708,11 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         return self._cursor()
 
     def _cursor(self, name=None):
-        """Database cursor to write whatever we want.
-
-        Typically used for migrations, this function will check
-        to see if SCHEMA_NAME is set or not. If it is, then it
-        will create it if it doesn't yet exist. Finally, it will
-        point to that schema.
-
-        Check for a connection and see if it is usable. If not: close the connection and the Super() class will
-        automatically reconnect in its _cursor() function.
+        """
+        Returns a cursor for the schema of this connection. When the session has another search_path, this method sets
+        the search_path to the schema, followed by the public schema when ``include_public_schema`` is True, and raises
+        IntegrityError when the schema does not exist. Before that, a connection that is unusable after errors is
+        closed, so that the cursor comes from a new connection.
         """
         self._close_if_errors_made_unusable()
 
@@ -1728,13 +1723,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         else:
             search_paths = [self.schema_name]
 
-        # No need to set search paths for operations without a database,
-        # or when there are no changes to the selected schemas.
+        # No search_path is set for a connection without a database, or when current_search_paths has these schemas
+        # already.
         if self.alias == NO_DB_ALIAS or self.current_search_paths == search_paths:
             return cursor
 
-        # Use unnamed cursors for schema operations - named cursors require SELECT statements
-        # and cannot execute SET commands like SET search_path
+        # The schema operations use unnamed cursors, because a named cursor only runs SELECT statements and cannot run
+        # SET search_path.
         with self._get_cursor(name=None, skip_lock=True) as cursor_for_get_ps_schema:
             if self.schema_name != PUBLIC_SCHEMA_NAME and not self.get_ps_schema(
                 self.schema_name, cursor_for_get_ps_schema
@@ -1742,15 +1737,14 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
 
         with self._get_cursor(name=None, skip_lock=True) as cursor_for_search_path:
-            # In the event that an error already happened in this transaction and we are going
-            # to rollback we should just ignore database error when setting the search_path
-            # if the next instruction is not a rollback it will just fail also, so
-            # we do not have to worry that it's not the good one
+            # When an earlier error in this transaction makes the transaction roll back, setting the search_path fails
+            # too. That failure is logged and ignored, and current_search_paths is not updated: the next statement that
+            # is not a rollback fails on the transaction anyway.
             try:
                 # The statement is a plain string, because Django documents the sql argument of an execute wrapper as a
                 # string, and the wrapper that pghistory.context() registers fails on a psycopg Composed object. A
-                # schema that was created outside DjanQuiltDB can have any name, so each name is quoted here, with
-                # every double quote in it doubled, as Postgres escapes an identifier. quote_name() does not do that.
+                # schema that is created outside DjanQuiltDB can have any name, so each name is quoted here, with every
+                # double quote in it doubled, as Postgres escapes an identifier. quote_name() does not do that.
                 identifiers = ', '.join('"{}"'.format(schema.replace('"', '""')) for schema in search_paths)
                 sql_ = 'SET search_path = {}'.format(identifiers)
                 cursor_for_search_path.execute(sql_)
