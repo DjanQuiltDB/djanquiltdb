@@ -1,3 +1,4 @@
+import types
 from collections import OrderedDict
 from unittest import mock
 
@@ -594,6 +595,56 @@ class ConnectionTestCase(SimpleTestCase):
         from django.db import connection as django_connection
 
         self.assertIs(django_connection, connection)
+
+
+class PublicModelValidationTestCase(SimpleTestCase):
+    def ready_with_a_public_model_and_plugins(self, public_model, plugins):
+        sharding_app = apps.get_app_config(app_label='djanquiltdb')
+
+        with mock.patch('djanquiltdb.apps.get_all_public_models', return_value=[public_model]):
+            with mock.patch('djanquiltdb.apps.load_plugins', return_value=plugins):
+                sharding_app.ready()
+
+    @isolate_apps('djanquiltdb')
+    def test_a_public_model_without_a_natural_key_is_reported(self):
+        """
+        Case: A public model has no unique_together and no natural_key(), and no plugin gives it one.
+        Expected: ImproperlyConfigured, which names the model.
+        """
+
+        class Biscuit(models.Model):
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with self.assertRaisesMessage(ImproperlyConfigured, 'djanquiltdb.Biscuit must have "unique_together"'):
+            self.ready_with_a_public_model_and_plugins(Biscuit, plugins=())
+
+    @isolate_apps('djanquiltdb')
+    def test_the_install_of_a_plugin_can_give_a_public_model_its_natural_key(self):
+        """
+        Case: A public model has no unique_together and no natural_key(), and the install() of an installed plugin adds
+              both, as a plugin does for a model of a third-party app that it cannot change.
+        Expected: No ImproperlyConfigured, because the plugins are installed before the public models are validated.
+        """
+
+        class RuskManager(models.Manager):
+            # The validation only checks that the method exists.
+            def get_by_natural_key(self, id):  # pragma: no cover
+                return self.get(id=id)
+
+        class Rusk(models.Model):
+            objects = RuskManager()
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        def add_natural_key_to_rusk():
+            Rusk._meta.unique_together = (('id',),)
+            Rusk.natural_key = lambda rusk: (rusk.id,)
+
+        plugin = types.SimpleNamespace(install=add_natural_key_to_rusk)
+
+        self.ready_with_a_public_model_and_plugins(Rusk, plugins=(plugin,))
 
 
 class DescriptorRaisingOnClassAccess:

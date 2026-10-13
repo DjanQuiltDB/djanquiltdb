@@ -79,11 +79,13 @@ class DjanQuiltDBConfig(AppConfig):
         ) and get_all_mirrored_models():
             raise ImproperlyConfigured("There are MIRRORED models, but QUILT_DB['PRIMARY_DB_ALIAS'] is not set.")
 
-        _validate_public_models()
         _register_checks()
         _patch_connections()
         _patch_transactions()
+        # A plugin's install() can give a model of a third-party app the natural key that a public model needs, so the
+        # plugins are installed before the public models are validated.
         _install_plugins()
+        _validate_public_models()
         _initialize_sharded_models()
 
 
