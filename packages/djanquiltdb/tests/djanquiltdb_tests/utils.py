@@ -72,6 +72,7 @@ from example.models import (
     DetailedReport,
     Flavour,
     MirroredUser,
+    Note,
     Organization,
     OrganizationShard,
     Pudding,
@@ -827,6 +828,7 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
             [
                 'django_migrations',
                 'example_organization',
+                'example_note',
                 'example_suborganization',
                 'example_user',
                 'example_statement',
@@ -1090,7 +1092,7 @@ class GetAllShardedModels(ShardingTestCase):
         ):
             self.assertCountEqual(
                 get_all_sharded_models(),
-                [User, Statement, Suborganization, Cake, QuiltSession, Report, DetailedReport, Pudding],
+                [User, Statement, Suborganization, Cake, QuiltSession, Report, DetailedReport, Pudding, Note],
             )
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
@@ -1128,6 +1130,7 @@ class GetAllShardedModels(ShardingTestCase):
             result,
             [
                 "<class 'example.models.Organization'>",
+                "<class 'example.models.Note'>",
                 "<class 'example.models.Suborganization'>",
                 "<class 'example.models.Cake'>",
                 "<class 'example.models.User_cake'>",
@@ -1152,6 +1155,7 @@ class GetAllShardedModels(ShardingTestCase):
             result,
             [
                 "<class 'example.models.Organization'>",
+                "<class 'example.models.Note'>",
                 "<class 'example.models.Suborganization'>",
                 "<class 'example.models.Cake'>",
                 "<class 'example.models.ProxyCake'>",  # This is a proxy model

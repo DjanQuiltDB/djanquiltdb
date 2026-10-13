@@ -10,7 +10,14 @@ from django.utils import termcolors
 from djanquiltdb import ShardingMode
 from djanquiltdb.collector import SimpleCollector
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.utils import disable_signals, get_all_sharded_models, get_model_sharding_mode, get_shard_class
+from djanquiltdb.plugins import entered_plugin_hook_contexts, run_plugin_hooks
+from djanquiltdb.utils import (
+    disable_signals,
+    get_all_sharded_models,
+    get_model_sharding_mode,
+    get_shard_class,
+    transaction_for_nodes,
+)
 
 
 class Command(BaseCommand):
@@ -85,6 +92,8 @@ class Command(BaseCommand):
             objects=self.get_objects(),
             use_original_collector=not self.options['simple_collector'],
         )
+        # A hook can remove rows from the collected data, so they are not deleted.
+        run_plugin_hooks('purge_shard_data.post_collect', self, collector.data)
 
         if not self.confirm(collector.data):
             self.log('\nOperation cancelled.', level=1)
@@ -193,7 +202,20 @@ class Command(BaseCommand):
 
     def delete_data(self, collector):
         """
-        Delete all the collected data after disconnecting pre_delete and post_delete signals
+        Delete all the collected data after disconnecting pre_delete and post_delete signals.
+
+        The delete and the hooks of the plugins run in one transaction on the node of the shard, so a hook that fails
+        leaves the data in place. The hooks also run with the signals disconnected, so a row that a hook deletes is
+        handled as the purged rows are.
         """
-        with disable_signals([pre_delete, post_delete]):
+        # Read before the delete, which clears the primary keys of the instances that it deletes.
+        pk_set = {model: [instance.pk for instance in instances] for model, instances in collector.data.items()}
+
+        with (
+            transaction_for_nodes(nodes=[self.shard.node_name]),
+            entered_plugin_hook_contexts('purge_shard_data.purge_context', self),
+            disable_signals([pre_delete, post_delete]),
+        ):
+            run_plugin_hooks('purge_shard_data.pre_delete', self, pk_set)
             collector.delete()
+            run_plugin_hooks('purge_shard_data.post_delete', self, pk_set)

@@ -9,7 +9,7 @@ Ideally you take sharding in consideration at the moment you first conceptualize
 
 If you have not, and discover after years your project needs sharding: you are faced with some problems.
 One of which is, all the data is in a single place: the default database on the public schema.
-The `move_models_to_schema` command looks after that, and will relocate all sharded tables from the public schema to a single sharded schema.
+The ``move_sharded_models`` command looks after that, and will relocate all sharded tables from the public schema to a single sharded schema.
 Next is to move data away from that 'main' schema, and into their own schemas. After all, you won't see any benefit from sharding if you use only a single shard.
 This can be done with the ``move_data_to_shard`` command.
 
@@ -59,6 +59,12 @@ Two more operational notes. The rows deleted from the source in step 5 are the r
 ``pre_delete``/``post_delete`` signals are disconnected during that deletion - a handler cleaning up external
 resources keyed by those rows would destroy things the moved copy still references. And the copy buffers each table's
 export in memory, so peak memory use is proportional to the largest table being moved.
+
+Plugins can hook into the move. ``move_data_to_shard.post_collect`` runs once the rows are collected, and can leave
+rows out of the move. Inside the transaction, ``move_context`` wraps the copy and the delete, ``pre_copy`` and
+``post_copy`` run around the copy, and ``pre_delete`` and ``post_delete`` around the delete from the source shard.
+``post_delete`` is where a plugin deletes moved rows that Django's collector does not find. The delete only removes
+rows that were copied. See :ref:`command_hooks`.
 
 
 ``get_target_shard``

@@ -3,6 +3,7 @@ from django.db.utils import IntegrityError
 from django.utils import termcolors
 
 from djanquiltdb.options import ShardOptions
+from djanquiltdb.plugins import entered_plugin_hook_contexts, run_plugin_hooks
 from djanquiltdb.utils import get_all_databases, get_shard_class
 
 
@@ -113,5 +114,10 @@ class Command(BaseCommand):
         return True
 
     def delete_schema(self):
-        with self.node_options.use() as env:
-            env.connection.delete_schema(self.schema_name)
+        with entered_plugin_hook_contexts('purge_schema.purge_context', self):
+            run_plugin_hooks('purge_schema.pre_drop', self)
+
+            with self.node_options.use() as env:
+                env.connection.delete_schema(self.schema_name)
+
+            run_plugin_hooks('purge_schema.post_drop', self)

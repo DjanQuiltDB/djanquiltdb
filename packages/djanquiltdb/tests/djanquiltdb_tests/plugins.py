@@ -1,3 +1,4 @@
+import contextlib
 import importlib
 import importlib.util
 import subprocess
@@ -374,3 +375,51 @@ class PluginLoadingIsLazyTestCase(SimpleTestCase):
         result = subprocess.run([sys.executable, '-c', subprocess_source], capture_output=True, text=True)
 
         self.assertEqual(result.returncode, 0, result.stderr)
+
+
+class PluginHooksTestCase(SimpleTestCase):
+    def test_a_hook_is_found_by_its_command_section_and_its_name(self):
+        """
+        Case: Three plugins are loaded: one has the hook move_data_to_shard.pre_copy, one has the move_data_to_shard
+              section without that hook, and one has no such section. The hook is run with arguments.
+        Expected: Only the hook of the first plugin is called, with those arguments.
+        """
+        calls = []
+        loaded_plugins = (
+            types.SimpleNamespace(move_data_to_shard=types.SimpleNamespace(pre_copy=lambda *args: calls.append(args))),
+            types.SimpleNamespace(move_data_to_shard=types.SimpleNamespace()),
+            types.SimpleNamespace(),
+        )
+
+        with mock.patch.object(plugins, 'load_plugins', return_value=loaded_plugins):
+            plugins.run_plugin_hooks('move_data_to_shard.pre_copy', 'command', 'pk_set')
+
+        self.assertEqual(calls, [('command', 'pk_set')])
+
+    def test_the_contexts_of_every_plugin_are_entered_in_order_and_exited_in_reverse(self):
+        """
+        Case: Two plugins have the context hook move_data_to_shard.move_context, and the hook contexts are entered.
+        Expected: Both contexts are entered with the arguments, in the order of the plugins, before the block runs, and
+                  exited in reverse order after it.
+        """
+        events = []
+
+        def recording_context(name):
+            @contextlib.contextmanager
+            def move_context(command):
+                events.append(('enter', name, command))
+                yield
+                events.append(('exit', name))
+
+            return types.SimpleNamespace(move_data_to_shard=types.SimpleNamespace(move_context=move_context))
+
+        with mock.patch.object(
+            plugins, 'load_plugins', return_value=(recording_context('one'), recording_context('two'))
+        ):
+            with plugins.entered_plugin_hook_contexts('move_data_to_shard.move_context', 'command'):
+                events.append('block')
+
+        self.assertEqual(
+            events,
+            [('enter', 'one', 'command'), ('enter', 'two', 'command'), 'block', ('exit', 'two'), ('exit', 'one')],
+        )

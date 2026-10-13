@@ -12,6 +12,7 @@ A plugin's ``decorators`` and ``models`` modules are served as ``djanquiltdb.dec
 import statements, and the ``__getattr__`` of each of the two core modules handles plain attribute access.
 """
 
+import contextlib
 import sys
 from functools import cache
 from importlib import import_module
@@ -93,6 +94,49 @@ def load_plugins():
         for registered in _entry_points_by_name().values()
         if not isinstance(registered, _DuplicatedPluginName)
     )
+
+
+def plugin_hooks(name):
+    """
+    Returns the hook that each loaded plugin has under ``name``, in the order in which the plugins are loaded. A name has
+    the form ``<command>.<hook>``, and is read from the plugin object as an attribute path, so each command is a section
+    of its own, such as ``plugin.move_data_to_shard.pre_copy``. A plugin without the hook takes no part.
+
+    The hooks that DjanQuiltDB calls are listed in the Plugins section of the API reference.
+    """
+    hooks = []
+
+    for plugin in load_plugins():
+        hook = plugin
+
+        for attribute in name.split('.'):
+            hook = getattr(hook, attribute, None)
+
+        if callable(hook):
+            hooks.append(hook)
+
+    return hooks
+
+
+def run_plugin_hooks(name, *args, **kwargs):
+    """
+    Calls the hook that each loaded plugin has under ``name`` with the given arguments.
+    """
+    for hook in plugin_hooks(name):
+        hook(*args, **kwargs)
+
+
+@contextlib.contextmanager
+def entered_plugin_hook_contexts(name, *args, **kwargs):
+    """
+    Enters the context manager that the hook of each loaded plugin under ``name`` returns for the given arguments, in
+    the order in which the plugins are loaded, and exits them in reverse order after the block.
+    """
+    with contextlib.ExitStack() as stack:
+        for hook in plugin_hooks(name):
+            stack.enter_context(hook(*args, **kwargs))
+
+        yield
 
 
 def load_plugin_by_name(name):

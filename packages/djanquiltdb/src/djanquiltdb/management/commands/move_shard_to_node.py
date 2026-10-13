@@ -10,6 +10,7 @@ from django.db.models.fields import AutoFieldMixin
 
 from djanquiltdb import ShardingMode, State
 from djanquiltdb.options import ShardOptions
+from djanquiltdb.plugins import entered_plugin_hook_contexts, run_plugin_hooks
 from djanquiltdb.utils import (
     create_schema_on_node,
     get_all_databases,
@@ -204,13 +205,19 @@ class Command(BaseCommand):
                 node_name=self.target_node, schema_name=self.source_shard.schema_name
             )
 
-            with self.target_shard_options.use() as env:
-                with env.connection.user_triggers_disabled(env.connection.get_all_table_headers()):
-                    self.copy_data()
-                    self.retarget_relations()
-            self.copy_sequence_positions()
-            self.reset_sequences()
-            self.refresh_materialized_views()
+            with entered_plugin_hook_contexts('move_shard_to_node.move_context', self):
+                run_plugin_hooks('move_shard_to_node.pre_copy', self)
+
+                with self.target_shard_options.use() as env:
+                    with env.connection.user_triggers_disabled(env.connection.get_all_table_headers()):
+                        self.copy_data()
+                        self.retarget_relations()
+
+                run_plugin_hooks('move_shard_to_node.post_copy', self)
+
+                self.copy_sequence_positions()
+                self.reset_sequences()
+                self.refresh_materialized_views()
 
     def copy_data(self):
         """

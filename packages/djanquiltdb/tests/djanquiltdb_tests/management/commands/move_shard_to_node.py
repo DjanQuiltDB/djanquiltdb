@@ -26,6 +26,7 @@ from djanquiltdb_tests import (
     ShardingTransactionTestCase,
     skip_without_virtual_generated_column_support,
 )
+from djanquiltdb_tests.plugin_hooks import plugin_installed, recording_plugin
 from example.models import (
     Cake,
     CakeType,
@@ -234,6 +235,34 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
             # Check if the content is still intact, due to escaping and what not.
             self.assertEqual(Statement.objects.get(id=self.statement_1.id).content, "'Luke'!")
             self.assertEqual(Statement.objects.get(id=self.statement_2.id).content, 'Try to; solve this "puzzle."')
+
+    def test_the_hooks_of_a_plugin_run_around_the_copy(self):
+        """
+        Case: The shard moves while a plugin has every hook of move_shard_to_node.
+        Expected: Inside the transaction of the move, once the target schema exists, move_context is entered first,
+                  pre_copy runs before the rows are copied, post_copy after the rows are copied and retargeted, and
+                  move_context is exited last.
+        """
+        calls = []
+
+        def record(hook, command):
+            with ShardOptions(node_name='other', schema_name='test_source').use():
+                calls.append((hook, connections['other'].in_atomic_block, Organization.objects.count()))
+
+        plugin = recording_plugin('move_shard_to_node', 'move_context', ['pre_copy', 'post_copy'], record)
+
+        with plugin_installed(plugin):
+            call_command('move_shard_to_node', *self.format_options_to_args())
+
+        self.assertEqual(
+            calls,
+            [
+                ('enter move_context', True, 0),
+                ('pre_copy', True, 0),
+                ('post_copy', True, 3),
+                ('exit move_context', True, 3),
+            ],
+        )
 
     def test_moving_a_shard_refreshes_materialized_views(self):
         """
@@ -777,7 +806,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         self.command.copy_data()
 
-        self.assertEqual(mock_copy_data_stream.call_count, 22)  # 11 sharded models * 2 = 22
+        self.assertEqual(mock_copy_data_stream.call_count, 24)  # 12 sharded models * 2 = 24
 
     def test_get_mapped_value(self):
         """

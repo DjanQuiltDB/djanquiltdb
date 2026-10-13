@@ -101,6 +101,21 @@ class Organization(models.Model):
 
 
 @sharded_model()
+class Note(models.Model):
+    """
+    A note about an organization. It refers to the organization without a database constraint and with
+    on_delete=DO_NOTHING, as the event tables of django-pghistory refer to the rows that they describe, so Django's
+    delete collector does not follow the relation, and DjanQuiltDB's simple collector does.
+    """
+
+    organization = models.ForeignKey('Organization', on_delete=models.DO_NOTHING, db_constraint=False, related_name='+')
+    text = models.CharField('text', max_length=100)
+
+    class Meta:
+        app_label = 'example'
+
+
+@sharded_model()
 class Suborganization(models.Model):
     parent = models.ForeignKey(
         'Organization', verbose_name='organization', related_name='parent', on_delete=models.CASCADE

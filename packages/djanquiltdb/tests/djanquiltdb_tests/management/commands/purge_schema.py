@@ -7,6 +7,7 @@ from djanquiltdb.management.commands.purge_schema import Command
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.utils import create_schema_on_node, create_template_schema, use_shard
 from djanquiltdb_tests import OverrideMirroredRoutingMixin, ShardingTestCase, ShardingTransactionTestCase
+from djanquiltdb_tests.plugin_hooks import plugin_installed, recording_plugin
 from example.models import Cake, CakeType, Organization, Shard, SuperType, Type, User
 
 
@@ -75,6 +76,28 @@ class PurgeShardDataTransactionTestCase(OverrideMirroredRoutingMixin, ShardingTr
         # Should still not exist on default (since it never did) :p
         with use_shard(node_name='default', schema_name='public') as env:
             self.assertFalse(env.connection.get_ps_schema('desolate_lands'))
+
+    def test_the_hooks_of_a_plugin_run_around_the_drop(self):
+        """
+        Case: A schema is purged while a plugin has every hook of purge_schema.
+        Expected: purge_context is entered first, pre_drop runs while the schema still exists and post_drop once it is
+                  dropped, and purge_context is exited last.
+        """
+        calls = []
+
+        def record(hook, command):
+            with use_shard(node_name='other', schema_name='public') as env:
+                calls.append((hook, bool(env.connection.get_ps_schema('desolate_lands'))))
+
+        plugin = recording_plugin('purge_schema', 'purge_context', ['pre_drop', 'post_drop'], record)
+
+        with plugin_installed(plugin):
+            call_command('purge_schema', **self.options)
+
+        self.assertEqual(
+            calls,
+            [('enter purge_context', True), ('pre_drop', True), ('post_drop', False), ('exit purge_context', False)],
+        )
 
 
 class PurgeSchemaTestCase(ShardingTestCase):

@@ -1,4 +1,5 @@
 import re
+from types import SimpleNamespace
 from unittest import mock
 
 from django.contrib.admin.utils import NestedObjects
@@ -9,8 +10,10 @@ from django.db.models.signals import post_delete, pre_delete
 from djanquiltdb.management.commands.purge_shard_data import Command
 from djanquiltdb.utils import State, create_template_schema, use_shard
 from djanquiltdb_tests import ShardingTestCase
+from djanquiltdb_tests.plugin_hooks import plugin_installed, recording_plugin
 from example.models import (
     Cake,
+    Note,
     Organization,
     OrganizationShard,
     Shard,
@@ -154,6 +157,108 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
     def _should_check_constraints(self, connection):
         # Some of the test artifacts will be constraint non compliant. Do not check for constraints during teardown.
         return False
+
+    def test_the_hooks_of_a_plugin_run_around_the_delete(self):
+        """
+        Case: The data of an organization is purged while a plugin has every hook of purge_shard_data.
+        Expected: post_collect runs first and receives the collected rows. Then purge_context is entered, pre_delete runs
+                  before the delete and post_delete after it, and purge_context is exited last. The other plain hooks
+                  receive the primary keys of the purged rows.
+        """
+        calls = []
+
+        def record(hook, command, rows_by_model=None):
+            organization_exists = (
+                Organization.objects.using(self.source_shard).filter(pk=self.organization_1.pk).exists()
+            )
+            calls.append(
+                (
+                    hook,
+                    organization_exists,
+                    rows_by_model and [getattr(row, 'pk', row) for row in rows_by_model[Organization]],
+                )
+            )
+
+        plugin = recording_plugin(
+            'purge_shard_data', 'purge_context', ['post_collect', 'pre_delete', 'post_delete'], record
+        )
+
+        with plugin_installed(plugin):
+            call_command('purge_shard_data', **self.options)
+
+        purged = [self.organization_1.pk]
+
+        self.assertEqual(
+            calls,
+            [
+                ('post_collect', True, purged),
+                ('enter purge_context', True, None),
+                ('pre_delete', True, purged),
+                ('post_delete', False, purged),
+                ('exit purge_context', False, None),
+            ],
+        )
+
+    def test_a_row_that_a_hook_leaves_out_is_not_purged(self):
+        """
+        Case: The organization has a Note, which the simple collector finds through its foreign key. Its data is purged
+              with the simple collector while a plugin's post_collect hook removes the Note from the collected rows.
+        Expected: The organization is purged, and the Note stays in the shard.
+        """
+        with use_shard(self.source_shard):
+            note = Note.objects.create(organization=self.organization_1, text='left out')
+
+        plugin = SimpleNamespace(
+            purge_shard_data=SimpleNamespace(post_collect=lambda command, data: data[Note].clear())
+        )
+
+        with plugin_installed(plugin):
+            call_command('purge_shard_data', **self.options)
+
+        self.assertFalse(Organization.objects.using(self.source_shard).filter(pk=self.organization_1.pk).exists())
+        self.assertTrue(Note.objects.using(self.source_shard).filter(pk=note.pk).exists())
+
+    def test_a_purge_whose_post_delete_hook_raises_changes_nothing(self):
+        """
+        Case: The data of an organization is purged while a plugin's post_delete hook raises an error.
+        Expected: The error is raised, and the rows of the organization are still in the shard, because the delete and
+                  the hooks run in one transaction.
+        """
+
+        def fail(command, pk_set):
+            raise DatabaseError('The hook failed.')
+
+        plugin = SimpleNamespace(purge_shard_data=SimpleNamespace(post_delete=fail))
+
+        with plugin_installed(plugin), self.assertRaisesMessage(DatabaseError, 'The hook failed.'):
+            call_command('purge_shard_data', **self.options)
+
+        self.assertTrue(Organization.objects.using(self.source_shard).filter(pk=self.organization_1.pk).exists())
+        self.assertTrue(User.objects.using(self.source_shard).filter(pk=self.user_1.pk).exists())
+
+    def test_the_delete_hooks_of_a_plugin_run_with_the_delete_signals_disconnected(self):
+        """
+        Case: A pre_delete and a post_delete receiver are connected for User. The data of an organization is purged
+              while a plugin's post_delete hook deletes a User of another organization through the ORM.
+        Expected: The hook deletes the User, and neither receiver is called.
+        """
+
+        def delete_a_user(command, pk_set):
+            User.objects.using(command.shard).filter(pk=self.user_4.pk).delete()
+
+        receiver = mock.Mock()
+        pre_delete.connect(receiver, sender=User)
+        post_delete.connect(receiver, sender=User)
+        self.addCleanup(pre_delete.disconnect, receiver, sender=User)
+        self.addCleanup(post_delete.disconnect, receiver, sender=User)
+
+        plugin = SimpleNamespace(purge_shard_data=SimpleNamespace(post_delete=delete_a_user))
+
+        with plugin_installed(plugin):
+            call_command('purge_shard_data', **self.options)
+
+        self.assertFalse(User.objects.using(self.source_shard).filter(pk=self.user_4.pk).exists())
+        receiver.assert_not_called()
 
     def test_get_objects(self):
         """
@@ -321,7 +426,7 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         Case: Call delete_data.
         Expected: The delete method of the collector will be called within a disable_signals context manager.
         """
-        mock_collector = mock.Mock()
+        mock_collector = mock.Mock(data={})
 
         self.command.shard = self.source_shard
         self.command.delete_data(collector=mock_collector)

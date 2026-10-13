@@ -87,5 +87,9 @@ otherwise record every row a second time. Foreign keys are still checked, and th
 move ends. A row of a public model that the retargeting copies to the target node is a new row there, so the triggers
 of its table do fire.
 
+Plugins can hook into the move, inside its transaction and once the schema exists on the target node:
+``move_shard_to_node.move_context`` wraps the rest of the move, and ``pre_copy`` and ``post_copy`` run around the copy
+and the retargeting. See :ref:`command_hooks`.
+
 Reading the source's positions requires ``SELECT`` on every sequence of the source shard. If the role can use a
 sequence but not read it, the move stops with a permission error, the same as cloning a schema does.

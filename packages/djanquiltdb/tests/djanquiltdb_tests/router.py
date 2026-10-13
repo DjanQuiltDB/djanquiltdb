@@ -641,6 +641,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         template_tables = [
             'django_migrations',
             'example_organization',
+            'example_note',
             'example_suborganization',
             'example_user',
             'example_statement',

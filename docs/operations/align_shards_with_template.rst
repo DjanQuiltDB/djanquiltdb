@@ -50,6 +50,10 @@ Because of the shard's lock, the command waits for a ``move_shard_to_node`` or `
 finish. Shards are aligned whatever their state, the same as ``migrate`` migrates them. The statements take short-lived
 locks on the tables and sequences they change, so run the command when the shards are quiet.
 
+Plugins can hook into the alignment of each shard, inside its transaction: ``align_shards_with_template.align_context``
+wraps the statements, and ``pre_align`` and ``post_align`` run before and after them. A dry run calls none of them. See
+:ref:`command_hooks`.
+
 A rename can clash with a name that is already in use. A shard can have a relation with the name that the template
 gives to one of the shard's primary keys or identity sequences, such as a sequence left behind by a table that was
 dropped before that name was used. A table can also have another constraint with the name that the template gives to

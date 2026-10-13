@@ -18,6 +18,10 @@ Steps
 
 #. Delete objects.
 
+The delete runs in one transaction, with the ``pre_delete`` and ``post_delete`` signals disconnected. Plugins can hook
+into the purge: ``purge_shard_data.post_collect`` runs once the rows are collected, and can leave rows out of the
+purge. ``purge_context`` wraps the delete, and ``pre_delete`` and ``post_delete`` run before and after it, inside the
+same transaction. See :ref:`command_hooks`.
 
 Options
 -------
