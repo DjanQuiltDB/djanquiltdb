@@ -2966,6 +2966,72 @@ class SequenceCloningTestCase(ShardingTransactionTestCase):
 
 
 class TriggersTestCase(ShardingTransactionTestCase):
+    #: The enabled state that each trigger of create_triggers_in_every_state() gets, as pg_trigger.tgenabled has it.
+    TRIGGER_STATES = {'always_trigger': 'A', 'disabled_trigger': 'D', 'enabled_trigger': 'O', 'replica_trigger': 'R'}
+
+    def create_triggers_in_every_state(self, schema_name):
+        """
+        Creates the schema with a table that has a trigger in each state of TRIGGER_STATES. The test's cleanup drops the
+        schema.
+        """
+        with connections['default'].cursor() as cursor:
+            cursor.execute(f'CREATE SCHEMA {schema_name}')
+            self.addCleanup(self.drop_schema, schema_name)
+
+            cursor.execute(f'CREATE TABLE {schema_name}.pastry (id integer PRIMARY KEY)')
+            cursor.execute(
+                f'CREATE FUNCTION {schema_name}.do_nothing() RETURNS trigger LANGUAGE plpgsql AS '
+                '$$ BEGIN RETURN NEW; END; $$'
+            )
+
+            for trigger_name in self.TRIGGER_STATES:
+                cursor.execute(
+                    f'CREATE TRIGGER {trigger_name} BEFORE INSERT ON {schema_name}.pastry '
+                    f'FOR EACH ROW EXECUTE FUNCTION {schema_name}.do_nothing()'
+                )
+
+            cursor.execute(f'ALTER TABLE {schema_name}.pastry DISABLE TRIGGER disabled_trigger')
+            cursor.execute(f'ALTER TABLE {schema_name}.pastry ENABLE ALWAYS TRIGGER always_trigger')
+            cursor.execute(f'ALTER TABLE {schema_name}.pastry ENABLE REPLICA TRIGGER replica_trigger')
+
+    @staticmethod
+    def drop_schema(schema_name):
+        with connections['default'].cursor() as cursor:
+            cursor.execute(f'DROP SCHEMA IF EXISTS {schema_name} CASCADE')
+
+    @staticmethod
+    def trigger_states(schema_name):
+        """
+        Returns the pg_trigger.tgenabled state of each user trigger in the schema, by trigger name.
+        """
+        with connections['default'].cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT tg.tgname::text, tg.tgenabled::text
+                  FROM pg_catalog.pg_trigger tg
+                  JOIN pg_catalog.pg_class cls ON tg.tgrelid = cls.oid
+                  JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+                 WHERE nsp.nspname = %s AND NOT tg.tgisinternal
+                """,
+                [schema_name],
+            )
+
+            return dict(cursor.fetchall())
+
+    def test_user_triggers_disabled_puts_back_the_state_of_each_trigger(self):
+        """
+        Case: The user triggers of a table are disabled for a block. The table has a trigger in each state: enabled,
+              disabled, enabled always and enabled for replicas.
+        Expected: Every trigger is disabled inside the block, and has its own state again after it.
+        """
+        self.create_triggers_in_every_state('trigger_states_schema')
+
+        with transaction.atomic(using='default'):
+            with connections['default'].user_triggers_disabled(['pastry'], schema_name='trigger_states_schema'):
+                self.assertEqual(self.trigger_states('trigger_states_schema'), dict.fromkeys(self.TRIGGER_STATES, 'D'))
+
+        self.assertEqual(self.trigger_states('trigger_states_schema'), self.TRIGGER_STATES)
+
     def test_clone_schema_with_triggers(self):
         """
         Case: Clone a schema containing triggers.

@@ -189,6 +189,11 @@ class Command(BaseCommand):
         4) Move every sequence to its position on the source schema, then reset the sequences of the models to match
            the new data
         5) Upon transaction close, all fkeys constrains will be checked by postgres
+
+        Steps 2 and 3 run with the user triggers of the target schema disabled. The rows already went through the
+        triggers of the source schema when they were written, so a trigger, such as one that records history, would
+        act on them a second time. The triggers can only be enabled again once the foreign keys of the copied rows are
+        checked, so those checks run when step 3 ends.
         """
         nodes = list({self.source_shard.node_name, self.target_node})
         with transaction_for_nodes(nodes=nodes):
@@ -198,8 +203,10 @@ class Command(BaseCommand):
                 node_name=self.target_node, schema_name=self.source_shard.schema_name
             )
 
-            self.copy_data()
-            self.retarget_relations()
+            with self.target_shard_options.use() as env:
+                with env.connection.user_triggers_disabled(env.connection.get_all_table_headers()):
+                    self.copy_data()
+                    self.retarget_relations()
             self.copy_sequence_positions()
             self.reset_sequences()
             self.refresh_materialized_views()

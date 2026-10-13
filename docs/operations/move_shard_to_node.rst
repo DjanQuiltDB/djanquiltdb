@@ -20,7 +20,7 @@ Steps
 2. Inside one transaction spanning both nodes: create the schema on the target node by cloning its template, copy
    every table's rows over, retarget relations that point at PUBLIC models (whose ids may differ per node), move every
    sequence to its position on the source, reset the sequences of the models, and repopulate the materialized views the
-   source keeps populated.
+   source keeps populated. The copy and the retargeting run with the user triggers of the target schema disabled.
 
 3. On success, point the shard's registry row at the target node and restore the shard and mapping objects to their
    previous state. On failure the transaction rolls back, the states are restored, and the command can simply be run
@@ -73,6 +73,12 @@ still take new rows. The sequence reset then looks up each model's sequence thro
 column, so it also works for a table that was renamed after it was created. If a model's auto-incrementing column has
 no sequence, or the shard has no such table or column, the move stops with an error that names the column. It stops
 before any sequence is reset.
+
+The rows went through the triggers of the source schema when they were written, so the triggers of the target schema
+do not fire for the rows that the move copies or retargets. A trigger that records history, for example, would
+otherwise record every row a second time. Foreign keys are still checked, and the triggers are enabled again before the
+move ends. A row of a public model that the retargeting copies to the target node is a new row there, so the triggers
+of its table do fire.
 
 Reading the source's positions requires ``SELECT`` on every sequence of the source shard. If the role can use a
 sequence but not read it, the move stops with a permission error, the same as cloning a schema does.

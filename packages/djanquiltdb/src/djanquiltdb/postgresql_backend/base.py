@@ -12,6 +12,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 """
 
+import contextlib
 import logging
 import re
 
@@ -1025,6 +1026,14 @@ SELECT seq_cls.oid AS sequence_oid, seq_cls.relname::text AS sequence_name, owne
 
 PUBLIC_SCHEMA_NAME = 'public'
 
+#: The ALTER TABLE clause that gives a trigger each enabled state of pg_trigger.tgenabled. A disabled trigger ('D') has
+#: no entry, because it is disabled already.
+ENABLE_TRIGGER_CLAUSE_BY_STATE = {
+    'O': 'ENABLE TRIGGER',
+    'A': 'ENABLE ALWAYS TRIGGER',
+    'R': 'ENABLE REPLICA TRIGGER',
+}
+
 
 def get_validated_schema_name(schema_name, is_template=False):
     from djanquiltdb.utils import get_template_name  # Prevent cyclic imports
@@ -1133,6 +1142,53 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             [schema],
         )
         return [x[0] for x in cursor.fetchall()]  # We get a list of single tuples
+
+    @contextlib.contextmanager
+    def user_triggers_disabled(self, table_names, schema_name=None, _cursor=None):
+        """
+        Disable the user triggers of the given tables of the schema while the block runs, and give each one its own state
+        again after it: enabled, enabled always, enabled for replicas, or disabled. Triggers that enforce foreign keys
+        stay enabled.
+
+        Run this inside a transaction. ALTER TABLE locks each table until the transaction ends, and when the block
+        raises, the triggers are left disabled for the rollback to restore. Postgres cannot alter a table while a
+        deferred foreign key check of a row that the block wrote is still pending, so the deferred checks run when the
+        block ends, before the triggers are enabled, and not when the transaction commits.
+        """
+        cursor = _cursor or self.cursor()
+        schema = schema_name or self.get_schema()
+        quote_name = self.ops.quote_name
+        cursor.execute(
+            """
+            SELECT cls.relname::text, tg.tgname::text, tg.tgenabled::text
+              FROM pg_catalog.pg_trigger tg
+              JOIN pg_catalog.pg_class cls ON tg.tgrelid = cls.oid
+              JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+             WHERE nsp.nspname = %s AND cls.relname = ANY(%s) AND NOT tg.tgisinternal
+            """,
+            [schema, list(table_names)],
+        )
+        trigger_states = cursor.fetchall()
+
+        for table in table_names:
+            cursor.execute(
+                'ALTER TABLE {}.{} DISABLE TRIGGER USER'.format(quote_name(schema), quote_name(table))  # nosec
+            )
+
+        yield
+
+        self.check_constraints()
+
+        for table, trigger, state in trigger_states:
+            if state in ENABLE_TRIGGER_CLAUSE_BY_STATE:
+                cursor.execute(
+                    'ALTER TABLE {}.{} {} {}'.format(  # nosec
+                        quote_name(schema),
+                        quote_name(table),
+                        ENABLE_TRIGGER_CLAUSE_BY_STATE[state],
+                        quote_name(trigger),
+                    )
+                )
 
     def get_copyable_column_names(self, table_name, schema_name=None, _cursor=None):
         """

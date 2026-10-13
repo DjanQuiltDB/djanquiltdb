@@ -716,8 +716,10 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.copy_sequence_positions')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.reset_sequences')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.refresh_materialized_views')
+    @mock.patch('djanquiltdb.options.ShardOptions.use')
     def test_move_shard(
         self,
+        mock_use,
         mock_refresh_materialized_views,
         mock_reset_sequences,
         mock_copy_sequence_positions,
@@ -729,7 +731,8 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         """
         Case: Call move_shard.
         Expected: transaction_for_nodes to be used with the correct node names as argument.
-                  Other functions (that do the actual work) also called.
+                  Other functions (that do the actual work) also called, and the user triggers of the target schema
+                  disabled around the copy and the retargeting.
         """
         self.assertFalse(hasattr(self.command, 'target_shard_options'))
 
@@ -747,6 +750,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         mock_copy_sequence_positions.assert_called_once_with()
         mock_reset_sequences.assert_called_once_with()
         mock_refresh_materialized_views.assert_called_once_with()
+
+        target_connection = mock_use.return_value.__enter__.return_value.connection
+        target_connection.user_triggers_disabled.assert_called_once_with(
+            target_connection.get_all_table_headers.return_value
+        )
 
         self.assertEqual(self.command.target_shard_options.node_name, 'other')
         self.assertEqual(self.command.target_shard_options.schema_name, 'test_source')
