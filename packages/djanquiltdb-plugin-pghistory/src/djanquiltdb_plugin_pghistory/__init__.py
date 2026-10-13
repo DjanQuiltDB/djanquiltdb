@@ -6,7 +6,7 @@ every installed plugin before the app registry is ready, and the event bases can
 
 from types import SimpleNamespace
 
-from djanquiltdb_plugin_pghistory import decorators, models
+from djanquiltdb_plugin_pghistory import data_moves, decorators, models
 
 __version__ = '1.0.0'
 
@@ -28,7 +28,24 @@ def install():
     send_context_to_every_node()
 
 
-plugin = SimpleNamespace(decorators=decorators, models=models, install=install)
+# The plugin has no section for move_shard_to_node. That command disables every user trigger of the new schema while it
+# copies and retargets the rows, so the moved events keep their pgh_id and no event is recorded for the move. A public
+# row that the command copies to the target node is a new row there, so the triggers of its table record its events.
+plugin = SimpleNamespace(
+    decorators=decorators,
+    models=models,
+    install=install,
+    move_data_to_shard=SimpleNamespace(
+        post_collect=data_moves.keep_only_the_events_of_collected_rows,
+        move_context=data_moves.triggers_ignored_while_data_moves,
+        post_delete=data_moves.delete_moved_events,
+    ),
+    purge_shard_data=SimpleNamespace(
+        post_collect=data_moves.keep_only_the_events_of_collected_rows,
+        purge_context=data_moves.triggers_ignored_while_data_is_purged,
+        post_delete=data_moves.delete_events_of_purged_rows,
+    ),
+)
 
 # __getattr__ below resolves every name in this list except install and plugin, from the module that serves it.
 __all__ = [*models.__all__, *decorators.__all__, 'install', 'plugin']

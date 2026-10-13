@@ -32,8 +32,19 @@ Things to know
   load of such a fixture adds the events again. See :doc:`tracking`.
 * A query on pghistory's aggregate ``Events`` model, and so pghistory's admin, only covers the active shard and the
   public schema. Run it once for each shard to cover the whole project. See :doc:`tracking`.
-* ``Event.revert()`` writes through the router, to the active shard or the primary node, and not to the ``default``
-  connection as pghistory's own does. See :doc:`tracking`.
+* A query that selects the proxy fields of an event model fails when a tracked field has a ``db_column`` that is
+  different from its name, and a proxy field that reads a key inside a key returns its value JSON-encoded. pghistory
+  3.9 has these gaps too. See :doc:`tracking`.
+* Moving a shard or its data, or purging data, records no events for those rows, because their triggers do not fire.
+  That also holds for the project's own triggers: every one of them when a shard moves, and the ones that
+  django-pgtrigger installs when data moves or is purged. See :doc:`moving`.
+* When data moves to another shard or is purged, only the events of the moved or purged rows go with it. The events of
+  rows that were deleted before, or that belong to another root object now, stay. See :doc:`moving`.
+* A shard cannot move to another node while one of its events has a snapshot of a public row that was deleted since.
+  See :doc:`moving`.
+* ``Event.revert()`` and ``pghistory.create_event()`` write through the router, to the active shard or the primary
+  node, and not to the ``default`` connection as pghistory's own do. Call ``pghistory.create_event()`` through the
+  module, because a name imported before the app registry is ready is pghistory's own function. See :doc:`tracking`.
 * pghistory does not inherit the ``Meta`` of an event base, so a trigger or a meta option for every event model has to
   come from a wrapper of ``track()``. See :doc:`customization`.
 * A type checker cannot follow the names that the plugin serves lazily. Point it at the modules that define them. See
@@ -45,5 +56,6 @@ Things to know
 
     installation
     tracking
+    moving
     customization
     api

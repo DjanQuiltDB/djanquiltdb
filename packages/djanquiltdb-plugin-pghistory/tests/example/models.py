@@ -26,6 +26,18 @@ class Cake(models.Model):
         app_label = 'example'
 
 
+# The events of a Slice have a snapshot of its foreign key to Cake, so a collector that starts from a Cake also finds
+# the events of a slice that was deleted, or moved to another cake, through that snapshot.
+@track()
+@sharded_model()
+class Slice(models.Model):
+    cake = models.ForeignKey('example.Cake', on_delete=models.CASCADE)
+    flavour = models.CharField('flavour', max_length=128)
+
+    class Meta:
+        app_label = 'example'
+
+
 # track_mirrored() does not read the mode from the model, so it works with the mode decorator above it. The proxy field
 # reads a key from the denormalized context.
 @mirrored_model()

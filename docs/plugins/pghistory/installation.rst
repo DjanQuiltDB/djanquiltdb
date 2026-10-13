@@ -20,7 +20,8 @@ next to ``djanquiltdb`` and the ``pgtrigger`` app that it builds on::
 
 django-pghistory writes events through django-pgtrigger triggers, so everything that :doc:`the trigger documentation
 </database_objects/triggers>` says applies: triggers reach the template and every shard only through migrations, and the
-``pgtrigger`` management commands that bypass migrations must not be used.
+``pgtrigger`` management commands that bypass migrations must not be used. :doc:`moving` describes what happens to the
+events when a shard or its data moves.
 
 ``pghistory.context()`` passes its metadata to the triggers through the database connection. The plugin makes it do this
 on the connection of every node, so a context that is entered before a shard is selected, as pghistory's middleware
