@@ -70,12 +70,15 @@ from example.models import (
     CakeType,
     CoatingType,
     DetailedReport,
+    Flavour,
     MirroredUser,
     Organization,
     OrganizationShard,
+    Pudding,
     QuiltSession,
     Report,
     Shard,
+    Sprinkle,
     Statement,
     Suborganization,
     SuperType,
@@ -831,6 +834,7 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
                 'example_quiltsession',
                 'example_report',
                 'example_detailedreport',
+                'example_pudding',
                 'example_user_cake',
                 'example_statement_type',
             ],
@@ -1086,7 +1090,7 @@ class GetAllShardedModels(ShardingTestCase):
         ):
             self.assertCountEqual(
                 get_all_sharded_models(),
-                [User, Statement, Suborganization, Cake, QuiltSession, Report, DetailedReport],
+                [User, Statement, Suborganization, Cake, QuiltSession, Report, DetailedReport, Pudding],
             )
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
@@ -1133,6 +1137,7 @@ class GetAllShardedModels(ShardingTestCase):
                 "<class 'example.models.Statement'>",
                 "<class 'example.models.Report'>",
                 "<class 'example.models.DetailedReport'>",
+                "<class 'example.models.Pudding'>",
             ],
         )
 
@@ -1155,6 +1160,7 @@ class GetAllShardedModels(ShardingTestCase):
                 "<class 'example.models.QuiltSession'>",
                 "<class 'example.models.Report'>",
                 "<class 'example.models.DetailedReport'>",
+                "<class 'example.models.Pudding'>",
             ],
         )
 
@@ -1245,7 +1251,9 @@ class GetAllPublicModels(ShardingTestCase):
         Note: System test
         """
         with override_settings(QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
-            self.assertCountEqual(get_all_public_models(), [SuperType, MirroredUser, CakeType, CoatingType])
+            self.assertCountEqual(
+                get_all_public_models(), [SuperType, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle]
+            )
 
     def test_with_override_archived_models(self):
         """
@@ -1262,7 +1270,7 @@ class GetAllPublicModels(ShardingTestCase):
                 }
             }
         ):
-            self.assertCountEqual(get_all_public_models(), [SuperType, CakeType, CoatingType])
+            self.assertCountEqual(get_all_public_models(), [SuperType, CakeType, CoatingType, Flavour, Sprinkle])
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):
@@ -1289,6 +1297,8 @@ class GetAllPublicModels(ShardingTestCase):
                 "<class 'example.models.CakeType'>",
                 "<class 'example.models.CoatingType'>",
                 "<class 'example.models.CoatingType_super_type'>",
+                "<class 'example.models.Flavour'>",
+                "<class 'example.models.Sprinkle'>",
             ],
         )  # This is an auto-created model
 
@@ -1307,6 +1317,8 @@ class GetAllPublicModels(ShardingTestCase):
                 "<class 'example.models.CakeType'>",
                 "<class 'example.models.ProxyCakeType'>",  # This is a proxy model
                 "<class 'example.models.CoatingType'>",
+                "<class 'example.models.Flavour'>",
+                "<class 'example.models.Sprinkle'>",
             ],
         )
 
@@ -1323,7 +1335,8 @@ class GetAllPublicSchemaModels(ShardingTestCase):
         """
         with override_settings(QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
             self.assertCountEqual(
-                get_all_public_schema_models(), [Shard, SuperType, Type, MirroredUser, CakeType, CoatingType]
+                get_all_public_schema_models(),
+                [Shard, SuperType, Type, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle],
             )
 
     def test_with_override_archived_models(self):
@@ -1342,7 +1355,8 @@ class GetAllPublicSchemaModels(ShardingTestCase):
             }
         ):
             self.assertCountEqual(
-                get_all_public_schema_models(), [Shard, SuperType, MirroredUser, CakeType, CoatingType]
+                get_all_public_schema_models(),
+                [Shard, SuperType, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle],
             )
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
@@ -1374,6 +1388,8 @@ class GetAllPublicSchemaModels(ShardingTestCase):
                 "<class 'example.models.CakeType'>",
                 "<class 'example.models.CoatingType'>",
                 "<class 'example.models.CoatingType_super_type'>",
+                "<class 'example.models.Flavour'>",
+                "<class 'example.models.Sprinkle'>",
             ],
         )  # This is an auto-created model
 
@@ -1396,6 +1412,8 @@ class GetAllPublicSchemaModels(ShardingTestCase):
                 "<class 'example.models.CakeType'>",
                 "<class 'example.models.ProxyCakeType'>",  # This is a proxy model
                 "<class 'example.models.CoatingType'>",
+                "<class 'example.models.Flavour'>",
+                "<class 'example.models.Sprinkle'>",
             ],
         )
 

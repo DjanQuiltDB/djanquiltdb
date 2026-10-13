@@ -6,7 +6,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.management import CommandError, call_command
 from django.db import DatabaseError, connections, models
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from djanquiltdb.management.commands.move_shard_to_node import Command as MoveCommand
 from djanquiltdb.options import ShardOptions
@@ -29,9 +29,13 @@ from example.models import (
     Cake,
     CakeType,
     CoatingType,
+    DetailedReport,
+    Flavour,
     Organization,
     OrganizationShard,
+    Pudding,
     Shard,
+    Sprinkle,
     Statement,
     Suborganization,
     SuperType,
@@ -772,7 +776,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         self.command.copy_data()
 
-        self.assertEqual(mock_copy_data_stream.call_count, 20)  # 10 sharded models * 2 = 20
+        self.assertEqual(mock_copy_data_stream.call_count, 22)  # 11 sharded models * 2 = 22
 
     def test_get_mapped_value(self):
         """
@@ -1343,6 +1347,53 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.assertEqual(cake.coating_type_id, 1)
             self.assertEqual(cake.coating_type.type_id, 2)
 
+    def move_puddings_to_the_target(self):
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
+
+        self.command.source_shard = self.source_shard
+        self.command.target_shard_options = self.target_shard_options
+        self.command.target_node = self.target_shard_options.node_name
+        self.command.copy_data()
+        self.command.retarget_relations()
+
+    def test_a_copied_public_row_keeps_a_primary_key_that_the_model_generates(self):
+        """
+        Case: A Pudding has a foreign key to a Flavour, a public model whose primary key is a UUID that the model
+              generates, and which is also its natural key. The Flavour is missing on the target node, so retargeting
+              copies it.
+        Expected: The copy on the target node has the same UUID, so its natural key is the same on both nodes, and the
+                  Pudding points at it.
+        """
+        with use_shard(self.source_shard):
+            flavour = Flavour.objects.create()
+            pudding = Pudding.objects.create(name='rice', flavour=flavour)
+
+        self.move_puddings_to_the_target()
+
+        with self.target_shard_options.use():
+            self.assertEqual(list(Flavour.objects.values_list('id', flat=True)), [flavour.id])
+            self.assertEqual(Pudding.objects.get(id=pudding.id).flavour_id, flavour.id)
+
+    def test_a_public_row_whose_primary_key_is_not_named_id_is_retargeted(self):
+        """
+        Case: A Pudding has a foreign key to a Sprinkle, a public model whose primary key is named code. The Sprinkle is
+              missing on the target node, so retargeting copies it.
+        Expected: The copy on the target node has the same code, and the Pudding points at it.
+        """
+        with use_shard(self.source_shard):
+            sprinkle = Sprinkle.objects.create(code='rainbow')
+            pudding = Pudding.objects.create(name='bread', sprinkle=sprinkle)
+
+        self.move_puddings_to_the_target()
+
+        with self.target_shard_options.use():
+            self.assertEqual(list(Sprinkle.objects.values_list('code', flat=True)), ['rainbow'])
+            self.assertEqual(Pudding.objects.get(id=pudding.id).sprinkle_id, 'rainbow')
+
     def test_retarget_relations_system_with_missing_data_allow_copy3(self):
         """
         Case: Call retarget_relations for a set of data, which has relations to data that is missing on the target node,
@@ -1608,3 +1659,32 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         self.assertEqual(mock_copy_data.call_count, 1)
         mock_post_execution.assert_called_once_with(succeeded=False)
+
+
+class ClearGeneratedPrimaryKeyTestCase(SimpleTestCase):
+    def test_a_child_of_multi_table_inheritance_loses_its_own_key_and_its_parent_link(self):
+        """
+        Case: The primary key of a DetailedReport, a child of Report with an auto-increment id, is cleared before the
+              row is copied to another node.
+        Expected: Both the id and the report_ptr_id parent link are cleared, because Django copies a parent link that is
+                  still set back into the id when it saves the parent row.
+        """
+        report = DetailedReport(id=5, report_ptr_id=5)
+
+        MoveCommand.clear_generated_primary_key(report)
+
+        self.assertIsNone(report.id)
+        self.assertIsNone(report.report_ptr_id)
+
+    def test_a_primary_key_that_the_model_generates_is_kept(self):
+        """
+        Case: The primary key of a Flavour, whose UUID primary key the model generates, is cleared before the row is
+              copied to another node.
+        Expected: The UUID is kept, because it is the row's own key and not one that the database generates.
+        """
+        flavour = Flavour()
+        flavour_id = flavour.id
+
+        MoveCommand.clear_generated_primary_key(flavour)
+
+        self.assertEqual(flavour.id, flavour_id)

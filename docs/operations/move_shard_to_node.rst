@@ -61,7 +61,9 @@ Operational notes
 The copy buffers each table's export in memory, so peak memory use is proportional to the shard's largest table.
 Retargeting relations to PUBLIC models requires those models to declare natural keys (``unique_together`` plus a
 ``get_by_natural_key`` manager method); a PUBLIC model that forbids copying (``@public_model(allow_copy=False)``)
-stops the move when the target node misses one of its rows.
+stops the move when the target node misses one of its rows. A row that the move copies gets a new primary key on the
+target node when the database generates the key, such as an auto-incrementing id. Any other primary key, such as a UUID
+that the model generates, is copied with the row.
 
 Every sequence of the target, including sequences that no model uses, is first moved forward to the position of the
 matching sequence on the source. The matching sequence is the one owned by the same column. If there is none, it is the
