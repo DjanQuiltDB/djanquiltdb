@@ -374,10 +374,13 @@ class FlavourManager(models.Manager):
 class Flavour(models.Model):
     """
     A public model whose primary key is a UUID that the model generates, and which is also its natural key, so a copy on
-    another node has to keep it.
+    another node has to keep it. Its timestamps are set when a row is saved, so a copy on another node has to keep those
+    too.
     """
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     objects = FlavourManager()
 

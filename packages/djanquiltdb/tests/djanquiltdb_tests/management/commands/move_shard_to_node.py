@@ -1,4 +1,5 @@
 import copy
+import datetime
 from unittest import mock
 from unittest.mock import PropertyMock
 
@@ -1377,6 +1378,25 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         with self.target_shard_options.use():
             self.assertEqual(list(Flavour.objects.values_list('id', flat=True)), [flavour.id])
             self.assertEqual(Pudding.objects.get(id=pudding.id).flavour_id, flavour.id)
+
+    def test_a_copied_public_row_keeps_its_auto_now_timestamps(self):
+        """
+        Case: A Pudding has a foreign key to a Flavour, whose created_at and updated_at fields are set when a row is
+              saved. The Flavour has timestamps from the past, and is missing on the target node, so retargeting copies
+              it.
+        Expected: The copy on the target node has the timestamps of the source row, and not the time of the move.
+        """
+        timestamp = datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
+
+        with use_shard(self.source_shard):
+            flavour = Flavour.objects.create()
+            Flavour.objects.filter(id=flavour.id).update(created_at=timestamp, updated_at=timestamp)
+            Pudding.objects.create(name='rice', flavour=flavour)
+
+        self.move_puddings_to_the_target()
+
+        with self.target_shard_options.use():
+            self.assertEqual(list(Flavour.objects.values_list('created_at', 'updated_at')), [(timestamp, timestamp)])
 
     def test_a_public_row_whose_primary_key_is_not_named_id_is_retargeted(self):
         """

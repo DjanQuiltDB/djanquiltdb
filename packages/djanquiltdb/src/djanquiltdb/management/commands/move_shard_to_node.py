@@ -319,8 +319,14 @@ class Command(BaseCommand):
                 with self.source_shard.use(active_only_schemas=False, lock=False):
                     source_object = model.objects.get_by_natural_key(*org_nat_keys_value)
                     self.clear_generated_primary_key(source_object)
+                    timestamps = self.get_auto_now_timestamps(source_object)
                     self.print(indent(gray(f'Creating <{source_object._meta.object_name}>{source_object}'), 2))
                     source_object.save(using=self.target_shard_options, force_insert=True)
+
+                    if timestamps:
+                        model._base_manager.using(self.target_shard_options).filter(pk=source_object.pk).update(
+                            **timestamps
+                        )
                     self.print(
                         indent(
                             gray(f'Saved <{source_object._meta.object_name}>{source_object} to id {source_object.pk}'),
@@ -348,6 +354,21 @@ class Command(BaseCommand):
                 )
 
         return mapped_value
+
+    @staticmethod
+    def get_auto_now_timestamps(source_object):
+        """
+        Returns the value of each field of a row that has auto_now or auto_now_add, by attname. Saving the row as a new
+        row on the target node sets those fields to the current time, so the copy gets these values back after it is
+        saved, and keeps the timestamps of the row that it copies. A queryset update writes them, because it does not
+        set the fields again, and it reaches the fields of a parent model too. The update fires the triggers of the
+        table of the public row, as its insert does.
+        """
+        return {
+            field.attname: getattr(source_object, field.attname)
+            for field in source_object._meta.concrete_fields
+            if getattr(field, 'auto_now', False) or getattr(field, 'auto_now_add', False)
+        }
 
     @staticmethod
     def clear_generated_primary_key(source_object):
