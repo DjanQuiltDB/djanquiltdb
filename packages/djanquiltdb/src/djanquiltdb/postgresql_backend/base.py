@@ -207,6 +207,8 @@ DECLARE
   alignment_stmt_ TEXT;
   trigger_defs_ TEXT[];
   trigger_def_ TEXT;
+  trigger_state_stmts_ TEXT[];
+  trigger_state_stmt_ TEXT;
   func_def TEXT;
   header_kw_ TEXT;
   header_prefix_ TEXT;
@@ -542,11 +544,27 @@ BEGIN
    * schemas (public, most notably) stay qualified. The definition text itself is never rewritten, so WHEN clauses
    * and argument string literals survive untouched. A relation without a copy in the destination, such as a table that
    * the cloning role cannot see, gets no triggers.
+   *
+   * A definition creates an enabled trigger, so a trigger that is disabled, enabled always or enabled for replicas in
+   * the source gets that state with an ALTER TABLE after it is created.
    */
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema);
 
-  SELECT coalesce(array_agg(pg_get_triggerdef(tg.oid, true) ORDER BY cls.relname, tg.tgname), ARRAY[]::text[])
-    INTO trigger_defs_
+  SELECT coalesce(array_agg(pg_get_triggerdef(tg.oid, true) ORDER BY cls.relname, tg.tgname), ARRAY[]::text[]),
+         coalesce(
+           array_agg(
+             format(
+               'ALTER TABLE %I.%I %s TRIGGER %I',
+               dest_schema,
+               cls.relname,
+               CASE tg.tgenabled WHEN 'D' THEN 'DISABLE' WHEN 'A' THEN 'ENABLE ALWAYS' ELSE 'ENABLE REPLICA' END,
+               tg.tgname
+             )
+             ORDER BY cls.relname, tg.tgname
+           ) FILTER (WHERE tg.tgenabled <> 'O'),
+           ARRAY[]::text[]
+         )
+    INTO trigger_defs_, trigger_state_stmts_
     FROM pg_catalog.pg_trigger tg
     JOIN pg_catalog.pg_class cls ON tg.tgrelid = cls.oid
     JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
@@ -557,6 +575,10 @@ BEGIN
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(dest_schema) || ',public,pg_catalog';
   FOREACH trigger_def_ IN ARRAY trigger_defs_ LOOP
     EXECUTE trigger_def_;
+  END LOOP;
+
+  FOREACH trigger_state_stmt_ IN ARRAY trigger_state_stmts_ LOOP
+    EXECUTE trigger_state_stmt_;
   END LOOP;
 
   /* Restore the caller's search_path (see the note at the top). */

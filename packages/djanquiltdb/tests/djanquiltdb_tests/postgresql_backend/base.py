@@ -3032,6 +3032,20 @@ class TriggersTestCase(ShardingTransactionTestCase):
 
         self.assertEqual(self.trigger_states('trigger_states_schema'), self.TRIGGER_STATES)
 
+    def test_clone_schema_keeps_the_state_of_each_trigger(self):
+        """
+        Case: A schema with a trigger in each state, enabled, disabled, enabled always and enabled for replicas, is
+              cloned.
+        Expected: Each trigger of the clone has the state of the trigger that it was cloned from.
+        """
+        self.create_triggers_in_every_state('trigger_states_source')
+        connection.create_schema('trigger_states_clone')
+        self.addCleanup(self.drop_schema, 'trigger_states_clone')
+
+        connection.clone_schema('trigger_states_source', 'trigger_states_clone')
+
+        self.assertEqual(self.trigger_states('trigger_states_clone'), self.TRIGGER_STATES)
+
     def test_clone_schema_with_triggers(self):
         """
         Case: Clone a schema containing triggers.
