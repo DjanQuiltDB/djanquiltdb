@@ -1,6 +1,6 @@
 Authentication
 ==============
-Django comes with their ``django.contrib.auth`` package, that adds authentication models to the application. It also
+Django comes with its ``django.contrib.auth`` package, that adds authentication models to the application. It also
 has a ``createsuperuser`` management command, that offers a simple way of creating a superuser from the command line.
 This command doesn't work with the sharding library, so the sharding library also offers an authentication package that
 overwrites the ``createsuperuser`` command. It's important that this package comes before ``django.contrib.auth`` in
@@ -17,7 +17,7 @@ overwrites the ``createsuperuser`` command. It's important that this package com
 
 The command automatically detects whether your user model is a sharded model or a mirrored model, and offers
 different arguments to create a superuser accordingly. When your user model is a sharded model, it offers you the
-option to specify a database (``--database``) and a schema name (``--schema-name``). Both are required. When your use
+option to specify a database (``--database``) and a schema name (``--schema-name``). Both are required. When your user
 model is a mirrored model, it only offers you the option to specify a database (``--database``). The difference is that
 it also gives you the option to pass ``all`` as ``--database`` option, which will create a superuser on all databases.
 This is also the default option.

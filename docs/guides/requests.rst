@@ -52,8 +52,8 @@ The ``djanquiltdb.middleware.BaseUseShardMiddleware`` class extends ``ExceptionM
 to wrap views in a ``use_shard`` context manager. This prevents the need to take note of sharding in each of your
 views.
 
-How the middleware determines which shard to use is up to you however. To use the ``UseShardMiddleware`` you have to
-extend it and fill in the ``get_shard_id()`` function yourself.
+How the middleware determines which shard to use is up to you however. To use the ``BaseUseShardMiddleware`` you have
+to extend it and implement its ``get_shard_id()`` method yourself.
 
 Don't forget you can assign your own view as error page like in :ref:`exception_middleware`.
 

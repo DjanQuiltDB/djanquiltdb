@@ -12,11 +12,16 @@ allowing administrators to easily switch between shards while browsing the admin
 
     from django.contrib import admin
     from django.contrib.auth.forms import AuthenticationForm
+    from django.core.exceptions import ValidationError
+    from django.db import OperationalError
+
+    from djanquiltdb.utils import StateException, use_shard_for
+    from myapp.models import OrganizationShard
 
     class CustomAdminAuthenticationForm(AuthenticationForm):
         shard_identifying_field = ...
 
-        def clean(self)
+        def clean(self):
             shard_selector = ...
 
             try:
@@ -26,7 +31,7 @@ allowing administrators to easily switch between shards while browsing the admin
 
                     with use_shard_for(shard_selector):
                         return super().clean()
-            except (OrganizationShard.DoesNotExist, StateException, OperationalError):  # type: ignore[attr-defined]
+            except (OrganizationShard.DoesNotExist, StateException, OperationalError):
                 raise ValidationError(self.error_messages['invalid_login'], code='invalid_login')
 
     admin.site.login_form = CustomAdminAuthenticationForm

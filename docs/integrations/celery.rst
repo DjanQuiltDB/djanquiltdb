@@ -9,7 +9,7 @@ Celery tasks too need to be aware on which shard to do what. If the shard is una
 the middleware is triggered to deal with the raised exception. To do the same for Celery tasks we suggest the following
 decorator.
 
-It is not supplied as standard by this library for we don't want to add celery as a requirement.
+It is not supplied as standard by this library for we don't want to add Celery as a requirement.
 
 .. code-block:: python
 

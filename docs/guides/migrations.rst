@@ -134,14 +134,14 @@ Router considerations
 The ``DynamicDbRouter`` will ensure the tables will only be created on the schemas they should be created on.
 To do that, it looks at the sharding mode of models during ``allow_migrate``.
 
-This can be a problem if the migration to be extecuted no longer has a model known to Django; most likely because
+This can be a problem if the migration to be executed no longer has a model known to Django; most likely because
 you removed it and the migration is to remove the table as well.
 Any migration operation related to a model of which we cannot confirm the sharding mode is NOT executed on the database.
 This is no problem for models that have been migrated in the past, or when a model is only created and removed in old
 migrations and you perform them from scratch.
 
-If you want to remove a model, use ``migrations.SeparateDatabaseAndState`` to remove it from the state and use runSQL
-with a hint to remove the tables from the database.
+If you want to remove a model, use ``migrations.SeparateDatabaseAndState`` to remove it from the state and use
+``migrations.RunSQL`` with a hint to remove the tables from the database.
 
 
 .. code-block:: python

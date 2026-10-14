@@ -187,13 +187,13 @@ Dropped:
 v 0.6.1
 -------
 Altered:
- * Routing for write queries to mirrored tables (if any) will be directed to the primary node if the current context does not do so already. This prevents your context to be destroyed if was correct already. (Example: a shard on the primary node is selected and you write to a mirrored table. In 0.6.0 this would scrap you shard context and only leave the ``public_schema`` in the ``search_path``.)
+ * Routing for write queries to mirrored tables (if any) will be directed to the primary node if the current context does not do so already. This prevents your context to be destroyed if was correct already. (Example: a shard on the primary node is selected and you write to a mirrored table. In 0.6.0 this would scrap your shard context and only leave the ``public_schema`` in the ``search_path``.)
 
 v 0.6.0
 -------
 Added:
  * Dedicated view for the situation a node is down.
- * Primary connection as a setting. This is also the default connection the router use. This means the 'default' name of a connection (Django stipulates) has no effect. It is just a name.
+ * Primary connection as a setting. This is also the default connection the router uses. This means the 'default' name of a connection (Django stipulates) has no effect. It is just a name.
  * django.db.transaction gets monkey-patched to always start the transaction on the node that is active.
  * ``purge_schema`` management command to empty and remove a shard.
 
@@ -228,4 +228,4 @@ Altered:
 v 0.5.1
 -------
 Dropped:
- * Support vor Django versions below 1.11.
+ * Support for Django versions below 1.11.

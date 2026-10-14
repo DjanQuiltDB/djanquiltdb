@@ -59,14 +59,15 @@ a location of a PostgreSQL schema with the client data in it.
    :align: center
 
 
-This library introduces a table for shards: ``djanquiltdb.models.Shard``.
-These sharding objects have four attributes: ``id``, ``name``, ``node_name`` and ``schema_name``. The ``id`` and
-``name`` are simply for convenience. The important fields is the combination of ``node_name`` and ``schema_name``.
-Together they are unique. And you can easily see how these two are used to tell the database where we want to find our
-data. When creating a shard object it will create the PostgreSQL schema for you with the given name, on the given
-database connection::
+This library introduces a table for shards: your project's ``Shard`` model, a subclass of
+``djanquiltdb.models.BaseShard`` that the ``SHARD_CLASS`` setting names.
+These sharding objects have four fields: ``alias``, ``node_name``, ``schema_name`` and ``state``. The ``alias`` is a
+unique name for convenience, and the ``state`` tells whether the shard can be used. The important fields are the
+combination of ``node_name`` and ``schema_name``. Together they are unique. And you can easily see how these two are
+used to tell the database where we want to find our data. When creating a shard object it will create the PostgreSQL
+schema for you with the given name, on the given database connection::
 
-    Shard.objects.create(name='my shard', node_name='default', schema_name='my_first_schema')
+    Shard.objects.create(alias='my_shard', node_name='default', schema_name='my_first_schema')
 
 .. admonition:: Shard per client?
   :class: note
@@ -74,7 +75,7 @@ database connection::
   It's entirely possible to put multiple client's data on one shard. That is effectively how it is without this library.
   Splitting your data up into several shards, with multiple clients on each; or giving each client their own shard;
   are both supported use cases.
-  In practice, the most common scenario for usage would be the the following: Each of the clients have their own shard,
+  In practice, the most common scenario for usage would be the following: Each of the clients have their own shard,
   with the exception of an 'archive' shard, where a bunch of stale clients data end up moved to.
 
 Mapping table
@@ -141,20 +142,20 @@ So instead of: the data of, let's say, a thousand clients all in the same set of
 thousand shards, all having their own table set?
 Does that not have their own scaling problem? Does PostgreSQL like this?
 Mostly: yes, yes, yes and no. PostgreSQL has no problems having thousands of schemas. But in some aspects this does
-become a particular scaling problem of it own.
+become a particular scaling problem of its own.
 
 * Migration. Migrations are not so much a problem, as that it simply takes a lot longer. Data migrations do not of
   course, the amount of datapoints is the same. But altering table schemas has to be done a lot more, since there are a
   lot more tables.
 * PostgreSQL info tables. PostgreSQL has several tables in the background that keep track of things.
-  Like table constrains. These tables get a lot bigger, since there are a lot more table constrains.
+  Like table constraints. These tables get a lot bigger, since there are a lot more table constraints.
   This is not a problem, but something to be aware of when consulting these tables.
 
 
 
 Multi node, multi shard
 ~~~~~~~~~~~~~~~~~~~~~~~
-Since we are separating data, there is not reason to stop with creating multiple schemas on one database.
+Since we are separating data, there is no reason to stop with creating multiple schemas on one database.
 We can just as easy spread shards out over multiple databases/nodes.
 This is mostly transparent, since we are telling Django on what shard we are working on anyway.
 

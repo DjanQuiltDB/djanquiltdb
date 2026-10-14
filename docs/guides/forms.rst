@@ -16,7 +16,7 @@ When using a model form, you can inherit from ``djanquiltdb.forms.ModelForm`` in
     from djanquiltdb.forms import ModelForm
 
 
-    class UserForm(ShardedModelForm):
+    class UserForm(ModelForm):
         class Meta:
             model = User
             fields = ['organization', 'type']

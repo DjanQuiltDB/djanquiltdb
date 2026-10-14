@@ -2,9 +2,9 @@
 Queries
 =======
 
-The meat of using this library is defining 'on what shard you are working on'. on default your queries are routed to
-the primary node, with only the public schema selected. To only public and mirrored models are visible.
-All others will result in a a form of 'table does not exist' error.
+The meat of using this library is defining 'on what shard you are working on'. By default your queries are routed to
+the primary node, with only the public schema selected. So only public and mirrored models are visible.
+All others will result in a form of 'table does not exist' error.
 
 Overriding a connection
 -----------------------
@@ -35,7 +35,7 @@ Within a ``use_shard`` context manager, the active shard will be set to the give
       User.objects.all()  # returns values
 
       with use_shard(Shard.objects.get(id=2)):               # shard context: <shard 2>
-          user.objects.all()  # returns different values
+          User.objects.all()  # returns different values
                                                              # shard context: returns to <shard 1>
       User.objects.all()  # returns same as first
                                                              # shard context: returns to None
@@ -70,69 +70,39 @@ Unless this is explicitly overwritten:
 
 Sharding Options
 ----------------
-In the examples given so far, we pass a Shard model instance to functions available to use to set up a sharding context.
-``with use_shard(Shard.objects.get(id=1)):`` or ``User.objects.using(Shard.objects.get(id=1)).all()`` for example.
-This is far from the only way to tell the router which shard we want.
-All these functions interpret the given value and create a ShardObjects object from it. This object is what is
-used by the router to direct the query to the correct place.
-The following values are supported by the ShardingOptions parser:
+In the examples given so far, we pass a Shard model instance to set up a sharding context, for example
+``with use_shard(Shard.objects.get(id=1)):`` or ``User.objects.using(Shard.objects.get(id=1)).all()``.
+This is not the only way to tell the router which shard we want. Whatever value these functions are given, they create
+a ``ShardOptions`` object from it, which the router uses to direct the query to the correct place.
 
-* string representation, ``'<node_name>|<schema_name>'``:
+``use_shard`` accepts:
 
-  .. code-block:: python
-
-    Shard.objects.create(node_name='default', schema_name='org_1_schema')
-    with use_shard('default|user_1_schema'):
-        (...)
-
-* node and schema arguments, ``(node_name=<>, schema_name=<>)``:
+* a Shard object:
 
   .. code-block:: python
 
-    Shard.objects.create(node_name='default', schema_name='org_1_schema')
-    with use_shard(node_name='default', schema_name='user_1_schema'):
+    shard = Shard.objects.create(alias='org_1', node_name='default', schema_name='org_1_schema')
+    with use_shard(shard):
         (...)
 
-* Shard object, ``<Shard object>``:
+* a node name and a schema name:
 
   .. code-block:: python
 
-    shard_1 = Shard.objects.create(node_name='default', schema_name='org_1_schema')
-    with use_shard(shard_1):
+    with use_shard(node_name='default', schema_name='org_1_schema'):
         (...)
 
-* ``ShardOptions`` object itself:
+``use_shard_for`` takes the value of the mapping field of a mapping model, and looks up its shard:
 
-  .. code-block:: python
+.. code-block:: python
 
-    user = User.objects.using('default|org_1_schema').get(id=1)
-    with use_shard(user._state.db):
-        (...)
+  shard = Shard.objects.create(alias='org_1', node_name='default', schema_name='org_1_schema')
+  OrganizationShard.objects.create(shard=shard, organization_id=1)
+  with use_shard_for(1):
+      (...)
 
-* Shard alias:
-
-  .. code-block:: python
-
-    shard = Shard.objects.create(node_name='default', schema_name='org_1_schema', alias='my_shard')
-    with use_shard(alias='my_shard'):
-        (...)
-
-* Shard id:
-
-  .. code-block:: python
-
-    shard = Shard.objects.create(node_name='default', schema_name='org_1_schema', alias='my_shard')
-    with use_shard(alias=shard.id):
-        (...)
-
-* Mapping value:
-
-  .. code-block:: python
-
-    shard = Shard.objects.create(node_name='default', schema_name='org_1_schema')
-    use_shard = UserShard.objects.create(shard=shard, user_id=1, slug='my_user')
-    with use_shard(mapping_value='my_user'):
-        (...)
+``.using()`` and ``connections`` accept more forms, such as a ``'<node_name>|<schema_name>'`` string and a
+``ShardOptions`` object, as described below.
 
 .. note:: :ref:`More info <api_utils>` on helper functions to easily create a sharding context.
 
@@ -240,7 +210,7 @@ The most advanced way to get a connection is with ``ShardOptions``, which is als
 When using the Django ORM, you can specify which node you want the query to perform on using ``.using('node-name')``.
 The library extends this behavior to allow for shard selection this way as well.
 ``User.objects.using(Shard.objects.get(id=1)).all()`` routes the resulting query to go to the shard we want.
-This ovewrite any prevailing sharding context.
+This overrides any prevailing sharding context.
 
 All the connection aliases described before can also be used in a ``QuerySet``'s ``using`` method. This allows you to
 perform a query on a shard without having to use ``use_shard``. This can be useful in templates, where you define the

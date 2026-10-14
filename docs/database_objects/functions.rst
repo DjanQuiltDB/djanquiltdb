@@ -61,9 +61,11 @@ A shard is created by cloning the template schema, and every function in the tem
 one is read back from the template and created again in the new schema, after the tables and foreign keys and before the
 expressions, triggers and views that have to bind to the copies.
 
-Unlike the view and expression passes, which rebind by search path, this one rewrites the definition text: occurrences
-of the template schema's name are replaced with the new shard's. Keep the template schema name out of string literals
-in a function that lives in the template schema, since a literal is rewritten along with everything else.
+Only the schema in the header of each function is changed to the new shard's; the body is never rewritten. An
+unqualified reference in a body resolves through the search path of the caller at runtime, so each shard's copy uses
+the shard's own tables. A reference that explicitly names the template schema keeps pointing at the template after the
+clone, so leave references in a body unqualified. A string literal that contains the template schema's name is kept as
+it is.
 
 A function in the public schema is not touched by any of this. It is created once by its migration and every shard
 goes on calling that one copy.

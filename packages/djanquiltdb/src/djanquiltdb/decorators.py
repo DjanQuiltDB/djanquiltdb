@@ -383,19 +383,21 @@ def atomic_write_to_every_node(schema_name=PUBLIC_SCHEMA_NAME, lock_models=(), p
     :param str schema_name: The name of the schema used. 'public' by default.
     :param tuple lock_models: Sets containing a model and a PostgreSQL lock mode. e.g.: "((User, 'ACCESS EXCLUSIVE'),)"
 
-    :returns: The name of the node in use.
+    :returns: The return value of the wrapped function on each node, keyed by the name of the node.
 
     :Example:
         .. code-block:: python
 
             from djanquiltdb.utils import atomic_write_to_every_node
 
+
             @atomic_write_to_every_node('public')
             def my_function(node_name):
                 # Create an object on each node's public schema
                 Type.objects.create(name='test_type')
 
-            @atomic_write_to_every_node('public', ((Type, 'ACCESS EXCLUSIVE'),)
+
+            @atomic_write_to_every_node('public', ((Type, 'ACCESS EXCLUSIVE'),))
             def my_function(node_name):
                 # Create an object on each node's public schema
                 # We are in blocking mode, so nothing else can alter this table while this transaction is active.

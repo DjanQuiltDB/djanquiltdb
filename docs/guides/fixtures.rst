@@ -2,7 +2,7 @@
 Fixtures
 ========
 
-The Django Sharding library extends Django's ``loaddata`` management command to support loading fixtures into specific PostgreSQL schemas. This allows you to load test data or initial data into different shards in a single fixture file. By extension, loading fixtures in a Django test case also supports this feature.
+DjanQuiltDB extends Django's ``loaddata`` management command to support loading fixtures into specific PostgreSQL schemas. This allows you to load test data or initial data into different shards in a single fixture file. By extension, loading fixtures in a Django test case also supports this feature.
 
 Introduction
 ============
@@ -47,7 +47,7 @@ You can specify which database connection (node) to use with the ``--database`` 
 
 .. code-block:: bash
 
-    python manage.py loaddata my_fixtures.json --database default|public
+    python manage.py loaddata my_fixtures.json --database 'default|public'
 
 The format is ``node_name|schema_name``, where:
 
@@ -174,7 +174,7 @@ To load data into the public schema, use ``public`` as the ``_schema`` value:
 Template Schema
 ---------------
 
-You can also load data into the template schema by using the template schema name. The template schema name is determined by your Django Sharding configuration.
+You can also load data into the template schema by using the template schema name. The template schema name is determined by the ``TEMPLATE_NAME`` setting.
 
 Schema Creation
 ===============

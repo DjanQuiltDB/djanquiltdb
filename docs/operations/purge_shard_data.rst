@@ -21,24 +21,24 @@ Steps
 
 Options
 -------
-The command takes required positional arguments and optional options.
+The command takes these options:
 
 .. code-block:: console
 
-  manage.py purge_shard_data shard1 example.Organization 1 --mapping-field=uuid --simple-collector
+  manage.py purge_shard_data --shard-alias shard1 --model-name example.Organization --object-value 1 --simple-collector
 
-``shard_alias``
-~~~~~~~~~~~~~~~
-The name of the shard the data is located.
+``--shard-alias``, ``-s``
+~~~~~~~~~~~~~~~~~~~~~~~~~
+The alias of the shard the data is located on.
 
-``model_name``
-~~~~~~~~~~~~~~
-The app name and the model name of the model the object belongs to as dot notation. E.g. ``example.Organization``
+``--model-name``, ``-m``
+~~~~~~~~~~~~~~~~~~~~~~~~
+The app name and the model name of the model the object belongs to as dot notation, e.g. ``example.Organization``.
 
-``object_value``
-~~~~~~~~~~~~~~~~
-The object value of the object field setting. This defaults to ``id`` and is usually the primary key value for a Django
-model such as ``example.Organization.id``.
+``--object-value``, ``-o``
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+The value of the object field of the object whose data is purged. The object field defaults to ``id``, so this is
+usually the primary key value, such as the ``id`` of an ``example.Organization``.
 
 ``--object-field``
 ~~~~~~~~~~~~~~~~~~
@@ -49,7 +49,7 @@ The field to map the object value to on the model and defaults to ``id``. Take f
     class Organization(models.Model):
         uuid = UUIDField()
 
-If ``model_name`` is set to ``example.Organization``, ``object_value`` is a UUID and ``--object-field`` is set to
+If ``--model-name`` is set to ``example.Organization``, ``--object-value`` is a UUID and ``--object-field`` is set to
 ``uuid``, it will select the organization object with that UUID.
 
 ``--simple-collector``
@@ -62,6 +62,6 @@ this collector doesn't follow ``on_delete=SET_NULL`` relations. If this option i
 ~~~~~~~~~~~~~~~
 Verbosity level; 0=minimal output, 1=normal output, 2=verbose output, 3=very verbose output.
 
-``--noinput``
-~~~~~~~~~~~~~
+``--noinput``, ``--no-input``
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Do NOT prompt the user for input of any kind and assume "yes" on all questions.

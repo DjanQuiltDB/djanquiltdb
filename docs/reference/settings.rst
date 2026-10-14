@@ -21,7 +21,7 @@ Required. You must set ``SHARD_CLASS`` with the dot path to the ``shard`` classe
 MAPPING_MODEL
 ~~~~~~~~~~~~~
 When you use a mapping model with the ``@shard_mapping_model`` decorator,
-it is beneficial to add that models name to the settings.
+it is beneficial to add that model's name to the settings.
 If you also add the ``MappingQuerySet`` as object manager to that model you can use ``utils.use_shard_for()`` to fetch
 the wanted shard from mapping table automatically.
 
@@ -56,8 +56,10 @@ NEW_SHARD_NODE
 Optionally you can tell DjanQuiltDB on which node new shards (schemas) will be created. Without it, every new shard
 has to be given its ``node_name``. For example::
 
-    DATABASES = {'default': name='primary', engine='djanquiltdb.postgresql_backend'),
-                 'node_2': name='db_2, engine='djanquiltdb.postgresql_backend')}
+    DATABASES = {
+        'default': {'NAME': 'primary', 'ENGINE': 'djanquiltdb.postgresql_backend', ...},
+        'node_2': {'NAME': 'db_2', 'ENGINE': 'djanquiltdb.postgresql_backend', ...},
+    }
 
     QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
@@ -98,7 +100,7 @@ an app or a model in an app.
 
 
 This section can also be used to set sharding modes to models that no longer exist. Normally the router will look at
-the model definition to see if a migration for it has to be performed on the publci schema or a shard. But if the
+the model definition to see if a migration for it has to be performed on the public schema or a shard. But if the
 model is no longer in your code base, it cannot do this anymore. It will mention the definition is missing and skip
 the migration.
 If the migration is required, and the model is missing, simply mention it here so the router knows what to do:
@@ -120,7 +122,7 @@ PRIMARY_DB_ALIAS
 ~~~~~~~~~~~~~~~~
 
 Django has the notion of a ``default`` database connection. When no routing is given, that connection is used.
-In a sharded environment, the idea of a ``default`` connection gains new meaning dependant on the type of model
+In a sharded environment, the idea of a ``default`` connection gains new meaning dependent on the type of model
 requested:
 
 Non-decorated
@@ -135,7 +137,7 @@ Non-decorated
 
 ``MIRRORED`` is the interesting situation. In a replicated environment only one node is writable, the others will read
 from it and block any mutations of their own.
-It is wrong to assume the node that is call ``default`` by Django is also always the writable replication node.
+It is wrong to assume the node that is called ``default`` by Django is also always the writable replication node.
 These roles can failover and change over time. We cannot change the connection names in the setting to match however.
 A node called ``Rose`` must always be called ``Rose``, for that name is used to tell which data is on what node.
 In order to tell the router which node is writable, we introduce ``PRIMARY_DB_ALIAS``.
@@ -153,7 +155,7 @@ A project that has mirrored models must set it.
   }
 
 And for replication purposes, ``default`` is the primary, and ``other`` is the follower.
-Once this failsover, ``other`` become primary, and ``default`` becomes follower. Their actual names are not to change.
+Once this fails over, ``other`` becomes primary, and ``default`` becomes follower. Their actual names are not to change.
 So we alter ``PRIMARY_DB_ALIAS`` to tell that ``other`` is now writable.
 
 .. code-block:: python

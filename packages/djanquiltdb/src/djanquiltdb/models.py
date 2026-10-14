@@ -55,7 +55,7 @@ class BaseShard(models.Model):
     You can, if you wish, apply the ``@mirrored_model`` decorator to this model as well.
     Like all mirrored models, you will have to keep them in sync yourself.
     Though this library does provide helper functions to accomplish that.
-    Since this model will create a schema when saved, it has logic to only do so on the node is targets.
+    Since this model will create a schema when saved, it has logic to only do so on the node it targets.
     """
 
     alias = models.CharField(max_length=128, db_index=True, unique=True)

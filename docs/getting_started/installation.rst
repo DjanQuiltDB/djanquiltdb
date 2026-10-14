@@ -34,6 +34,8 @@ testing purposes there can be a reason to run it more frequently. How you choose
 personal preference, but an example implementation you can use to ensure that it is always present, including in test
 scenarios given default runners, is the following::
 
+   from django.db.models.signals import pre_migrate
+
    from djanquiltdb.utils import create_template_schema, for_each_node
 
    def create_template_schema_before_migrations(sender, **kwargs):
@@ -46,6 +48,9 @@ scenarios given default runners, is the following::
            create_template_schema(node_name=node_name, migrate=False)
 
        for_each_node(_create_template_schema)
+
+   # In the ready() method of the AppConfig of that app:
+   pre_migrate.connect(create_template_schema_before_migrations)
 
 
 .. _`postgres_objects_extra`:
@@ -79,7 +84,7 @@ information.
 Creating models
 ---------------
 
-The sharding application requires you to create custom ``Shard`` model, which inherit form the base model.
+The sharding application requires you to create a custom ``Shard`` model, which inherits from the base model.
 
 
 ``myapp/models.py`` ::
@@ -96,7 +101,7 @@ The sharding application requires you to create custom ``Shard`` model, which in
 Make migrations
 ---------------
 
-``./manage makemigrations``::
+``python manage.py makemigrations``::
 
     Migrations for 'myapp':
       0001_initial.py:

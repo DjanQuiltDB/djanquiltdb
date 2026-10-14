@@ -87,8 +87,7 @@ class use_shard(object):
 
             from djanquiltdb.utils import use_shard
 
-            from config.models import shard
-            from example.models import User
+            from example.models import Shard, User
 
 
             shard = Shard.objects.get(alias='North')
@@ -292,23 +291,24 @@ class use_shard_for(use_shard):
                 class Meta:
                     app_label = 'myapp'
 
+
             @shard_mapping_model(mapping_field='organization_id')
             class OrganizationShard(models.Model):
                 shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
                 organization_id = models.PositiveSmallIntegerField(db_index=True)
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
-
                 objects = MappingQuerySet.as_manager()
 
                 class Meta:
                     app_label = 'myapp'
 
+
             # myapp.views
             from djanquiltdb.utils import use_shard_for
 
             with use_shard_for(user.organization.id):
-                # Do things on my shard
+                ...  # Do things on my shard
 
     """
 
@@ -342,7 +342,7 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
             from example.models import User
 
 
-            create_schema_on_node(shard_name='North', node_name='default', migrate=True)
+            create_schema_on_node(schema_name='North', node_name='default', migrate=True)
 
             with use_shard(node_name='default', schema_name='North'):
                 # create user on the North shard
@@ -369,7 +369,7 @@ def create_template_schema(node_name='default', interactive=False, verbosity=0, 
     Each node needs to have a template schema. This is cloned for each new shard on the node.
     This function creates a new schema on a given node that is named 'template', or what you have set under
     settings.QUILT_DB.TEMPLATE_NAME.
-    It then migrates only the sharded tables to this schema, by calling sharding.utils.migrate_schema.
+    It then migrates only the sharded tables to this schema, by calling ``djanquiltdb.utils.migrate_schema``.
 
     Since this only needs to happen once on each node, you can just run it in the shell.
 
@@ -458,12 +458,14 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
 
             from djanquiltdb.utils import for_each_shard, use_shard
 
-            function sharded_function(shard=None, shard_id=None, prefix=None):
+
+            def sharded_function(shard=None, shard_id=None, prefix=None):
                 shard_id = shard.id if shard else shard_id
                 print('update user on {prefix}{shard_id}'.format(prefix=prefix, shard_id=shard_id))
                 with use_shard(shard):
                     User.objects.update(last_updated=timezone.now())
                 return '{} users updated'.format(User.objects.count())
+
 
             for_each_shard(sharded_function)
 
