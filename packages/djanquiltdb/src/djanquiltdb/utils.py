@@ -79,8 +79,8 @@ class use_shard(object):
 
     :returns: The context manager as an object with the following members:
 
-    * **connection:** Reference to the current database connection.
-    * **options:** Reference to the current shard options.
+        * **connection:** Reference to the current database connection.
+        * **options:** Reference to the current shard options.
 
     :Example:
         .. code-block:: python
@@ -270,8 +270,8 @@ class use_shard_for(use_shard):
 
     :returns: The context manager as an object with the following members:
 
-    * **connection:** Reference to the current database connection.
-    * **shard:** Reference to the current shard model object.
+        * **connection:** Reference to the current database connection.
+        * **shard:** Reference to the current shard model object.
 
     :Example:
         .. code-block:: python
@@ -330,7 +330,7 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
 
     :param str schema_name: Provide the name of the schema to be made.
     :param str node_name: Provide the name of the database connection to be used. If empty it will use the current.
-    :param bool migrate: Use `False` to disable automatic migration of all sharded models.
+    :param bool migrate: Use ``False`` to disable automatic migration of all sharded models.
 
     :returns: None
 

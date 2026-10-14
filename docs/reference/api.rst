@@ -95,6 +95,7 @@ Forms
 
 .. autoclass:: ModelForm
     :members:
+    :exclude-members: media
 
 
 Middleware

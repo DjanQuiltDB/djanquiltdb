@@ -157,7 +157,7 @@ def public_model(allow_copy=True):
 
     When moving sharded data around from one node to the other, it can have relations to public data is differs between
     the nodes. When this happens it will be retargeted using natural keys. When the data does not exist on the target
-    node, the data will be created, but only if you allow it by setting `allow_copy` to True on this decorator.
+    node, the data will be created, but only if you allow it by setting ``allow_copy`` to ``True`` on this decorator.
 
     :Example:
         .. code-block:: python
@@ -202,7 +202,7 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
     :param mapping_field: Name of the primary field used to query the table to find a shard.
         This is used by the MappingQuerySet object manager.
     :param route_to_primary_db: Always route read and write queries for this model to the primary database,
-        should there be more than one. Default is `True`. If set to `False` the queries are routed according
+        should there be more than one. Default is ``True``. If set to ``False`` the queries are routed according
         to the current prevailing sharding context as normal.
 
     :note: Some fields are required to use this model:
@@ -372,8 +372,8 @@ def atomic_write_to_every_node(schema_name=PUBLIC_SCHEMA_NAME, lock_models=(), p
     Decorator to execute wrapped function for every node.
     Runs inside a transaction_for_every_node to keep all nodes in sync.
 
-    transaction_for_every_node builds a cascading transaction tree:
-        a transaction for each node, each running inside the previous.
+    ``transaction_for_every_node`` builds a cascading transaction tree: a transaction for each node, each running inside
+    the previous.
 
     If an error occurs, all the transactions are rolled back, and no node is changed.
 

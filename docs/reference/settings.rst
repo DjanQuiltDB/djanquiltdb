@@ -76,9 +76,9 @@ The session key that ``UseShardMiddleware`` and ``UseShardForMiddleware`` read t
 
 OVERRIDE_SHARDING_MODE
 ~~~~~~~~~~~~~~~~~~~~~~
-If you want to override the sharding_mode for a specific model or application you can use
+If you want to override the sharding mode for a specific model or application you can use
 ``QUILT_DB['OVERRIDE_SHARDING_MODE']`` configuration setting. The setting is a dictionary with tuple or list as a key
-and ShardingMode enum as value. The key is composed from one or two lowercase strings and it is used as a lookup for
+and the ``ShardingMode`` enum as value. The key is composed from one or two lowercase strings and it is used as a lookup for
 an app or a model in an app.
 
 .. code-block:: python
@@ -110,7 +110,8 @@ If the migration is required, and the model is missing, simply mention it here s
         'SHARD_CLASS': 'myapp.models.Shard',
         'MAPPING_MODEL': 'myapp.models.MyMappingModel',
         'OVERRIDE_SHARDING_MODE': {
-            # The entry overrides app1.NonExistentModel sharding_mode to ShardingMode.SHARDED, even though this model is no longer defined, it might still be mentioned in migrations.
+            # The entry overrides app1.NonExistentModel sharding_mode to ShardingMode.SHARDED. The model is no
+            # longer defined, but it might still be mentioned in migrations.
             ('app1', 'nonexistentmodel'): ShardingMode.SHARDED,
         }
     }
@@ -118,26 +119,27 @@ If the migration is required, and the model is missing, simply mention it here s
 PRIMARY_DB_ALIAS
 ~~~~~~~~~~~~~~~~
 
-Django has the notion of a 'default' database connection. When no routing is given, that connection is used.
-In a sharded environment, the idea of a 'default' connection gains new meaning dependant on the type of model requested:
+Django has the notion of a ``default`` database connection. When no routing is given, that connection is used.
+In a sharded environment, the idea of a ``default`` connection gains new meaning dependant on the type of model
+requested:
 
-* Non-decorated:
-  Will only live on the default node's public schema
-* PUBLIC:
+Non-decorated
+  Will only live on the default node's public schema.
+``PUBLIC``
   Table will exist on all nodes' public schema. Their data can differ, and all nodes are writable.
-* MIRRORED
+``MIRRORED``
   Table will exist on all nodes' public schema. Their data is marked as replicated, so the same across all nodes.
-  Only the 'default' node is considered writable, the others read-only.
-* SHARDED
+  Only the ``default`` node is considered writable, the others read-only.
+``SHARDED``
   Table will exist on all nodes' sharded schemas. All nodes are writable since their data is unique.
 
-MIRRORED is the interesting situation. In a replicated environment only one node is writable, the others will read
+``MIRRORED`` is the interesting situation. In a replicated environment only one node is writable, the others will read
 from it and block any mutations of their own.
-It is wrong to assume the node that is call 'default' by Django is also always the writable replication node.
+It is wrong to assume the node that is call ``default`` by Django is also always the writable replication node.
 These roles can failover and change over time. We cannot change the connection names in the setting to match however.
-A node called 'Rose' must always be called 'Rose', for that name is used to tell which data is on what node.
-In order to tell the router which node is writable, we introduce 'PRIMARY_DB_ALIAS'.
-Its value is a connection name of the node which is writable for MIRRORED data.
+A node called ``Rose`` must always be called ``Rose``, for that name is used to tell which data is on what node.
+In order to tell the router which node is writable, we introduce ``PRIMARY_DB_ALIAS``.
+Its value is a connection name of the node which is writable for ``MIRRORED`` data.
 A project that has mirrored models must set it.
 
 .. code-block:: python
@@ -150,9 +152,9 @@ A project that has mirrored models must set it.
       'NEW_SHARD_NODE': 'other',
   }
 
-And for replication purposes, 'default' is the primary, and 'other' is the follower.
-Once this failsover, 'other' become primary, and 'default' becomes follower. Their actual names are not to change.
-So we alter 'PRIMARY_DB_ALIAS' to tell that 'other' is now writable.
+And for replication purposes, ``default`` is the primary, and ``other`` is the follower.
+Once this failsover, ``other`` become primary, and ``default`` becomes follower. Their actual names are not to change.
+So we alter ``PRIMARY_DB_ALIAS`` to tell that ``other`` is now writable.
 
 .. code-block:: python
 
@@ -165,7 +167,7 @@ So we alter 'PRIMARY_DB_ALIAS' to tell that 'other' is now writable.
   }
 
 It would be less confusing if we have non-suggestive names for all connections. But Django enforces the existence of
-a 'default' node. Even if the router will always route to the primary assigned connection by default.
+a ``default`` node. Even if the router will always route to the primary assigned connection by default.
 
 TEMPLATE_NAME
 ~~~~~~~~~~~~~
@@ -228,8 +230,8 @@ that check; it defaults to ``False``.
 DATABASE_ROUTERS
 ----------------
 DjanQuiltDB uses a router to send each database transaction to the correct node.
-It also uses the router to migrate the models to the correct shard when using ``./manage.py migrate``
-So set ``djanquiltdb.router.DynamicDbRouter`` as the database_router in the settings. e.g.::
+It also uses the router to migrate the models to the correct shard when using ``./manage.py migrate``.
+So set ``djanquiltdb.router.DynamicDbRouter`` in ``DATABASE_ROUTERS`` in the settings, e.g.::
 
     DATABASE_ROUTERS = ['djanquiltdb.router.DynamicDbRouter']
 

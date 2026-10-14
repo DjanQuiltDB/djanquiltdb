@@ -38,8 +38,8 @@ class DynamicDbRouter:
 
     def db_for_read(self, model, **hints):
         """
-        We normally route to the active connection (usually set by `use_shard`). This is overridden by the state of
-        already retrieved objects or when explicitly provide directions (i.e. `.using()`).
+        We normally route to the active connection (usually set by ``use_shard``). This is overridden by the state of
+        already retrieved objects or when explicitly provide directions (i.e. ``.using()``).
         """
         if getattr(get_model_definition(model), 'route_to_primary_db', None):
             return settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)

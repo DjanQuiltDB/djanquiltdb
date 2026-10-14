@@ -8,7 +8,7 @@ Since we work with multiple nodes and multiple schemas, performing migrations is
 * Sharded models are migrated to each (non-public) schema of all nodes.
 * Default models (those who are neither Mirrored nor Sharded) only end up on the public schema of the default node.
 
-Determining where models go is done by the DynamicDbRouter on basis of the decorators set on the model definitions.
+Determining where models go is done by the ``DynamicDbRouter`` on basis of the decorators set on the model definitions.
 
 This library overrides the ``migrate`` management command with one that executes the migration on each shard of each
 node, so running ``migrate`` as usual just works. It is the only migration command; there is nothing else to call.
@@ -117,7 +117,7 @@ The sharded ``migrate`` command extends Django's normal ``migrate`` command. Thu
 
 ``--database``
 ~~~~~~~~~~~~~~
-The ``--database`` argument defaults to `all`. But you can provide a name (as listed in the database connections in
+The ``--database`` argument defaults to ``all``. But you can provide a name (as listed in the database connections in
 settings) if you want to migrate a single node.
 Example: ``migrate --database hoth``
 
@@ -131,7 +131,7 @@ For example: ``migrate --schema-name public`` or ``migrate --database hoth --sch
 Router considerations
 ---------------------
 
-The DynamicDbRouter will ensure the tables will only be created on the schemas they should be created on.
+The ``DynamicDbRouter`` will ensure the tables will only be created on the schemas they should be created on.
 To do that, it looks at the sharding mode of models during ``allow_migrate``.
 
 This can be a problem if the migration to be extecuted no longer has a model known to Django; most likely because
@@ -163,8 +163,10 @@ with a hint to remove the tables from the database.
                    migrations.DeleteModel('Knights'),
                ],
                database_operations=[
-                   migrations.RunSQL('DROP TABLE example_knights CASCADE;',
-                   hints={'sharding_mode': ShardingMode.SHARDED})
+                   migrations.RunSQL(
+                       'DROP TABLE example_knights CASCADE;',
+                       hints={'sharding_mode': ShardingMode.SHARDED},
+                   ),
                ]
            )
        ]

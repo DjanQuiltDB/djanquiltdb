@@ -61,7 +61,8 @@ The shards aligned before it stay aligned.
 Options
 -------
 All options of the command are optional.
-::
+
+.. code-block:: console
 
   manage.py align_shards_with_template --database=default --dry-run
 

@@ -5,7 +5,7 @@ Installation
 .. _`install`:
 
 Installing djanquiltdb
------------------------------------
+----------------------
 
 The stable version is available from PyPI::
 
@@ -15,13 +15,12 @@ If you want to install development version (unstable), you can do so doing::
 
     pip install git+ssh://git@github.com/djanquiltdb/djanquiltdb.git@master#egg=djanquiltdb
 
-Or, if you'd like to install the development version as a git repository (so
-you can ``git pull`` updates, use the ``-e`` flag with ``pip install``, like
-so::
+Or, if you'd like to install the development version as a git repository (so you can ``git pull`` updates), use the
+``-e`` flag with ``pip install``, like so::
 
     pip install -e git+ssh://git@github.com/djanquiltdb/djanquiltdb.git@master#egg=djanquiltdb
 
-Add ``djanquiltdb`` to your ``INSTALLED_APPS`` in settings.py::
+Add ``djanquiltdb`` to your ``INSTALLED_APPS`` in ``settings.py``::
 
     INSTALLED_APPS = (
         ...

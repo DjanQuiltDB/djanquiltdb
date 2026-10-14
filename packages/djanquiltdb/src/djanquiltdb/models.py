@@ -50,7 +50,7 @@ class BaseShard(models.Model):
             class Meta:
                 app_label = 'example'
 
-    Mirroring
+    .. rubric:: Mirroring
 
     You can, if you wish, apply the ``@mirrored_model`` decorator to this model as well.
     Like all mirrored models, you will have to keep them in sync yourself.

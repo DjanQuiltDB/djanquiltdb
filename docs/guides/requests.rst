@@ -7,7 +7,7 @@ This chapter is about Django views. For views in the database, see :doc:`/databa
 To prevent the need to use ``with use_shard():`` in every view your project has, this library provides a middleware to
 do that for you.
 
-The ``UseShardMiddleware`` will enable a use_shard context manager in ``process_request`` and close it in
+The ``UseShardMiddleware`` will enable a ``use_shard`` context manager in ``process_request`` and close it in
 ``process_response`` or ``process_exception``.
 
 .. image:: /images/view_flow.svg
@@ -125,11 +125,11 @@ fashion as the ``BaseUseShardMiddleware``. The only difference is that you now h
 Storing the shard selector in the session
 -----------------------------------------
 
-If you want to store the value on the session, you can also use `djanquiltdb.middleware.UseShardMiddleware` or
-`djanquiltdb.middleware.UseShardForMiddleware` directly; these assume the shard selector value is stored on the
-session with the key defined in the `SESSION_SHARD_SELECTOR_KEY` setting. The default is `shard_selector`, which is
-compatible with the standard `djanquiltdb.sessions` backend. To configure this session backend, you need to make
-the following changes (assuming here that the session storage is under an app called `users`):
+If you want to store the value on the session, you can also use ``djanquiltdb.middleware.UseShardMiddleware`` or
+``djanquiltdb.middleware.UseShardForMiddleware`` directly; these assume the shard selector value is stored on the
+session with the key defined in the ``SESSION_SHARD_SELECTOR_KEY`` setting. The default is ``shard_selector``, which is
+compatible with the standard ``djanquiltdb.sessions`` backend. To configure this session backend, you need to make
+the following changes (assuming here that the session storage is under an app called ``users``):
 
 .. code-block:: python
 
@@ -166,8 +166,12 @@ the following changes (assuming here that the session storage is under an app ca
         class Meta:
             app_label = 'users'
 
-You would only need to change the SHARD_SELECTOR_REGEX if the primary key of your shard or mapping value is not a number. For example, if your shard selectors are UUIDs, you might use: ``'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'``. If your regular expression supports string values that may include K, you also have to adjust the SESSION_KEY_DELIMITER to make sure it is a value that can't be matched by the regular expression.
+You would only need to change the ``SHARD_SELECTOR_REGEX`` if the primary key of your shard or mapping value is not a
+number. For example, if your shard selectors are UUIDs, you might use:
+``'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'``. If your regular expression supports string values
+that may include ``K``, you also have to adjust the ``SESSION_KEY_DELIMITER`` to make sure it is a value that can't be
+matched by the regular expression.
 
-Django's ``clearsessions`` management command works with this backend: it walks every ACTIVE shard and deletes the
+Django's ``clearsessions`` management command works with this backend: it walks every ``ACTIVE`` shard and deletes the
 expired sessions it holds. Shards that are in maintenance (mid-move, being purged) are skipped and picked up on the
 next run.

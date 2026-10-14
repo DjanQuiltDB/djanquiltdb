@@ -59,15 +59,17 @@ a location of a PostgreSQL schema with the client data in it.
    :align: center
 
 
-This library introduces a table for shards: `djanquiltdb.models.Shard`.
-These sharding objects have four attributes: `id, name, node_name, schema_name`. The `id` and `name` are simply for
-convenience. The important fields is the combination of `node_name` and `schema_name`. Together they are unique.
-And you can easily see how these two are used to tell the database where we want to find our data.
-When creating a shard object
-(`Shard.objects.create(name='my shard', node_name='default', schema_name='my_first_schema')`) it will create the
-PostgreSQL schema for you with the given name, on the given database connection.
+This library introduces a table for shards: ``djanquiltdb.models.Shard``.
+These sharding objects have four attributes: ``id``, ``name``, ``node_name`` and ``schema_name``. The ``id`` and
+``name`` are simply for convenience. The important fields is the combination of ``node_name`` and ``schema_name``.
+Together they are unique. And you can easily see how these two are used to tell the database where we want to find our
+data. When creating a shard object it will create the PostgreSQL schema for you with the given name, on the given
+database connection::
 
-.. note:: Shard per client?
+    Shard.objects.create(name='my shard', node_name='default', schema_name='my_first_schema')
+
+.. admonition:: Shard per client?
+  :class: note
 
   It's entirely possible to put multiple client's data on one shard. That is effectively how it is without this library.
   Splitting your data up into several shards, with multiple clients on each; or giving each client their own shard;
@@ -87,7 +89,7 @@ mapping table.
 
 This table is essentially a lookup table to know which tenant lives on which shard. This table is created by the
 library user, but has certain formatting rules. It must have a relation to the Shard model, and a field on which we
-map our top-level object. `user_id` is an example. With this model we can ask for our shard for user '1', etc.
+map our top-level object. ``user_id`` is an example. With this model we can ask for our shard for user '1', etc.
 
 .. note:: A detail here: this mapping field is not a relation/foreign-key. Just an integer field containing unique
   values. As to why: see :ref:`the-complication` for details.
@@ -102,7 +104,7 @@ the public schema, like before.
    :alt: Schema selection
    :align: center
 
-Here comes the trick. When we instruct the library to 'select a shard' it will set the PostgreSQL search_path to both the
+Here comes the trick. When we instruct the library to 'select a shard' it will set the PostgreSQL ``search_path`` to both the
 corresponding schema and the public schema. So the set of tables is always complete and what you expect.
 
 .. _the-complication:
@@ -127,8 +129,8 @@ For a more detailed example:
    :alt: Relations 2
    :align: center
 
-The `User` table can reference the `Type` table for a row with id '1' no problem. There is only one `Type` table.
-If the `Type` table has a reference to a `User` table for a row with id '1', which row would that be? Relations do not
+The ``User`` table can reference the ``Type`` table for a row with id '1' no problem. There is only one ``Type``
+table. If the ``Type`` table has a reference to a ``User`` table for a row with id '1', which row would that be? Relations do not
 contain a schema selection.
 
 This is why the mapping table does not have relations to the defining objects of the shard.
@@ -140,12 +142,13 @@ thousand shards, all having their own table set?
 Does that not have their own scaling problem? Does PostgreSQL like this?
 Mostly: yes, yes, yes and no. PostgreSQL has no problems having thousands of schemas. But in some aspects this does
 become a particular scaling problem of it own.
+
 * Migration. Migrations are not so much a problem, as that it simply takes a lot longer. Data migrations do not of
-course, the amount of datapoints is the same. But altering table schemas has to be done a lot more, since there are a
-lot more tables.
+  course, the amount of datapoints is the same. But altering table schemas has to be done a lot more, since there are a
+  lot more tables.
 * PostgreSQL info tables. PostgreSQL has several tables in the background that keep track of things.
-Like table constrains. These tables get a lot bigger, since there are a lot more table constrains.
-This is not a problem, but something to be aware of when consulting these tables.
+  Like table constrains. These tables get a lot bigger, since there are a lot more table constrains.
+  This is not a problem, but something to be aware of when consulting these tables.
 
 
 
@@ -170,8 +173,8 @@ might be unexpected side effects, for example when relying on auto-incrementing 
 be kept in sync by this method, so you can only do this if you are not relying on any assumptions regarding such
 mechanisms.
 
-In case you want to handle this data writing yourself, refer to `@transaction_for_every_node` and
-`@atomic_write_to_every_node` decorators as a starting point.
+In case you want to handle this data writing yourself, refer to ``@transaction_for_every_node`` and
+``@atomic_write_to_every_node`` decorators as a starting point.
 
 .. _cloning_limitations:
 

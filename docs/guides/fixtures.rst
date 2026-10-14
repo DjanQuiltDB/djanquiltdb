@@ -9,8 +9,8 @@ Introduction
 
 When working with sharded databases, you often need to load data into multiple schemas (shards). The sharding-aware fixture loader allows you to specify which schema each fixture entry should be loaded into using the ``_schema`` property.
 
-The _schema Property
-====================
+The ``_schema`` Property
+========================
 
 Each entry in your fixture file can include an optional ``_schema`` property that specifies which PostgreSQL schema the entry should be loaded into.
 
@@ -41,7 +41,7 @@ To load fixtures with schema awareness, use the ``loaddata`` command as you norm
 The command will automatically detect entries with the ``_schema`` property and load them into the appropriate schemas.
 
 Specifying a Database Connection
----------------------------------
+--------------------------------
 
 You can specify which database connection (node) to use with the ``--database`` option:
 
@@ -50,6 +50,7 @@ You can specify which database connection (node) to use with the ``--database`` 
     python manage.py loaddata my_fixtures.json --database default|public
 
 The format is ``node_name|schema_name``, where:
+
 * ``node_name`` is the database connection name from your settings
 * ``schema_name`` is the default schema to use for entries without an explicit ``_schema`` property
 
@@ -110,6 +111,7 @@ Here's an example JSON fixture file that loads data into multiple schemas:
     ]
 
 In this example:
+
 * The first two entries (Organization and User) are loaded into the ``empire_schema`` shard
 * The next two entries are loaded into the ``alliance_schema`` shard
 * The last entry (Type) has no ``_schema`` property, so it's loaded into the default schema

@@ -40,11 +40,13 @@ The decorators are importable from ``djanquiltdb.decorators`` beside the model o
     from djanquiltdb.decorators import public_function, sharded_view
 
 For functions:
+
 * ``@public_function()``
 * ``@mirrored_function()``
 * ``@sharded_function()``
 
 For views:
+
 * ``@public_view()``
 * ``@mirrored_view()``
 * ``@sharded_view()``

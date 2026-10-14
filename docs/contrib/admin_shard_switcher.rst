@@ -1,10 +1,14 @@
 Admin shard switcher
 ====================
-The `djanquiltdb.contrib.quilt_admin` package adds a shard switcher dropdown to the Django admin interface,
+The ``djanquiltdb.contrib.quilt_admin`` package adds a shard switcher dropdown to the Django admin interface,
 allowing administrators to easily switch between shards while browsing the admin.
 
-Note: this module does not provide a sharding-aware login method. You can either rely on your application's own
-login page for this after you've made it sharding-aware, or implement a custom one for the admin::
+.. note::
+
+    This module does not provide a sharding-aware login method. You can either rely on your application's own login
+    page for this after you've made it sharding-aware, or implement a custom one for the admin, as shown below.
+
+::
 
     from django.contrib import admin
     from django.contrib.auth.forms import AuthenticationForm
@@ -28,7 +32,7 @@ login page for this after you've made it sharding-aware, or implement a custom o
     admin.site.login_form = CustomAdminAuthenticationForm
     admin.site.login_template = 'admin/custom_admin_login.html'
 
-To enable this feature, add the package to your `INSTALLED_APPS`::
+To enable this feature, add the package to your ``INSTALLED_APPS``::
 
     INSTALLED_APPS = (
         'django.contrib.admin',
@@ -37,9 +41,9 @@ To enable this feature, add the package to your `INSTALLED_APPS`::
         ...
     )
 
-Add the appropriate middleware after the base `UseShardMiddleware`/`UseShardForMiddleware` and after the
-`AuthenticationMiddleware`. If you are working with a mapping model, this should be
-`MappingValueAdminOverrideMiddleware`, otherwise `ShardIdAdminOverrideMiddleware`::
+Add the appropriate middleware after the base ``UseShardMiddleware``/``UseShardForMiddleware`` and after the
+``AuthenticationMiddleware``. If you are working with a mapping model, this should be
+``MappingValueAdminOverrideMiddleware``, otherwise ``ShardIdAdminOverrideMiddleware``::
 
     MIDDLEWARE = [
         (...)
@@ -77,23 +81,26 @@ Include the admin URLs in your main URLconf. The URLs should be included under t
         ...
     ]
 
-Note: The order matters - include ``admin.site.urls`` first, then include the shard switcher URLs.
+.. note::
+
+    The order matters: include ``admin.site.urls`` first, then include the shard switcher URLs.
 
 Once installed, a dropdown will appear in the top right corner of the Django admin interface (next to the user links).
 The dropdown lists all available shards and allows you to switch between them. The selected shard is stored in the session
 and will be used by your shard middleware for subsequent requests.
 
 The dropdown shows:
+
 - Shard alias
-- Node name and schema name (e.g., "default|org_1_schema")
+- Node name and schema name (e.g., ``default|org_1_schema``)
 - Current selection is highlighted
 
 Selecting no shard clears the shard selection and returns to the default behavior.
 
-If you are not using a default `UseShardMiddleware`/`UseShardForMiddleware` or have a non-standard session backend
-(i.e. not `djanquiltdb.sessions`), it might be necessary to customize the `AdminOverrideMiddleware`, the setting
-`OVERRIDE_SHARD_SELECTOR_KEY` under `QUILT_ADMIN`, or define a custom `SHARD_SELECTOR` class that subclasses
-`djanquiltdb.contrib.quilt_admin.shard_selector.BaseAdminShardSelector`. If this is required, refer to the code for
+If you are not using a default ``UseShardMiddleware``/``UseShardForMiddleware`` or have a non-standard session backend
+(i.e. not ``djanquiltdb.sessions``), it might be necessary to customize the ``AdminOverrideMiddleware``, the setting
+``OVERRIDE_SHARD_SELECTOR_KEY`` under ``QUILT_ADMIN``, or define a custom ``SHARD_SELECTOR`` class that subclasses
+``djanquiltdb.contrib.quilt_admin.shard_selector.BaseAdminShardSelector``. If this is required, refer to the code for
 more details and reference implementations.
 
 If your project serves the Django admin under a strict Content Security Policy (e.g. ``script-src 'nonce-…'``
@@ -108,5 +115,5 @@ changes to each node individually, and you are exposing mirrored models in the a
 admin classes use this custom save logic so that they keep the nodes consistent.
 
 At this time there is no separate node switcher. If you want to view public models on various nodes (i.e. models that
-exist in the `public` schema but are not mirrored) you need to switch to viewing a shard that exists on the node for
+exist in the ``public`` schema but are not mirrored) you need to switch to viewing a shard that exists on the node for
 which you want to view the public model in question, since this will switch the context to that node.
