@@ -4,9 +4,10 @@ Migrations
 
 Since we work with multiple nodes and multiple schemas, performing migrations is more involved.
 
-* Mirrored models are always migrated to the public schema of each node.
+* Public and mirrored models are always migrated to the public schema of each node.
 * Sharded models are migrated to each (non-public) schema of all nodes.
-* Default models (those who are neither Mirrored nor Sharded) only end up on the public schema of the default node.
+* Default models (those that are neither public, mirrored nor sharded) only end up on the public schema of the default
+  node.
 
 Determining where models go is done by the ``DynamicDbRouter`` on basis of the decorators set on the model definitions.
 
@@ -89,27 +90,25 @@ given as argument).
 
 Applying migrations to each shard
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Now we have a migration plan, the command executes this one migration at a time. For each migration it will loop over
-all the nodes.
-For each node it will execute the given migration to the public and template schema which exist on each node.
-After that it will apply the migration to each of the shard schemas found on the node. When done all that, it will
-progress to the next node.
+Now we have a migration plan, the command executes it one migration at a time, and applies each migration to every
+schema before it starts the next one. For each migration, it first applies it to the public and template schemas of
+every node. After that, it applies it to the shards, one node after the other.
 
-If the migration is already performed on a particular schema, it will simply not execute it and move on.
+If a schema already has the migration, the command skips that schema.
 
-If an error occurs it will try to finish applying the migration on all schemas on the node the error occurred.
-After that it will stop the whole process.
-It does this so a node will be in a single state as much as possible. But when an error occurred, it won't try any
-other nodes. Instead it will prompt the error.
-You can try to roll back the failed migration on the damaged node if you want, or alter the migration and try again.
+If the migration fails on a schema, the command writes the error and still applies the migration to all remaining
+schemas, on every node. Then it stops before the next migration and exits with status 1, so later migrations are not
+applied to any schema. Fix the migration, or roll it back on the schemas that have it, and run ``migrate`` again; the
+schemas that already have the migration are skipped.
 
 .. image:: /images/migration_flow.svg
    :scale: 100%
    :alt: DjanQuiltDB migration flow
    :align: center
 
-The error handling is the main reason the ``migrate`` command goes migration by migration. And not run all the
-migrations on a node before moving on to the next node. We want to keep the nodes similar as much as possible.
+The error handling is the main reason the ``migrate`` command goes migration by migration, instead of running all the
+migrations on one node before it moves on to the next node: it keeps every schema at the same migration as much as
+possible.
 
 Options
 -------
@@ -127,6 +126,8 @@ Example: ``migrate --database hoth``
 ``public``, the template schema, or the schema of a shard. A shard's schema has to exist as a shard on every selected
 node, so name its node with ``--database``.
 For example: ``migrate --schema-name public`` or ``migrate --database hoth --schema-name rebellious_shard``
+
+With ``--schema-name``, an error stops the command at once.
 
 Router considerations
 ---------------------
