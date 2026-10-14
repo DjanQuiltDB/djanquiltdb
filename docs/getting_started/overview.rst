@@ -20,9 +20,9 @@ one shard to another.
 Hierarchy
 ~~~~~~~~~
 This Library assumes the client data is structured in such a way all data can be traced (via relations) back to a
-single datapoint. It does not matter what data point that is. Usually it's a User, Organization, Client-like object.
+single datapoint. It does not matter what data point that is. Usually it's a user, customer or tenant-like object.
 
-Example data structure with 'organization' as top-level object.
+Example data structure with 'user' as top-level object.
 
 .. image:: /images/data_structure.svg
    :scale: 100 %
@@ -130,9 +130,9 @@ For a more detailed example:
    :alt: Relations 2
    :align: center
 
-The ``User`` table can reference the ``Type`` table for a row with id '1' no problem. There is only one ``Type``
-table. If the ``Type`` table has a reference to a ``User`` table for a row with id '1', which row would that be? Relations do not
-contain a schema selection.
+The ``Posts`` table can reference the ``PostType`` table for a row with id '1' no problem. There is only one
+``PostType`` table. If the ``SuperUsers`` table has a reference to the ``Users`` table for a row with id '1', which row
+would that be? Relations do not contain a schema selection.
 
 This is why the mapping table does not have relations to the defining objects of the shard.
 
