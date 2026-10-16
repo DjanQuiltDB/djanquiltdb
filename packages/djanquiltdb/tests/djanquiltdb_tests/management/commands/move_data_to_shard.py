@@ -2,6 +2,7 @@ import copy
 import os
 import subprocess  # nosec
 from tempfile import NamedTemporaryFile, TemporaryDirectory
+from types import SimpleNamespace
 from unittest import mock
 
 from django.core.exceptions import ValidationError
@@ -19,10 +20,12 @@ from djanquiltdb_tests import (
     ShardingTransactionTestCase,
     skip_without_virtual_generated_column_support,
 )
+from djanquiltdb_tests.plugin_hooks import plugin_installed, recording_plugin
 from djanquiltdb_tests.sql import CREATE_ALLUPPERCASE, DROP_ALLUPPERCASE
 from example.models import (
     Cake,
     DetailedReport,
+    Note,
     Organization,
     OrganizationShard,
     Report,
@@ -221,6 +224,178 @@ class MoveDataToShardTransactionTestCase(ShardingTransactionTestCase):
         for shard in (self.source_shard, self.target_shard):
             with use_shard(shard, active_only_schemas=False, lock=False) as env:
                 self.assertNotIn('n_unpopulated', env.connection.get_populated_materialized_views())
+
+    def organization_is_in(self, shard):
+        with use_shard(shard, active_only_schemas=False, lock=False):
+            return Organization.objects.filter(pk=self.organization.pk).exists()
+
+    def move_with_a_plugin_that_records_its_hooks(self, options):
+        """
+        Moves the organization while a plugin is installed whose hooks record when they run. Each record has the name
+        of the hook, whether a transaction is open, whether the organization is in the target shard and in the source
+        shard, and the primary keys of the moved organizations that the hook received. post_collect receives the
+        collected rows, and the other hooks receive their primary keys, so both are recorded as primary keys.
+        """
+        calls = []
+
+        def record(hook, command, rows_by_model=None):
+            calls.append(
+                (
+                    hook,
+                    connection.in_atomic_block,
+                    self.organization_is_in(self.target_shard),
+                    self.organization_is_in(self.source_shard),
+                    rows_by_model and [getattr(row, 'pk', row) for row in rows_by_model[Organization]],
+                )
+            )
+
+        plugin = recording_plugin(
+            'move_data_to_shard',
+            'move_context',
+            ['post_collect', 'pre_copy', 'post_copy', 'pre_delete', 'post_delete'],
+            record,
+        )
+
+        with plugin_installed(plugin):
+            call_command('move_data_to_shard', *map(str, options))
+
+        return calls
+
+    def test_the_hooks_of_a_plugin_run_around_the_copy_and_the_delete(self):
+        """
+        Case: The organization is moved while a plugin has every hook of move_data_to_shard.
+        Expected: post_collect runs first, before the transaction of the move, and receives the collected rows. Inside
+                  the transaction, move_context is entered, pre_copy runs before the copy, post_copy after it,
+                  pre_delete before the delete from the source shard and post_delete after it, and move_context is
+                  exited last. The other plain hooks receive the primary keys of the moved rows.
+        """
+        moved = [self.organization.pk]
+
+        self.assertEqual(
+            self.move_with_a_plugin_that_records_its_hooks(self.options),
+            [
+                ('post_collect', False, False, True, moved),
+                ('enter move_context', True, False, True, None),
+                ('pre_copy', True, False, True, moved),
+                ('post_copy', True, True, True, moved),
+                ('pre_delete', True, True, True, moved),
+                ('post_delete', True, True, False, moved),
+                ('exit move_context', True, True, False, None),
+            ],
+        )
+
+    def test_the_delete_hooks_of_a_plugin_do_not_run_when_the_move_keeps_the_source_data(self):
+        """
+        Case: The organization is moved with --no-delete while a plugin has every hook of move_data_to_shard.
+        Expected: post_collect, move_context, pre_copy and post_copy run as for any move, and pre_delete and
+                  post_delete do not.
+        """
+        moved = [self.organization.pk]
+
+        self.assertEqual(
+            self.move_with_a_plugin_that_records_its_hooks([*self.options, '--no-delete']),
+            [
+                ('post_collect', False, False, True, moved),
+                ('enter move_context', True, False, True, None),
+                ('pre_copy', True, False, True, moved),
+                ('post_copy', True, True, True, moved),
+                ('exit move_context', True, True, True, None),
+            ],
+        )
+
+    def move_with_a_plugin_that_leaves_out(self, model, options):
+        """
+        Moves the organization while a plugin is installed whose post_collect hook removes every collected row of the
+        model.
+        """
+        plugin = SimpleNamespace(
+            move_data_to_shard=SimpleNamespace(post_collect=lambda command, data: data[model].clear())
+        )
+
+        with plugin_installed(plugin):
+            call_command('move_data_to_shard', *map(str, options))
+
+    def notes_in(self, shard):
+        with use_shard(shard, active_only_schemas=False, lock=False):
+            return list(Note.objects.values_list('text', flat=True))
+
+    def assert_a_note_that_a_hook_leaves_out_stays_in_the_source_shard(self, options):
+        with use_shard(self.source_shard):
+            Note.objects.create(organization=self.organization, text='left out')
+
+        self.move_with_a_plugin_that_leaves_out(Note, options)
+
+        self.assertTrue(self.organization_is_in(self.target_shard))
+        self.assertFalse(self.organization_is_in(self.source_shard))
+        self.assertEqual(self.notes_in(self.target_shard), [])
+        self.assertEqual(self.notes_in(self.source_shard), ['left out'])
+
+    def test_a_row_that_a_hook_leaves_out_is_neither_copied_nor_deleted(self):
+        """
+        Case: The organization has a Note, which the simple collector finds through its foreign key. The organization is
+              moved while a plugin's post_collect hook removes the Note from the collected rows. Django's collector,
+              which finds the rows to delete, does not follow the foreign key of a Note.
+        Expected: The organization moves, and the Note is not copied to the target shard and stays in the source shard.
+        """
+        self.assert_a_note_that_a_hook_leaves_out_stays_in_the_source_shard(self.options)
+
+    def test_a_row_that_a_hook_leaves_out_is_not_deleted_by_the_reused_collector(self):
+        """
+        Case: As above, but with --reuse-simple-collector-for-delete, so the collector that found the rows to copy also
+              deletes them.
+        Expected: The organization moves, and the Note is not copied to the target shard and stays in the source shard.
+        """
+        self.assert_a_note_that_a_hook_leaves_out_stays_in_the_source_shard(
+            [*self.options, '--reuse-simple-collector-for-delete']
+        )
+
+    def test_a_move_fails_when_a_row_that_a_hook_leaves_out_refers_to_a_moved_row(self):
+        """
+        Case: The organization has a Report, whose foreign key to it has a database constraint. The organization is
+              moved while a plugin's post_collect hook removes the Report from the collected rows.
+        Expected: The move fails with an IntegrityError and changes nothing: the Report is not deleted although it was
+                  not copied, so the organization that it refers to cannot be deleted either.
+        """
+        with use_shard(self.source_shard):
+            Report.objects.create(organization=self.organization, title='Puzzles')
+
+        with self.assertRaises(IntegrityError):
+            self.move_with_a_plugin_that_leaves_out(Report, self.options)
+
+        self.assertFalse(self.organization_is_in(self.target_shard))
+        self.assertTrue(self.organization_is_in(self.source_shard))
+
+        with use_shard(self.source_shard):
+            self.assertEqual(list(Report.objects.values_list('title', flat=True)), ['Puzzles'])
+
+    def test_the_delete_hooks_of_a_plugin_run_with_the_delete_signals_disconnected(self):
+        """
+        Case: A pre_delete and a post_delete receiver are connected for Note. The organization, which has a Note, is
+              moved while a plugin's post_delete hook deletes the Notes from the source shard through the ORM, as the
+              pghistory plugin deletes the moved events.
+        Expected: The Note is deleted from the source shard, and neither receiver is called.
+        """
+        with use_shard(self.source_shard):
+            Note.objects.create(organization=self.organization, text='moved')
+
+        def delete_the_notes(command, pk_set):
+            with use_shard(command.source_shard, active_only_schemas=False, lock=False):
+                Note.objects.filter(pk__in=pk_set[Note]).delete()
+
+        receiver = mock.Mock()
+        pre_delete.connect(receiver, sender=Note)
+        post_delete.connect(receiver, sender=Note)
+        self.addCleanup(pre_delete.disconnect, receiver, sender=Note)
+        self.addCleanup(post_delete.disconnect, receiver, sender=Note)
+
+        plugin = SimpleNamespace(move_data_to_shard=SimpleNamespace(post_delete=delete_the_notes))
+
+        with plugin_installed(plugin):
+            call_command('move_data_to_shard', *map(str, self.options))
+
+        self.assertEqual(self.notes_in(self.source_shard), [])
+        self.assertEqual(self.notes_in(self.target_shard), ['moved'])
+        receiver.assert_not_called()
 
 
 class MoveDataToShardTestCase(ShardingTestCase):
@@ -620,7 +795,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_confirm.assert_called_once_with(
             pk_set=pk_set, model_fields=mock_copy_data.return_value, options=self.options
         )
-        mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
+        mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value, pk_set=pk_set)
         mock_refresh_materialized_views.assert_called_once_with()
         mock_post_execution.assert_called_once_with(succeeded=True)
 
@@ -674,7 +849,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_confirm.assert_called_once_with(
             pk_set=pk_set, model_fields=mock_copy_data.return_value, options=self.options
         )
-        mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
+        mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value, pk_set=pk_set)
         self.assertEqual(mock_post_execution.call_count, 1)
 
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.get_target_shard')
@@ -785,7 +960,7 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_confirm.assert_called_once_with(
             pk_set=pk_set, model_fields=mock_copy_data.return_value, options=self.options
         )
-        mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value)
+        mock_delete_data.assert_called_once_with(collector=mock_get_data_collector_value, pk_set=pk_set)
         self.assertEqual(mock_post_execution.call_count, 1)
 
     @mock.patch('djanquiltdb.management.commands.move_data_to_shard.Command.get_target_shard')
@@ -1207,10 +1382,10 @@ class MoveDataToShardTestCase(ShardingTestCase):
                   disconnected: the copy on the target shard still references whatever external
                   resources the handlers would clean up.
         """
-        mock_collector = mock.Mock()
+        mock_collector = mock.Mock(data={})
 
         self.command.source_shard = self.source_shard
-        self.command.delete_data(collector=mock_collector)
+        self.command.delete_data(collector=mock_collector, pk_set={})
         mock_collector.delete.assert_called_once_with()
 
         mock_disable_signals.assert_called_once_with([pre_delete, post_delete])

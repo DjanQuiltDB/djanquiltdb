@@ -9,6 +9,7 @@ from djanquiltdb.db import connection
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME, DatabaseWrapper
 from djanquiltdb.utils import create_template_schema, use_shard
 from djanquiltdb_tests import ShardingTransactionTestCase
+from djanquiltdb_tests.plugin_hooks import plugin_installed, recording_plugin
 from example.models import Shard
 
 
@@ -114,6 +115,58 @@ class AlignShardsWithTemplateTestCase(ShardingTransactionTestCase):
         self.call_command()
 
         self.assertEqual(self._aligned_properties('el_chapo'), self._aligned_properties('template'))
+
+    def align_with_a_plugin_that_records_its_hooks(self, **options):
+        """
+        Aligns the shards while a plugin is installed whose hooks record when they run. Each record has the name of the
+        hook, the schema of the shard, whether a transaction is open, and whether the shard matches the template.
+        """
+        calls = []
+        template_properties = self._aligned_properties('template')
+
+        def record(hook, command, shard):
+            matches_the_template = self._aligned_properties(shard.schema_name) == template_properties
+            calls.append((hook, shard.schema_name, connection.in_atomic_block, matches_the_template))
+
+        plugin = recording_plugin('align_shards_with_template', 'align_context', ['pre_align', 'post_align'], record)
+
+        with plugin_installed(plugin):
+            self.call_command(**options)
+
+        return calls
+
+    def test_the_hooks_of_a_plugin_run_around_the_alignment_of_each_shard(self):
+        """
+        Case: Two shards are aligned, of which el_chapo differs from the template, while a plugin has every hook of
+              align_shards_with_template.
+        Expected: For each shard, inside its transaction, align_context is entered first, pre_align runs before the
+                  statements and post_align after them, and align_context is exited last.
+        """
+        self._make_shard_differ_from_template('el_chapo')
+
+        self.assertEqual(
+            self.align_with_a_plugin_that_records_its_hooks(),
+            [
+                ('enter align_context', 'el_chapo', True, False),
+                ('pre_align', 'el_chapo', True, False),
+                ('post_align', 'el_chapo', True, True),
+                ('exit align_context', 'el_chapo', True, True),
+                ('enter align_context', 'pablo_escobar', True, True),
+                ('pre_align', 'pablo_escobar', True, True),
+                ('post_align', 'pablo_escobar', True, True),
+                ('exit align_context', 'pablo_escobar', True, True),
+            ],
+        )
+
+    def test_the_hooks_of_a_plugin_do_not_run_in_a_dry_run(self):
+        """
+        Case: A dry run lists the statements for a shard that differs from the template, while a plugin has every hook
+              of align_shards_with_template.
+        Expected: No hook runs, because a dry run changes nothing.
+        """
+        self._make_shard_differ_from_template('el_chapo')
+
+        self.assertEqual(self.align_with_a_plugin_that_records_its_hooks(dry_run=True), [])
 
     def test_keeps_the_positions_of_the_shards_sequences(self):
         """

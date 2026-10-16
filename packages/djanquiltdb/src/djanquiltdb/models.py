@@ -4,7 +4,15 @@ from django.db import connections, models, transaction
 from django.db.models import Q
 
 from djanquiltdb import STATES, State
+from djanquiltdb.plugins import install_plugin_importer, served_plugin_module
 from djanquiltdb.utils import delete_schema, get_shard_class, use_shard
+
+# A plugin's models module is served as the submodule djanquiltdb.models.<plugin>, and the import system only asks
+# PluginImporter for a submodule when the parent module has a __path__. The list is empty, because no submodule is found
+# by searching it. Setting __path__ does not change how Django imports this module as the models module of the app.
+__path__ = []
+
+install_plugin_importer()
 
 
 class MappingQuerySet(models.QuerySet):
@@ -50,12 +58,12 @@ class BaseShard(models.Model):
             class Meta:
                 app_label = 'example'
 
-    Mirroring
+    .. rubric:: Mirroring
 
     You can, if you wish, apply the ``@mirrored_model`` decorator to this model as well.
     Like all mirrored models, you will have to keep them in sync yourself.
     Though this library does provide helper functions to accomplish that.
-    Since this model will create a schema when saved, it has logic to only do so on the node is targets.
+    Since this model will create a schema when saved, it has logic to only do so on the node it targets.
     """
 
     alias = models.CharField(max_length=128, db_index=True, unique=True)
@@ -140,3 +148,16 @@ class BaseQuiltSession(AbstractBaseSession):
 
     class Meta:
         abstract = True
+
+
+def __getattr__(name):
+    """
+    Serves the models module of a plugin under the plugin's registered name, for plain attribute access.
+    :class:`~djanquiltdb.plugins.PluginImporter` handles import statements.
+    """
+    module = served_plugin_module(__name__, name)
+
+    if module is None:
+        raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+
+    return module

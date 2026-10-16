@@ -6,9 +6,11 @@ from io import StringIO
 import progressbar
 from django.core.management import BaseCommand, CommandError
 from django.db import connections, models
+from django.db.models.fields import AutoFieldMixin
 
 from djanquiltdb import ShardingMode, State
 from djanquiltdb.options import ShardOptions
+from djanquiltdb.plugins import entered_plugin_hook_contexts, run_plugin_hooks
 from djanquiltdb.utils import (
     create_schema_on_node,
     get_all_databases,
@@ -189,6 +191,11 @@ class Command(BaseCommand):
         4) Move every sequence to its position on the source schema, then reset the sequences of the models to match
            the new data
         5) Upon transaction close, all fkeys constrains will be checked by postgres
+
+        Steps 2 and 3 run with the user triggers of the target schema disabled. The rows already went through the
+        triggers of the source schema when they were written, so a trigger, such as one that records history, would
+        act on them a second time. The triggers can only be enabled again once the foreign keys of the copied rows are
+        checked, so those checks run when step 3 ends.
         """
         nodes = list({self.source_shard.node_name, self.target_node})
         with transaction_for_nodes(nodes=nodes):
@@ -198,11 +205,19 @@ class Command(BaseCommand):
                 node_name=self.target_node, schema_name=self.source_shard.schema_name
             )
 
-            self.copy_data()
-            self.retarget_relations()
-            self.copy_sequence_positions()
-            self.reset_sequences()
-            self.refresh_materialized_views()
+            with entered_plugin_hook_contexts('move_shard_to_node.move_context', self):
+                run_plugin_hooks('move_shard_to_node.pre_copy', self)
+
+                with self.target_shard_options.use() as env:
+                    with env.connection.user_triggers_disabled(env.connection.get_all_table_headers()):
+                        self.copy_data()
+                        self.retarget_relations()
+
+                run_plugin_hooks('move_shard_to_node.post_copy', self)
+
+                self.copy_sequence_positions()
+                self.reset_sequences()
+                self.refresh_materialized_views()
 
     def copy_data(self):
         """
@@ -310,18 +325,24 @@ class Command(BaseCommand):
             if getattr(model, '__allow_copy', True):
                 with self.source_shard.use(active_only_schemas=False, lock=False):
                     source_object = model.objects.get_by_natural_key(*org_nat_keys_value)
-                    source_object.id = None
+                    self.clear_generated_primary_key(source_object)
+                    timestamps = self.get_auto_now_timestamps(source_object)
                     self.print(indent(gray(f'Creating <{source_object._meta.object_name}>{source_object}'), 2))
                     source_object.save(using=self.target_shard_options, force_insert=True)
+
+                    if timestamps:
+                        model._base_manager.using(self.target_shard_options).filter(pk=source_object.pk).update(
+                            **timestamps
+                        )
                     self.print(
                         indent(
-                            gray(f'Saved <{source_object._meta.object_name}>{source_object} to id {source_object.id}'),
+                            gray(f'Saved <{source_object._meta.object_name}>{source_object} to id {source_object.pk}'),
                             3,
                         )
                     )
 
                     self._check_relations(model, source_object)  # Recurse on the newly copied object.
-                    mapped_value = source_object.id
+                    mapped_value = source_object.pk
                     self.target_data[model][nat_keys_value] = mapped_value
             else:
                 with self.source_shard.use(active_only_schemas=False, lock=False):
@@ -341,12 +362,46 @@ class Command(BaseCommand):
 
         return mapped_value
 
+    @staticmethod
+    def get_auto_now_timestamps(source_object):
+        """
+        Returns the value of each field of a row that has auto_now or auto_now_add, by attname. Saving the row as a new
+        row on the target node sets those fields to the current time, so the copy gets these values back after it is
+        saved, and keeps the timestamps of the row that it copies. A queryset update writes them, because it does not
+        set the fields again, and it reaches the fields of a parent model too. The update fires the triggers of the
+        table of the public row, as its insert does.
+        """
+        return {
+            field.attname: getattr(source_object, field.attname)
+            for field in source_object._meta.concrete_fields
+            if getattr(field, 'auto_now', False) or getattr(field, 'auto_now_add', False)
+        }
+
+    @staticmethod
+    def clear_generated_primary_key(source_object):
+        """
+        Clear the primary key of a row that is about to be copied to the target node, when the database generates it.
+        The target node then generates a key of its own, which does not collide with its other rows. Any other primary
+        key, such as a UUID that the model generates, belongs to the row, and is kept. With multi-table inheritance, the
+        key is generated for the table of the root model, and every child table takes its key from there through its
+        parent link. The parent links are cleared too, because Django copies a parent link that is still set into the
+        key of the parent when it saves the parent row.
+        """
+        key_fields = [source_object._meta.pk]
+
+        while key_fields[-1].remote_field and key_fields[-1].remote_field.parent_link:
+            key_fields.append(key_fields[-1].target_field)
+
+        if isinstance(key_fields[-1], AutoFieldMixin):
+            for key_field in key_fields:
+                setattr(source_object, key_field.attname, None)
+
     def _check_relations(self, model, object):
         """
         For the given object, loop over each relation field and fetch the related objects that matches on the target
         node. Save the object with the new relations.
         """
-        self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object.id}, '), 0))
+        self.print(indent(gray(f'Retargeting <{object._meta.object_name}>{object.pk}, '), 0))
         alter = False
 
         for field_name, field_data in self.field_definitions[model].items():
@@ -357,15 +412,30 @@ class Command(BaseCommand):
                 # This field is empty; no need to map it to anything.
                 self.print(
                     indent(
-                        gray(f"Retargeting <{object._meta.object_name}>{object.id}, field '{field_name}' is empty"), 1
+                        gray(f"Retargeting <{object._meta.object_name}>{object.pk}, field '{field_name}' is empty"), 1
                     )
                 )
                 continue
 
             nat_keys_value = self.source_data[related_model].get(object_field_value)
+            if not nat_keys_value and not model._meta.get_field(field_name).db_constraint:
+                # A foreign key without a database constraint, such as the snapshot of a foreign key in an event of
+                # django-pghistory, can outlive the row that it refers to. Neither node has a row to retarget it to, so
+                # it keeps its value.
+                self.print(
+                    indent(
+                        gray(
+                            f'Retargeting <{object._meta.object_name}>{object.pk}, field {field_name} refers to a row '
+                            f'that the source node does not have, and keeps its value'
+                        ),
+                        1,
+                    )
+                )
+                continue
+
             if not nat_keys_value:
                 raise ValueError(
-                    f'No related data found for <{object._meta.object_name}>{object.id}.{field_name}:'
+                    f'No related data found for <{object._meta.object_name}>{object.pk}.{field_name}:'
                     f' {getattr(object, field_name)} on source shard'
                 )
 
@@ -376,7 +446,7 @@ class Command(BaseCommand):
 
             self.print(
                 indent(
-                    gray(f'Retargeting <{object._meta.object_name}>{object.id}, field {field_name} to {mapped_value}'),
+                    gray(f'Retargeting <{object._meta.object_name}>{object.pk}, field {field_name} to {mapped_value}'),
                     1,
                 )
             )
@@ -464,12 +534,12 @@ class Command(BaseCommand):
 
             with self.source_shard.use(active_only_schemas=False, lock=False):
                 for rel_model in self.source_data.keys():
-                    data = rel_model.objects.all().values_list('id', *rel_model._meta.unique_together[0])
+                    data = rel_model.objects.all().values_list('pk', *rel_model._meta.unique_together[0])
                     self.source_data[rel_model] = {d[0]: d[1:] for d in data}
 
             with self.target_shard_options.use():
                 for rel_model in self.target_data.keys():
-                    data = rel_model.objects.all().values_list('id', *rel_model._meta.unique_together[0])
+                    data = rel_model.objects.all().values_list('pk', *rel_model._meta.unique_together[0])
                     self.target_data[rel_model] = {d[1:]: d[0] for d in data}
 
             self.bar_update(bar)

@@ -607,6 +607,8 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             'example_caketype',
             'example_coatingtype',
             'example_coatingtype_super_type',
+            'example_flavour',
+            'example_sprinkle',
             'example_organizationshard',
             'example_mirroreduser',
             'example_mirroreduser_type',
@@ -624,6 +626,8 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             'example_coatingtype',
             'example_coatingtype_super_type',
             'example_caketype',
+            'example_flavour',
+            'example_sprinkle',
             'django_content_type',
             'auth_group',
             'auth_permission',
@@ -637,6 +641,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         template_tables = [
             'django_migrations',
             'example_organization',
+            'example_note',
             'example_suborganization',
             'example_user',
             'example_statement',
@@ -644,6 +649,7 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             'example_quiltsession',
             'example_report',
             'example_detailedreport',
+            'example_pudding',
             'example_user_cake',
             'example_statement_type',
         ]

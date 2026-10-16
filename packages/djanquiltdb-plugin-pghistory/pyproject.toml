@@ -1,0 +1,95 @@
+[build-system]
+# The PEP 639 license expression below needs 77, which is also new enough not to want `wheel` declared here.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "djanquiltdb-plugin-pghistory"
+dynamic = ["version"]
+description = "Sharding-aware django-pghistory event tracking for DjanQuiltDB projects"
+readme = "README.rst"
+requires-python = ">=3.14"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [
+    { name = "DjanQuiltDB Project", email = "djanquiltdb@portal42.net" },
+]
+keywords = [
+    "django",
+    "database",
+    "sharding",
+    "postgresql",
+    "history",
+    "audit",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Framework :: Django",
+    "Framework :: Django :: 6.0",
+    "Framework :: Django :: 6.1",
+    "Topic :: Database",
+]
+dependencies = [
+    "django>=6.0,<7.0",
+    "djanquiltdb>=4.2.0,<5.0",
+    # The event bases use internals of pghistory.config and pghistory.models, so a new major version has to be checked
+    # before the upper bound is raised. Releases before 3.9.2 replace a tracker's `condition=None` with the class
+    # default, and ignore `level=` on every RowEvent tracker.
+    "django-pghistory>=3.9.2,<4.0",
+]
+
+[project.entry-points."djanquiltdb.plugins"]
+pghistory = "djanquiltdb_plugin_pghistory:plugin"
+
+[project.urls]
+Homepage = "https://github.com/DjanQuiltDB/djanquiltdb"
+Documentation = "https://djanquiltdb.readthedocs.io/en/latest/plugins/pghistory/index.html"
+Source = "https://github.com/DjanQuiltDB/djanquiltdb/tree/master/packages/djanquiltdb-plugin-pghistory"
+Issues = "https://github.com/DjanQuiltDB/djanquiltdb/issues"
+Changelog = "https://github.com/DjanQuiltDB/djanquiltdb/blob/master/packages/djanquiltdb-plugin-pghistory/CHANGELOG.rst"
+
+[project.optional-dependencies]
+lint = [
+    "ruff==0.15.21",
+]
+test = [
+    "coverage",
+    "psycopg[binary]>=3.0.0",
+    "dj-database-url",
+]
+docs = [
+    "sphinx>=8,<10",
+]
+dev = [
+    "djanquiltdb-plugin-pghistory[test,lint,docs]",
+    "pre-commit",
+    # Native TOML configuration, so that tox.ini is not needed, landed in 4.21.
+    "tox>=4.21",
+    "build",
+    "twine",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "djanquiltdb_plugin_pghistory.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.coverage.run]
+source = ["djanquiltdb_plugin_pghistory"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100
+
+# Shared settings live in ruff.toml at the repository root; only the src roots are per package.
+[tool.ruff]
+extend = "../../ruff.toml"
+src = ["src", "tests"]

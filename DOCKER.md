@@ -19,6 +19,7 @@ Run one package's environments by label, one environment, or hand extra argument
 ```bash
 docker compose run --rm test tox -m core
 docker compose run --rm test tox -m postgres-objects
+docker compose run --rm test tox -m pghistory
 docker compose run --rm test tox -e core-py314-dj60-pg17
 docker compose run --rm test tox -e core-py314-dj60-pg17 -- djanquiltdb_tests.router
 docker compose run --rm test tox -e postgres-objects-py314-dj60-pg17 -- -k ViewPlacementTestCase

@@ -4,8 +4,9 @@ import threading
 from unittest import mock
 
 from django.apps import apps
+from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
-from django.db import ProgrammingError, connections, transaction
+from django.db import ProgrammingError, connections, models, transaction
 from django.db.models.signals import (
     post_delete,
     post_init,
@@ -18,12 +19,14 @@ from django.db.models.signals import (
 )
 from django.db.utils import ConnectionDoesNotExist, IntegrityError, OperationalError
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import isolate_apps
 
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import atomic_write_to_every_node
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.router import get_active_connection, set_active_connection
 from djanquiltdb.utils import (
+    OverrideShardingModeWithLowercaseKeys,
     ShardingMode,
     State,
     StateException,
@@ -40,6 +43,7 @@ from djanquiltdb.utils import (
     get_all_public_schema_models,
     get_all_sharded_models,
     get_connection_alias,
+    get_declared_sharding_mode,
     get_mapping_class,
     get_model_definition,
     get_model_sharding_mode,
@@ -66,12 +70,16 @@ from example.models import (
     CakeType,
     CoatingType,
     DetailedReport,
+    Flavour,
     MirroredUser,
+    Note,
     Organization,
     OrganizationShard,
+    Pudding,
     QuiltSession,
     Report,
     Shard,
+    Sprinkle,
     Statement,
     Suborganization,
     SuperType,
@@ -820,6 +828,7 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
             [
                 'django_migrations',
                 'example_organization',
+                'example_note',
                 'example_suborganization',
                 'example_user',
                 'example_statement',
@@ -827,6 +836,7 @@ class CreateTemplateSchemaTestCase(ShardingTestCase):
                 'example_quiltsession',
                 'example_report',
                 'example_detailedreport',
+                'example_pudding',
                 'example_user_cake',
                 'example_statement_type',
             ],
@@ -965,6 +975,105 @@ class GetShardingModeTestCase(SimpleTestCase):
         self.assertEqual(get_sharding_mode('example', 'user_cake'), ShardingMode.SHARDED)
 
 
+class GetDeclaredShardingModeTestCase(SimpleTestCase):
+    def test_the_marker_of_the_mode_decorator_is_read_from_the_class(self):
+        """
+        Case: Call get_declared_sharding_mode for a model that is marked by a mode decorator.
+        Expected: The mode that the decorator set on the class.
+        """
+        self.assertEqual(get_declared_sharding_mode(User), ShardingMode.SHARDED)
+
+    def test_returns_none_when_nothing_declares_a_mode(self):
+        """
+        Case: Call get_declared_sharding_mode for a model without a marker or an override entry.
+        Expected: None, and not the False that get_sharding_mode returns.
+        """
+        with isolate_apps('example'):
+
+            class ModelWithoutShardingMode(models.Model):
+                class Meta:
+                    app_label = 'example'
+
+        self.assertIsNone(get_declared_sharding_mode(ModelWithoutShardingMode))
+
+    def test_override_keys_match_whatever_their_casing(self):
+        """
+        Case: Call get_declared_sharding_mode while the OVERRIDE_SHARDING_MODE keys have the casing of a settings file,
+              as they do before AppConfig.ready() normalizes them.
+        Expected: The entries match, and a model-specific entry takes precedence over an app-wide entry.
+        """
+        with override_settings(
+            QUILT_DB={
+                'OVERRIDE_SHARDING_MODE': {
+                    ('example', 'User'): ShardingMode.MIRRORED,
+                    ('Example',): ShardingMode.PUBLIC,
+                }
+            }
+        ):
+            self.assertEqual(get_declared_sharding_mode(User), ShardingMode.MIRRORED)
+            self.assertEqual(get_declared_sharding_mode(Organization), ShardingMode.PUBLIC)
+
+    def test_the_ready_app_registry_marks_the_override_keys_as_lowercase(self):
+        """
+        Case: The OVERRIDE_SHARDING_MODE setting is read once AppConfig.ready() has run.
+        Expected: It is an OverrideShardingModeWithLowercaseKeys, whose keys are all lowercase.
+        """
+        override_sharding_mode = settings.QUILT_DB['OVERRIDE_SHARDING_MODE']
+
+        self.assertIsInstance(override_sharding_mode, OverrideShardingModeWithLowercaseKeys)
+        self.assertTrue(all(part == part.lower() for key in override_sharding_mode for part in key))
+
+    def test_override_keys_that_are_marked_as_lowercase_are_not_copied(self):
+        """
+        Case: Call get_declared_sharding_mode while OVERRIDE_SHARDING_MODE is an OverrideShardingModeWithLowercaseKeys,
+              as it is once AppConfig.ready() has run.
+        Expected: The entry matches, and the entries are not read one by one to build a lowercase copy.
+        """
+        entries_read = []
+
+        class RecordingOverrideShardingMode(OverrideShardingModeWithLowercaseKeys):
+            def items(self):
+                entries_read.append(True)
+                return super().items()
+
+        with override_settings(
+            QUILT_DB={
+                'OVERRIDE_SHARDING_MODE': RecordingOverrideShardingMode({('example', 'user'): ShardingMode.PUBLIC})
+            }
+        ):
+            self.assertEqual(get_declared_sharding_mode(User), ShardingMode.PUBLIC)
+
+        self.assertEqual(entries_read, [])
+
+    def test_a_proxy_gets_the_mode_of_its_concrete_model(self):
+        """
+        Case: Call get_declared_sharding_mode for a proxy of a model whose mode is set only by an override entry.
+        Expected: The mode of the concrete model.
+        """
+        with isolate_apps('example'):
+
+            class ModelWithOverriddenMode(models.Model):
+                class Meta:
+                    app_label = 'example'
+
+            class ProxyOfModelWithOverriddenMode(ModelWithOverriddenMode):
+                class Meta:
+                    app_label = 'example'
+                    proxy = True
+
+        with override_settings(
+            QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example', 'modelwithoverriddenmode'): ShardingMode.MIRRORED}}
+        ):
+            self.assertEqual(get_declared_sharding_mode(ProxyOfModelWithOverriddenMode), ShardingMode.MIRRORED)
+
+    def test_an_auto_created_model_gets_the_mode_of_the_model_that_caused_its_creation(self):
+        """
+        Case: Call get_declared_sharding_mode for the auto-created through model of a many-to-many field.
+        Expected: The mode of the model that declares the many-to-many field.
+        """
+        self.assertEqual(get_declared_sharding_mode(User.cake.through), ShardingMode.SHARDED)
+
+
 class GetAllShardedModels(ShardingTestCase):
     available_apps = ['example']
 
@@ -983,7 +1092,7 @@ class GetAllShardedModels(ShardingTestCase):
         ):
             self.assertCountEqual(
                 get_all_sharded_models(),
-                [User, Statement, Suborganization, Cake, QuiltSession, Report, DetailedReport],
+                [User, Statement, Suborganization, Cake, QuiltSession, Report, DetailedReport, Pudding, Note],
             )
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
@@ -1021,6 +1130,7 @@ class GetAllShardedModels(ShardingTestCase):
             result,
             [
                 "<class 'example.models.Organization'>",
+                "<class 'example.models.Note'>",
                 "<class 'example.models.Suborganization'>",
                 "<class 'example.models.Cake'>",
                 "<class 'example.models.User_cake'>",
@@ -1030,6 +1140,7 @@ class GetAllShardedModels(ShardingTestCase):
                 "<class 'example.models.Statement'>",
                 "<class 'example.models.Report'>",
                 "<class 'example.models.DetailedReport'>",
+                "<class 'example.models.Pudding'>",
             ],
         )
 
@@ -1044,6 +1155,7 @@ class GetAllShardedModels(ShardingTestCase):
             result,
             [
                 "<class 'example.models.Organization'>",
+                "<class 'example.models.Note'>",
                 "<class 'example.models.Suborganization'>",
                 "<class 'example.models.Cake'>",
                 "<class 'example.models.ProxyCake'>",  # This is a proxy model
@@ -1052,6 +1164,7 @@ class GetAllShardedModels(ShardingTestCase):
                 "<class 'example.models.QuiltSession'>",
                 "<class 'example.models.Report'>",
                 "<class 'example.models.DetailedReport'>",
+                "<class 'example.models.Pudding'>",
             ],
         )
 
@@ -1142,7 +1255,9 @@ class GetAllPublicModels(ShardingTestCase):
         Note: System test
         """
         with override_settings(QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
-            self.assertCountEqual(get_all_public_models(), [SuperType, MirroredUser, CakeType, CoatingType])
+            self.assertCountEqual(
+                get_all_public_models(), [SuperType, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle]
+            )
 
     def test_with_override_archived_models(self):
         """
@@ -1159,7 +1274,7 @@ class GetAllPublicModels(ShardingTestCase):
                 }
             }
         ):
-            self.assertCountEqual(get_all_public_models(), [SuperType, CakeType, CoatingType])
+            self.assertCountEqual(get_all_public_models(), [SuperType, CakeType, CoatingType, Flavour, Sprinkle])
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):
@@ -1186,6 +1301,8 @@ class GetAllPublicModels(ShardingTestCase):
                 "<class 'example.models.CakeType'>",
                 "<class 'example.models.CoatingType'>",
                 "<class 'example.models.CoatingType_super_type'>",
+                "<class 'example.models.Flavour'>",
+                "<class 'example.models.Sprinkle'>",
             ],
         )  # This is an auto-created model
 
@@ -1204,6 +1321,8 @@ class GetAllPublicModels(ShardingTestCase):
                 "<class 'example.models.CakeType'>",
                 "<class 'example.models.ProxyCakeType'>",  # This is a proxy model
                 "<class 'example.models.CoatingType'>",
+                "<class 'example.models.Flavour'>",
+                "<class 'example.models.Sprinkle'>",
             ],
         )
 
@@ -1220,7 +1339,8 @@ class GetAllPublicSchemaModels(ShardingTestCase):
         """
         with override_settings(QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
             self.assertCountEqual(
-                get_all_public_schema_models(), [Shard, SuperType, Type, MirroredUser, CakeType, CoatingType]
+                get_all_public_schema_models(),
+                [Shard, SuperType, Type, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle],
             )
 
     def test_with_override_archived_models(self):
@@ -1239,7 +1359,8 @@ class GetAllPublicSchemaModels(ShardingTestCase):
             }
         ):
             self.assertCountEqual(
-                get_all_public_schema_models(), [Shard, SuperType, MirroredUser, CakeType, CoatingType]
+                get_all_public_schema_models(),
+                [Shard, SuperType, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle],
             )
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
@@ -1271,6 +1392,8 @@ class GetAllPublicSchemaModels(ShardingTestCase):
                 "<class 'example.models.CakeType'>",
                 "<class 'example.models.CoatingType'>",
                 "<class 'example.models.CoatingType_super_type'>",
+                "<class 'example.models.Flavour'>",
+                "<class 'example.models.Sprinkle'>",
             ],
         )  # This is an auto-created model
 
@@ -1293,6 +1416,8 @@ class GetAllPublicSchemaModels(ShardingTestCase):
                 "<class 'example.models.CakeType'>",
                 "<class 'example.models.ProxyCakeType'>",  # This is a proxy model
                 "<class 'example.models.CoatingType'>",
+                "<class 'example.models.Flavour'>",
+                "<class 'example.models.Sprinkle'>",
             ],
         )
 

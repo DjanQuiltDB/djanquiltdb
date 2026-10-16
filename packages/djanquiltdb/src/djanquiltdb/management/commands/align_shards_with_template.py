@@ -2,6 +2,7 @@ from django.core.management import BaseCommand, CommandError
 from django.db import DatabaseError, connections, transaction
 
 from djanquiltdb.management.base import get_databases_and_schema_from_options, get_shards_by_node
+from djanquiltdb.plugins import entered_plugin_hook_contexts, run_plugin_hooks
 from djanquiltdb.utils import get_all_databases, get_template_name, schema_exists, use_shard
 
 
@@ -137,6 +138,12 @@ class Command(BaseCommand):
             if dry_run:
                 transaction.set_rollback(True, using=shard.node_name)
             else:
-                cursor = env.connection.cursor()
-                for statement in statements:
-                    cursor.execute(statement)
+                # A dry run changes nothing, so the plugins take no part in it.
+                with entered_plugin_hook_contexts('align_shards_with_template.align_context', self, shard):
+                    run_plugin_hooks('align_shards_with_template.pre_align', self, shard)
+
+                    cursor = env.connection.cursor()
+                    for statement in statements:
+                        cursor.execute(statement)
+
+                    run_plugin_hooks('align_shards_with_template.post_align', self, shard)

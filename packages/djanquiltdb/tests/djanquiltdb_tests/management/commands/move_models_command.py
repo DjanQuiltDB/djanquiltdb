@@ -16,6 +16,7 @@ from djanquiltdb.utils import (
     use_shard,
 )
 from djanquiltdb_tests import ShardingTransactionTestCase
+from djanquiltdb_tests.plugin_hooks import plugin_installed, recording_plugin
 from example.models import Organization, Shard, Statement
 
 
@@ -84,6 +85,35 @@ class MoveModelsCommandTestCase(ShardingTransactionTestCase):
                 self.assertCountEqual(
                     connection.get_schema_for_sequence('{}_id_seq'.format(model._meta.db_table)), [('public',)]
                 )
+
+    def test_the_hooks_of_a_plugin_run_around_the_move(self):
+        """
+        Case: The sharded tables move out of the public schema while a plugin has every hook of move_sharded_models.
+        Expected: Inside the transaction of the command, move_context is entered first, pre_move runs while the tables
+                  are still in the public schema, post_move once they are no longer there, and move_context is exited
+                  last.
+        """
+        self._publish_models_on_public()
+        calls = []
+
+        def record(hook, command):
+            in_the_public_schema = ('public',) in connection.get_schema_for_model(Organization)
+            calls.append((hook, connection.in_atomic_block, in_the_public_schema))
+
+        plugin = recording_plugin('move_sharded_models', 'move_context', ['pre_move', 'post_move'], record)
+
+        with plugin_installed(plugin):
+            MoveCommand().handle(database='default', target_schema_name='test_target_schema', no_input=True)
+
+        self.assertEqual(
+            calls,
+            [
+                ('enter move_context', True, True),
+                ('pre_move', True, True),
+                ('post_move', True, False),
+                ('exit move_context', True, False),
+            ],
+        )
 
     def _publish_models_on_public(self, node_name='default'):
         """

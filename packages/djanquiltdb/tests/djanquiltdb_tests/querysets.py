@@ -1,8 +1,10 @@
 import pickle  # nosec
 
 from django.db import IntegrityError
+from django.db.models import QuerySet
 
 from djanquiltdb import State
+from djanquiltdb.apps import post_init
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.utils import create_template_schema, use_shard
 from djanquiltdb_tests import ShardingTestCase
@@ -43,6 +45,40 @@ class QuerySetTestCase(ShardingTestCase):
 
         self.assertEqual(all_chocolate_cakes._hints, {'_shard_options': env.options})
         self.assertEqual(list(all_chocolate_cakes), [cake])  # Evaluated here, outside the use_shard context
+
+    def test_hints_passed_as_a_positional_argument_get_the_shard_added(self):
+        """
+        Case: A queryset of a sharded model is created with hints as the fourth positional argument, as
+              django-pghistory's EventQuerySet passes them to QuerySet.__init__.
+        Expected: The queryset is created, with the shard added to the given hints, and without a "got multiple values
+                  for argument 'hints'" error.
+        """
+        with use_shard(self.shard) as env:
+            queryset = QuerySet(User, None, None, {})
+
+        self.assertEqual(queryset._hints, {'_shard_options': env.options})
+
+    def test_hints_followed_by_more_positional_arguments_get_the_shard_added(self):
+        """
+        Case: The queryset class of a sharded model takes a fifth parameter after hints, and is created with all five
+              arguments passed positionally. Its __init__ is wrapped as DjanQuiltDB wraps the queryset classes of
+              sharded models.
+        Expected: The queryset is created, with the shard added to the given hints and the fifth argument kept, and
+                  without a "got multiple values for argument 'hints'" error.
+        """
+
+        class QuerySetWithAScope(QuerySet):
+            def __init__(self, model=None, query=None, using=None, hints=None, scope=None):
+                super().__init__(model, query, using, hints)
+                self.scope = scope
+
+        QuerySetWithAScope.__init__ = post_init(QuerySetWithAScope.__init__)
+
+        with use_shard(self.shard) as env:
+            queryset = QuerySetWithAScope(Organization, None, None, {}, 'archived')
+
+        self.assertEqual(queryset._hints, {'_shard_options': env.options})
+        self.assertEqual(queryset.scope, 'archived')
 
     def test_override_queryset_method(self):
         """

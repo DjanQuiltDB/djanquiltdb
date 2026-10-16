@@ -15,6 +15,7 @@ from django.db.models.signals import post_delete, pre_delete
 
 from djanquiltdb import ShardingMode, State
 from djanquiltdb.collector import SimpleCollector
+from djanquiltdb.plugins import entered_plugin_hook_contexts, run_plugin_hooks
 from djanquiltdb.utils import (
     disable_signals,
     get_all_sharded_models,
@@ -157,6 +158,8 @@ class Command(BaseCommand):
 
             collector = self.get_data_collector(objects=objects)
             data = collector.data
+            # A hook can remove rows from the collected data, so they are neither copied nor deleted.
+            run_plugin_hooks('move_data_to_shard.post_collect', self, data)
 
             # Get the pk_set, which is needed for moving and confirming the data integrity
             with use_shard(self.source_shard, active_only_schemas=False, lock=False):
@@ -169,12 +172,18 @@ class Command(BaseCommand):
 
             # Pushing the node names through a set means we end up with a list of unique names.
             nodes = list({self.source_shard.node_name, self.target_shard.node_name})
-            with transaction_for_nodes(nodes=nodes):
+            with (
+                transaction_for_nodes(nodes=nodes),
+                entered_plugin_hook_contexts('move_data_to_shard.move_context', self),
+            ):
+                run_plugin_hooks('move_data_to_shard.pre_copy', self, pk_set)
                 model_fields = self.copy_data(pk_set=pk_set)
                 self.reset_sequencers(data=data)
 
                 if not self.confirm_data_integrity(pk_set=pk_set, model_fields=model_fields, options=options):
                     raise IntegrityError('Data was not successfully copied.')
+
+                run_plugin_hooks('move_data_to_shard.post_copy', self, pk_set)
 
                 if not options.get('no_delete'):
                     # Delete the data. Pick the current collector if we reuse the data and pick Django's nested
@@ -184,7 +193,7 @@ class Command(BaseCommand):
                         if self.reuse_data
                         else self.get_data_collector(objects=objects, use_original_collector=True)
                     )
-                    self.delete_data(collector=delete_collector)
+                    self.delete_data(collector=delete_collector, pk_set=pk_set)
                 else:
                     self.print('Skipped deleting data from the source shard.')
 
@@ -442,13 +451,30 @@ class Command(BaseCommand):
             self.print('Validation artifacts can be found in: {}'.format(gettempdir()))
             return self.validate_data_integrity(pk_set=pk_set, model_fields=model_fields, temp_dir=None)
 
-    def delete_data(self, collector):
-        # Delete with pre_delete/post_delete disconnected, the way purge_shard_data does: the rows deleted here
-        # were just copied to the target shard, so a handler cleaning up external resources keyed by them would
-        # destroy things the moved copy still references.
-        with use_shard(self.source_shard, active_only_schemas=False, lock=False):
-            with disable_signals([pre_delete, post_delete]):
+    def delete_data(self, collector, pk_set):
+        """
+        Delete the copied rows from the source shard, with the pre_delete and post_delete hooks of the plugins around
+        the delete.
+
+        Only the rows in pk_set are deleted, which are the rows that were copied. Django's collector finds the rows to
+        delete again, and would also delete a row that a post_collect hook left out of the copy. When such a row still
+        refers to a deleted row through a foreign key with a constraint, the transaction of the move fails instead.
+
+        The delete and the hooks run with pre_delete and post_delete disconnected, the way purge_shard_data does: the
+        rows deleted here were just copied to the target shard, so a handler cleaning up external resources keyed by
+        them would destroy things the moved copy still references.
+        """
+        for model, instances in list(collector.data.items()):
+            copied_pks = set(pk_set.get(model, ()))
+            collector.data[model] = {instance for instance in instances if instance.pk in copied_pks}
+
+        with disable_signals([pre_delete, post_delete]):
+            run_plugin_hooks('move_data_to_shard.pre_delete', self, pk_set)
+
+            with use_shard(self.source_shard, active_only_schemas=False, lock=False):
                 collector.delete()
+
+            run_plugin_hooks('move_data_to_shard.post_delete', self, pk_set)
 
     def pre_execution(self, root_objects):
         """

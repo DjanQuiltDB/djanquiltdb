@@ -79,16 +79,15 @@ class use_shard(object):
 
     :returns: The context manager as an object with the following members:
 
-    * **connection:** Reference to the current database connection.
-    * **options:** Reference to the current shard options.
+        * **connection:** Reference to the current database connection.
+        * **options:** Reference to the current shard options.
 
     :Example:
         .. code-block:: python
 
             from djanquiltdb.utils import use_shard
 
-            from config.models import shard
-            from example.models import User
+            from example.models import Shard, User
 
 
             shard = Shard.objects.get(alias='North')
@@ -270,8 +269,8 @@ class use_shard_for(use_shard):
 
     :returns: The context manager as an object with the following members:
 
-    * **connection:** Reference to the current database connection.
-    * **shard:** Reference to the current shard model object.
+        * **connection:** Reference to the current database connection.
+        * **shard:** Reference to the current shard model object.
 
     :Example:
         .. code-block:: python
@@ -292,23 +291,24 @@ class use_shard_for(use_shard):
                 class Meta:
                     app_label = 'myapp'
 
+
             @shard_mapping_model(mapping_field='organization_id')
             class OrganizationShard(models.Model):
                 shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
                 organization_id = models.PositiveSmallIntegerField(db_index=True)
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
-
                 objects = MappingQuerySet.as_manager()
 
                 class Meta:
                     app_label = 'myapp'
 
+
             # myapp.views
             from djanquiltdb.utils import use_shard_for
 
             with use_shard_for(user.organization.id):
-                # Do things on my shard
+                ...  # Do things on my shard
 
     """
 
@@ -330,7 +330,7 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
 
     :param str schema_name: Provide the name of the schema to be made.
     :param str node_name: Provide the name of the database connection to be used. If empty it will use the current.
-    :param bool migrate: Use `False` to disable automatic migration of all sharded models.
+    :param bool migrate: Use ``False`` to disable automatic migration of all sharded models.
 
     :returns: None
 
@@ -342,7 +342,7 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
             from example.models import User
 
 
-            create_schema_on_node(shard_name='North', node_name='default', migrate=True)
+            create_schema_on_node(schema_name='North', node_name='default', migrate=True)
 
             with use_shard(node_name='default', schema_name='North'):
                 # create user on the North shard
@@ -369,7 +369,7 @@ def create_template_schema(node_name='default', interactive=False, verbosity=0, 
     Each node needs to have a template schema. This is cloned for each new shard on the node.
     This function creates a new schema on a given node that is named 'template', or what you have set under
     settings.QUILT_DB.TEMPLATE_NAME.
-    It then migrates only the sharded tables to this schema, by calling sharding.utils.migrate_schema.
+    It then migrates only the sharded tables to this schema, by calling ``djanquiltdb.utils.migrate_schema``.
 
     Since this only needs to happen once on each node, you can just run it in the shell.
 
@@ -458,12 +458,14 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
 
             from djanquiltdb.utils import for_each_shard, use_shard
 
-            function sharded_function(shard=None, shard_id=None, prefix=None):
+
+            def sharded_function(shard=None, shard_id=None, prefix=None):
                 shard_id = shard.id if shard else shard_id
                 print('update user on {prefix}{shard_id}'.format(prefix=prefix, shard_id=shard_id))
                 with use_shard(shard):
                     User.objects.update(last_updated=timezone.now())
                 return '{} users updated'.format(User.objects.count())
+
 
             for_each_shard(sharded_function)
 
@@ -491,9 +493,54 @@ def get_model_sharding_mode(model):
     return get_sharding_mode(model_class._meta.app_label, model_class._meta.model_name)
 
 
+class OverrideShardingModeWithLowercaseKeys(dict):
+    """
+    The ``OVERRIDE_SHARDING_MODE`` setting once ``AppConfig.ready()`` has lowercased its keys. The type tells
+    :func:`get_declared_sharding_mode` that the keys need no lowercasing, so it uses the setting as it is.
+    """
+
+
+def get_declared_sharding_mode(model):
+    """
+    Returns the sharding mode that is declared for a model class, or None when nothing declares one.
+
+    The mode is resolved in the same way as the router resolves it, but only from the class, so this also works while
+    models are still being defined. An ``OVERRIDE_SHARDING_MODE`` entry takes precedence over the mode decorator, and
+    its keys are compared in lowercase, because before ``AppConfig.ready()`` they have the casing of the settings file.
+    A proxy model gets the mode of its concrete model, and an auto-created model gets the mode of the model that caused
+    its creation.
+    """
+    override_sharding_mode = settings.QUILT_DB.get('OVERRIDE_SHARDING_MODE', {})
+
+    if not isinstance(override_sharding_mode, OverrideShardingModeWithLowercaseKeys):
+        override_sharding_mode = {
+            tuple(part.lower() for part in key): mode for key, mode in override_sharding_mode.items()
+        }
+
+    opts = model._meta
+
+    for key in ((opts.app_label, opts.model_name), (opts.app_label,)):
+        if key in override_sharding_mode:
+            return override_sharding_mode[key]
+
+    mode = getattr(model, '__sharding_mode', None)
+
+    if mode is None and opts.proxy:
+        # A proxy of a third-party model has no marker of its own, and its table is the table of the concrete model.
+        return get_declared_sharding_mode(opts.concrete_model)
+
+    if mode is None and opts.auto_created:
+        return get_declared_sharding_mode(opts.auto_created)
+
+    return mode
+
+
 def get_sharding_mode(app_label, model_name):
     override_sharding_mode = settings.QUILT_DB.get('OVERRIDE_SHARDING_MODE', {})
 
+    # The override is read before the model is looked up, because the router also asks about migration operations that
+    # name no model, and about models that the app registry does not have, such as a model that a later migration
+    # deletes. get_declared_sharding_mode() reads it again for the models that the registry has.
     if override_sharding_mode:
         if (app_label, model_name) in override_sharding_mode:
             # The configuration overrides the sharding_mode for a model in an app
@@ -507,14 +554,10 @@ def get_sharding_mode(app_label, model_name):
     if not model_name or (app_label, model_name) == ('migrations', 'migration'):
         return None
 
-    model = apps.get_model(app_label, model_name)
+    mode = get_declared_sharding_mode(apps.get_model(app_label, model_name))
 
-    # If this model is created automatically (for many-to-many relations for example),
-    # return the sharding mode of the model responsible for its creation.
-    if model._meta.auto_created:
-        return get_sharding_mode(model._meta.auto_created._meta.app_label, model._meta.auto_created._meta.model_name)
-
-    return getattr(model, '__sharding_mode', False)
+    # Callers of this function expect False, and not None, when no mode is declared.
+    return False if mode is None else mode
 
 
 def get_all_sharded_models(include_auto_created=False, include_proxy=False):

@@ -1,3 +1,4 @@
+import types
 from collections import OrderedDict
 from unittest import mock
 
@@ -6,10 +7,11 @@ from django.contrib.auth.models import AbstractBaseUser
 from django.core.exceptions import ImproperlyConfigured
 from django.db import connections, models
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import isolate_apps
 
 from djanquiltdb import ShardingMode, State
 from djanquiltdb.db import connection
-from djanquiltdb.decorators import sharded_model
+from djanquiltdb.decorators import class_method_use_shard, sharded_model
 from djanquiltdb.models import BaseShard
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME, DatabaseWrapper, ShardDatabaseWrapper
@@ -593,3 +595,89 @@ class ConnectionTestCase(SimpleTestCase):
         from django.db import connection as django_connection
 
         self.assertIs(django_connection, connection)
+
+
+class PublicModelValidationTestCase(SimpleTestCase):
+    def ready_with_a_public_model_and_plugins(self, public_model, plugins):
+        sharding_app = apps.get_app_config(app_label='djanquiltdb')
+
+        with mock.patch('djanquiltdb.apps.get_all_public_models', return_value=[public_model]):
+            with mock.patch('djanquiltdb.apps.load_plugins', return_value=plugins):
+                sharding_app.ready()
+
+    @isolate_apps('djanquiltdb')
+    def test_a_public_model_without_a_natural_key_is_reported(self):
+        """
+        Case: A public model has no unique_together and no natural_key(), and no plugin gives it one.
+        Expected: ImproperlyConfigured, which names the model.
+        """
+
+        class Biscuit(models.Model):
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with self.assertRaisesMessage(ImproperlyConfigured, 'djanquiltdb.Biscuit must have "unique_together"'):
+            self.ready_with_a_public_model_and_plugins(Biscuit, plugins=())
+
+    @isolate_apps('djanquiltdb')
+    def test_the_install_of_a_plugin_can_give_a_public_model_its_natural_key(self):
+        """
+        Case: A public model has no unique_together and no natural_key(), and the install() of an installed plugin adds
+              both, as a plugin does for a model of a third-party app that it cannot change.
+        Expected: No ImproperlyConfigured, because the plugins are installed before the public models are validated.
+        """
+
+        class RuskManager(models.Manager):
+            # The validation only checks that the method exists.
+            def get_by_natural_key(self, id):  # pragma: no cover
+                return self.get(id=id)
+
+        class Rusk(models.Model):
+            objects = RuskManager()
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        def add_natural_key_to_rusk():
+            Rusk._meta.unique_together = (('id',),)
+            Rusk.natural_key = lambda rusk: (rusk.id,)
+
+        plugin = types.SimpleNamespace(install=add_natural_key_to_rusk)
+
+        self.ready_with_a_public_model_and_plugins(Rusk, plugins=(plugin,))
+
+
+class DescriptorRaisingOnClassAccess:
+    """
+    A class attribute that raises when it is read through the class, as django-pghistory's pgh_event_model can.
+    """
+
+    def __get__(self, instance, owner):
+        raise ValueError('this attribute cannot be read through the class')
+
+
+class InitializeShardedModelsTestCase(SimpleTestCase):
+    @isolate_apps('djanquiltdb')
+    def test_a_class_attribute_that_raises_on_class_access_does_not_stop_initialization(self):
+        """
+        Case: A sharded model has a descriptor that raises when it is read through the class, and the sharded models are
+              initialized.
+        Expected: Initialization completes, and the methods of the model are decorated with class_method_use_shard.
+        """
+        from djanquiltdb.apps import _initialize_sharded_models
+
+        @sharded_model()
+        class Cracker(models.Model):
+            raises_on_class_access = DescriptorRaisingOnClassAccess()
+
+            # Only the decoration of this method is tested, so the method is never called.
+            def crumble(self):  # pragma: no cover
+                return 'crumbled'
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with mock.patch('djanquiltdb.apps.get_all_sharded_models', return_value=[Cracker]):
+            _initialize_sharded_models()
+
+        self.assertIs(Cracker.crumble.__decorator__[0], class_method_use_shard)

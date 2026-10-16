@@ -30,7 +30,10 @@ class Command(MigrateCommand):
 
     Major differences:
         - A plan is made for each shard and the longest is executed.
-        - It is executed per node. Each node is done for every shard and template before moving to the next node.
+        - Each migration is applied to every schema before the next one starts: first to the public and template
+          schemas of every node, then to the shards of each node.
+        - When a migration fails on a schema, it is still applied to the other schemas, and the next migration is not
+          started.
         - Same for fake and reverse operations.
         - The migrations are loaded from disk once per run.
         - Schemas that have applied the same migrations share the state a migration starts from. It is built once, and

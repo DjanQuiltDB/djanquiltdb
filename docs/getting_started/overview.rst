@@ -1,0 +1,205 @@
+========
+Overview
+========
+
+DjanQuiltDB is a library meant for Django projects that use PostgreSQL as database. It aims to separate data per
+user, groups of users or tenants. And thus keep the size of the tables small in order to make querying them efficient.
+In addition, data between users cannot contaminate or influence each other.
+To do this, it creates a PostgreSQL schema per tenant, which we call a shard. All data belonging to that tenant will be
+stored in that shard. There can be many shards in a database, but can also be spread across multiple databases if
+desired. Since the user data is contained, users on database A do not have to notice database B is down.
+This library provides tools to easily create shards, select a shard to query, migrate all shards, and move data from
+one shard to another.
+
+.. image:: /images/data_sharding.svg
+   :scale: 100 %
+   :alt: Vanilla vs Sharded situation
+   :align: center
+
+
+Hierarchy
+~~~~~~~~~
+This Library assumes the client data is structured in such a way all data can be traced (via relations) back to a
+single datapoint. It does not matter what data point that is. Usually it's a user, customer or tenant-like object.
+
+Example data structure with 'user' as top-level object.
+
+.. image:: /images/data_structure.svg
+   :scale: 100 %
+   :height: 300
+   :alt: Data structure
+   :align: center
+
+The documentation will refer to this root datapoint as top-level object. This is especially important when
+relating to the management commands to move data around from shard to shard.
+We'll call it 'client' for now.
+
+The Problem
+~~~~~~~~~~~
+
+Normally, one keeps all the data from all the clients in one set of table. By default, that is on the 'public' schema in
+PostgreSQL. This is great, since it's easy to access any data. The more popular your product becomes, the bigger the
+tables get, and gradually the performance of your product suffers. Since big tables are slow to filter through. And
+you continually have to do that, since most of the time you want all data points belonging to a particular client.
+
+The solution
+~~~~~~~~~~~~
+In the situation where you want to select data points for one client often, and data points for multiple clients rarely:
+separating client data becomes a very obvious solution. This sharding library does just that. Each client gets their own
+shard. On that shard is all their data, and only one shard is needed to get all their data.
+
+Shards
+~~~~~~
+What we call a shard is both the concept of "a container where client data is stored", and the implementation of this:
+a location of a PostgreSQL schema with the client data in it.
+
+.. image:: /images/shard_table.svg
+   :scale: 100 %
+   :alt: Shard table
+   :align: center
+
+
+This library introduces a table for shards: your project's ``Shard`` model, a subclass of
+``djanquiltdb.models.BaseShard`` that the ``SHARD_CLASS`` setting names.
+These sharding objects have four fields: ``alias``, ``node_name``, ``schema_name`` and ``state``. The ``alias`` is a
+unique name for convenience, and the ``state`` tells whether the shard can be used. The important fields are the
+combination of ``node_name`` and ``schema_name``. Together they are unique. And you can easily see how these two are
+used to tell the database where we want to find our data. When creating a shard object it will create the PostgreSQL
+schema for you with the given name, on the given database connection::
+
+    Shard.objects.create(alias='my_shard', node_name='default', schema_name='my_first_schema')
+
+.. admonition:: Shard per client?
+  :class: note
+
+  It's entirely possible to put multiple client's data on one shard. That is effectively how it is without this library.
+  Splitting your data up into several shards, with multiple clients on each; or giving each client their own shard;
+  are both supported use cases.
+  In practice, the most common scenario for usage would be the following: Each of the clients have their own shard,
+  with the exception of an 'archive' shard, where a bunch of stale clients data end up moved to.
+
+Mapping table
+~~~~~~~~~~~~~
+The Shard model keeps a list of all the shards we have created, but not what's in them. That job belongs to the
+mapping table.
+
+.. image:: /images/mapping_table.svg
+   :scale: 100 %
+   :alt: Mapping table
+   :align: center
+
+This table is essentially a lookup table to know which tenant lives on which shard. This table is created by the
+library user, but has certain formatting rules. It must have a relation to the Shard model, and a field on which we
+map our top-level object. ``user_id`` is an example. With this model we can ask for our shard for user '1', etc.
+
+.. note:: A detail here: this mapping field is not a relation/foreign-key. Just an integer field containing unique
+  values. As to why: see :ref:`the-complication` for details.
+
+Shared data and schema selection
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Not all data in your database are bound to clients. There are tables containing 'general' data as well. These remain on
+the public schema, like before.
+
+.. image:: /images/selection.svg
+   :height: 800
+   :alt: Schema selection
+   :align: center
+
+Here comes the trick. When we instruct the library to 'select a shard' it will set the PostgreSQL ``search_path`` to both the
+corresponding schema and the public schema. So the set of tables is always complete and what you expect.
+
+.. _the-complication:
+
+The complication: relations and id collision
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Every shard has their own complete set of tables. So all those tables will start their id sequences at 1. Meaning the
+same table from different shards cannot be taken together, since all their ids will collide. The data within a shard
+can have relations to the 'general' table living in the public schema, but not the other way around.
+
+.. image:: /images/relations.svg
+   :scale: 100 %
+   :alt: Relations 1
+   :align: center
+
+-------------
+
+For a more detailed example:
+
+.. image:: /images/relations_2.svg
+   :scale: 100 %
+   :alt: Relations 2
+   :align: center
+
+The ``Posts`` table can reference the ``PostType`` table for a row with id '1' no problem. There is only one
+``PostType`` table. If the ``SuperUsers`` table has a reference to the ``Users`` table for a row with id '1', which row
+would that be? Relations do not contain a schema selection.
+
+This is why the mapping table does not have relations to the defining objects of the shard.
+
+Another scaling problem?
+~~~~~~~~~~~~~~~~~~~~~~~~
+So instead of: the data of, let's say, a thousand clients all in the same set of tables, we're going to deal with a
+thousand shards, all having their own table set?
+Does that not have their own scaling problem? Does PostgreSQL like this?
+Mostly: yes, yes, yes and no. PostgreSQL has no problems having thousands of schemas. But in some aspects this does
+become a particular scaling problem of its own.
+
+* Migration. Migrations are not so much a problem, as that it simply takes a lot longer. Data migrations do not of
+  course, the amount of datapoints is the same. But altering table schemas has to be done a lot more, since there are a
+  lot more tables.
+* PostgreSQL info tables. PostgreSQL has several tables in the background that keep track of things.
+  Like table constraints. These tables get a lot bigger, since there are a lot more table constraints.
+  This is not a problem, but something to be aware of when consulting these tables.
+
+
+
+Multi node, multi shard
+~~~~~~~~~~~~~~~~~~~~~~~
+Since we are separating data, there is no reason to stop with creating multiple schemas on one database.
+We can just as easy spread shards out over multiple databases/nodes.
+This is mostly transparent, since we are telling Django on what shard we are working on anyway.
+
+.. image:: /images/multi_node.svg
+   :scale: 100 %
+   :alt: Multi Node
+   :align: center
+
+There is only one complication: the mirrored models, since they probably have to exist on each node. Migrating their
+tables to all nodes is done by this library; keeping their contents in sync is not. It is up to you to configure a
+solution that replicates data across multiple nodes.
+
+Our suggested solution is PostgreSQL Logical Replication, but go for whatever replicating solution you like. Just
+writing the data to all nodes from Python (while keeping a lock on all nodes) might also work, but be aware that there
+might be unexpected side effects, for example when relying on auto-incrementing sequences (for ID columns) which won't
+be kept in sync by this method, so you can only do this if you are not relying on any assumptions regarding such
+mechanisms.
+
+In case you want to handle this data writing yourself, refer to ``@transaction_for_every_node`` and
+``@atomic_write_to_every_node`` decorators as a starting point.
+
+.. _cloning_limitations:
+
+What schema cloning carries - and what it does not
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A new shard is created by cloning the template schema: tables with their rows, sequences and identity positions,
+constraints, indexes, defaults and generated columns, plain and materialized views, functions and triggers all carry
+over, rebound to the new schema where they should be. Everything a Django migration puts into the template arrives in
+the clone. The known limitations, which matter once objects reach the template by other routes than migrations:
+
+* **Partitioned tables** are not understood: the parent and each partition clone as independent plain tables, and the
+  rows arrive twice - once through the parent, once through the partition.
+* **Mixed-case table names** (a quoted ``db_table``) abort the clone; Django's conventional lowercase names are safe.
+* **Aggregates** are skipped: Postgres cannot render their definitions the way it renders functions.
+* **Function bodies are never rewritten.** An unqualified reference in a body resolves through the caller's search
+  path at runtime, which is what binds each shard's copy to its own tables; a reference that explicitly qualifies the
+  template schema keeps pointing at the template after the clone. Qualify deliberately, or not at all.
+* **Schema-local types and domains** are not cloned; a cloned column keeps using the template's type, and dropping the
+  template schema with ``CASCADE`` would then reach into every shard.
+* **Row-level security policies, grants and comments** on views and functions are not carried (table and column
+  comments are). A security policy on a template table is silently absent from its clones.
+* **Standalone sequences** are recreated with their value but not their parameters - ``INCREMENT``, ``MINVALUE``,
+  ``CYCLE`` and ``CACHE`` are lost. Sequences behind serial and identity columns are unaffected.
+* ``truncate_all_tables()`` on the connection truncates the schema the connection is on, not the schema named in its
+  argument.
+* The reserved-name check refuses creating or deleting a schema named literally ``default``, ``public``,
+  ``information_schema`` or a ``pg_``-prefixed name; other connection aliases are not reserved.

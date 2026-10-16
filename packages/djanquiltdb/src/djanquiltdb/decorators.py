@@ -11,9 +11,17 @@ from django.test import override_settings
 from djanquiltdb import STATES, ShardingMode
 from djanquiltdb.db import connection
 from djanquiltdb.options import ShardOptions
+from djanquiltdb.plugins import install_plugin_importer
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.router import get_active_connection
 from djanquiltdb.utils import get_all_databases, transaction_for_every_node, use_shard
+
+# A plugin's decorators are served as the submodule djanquiltdb.decorators.<plugin>, and the import system only asks
+# PluginImporter for a submodule when the parent module has a __path__. The list is empty, because no submodule is found
+# by searching it.
+__path__ = []
+
+install_plugin_importer()
 
 shard_mapping_models = False
 
@@ -157,7 +165,7 @@ def public_model(allow_copy=True):
 
     When moving sharded data around from one node to the other, it can have relations to public data is differs between
     the nodes. When this happens it will be retargeted using natural keys. When the data does not exist on the target
-    node, the data will be created, but only if you allow it by setting `allow_copy` to True on this decorator.
+    node, the data will be created, but only if you allow it by setting ``allow_copy`` to ``True`` on this decorator.
 
     :Example:
         .. code-block:: python
@@ -202,7 +210,7 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
     :param mapping_field: Name of the primary field used to query the table to find a shard.
         This is used by the MappingQuerySet object manager.
     :param route_to_primary_db: Always route read and write queries for this model to the primary database,
-        should there be more than one. Default is `True`. If set to `False` the queries are routed according
+        should there be more than one. Default is ``True``. If set to ``False`` the queries are routed according
         to the current prevailing sharding context as normal.
 
     :note: Some fields are required to use this model:
@@ -372,8 +380,8 @@ def atomic_write_to_every_node(schema_name=PUBLIC_SCHEMA_NAME, lock_models=(), p
     Decorator to execute wrapped function for every node.
     Runs inside a transaction_for_every_node to keep all nodes in sync.
 
-    transaction_for_every_node builds a cascading transaction tree:
-        a transaction for each node, each running inside the previous.
+    ``transaction_for_every_node`` builds a cascading transaction tree: a transaction for each node, each running inside
+    the previous.
 
     If an error occurs, all the transactions are rolled back, and no node is changed.
 
@@ -383,19 +391,21 @@ def atomic_write_to_every_node(schema_name=PUBLIC_SCHEMA_NAME, lock_models=(), p
     :param str schema_name: The name of the schema used. 'public' by default.
     :param tuple lock_models: Sets containing a model and a PostgreSQL lock mode. e.g.: "((User, 'ACCESS EXCLUSIVE'),)"
 
-    :returns: The name of the node in use.
+    :returns: The return value of the wrapped function on each node, keyed by the name of the node.
 
     :Example:
         .. code-block:: python
 
-            from djanquiltdb.utils import atomic_write_to_every_node
+            from djanquiltdb.decorators import atomic_write_to_every_node
+
 
             @atomic_write_to_every_node('public')
             def my_function(node_name):
                 # Create an object on each node's public schema
                 Type.objects.create(name='test_type')
 
-            @atomic_write_to_every_node('public', ((Type, 'ACCESS EXCLUSIVE'),)
+
+            @atomic_write_to_every_node('public', ((Type, 'ACCESS EXCLUSIVE'),))
             def my_function(node_name):
                 # Create an object on each node's public schema
                 # We are in blocking mode, so nothing else can alter this table while this transaction is active.
@@ -444,15 +454,24 @@ class override_sharding_setting(override_settings):
 
 def __getattr__(name):
     """
-    Serve decorators any plugin provides as members of this module. Underscore-prefixed names stay private
-    to the plugin module: only its public decorators become attributes here.
+    Serves the decorators module of a plugin under the plugin's registered name, and serves the decorators of every
+    plugin directly, unless the plugin sets ``SERVE_UNQUALIFIED = False``.
     """
-    from djanquiltdb.plugins import load_plugins
+    from djanquiltdb.plugins import load_plugins, served_plugin_module
 
-    if not name.startswith('_'):
-        for plugin in load_plugins():
-            decorators = getattr(plugin, 'decorators', None)
-            if decorators is not None and hasattr(decorators, name):
-                return getattr(decorators, name)
+    if name.startswith('_'):
+        raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+
+    decorators = served_plugin_module(__name__, name)
+
+    if decorators is not None:
+        return decorators
+
+    for plugin in load_plugins():
+        decorators = getattr(plugin, 'decorators', None)
+        if decorators is None or not getattr(decorators, 'SERVE_UNQUALIFIED', True):
+            continue
+        if hasattr(decorators, name):
+            return getattr(decorators, name)
 
     raise AttributeError(f'module {__name__!r} has no attribute {name!r}')

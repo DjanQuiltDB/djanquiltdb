@@ -96,8 +96,14 @@ To declare Postgres views and functions the same way, install the extra::
 
     pip install djanquiltdb[postgres-objects]
 
-See the `installation docs <https://djanquiltdb.readthedocs.io/en/latest/modules/installation.html>`_ for the full set
-of settings, including the template schema every node needs, the mapping model, the session backend and the middleware.
+To track model history with django-pghistory the same way, install the extra::
+
+    pip install djanquiltdb[pghistory]
+
+See the `installation docs <https://djanquiltdb.readthedocs.io/en/latest/getting_started/installation.html>`_ for the
+template schema that every node needs, and the `settings reference
+<https://djanquiltdb.readthedocs.io/en/latest/reference/settings.html>`_ for the full set of settings, including the
+mapping model, the session backend and the middleware.
 
 Requirements
 ============

@@ -2,6 +2,7 @@ from django.core.exceptions import ValidationError
 from django.core.management import BaseCommand, CommandError
 from django.db import transaction
 
+from djanquiltdb.plugins import entered_plugin_hook_contexts, run_plugin_hooks
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.utils import (
     State,
@@ -90,11 +91,16 @@ class Command(BaseCommand):
             # No need to migrate, since it has to be empty, and will be flushed anyway.
             create_schema_on_node(node_name=self.shard.node_name, schema_name=self.shard.schema_name, migrate=False)
 
-            self.move_models(target_shard=self.shard, sharded_models=sharded_models)
-            self.copy_migration_table(target_shard=self.shard)
-            self.clone_template_views(target_shard=self.shard)
-            self.validate(target_shard=self.shard)
-            self.refresh_materialized_views(target_shard=self.shard)
+            with entered_plugin_hook_contexts('move_sharded_models.move_context', self):
+                run_plugin_hooks('move_sharded_models.pre_move', self)
+
+                self.move_models(target_shard=self.shard, sharded_models=sharded_models)
+                self.copy_migration_table(target_shard=self.shard)
+                self.clone_template_views(target_shard=self.shard)
+                self.validate(target_shard=self.shard)
+                self.refresh_materialized_views(target_shard=self.shard)
+
+                run_plugin_hooks('move_sharded_models.post_move', self)
 
             self.shard.state = State.ACTIVE
             self.shard.save(update_fields=['state'])

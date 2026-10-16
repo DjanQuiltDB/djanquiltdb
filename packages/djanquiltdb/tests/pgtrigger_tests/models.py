@@ -6,6 +6,7 @@ from djanquiltdb.decorators import public_model, sharded_model
 __all__ = [
     'ShardedProtected',
     'PublicProtected',
+    'ShardedWriteProtected',
 ]
 
 
@@ -36,3 +37,20 @@ class PublicProtected(models.Model):
 
     def natural_key(self):
         return (self.name,)
+
+
+@sharded_model()
+class ShardedWriteProtected(models.Model):
+    """
+    A sharded model whose trigger rejects every insert and update, and whose foreign key to a public model is
+    retargeted when its shard moves to another node.
+    """
+
+    name = models.CharField('name', max_length=100)
+    public_protected = models.ForeignKey(PublicProtected, on_delete=models.PROTECT)
+
+    class Meta:
+        app_label = 'pgtrigger_tests'
+        triggers = [
+            pgtrigger.Protect(name='protect_writes', operation=pgtrigger.Insert | pgtrigger.Update),
+        ]

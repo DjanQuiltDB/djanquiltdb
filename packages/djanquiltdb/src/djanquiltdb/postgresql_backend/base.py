@@ -12,6 +12,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 """
 
+import contextlib
 import logging
 import re
 
@@ -20,7 +21,6 @@ from django.db.backends.base.base import NO_DB_ALIAS
 from django.db.backends.postgresql.base import DatabaseWrapper as BaseDatabaseWrapper
 from django.db.utils import DatabaseError, IntegrityError
 from django.utils.module_loading import import_string
-from psycopg import sql
 from psycopg.errors import InternalError
 
 from djanquiltdb.postgresql_backend.introspection import DatabaseSchemaIntrospection
@@ -207,6 +207,8 @@ DECLARE
   alignment_stmt_ TEXT;
   trigger_defs_ TEXT[];
   trigger_def_ TEXT;
+  trigger_state_stmts_ TEXT[];
+  trigger_state_stmt_ TEXT;
   func_def TEXT;
   header_kw_ TEXT;
   header_prefix_ TEXT;
@@ -542,11 +544,27 @@ BEGIN
    * schemas (public, most notably) stay qualified. The definition text itself is never rewritten, so WHEN clauses
    * and argument string literals survive untouched. A relation without a copy in the destination, such as a table that
    * the cloning role cannot see, gets no triggers.
+   *
+   * A definition creates an enabled trigger, so a trigger that is disabled, enabled always or enabled for replicas in
+   * the source gets that state with an ALTER TABLE after it is created.
    */
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(source_schema);
 
-  SELECT coalesce(array_agg(pg_get_triggerdef(tg.oid, true) ORDER BY cls.relname, tg.tgname), ARRAY[]::text[])
-    INTO trigger_defs_
+  SELECT coalesce(array_agg(pg_get_triggerdef(tg.oid, true) ORDER BY cls.relname, tg.tgname), ARRAY[]::text[]),
+         coalesce(
+           array_agg(
+             format(
+               'ALTER TABLE %I.%I %s TRIGGER %I',
+               dest_schema,
+               cls.relname,
+               CASE tg.tgenabled WHEN 'D' THEN 'DISABLE' WHEN 'A' THEN 'ENABLE ALWAYS' ELSE 'ENABLE REPLICA' END,
+               tg.tgname
+             )
+             ORDER BY cls.relname, tg.tgname
+           ) FILTER (WHERE tg.tgenabled <> 'O'),
+           ARRAY[]::text[]
+         )
+    INTO trigger_defs_, trigger_state_stmts_
     FROM pg_catalog.pg_trigger tg
     JOIN pg_catalog.pg_class cls ON tg.tgrelid = cls.oid
     JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
@@ -557,6 +575,10 @@ BEGIN
   EXECUTE 'SET LOCAL search_path = ' || quote_ident(dest_schema) || ',public,pg_catalog';
   FOREACH trigger_def_ IN ARRAY trigger_defs_ LOOP
     EXECUTE trigger_def_;
+  END LOOP;
+
+  FOREACH trigger_state_stmt_ IN ARRAY trigger_state_stmts_ LOOP
+    EXECUTE trigger_state_stmt_;
   END LOOP;
 
   /* Restore the caller's search_path (see the note at the top). */
@@ -1026,6 +1048,14 @@ SELECT seq_cls.oid AS sequence_oid, seq_cls.relname::text AS sequence_name, owne
 
 PUBLIC_SCHEMA_NAME = 'public'
 
+#: The ALTER TABLE clause that gives a trigger each enabled state of pg_trigger.tgenabled. A disabled trigger ('D') has
+#: no entry, because it is disabled already.
+ENABLE_TRIGGER_CLAUSE_BY_STATE = {
+    'O': 'ENABLE TRIGGER',
+    'A': 'ENABLE ALWAYS TRIGGER',
+    'R': 'ENABLE REPLICA TRIGGER',
+}
+
 
 def get_validated_schema_name(schema_name, is_template=False):
     from djanquiltdb.utils import get_template_name  # Prevent cyclic imports
@@ -1134,6 +1164,53 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             [schema],
         )
         return [x[0] for x in cursor.fetchall()]  # We get a list of single tuples
+
+    @contextlib.contextmanager
+    def user_triggers_disabled(self, table_names, schema_name=None, _cursor=None):
+        """
+        Disable the user triggers of the given tables of the schema while the block runs, and give each one its own state
+        again after it: enabled, enabled always, enabled for replicas, or disabled. Triggers that enforce foreign keys
+        stay enabled.
+
+        Run this inside a transaction. ALTER TABLE locks each table until the transaction ends, and when the block
+        raises, the triggers are left disabled for the rollback to restore. Postgres cannot alter a table while a
+        deferred foreign key check of a row that the block wrote is still pending, so the deferred checks run when the
+        block ends, before the triggers are enabled, and not when the transaction commits.
+        """
+        cursor = _cursor or self.cursor()
+        schema = schema_name or self.get_schema()
+        quote_name = self.ops.quote_name
+        cursor.execute(
+            """
+            SELECT cls.relname::text, tg.tgname::text, tg.tgenabled::text
+              FROM pg_catalog.pg_trigger tg
+              JOIN pg_catalog.pg_class cls ON tg.tgrelid = cls.oid
+              JOIN pg_catalog.pg_namespace nsp ON cls.relnamespace = nsp.oid
+             WHERE nsp.nspname = %s AND cls.relname = ANY(%s) AND NOT tg.tgisinternal
+            """,
+            [schema, list(table_names)],
+        )
+        trigger_states = cursor.fetchall()
+
+        for table in table_names:
+            cursor.execute(
+                'ALTER TABLE {}.{} DISABLE TRIGGER USER'.format(quote_name(schema), quote_name(table))  # nosec
+            )
+
+        yield
+
+        self.check_constraints()
+
+        for table, trigger, state in trigger_states:
+            if state in ENABLE_TRIGGER_CLAUSE_BY_STATE:
+                cursor.execute(
+                    'ALTER TABLE {}.{} {} {}'.format(  # nosec
+                        quote_name(schema),
+                        quote_name(table),
+                        ENABLE_TRIGGER_CLAUSE_BY_STATE[state],
+                        quote_name(trigger),
+                    )
+                )
 
     def get_copyable_column_names(self, table_name, schema_name=None, _cursor=None):
         """
@@ -1625,10 +1702,14 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             # if the next instruction is not a rollback it will just fail also, so
             # we do not have to worry that it's not the good one
             try:
-                identifiers = [sql.Identifier(x) for x in search_paths]
-                sql_ = sql.SQL('SET search_path = {}').format(sql.SQL(', ').join(identifiers))
+                # The statement is a plain string, because Django documents the sql argument of an execute wrapper as a
+                # string, and the wrapper that pghistory.context() registers fails on a psycopg Composed object. A
+                # schema that was created outside DjanQuiltDB can have any name, so each name is quoted here, with
+                # every double quote in it doubled, as Postgres escapes an identifier. quote_name() does not do that.
+                identifiers = ', '.join('"{}"'.format(schema.replace('"', '""')) for schema in search_paths)
+                sql_ = 'SET search_path = {}'.format(identifiers)
                 cursor_for_search_path.execute(sql_)
-                logger.debug(str(sql_))
+                logger.debug(sql_)
             except DatabaseError, InternalError:
                 logger.warning('Something went wrong with setting the search path.', exc_info=True)
             else:

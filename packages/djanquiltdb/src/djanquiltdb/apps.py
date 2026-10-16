@@ -1,6 +1,5 @@
 import functools
 import inspect
-import types
 
 from django.apps import AppConfig
 from django.conf import settings
@@ -12,9 +11,14 @@ from djanquiltdb import ShardingMode
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import class_method_use_shard, shard_aware_from_db
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.plugins import load_plugins
+from djanquiltdb.plugins import load_plugins, raise_for_duplicate_plugin_names
 from djanquiltdb.postgresql_backend.base import ShardDatabaseWrapper
-from djanquiltdb.utils import get_all_mirrored_models, get_all_public_models, get_all_sharded_models
+from djanquiltdb.utils import (
+    OverrideShardingModeWithLowercaseKeys,
+    get_all_mirrored_models,
+    get_all_public_models,
+    get_all_sharded_models,
+)
 
 
 class DjanQuiltDBConfig(AppConfig):
@@ -48,7 +52,7 @@ class DjanQuiltDBConfig(AppConfig):
             _validate_override_sharding_mode_entry(key, value)
 
         # Convert app and model names to lowercase
-        settings.QUILT_DB['OVERRIDE_SHARDING_MODE'] = dict(
+        settings.QUILT_DB['OVERRIDE_SHARDING_MODE'] = OverrideShardingModeWithLowercaseKeys(
             (tuple(x.lower() for x in k), v) for k, v in override_sharding_mode.items()
         )
 
@@ -75,11 +79,13 @@ class DjanQuiltDBConfig(AppConfig):
         ) and get_all_mirrored_models():
             raise ImproperlyConfigured("There are MIRRORED models, but QUILT_DB['PRIMARY_DB_ALIAS'] is not set.")
 
-        _validate_public_models()
         _register_checks()
         _patch_connections()
         _patch_transactions()
+        # A plugin's install() can give a model of a third-party app the natural key that a public model needs, so the
+        # plugins are installed before the public models are validated.
         _install_plugins()
+        _validate_public_models()
         _initialize_sharded_models()
 
 
@@ -90,6 +96,8 @@ def _register_checks():
 
 
 def _install_plugins():
+    raise_for_duplicate_plugin_names()
+
     for plugin in load_plugins():
         plugin.install()
 
@@ -126,14 +134,12 @@ def _initialize_sharded_models():
     from_db_functions = {model: model.from_db for model in get_all_sharded_models(include_proxy=True)}
 
     for model in get_all_sharded_models(include_proxy=True):
-        for attr, func in inspect.getmembers(model, inspect.isfunction):
-            # getattr(model, attr) will trigger dynamic lookup via the descriptor protocol,  __getattr__ or
-            # __getattribute__. Therefore, we use inspect.getattr_static to strip out staticmethods (which we don't want
-            # to decorate).
-            if isinstance(inspect.getattr_static(model, attr), types.FunctionType):
-                # And decorate all model methods so that the methods will all run in the same shard context as the
-                # instance is living in
-                setattr(model, attr, class_method_use_shard(func))
+        # The members are listed statically, because a descriptor may raise when it is read through the class (such as
+        # django-pghistory's pgh_event_model), and an exception in AppConfig.ready() stops the project from starting.
+        # The static listing also skips staticmethods and classmethods, because it returns them as wrapper objects.
+        for attr, func in inspect.getmembers_static(model, inspect.isfunction):
+            # Decorate every model method, so that each method runs in the shard that the instance belongs to.
+            setattr(model, attr, class_method_use_shard(func))
 
         # Setting the from_db function for a Model that is the parent of a ProxyModel will corrupt the ProxyModels
         # version of the same function. So we have saved the original from_db function at the start, and use that.
@@ -165,13 +171,22 @@ def make_shard_aware_from_db(from_db):
 
 def post_init(func):
     @functools.wraps(func)
-    def inner(self, *args, hints=None, **kwargs):
+    def inner(self, *args, **kwargs):
+        # QuerySet.__init__ takes (model, query, using, hints), and django-pghistory's EventQuerySet passes all four
+        # positionally. The fourth positional argument is the hints, and a subclass can take more arguments after it,
+        # so the hints are replaced in place and every argument keeps its position.
+        if len(args) >= 4:
+            func(self, *args[:3], with_shard_options(args[3]), *args[4:], **kwargs)
+        else:
+            func(self, *args, **{**kwargs, 'hints': with_shard_options(kwargs.get('hints'))})
+
+    def with_shard_options(hints):
         hints = hints or {}
 
         if '_shard_options' not in hints and not connection.is_public_schema():
             hints['_shard_options'] = connection.shard_options
 
-        func(self, *args, hints=hints, **kwargs)
+        return hints
 
     inner.__decorator__ = post_init
     return inner

@@ -26,9 +26,11 @@ and django-postgres-objects reads the module each kind of declaration lives in, 
     }
 
 Every app may now declare functions in a ``functions.py`` and views in a ``db_views.py``, and ``makemigrations``
-manages what it finds there. `django-postgres-objects' own installation documentation
-<https://django-postgres-objects.readthedocs.io/en/latest/modules/installation.html>`_ has the upstream details,
-including leaving one of the paths out and coexisting with other libraries that extend the migration autodetector.
+manages what it finds there. django-postgres-objects' own documentation has the details: its `settings reference
+<https://django-postgres-objects.readthedocs.io/en/latest/reference/settings.html>`_ describes how to turn off one of
+the module paths, and its page on `other migration libraries
+<https://django-postgres-objects.readthedocs.io/en/latest/integrations/migration_libraries.html>`_ describes how to use
+django-postgres-objects together with other libraries that extend the migration autodetector.
 
 Annotating declarations
 -----------------------
@@ -38,11 +40,13 @@ The decorators are importable from ``djanquiltdb.decorators`` beside the model o
     from djanquiltdb.decorators import public_function, sharded_view
 
 For functions:
+
 * ``@public_function()``
 * ``@mirrored_function()``
 * ``@sharded_function()``
 
 For views:
+
 * ``@public_view()``
 * ``@mirrored_view()``
 * ``@sharded_view()``

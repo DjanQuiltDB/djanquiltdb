@@ -47,6 +47,9 @@ dependencies = [
 postgres-objects = [
     "djanquiltdb-plugin-postgres-objects>=1.0,<2.0",
 ]
+pghistory = [
+    "djanquiltdb-plugin-pghistory>=1.0,<2.0",
+]
 lint = [
     "ruff==0.15.21",
 ]
@@ -61,6 +64,7 @@ test = [
 docs = [
     "sphinx>=8,<10",
     "sphinx-rtd-theme>=3.1,<4",
+    "sphinx-reredirects>=1.1,<2",
 ]
 dev = [
     "djanquiltdb[test,lint,docs]",
@@ -107,7 +111,7 @@ source = [
 
 [tool.coverage.report]
 omit = ["*/.tox/*"]
-fail_under = 83
+fail_under = 86
 
 [tool.coverage.html]
 directory = "../coverage"

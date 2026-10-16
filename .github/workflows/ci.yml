@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [master]
-    tags: ['v*', 'plugin-postgres-objects-v*']
+    tags: ['v*', 'plugin-postgres-objects-v*', 'plugin-pghistory-v*']
   pull_request:
   workflow_dispatch:
 
@@ -50,6 +50,18 @@ jobs:
           - toxenv: postgres-objects-py314-dj61-pg18
             postgres: "18"
             coverageenv: postgres-objects-coverage
+          - toxenv: pghistory-py314-dj60-pg17
+            postgres: "17"
+            coverageenv: pghistory-coverage
+          - toxenv: pghistory-py314-dj60-pg18
+            postgres: "18"
+            coverageenv: pghistory-coverage
+          - toxenv: pghistory-py314-dj61-pg17
+            postgres: "17"
+            coverageenv: pghistory-coverage
+          - toxenv: pghistory-py314-dj61-pg18
+            postgres: "18"
+            coverageenv: pghistory-coverage
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}
@@ -140,7 +152,7 @@ jobs:
           cache: pip
           cache-dependency-path: packages/*/pyproject.toml
       - run: python -m pip install --upgrade pip 'tox>=4.21'
-      - run: tox -e core-build,postgres-objects-build
+      - run: tox -e core-build,postgres-objects-build,pghistory-build
       - uses: actions/upload-artifact@v4
         with:
           name: dist-djanquiltdb
@@ -149,6 +161,10 @@ jobs:
         with:
           name: dist-plugin-postgres-objects
           path: packages/djanquiltdb-plugin-postgres-objects/dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-plugin-pghistory
+          path: packages/djanquiltdb-plugin-pghistory/dist/
 
   publish-core:
     name: publish djanquiltdb to PyPI
@@ -181,5 +197,22 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: dist-plugin-postgres-objects
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-plugin-pghistory:
+    name: publish djanquiltdb-plugin-pghistory to PyPI
+    if: startsWith(github.ref, 'refs/tags/plugin-pghistory-v')
+    needs: [test, lint, pre-commit, docs, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi-plugin-pghistory
+      url: https://pypi.org/p/djanquiltdb-plugin-pghistory
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-plugin-pghistory
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1

@@ -1,4 +1,5 @@
 import copy
+import datetime
 from unittest import mock
 from unittest.mock import PropertyMock
 
@@ -6,7 +7,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.management import CommandError, call_command
 from django.db import DatabaseError, connections, models
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from djanquiltdb.management.commands.move_shard_to_node import Command as MoveCommand
 from djanquiltdb.options import ShardOptions
@@ -25,13 +26,18 @@ from djanquiltdb_tests import (
     ShardingTransactionTestCase,
     skip_without_virtual_generated_column_support,
 )
+from djanquiltdb_tests.plugin_hooks import plugin_installed, recording_plugin
 from example.models import (
     Cake,
     CakeType,
     CoatingType,
+    DetailedReport,
+    Flavour,
     Organization,
     OrganizationShard,
+    Pudding,
     Shard,
+    Sprinkle,
     Statement,
     Suborganization,
     SuperType,
@@ -229,6 +235,34 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
             # Check if the content is still intact, due to escaping and what not.
             self.assertEqual(Statement.objects.get(id=self.statement_1.id).content, "'Luke'!")
             self.assertEqual(Statement.objects.get(id=self.statement_2.id).content, 'Try to; solve this "puzzle."')
+
+    def test_the_hooks_of_a_plugin_run_around_the_copy(self):
+        """
+        Case: The shard moves while a plugin has every hook of move_shard_to_node.
+        Expected: Inside the transaction of the move, once the target schema exists, move_context is entered first,
+                  pre_copy runs before the rows are copied, post_copy after the rows are copied and retargeted, and
+                  move_context is exited last.
+        """
+        calls = []
+
+        def record(hook, command):
+            with ShardOptions(node_name='other', schema_name='test_source').use():
+                calls.append((hook, connections['other'].in_atomic_block, Organization.objects.count()))
+
+        plugin = recording_plugin('move_shard_to_node', 'move_context', ['pre_copy', 'post_copy'], record)
+
+        with plugin_installed(plugin):
+            call_command('move_shard_to_node', *self.format_options_to_args())
+
+        self.assertEqual(
+            calls,
+            [
+                ('enter move_context', True, 0),
+                ('pre_copy', True, 0),
+                ('post_copy', True, 3),
+                ('exit move_context', True, 3),
+            ],
+        )
 
     def test_moving_a_shard_refreshes_materialized_views(self):
         """
@@ -716,8 +750,10 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.copy_sequence_positions')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.reset_sequences')
     @mock.patch('djanquiltdb.management.commands.move_shard_to_node.Command.refresh_materialized_views')
+    @mock.patch('djanquiltdb.options.ShardOptions.use')
     def test_move_shard(
         self,
+        mock_use,
         mock_refresh_materialized_views,
         mock_reset_sequences,
         mock_copy_sequence_positions,
@@ -729,7 +765,8 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         """
         Case: Call move_shard.
         Expected: transaction_for_nodes to be used with the correct node names as argument.
-                  Other functions (that do the actual work) also called.
+                  Other functions (that do the actual work) also called, and the user triggers of the target schema
+                  disabled around the copy and the retargeting.
         """
         self.assertFalse(hasattr(self.command, 'target_shard_options'))
 
@@ -748,6 +785,11 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         mock_reset_sequences.assert_called_once_with()
         mock_refresh_materialized_views.assert_called_once_with()
 
+        target_connection = mock_use.return_value.__enter__.return_value.connection
+        target_connection.user_triggers_disabled.assert_called_once_with(
+            target_connection.get_all_table_headers.return_value
+        )
+
         self.assertEqual(self.command.target_shard_options.node_name, 'other')
         self.assertEqual(self.command.target_shard_options.schema_name, 'test_source')
 
@@ -764,7 +806,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         self.command.copy_data()
 
-        self.assertEqual(mock_copy_data_stream.call_count, 20)  # 10 sharded models * 2 = 20
+        self.assertEqual(mock_copy_data_stream.call_count, 24)  # 12 sharded models * 2 = 24
 
     def test_get_mapped_value(self):
         """
@@ -1335,6 +1377,72 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             self.assertEqual(cake.coating_type_id, 1)
             self.assertEqual(cake.coating_type.type_id, 2)
 
+    def move_puddings_to_the_target(self):
+        create_schema_on_node(
+            schema_name=self.target_shard_options.schema_name,
+            node_name=self.target_shard_options.node_name,
+            migrate=True,
+        )
+
+        self.command.source_shard = self.source_shard
+        self.command.target_shard_options = self.target_shard_options
+        self.command.target_node = self.target_shard_options.node_name
+        self.command.copy_data()
+        self.command.retarget_relations()
+
+    def test_a_copied_public_row_keeps_a_primary_key_that_the_model_generates(self):
+        """
+        Case: A Pudding has a foreign key to a Flavour, a public model whose primary key is a UUID that the model
+              generates, and which is also its natural key. The Flavour is missing on the target node, so retargeting
+              copies it.
+        Expected: The copy on the target node has the same UUID, so its natural key is the same on both nodes, and the
+                  Pudding points at it.
+        """
+        with use_shard(self.source_shard):
+            flavour = Flavour.objects.create()
+            pudding = Pudding.objects.create(name='rice', flavour=flavour)
+
+        self.move_puddings_to_the_target()
+
+        with self.target_shard_options.use():
+            self.assertEqual(list(Flavour.objects.values_list('id', flat=True)), [flavour.id])
+            self.assertEqual(Pudding.objects.get(id=pudding.id).flavour_id, flavour.id)
+
+    def test_a_copied_public_row_keeps_its_auto_now_timestamps(self):
+        """
+        Case: A Pudding has a foreign key to a Flavour, whose created_at and updated_at fields are set when a row is
+              saved. The Flavour has timestamps from the past, and is missing on the target node, so retargeting copies
+              it.
+        Expected: The copy on the target node has the timestamps of the source row, and not the time of the move.
+        """
+        timestamp = datetime.datetime(2020, 1, 1, tzinfo=datetime.UTC)
+
+        with use_shard(self.source_shard):
+            flavour = Flavour.objects.create()
+            Flavour.objects.filter(id=flavour.id).update(created_at=timestamp, updated_at=timestamp)
+            Pudding.objects.create(name='rice', flavour=flavour)
+
+        self.move_puddings_to_the_target()
+
+        with self.target_shard_options.use():
+            self.assertEqual(list(Flavour.objects.values_list('created_at', 'updated_at')), [(timestamp, timestamp)])
+
+    def test_a_public_row_whose_primary_key_is_not_named_id_is_retargeted(self):
+        """
+        Case: A Pudding has a foreign key to a Sprinkle, a public model whose primary key is named code. The Sprinkle is
+              missing on the target node, so retargeting copies it.
+        Expected: The copy on the target node has the same code, and the Pudding points at it.
+        """
+        with use_shard(self.source_shard):
+            sprinkle = Sprinkle.objects.create(code='rainbow')
+            pudding = Pudding.objects.create(name='bread', sprinkle=sprinkle)
+
+        self.move_puddings_to_the_target()
+
+        with self.target_shard_options.use():
+            self.assertEqual(list(Sprinkle.objects.values_list('code', flat=True)), ['rainbow'])
+            self.assertEqual(Pudding.objects.get(id=pudding.id).sprinkle_id, 'rainbow')
+
     def test_retarget_relations_system_with_missing_data_allow_copy3(self):
         """
         Case: Call retarget_relations for a set of data, which has relations to data that is missing on the target node,
@@ -1439,9 +1547,37 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         with self.target_shard_options.use():
             Cake.objects.all().delete(force=True)
 
+    def test_check_relations_keeps_an_unconstrained_foreign_key_to_a_row_that_the_source_node_does_not_have(self):
+        """
+        Case: A row of the shard has a foreign key without a database constraint, as the snapshot of a foreign key in an
+              event of django-pghistory has, to a public row that was deleted from the source node.
+        Expected: The foreign key keeps its value, and the row is not saved, because neither node has a row to retarget
+                  it to.
+        """
+
+        class UnconstrainedCake(models.Model):
+            type = models.ForeignKey(CakeType, on_delete=models.DO_NOTHING, db_constraint=False, related_name='+')
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        cake = UnconstrainedCake(id=1, type_id=5)
+
+        self.command.field_definitions = {
+            UnconstrainedCake: {'type_id': {'natural_keys': ('name',), 'related_model': CakeType}}
+        }
+        self.command.source_data = {CakeType: {}}
+        self.command.target_data = {CakeType: {}}
+
+        # The model has no table, so a save would fail.
+        self.command._check_relations(UnconstrainedCake, cake)
+
+        self.assertEqual(cake.type_id, 5)
+
     def test_retarget_relations_missing_source(self):
         """
-        Case: Call retarget_relations for a data set where some source data is missing.
+        Case: Call retarget_relations for a data set where the source node does not have the public row that a foreign
+              key with a database constraint refers to.
         Expected: Value error raised.
         """
         create_schema_on_node(
@@ -1600,3 +1736,32 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         self.assertEqual(mock_copy_data.call_count, 1)
         mock_post_execution.assert_called_once_with(succeeded=False)
+
+
+class ClearGeneratedPrimaryKeyTestCase(SimpleTestCase):
+    def test_a_child_of_multi_table_inheritance_loses_its_own_key_and_its_parent_link(self):
+        """
+        Case: The primary key of a DetailedReport, a child of Report with an auto-increment id, is cleared before the
+              row is copied to another node.
+        Expected: Both the id and the report_ptr_id parent link are cleared, because Django copies a parent link that is
+                  still set back into the id when it saves the parent row.
+        """
+        report = DetailedReport(id=5, report_ptr_id=5)
+
+        MoveCommand.clear_generated_primary_key(report)
+
+        self.assertIsNone(report.id)
+        self.assertIsNone(report.report_ptr_id)
+
+    def test_a_primary_key_that_the_model_generates_is_kept(self):
+        """
+        Case: The primary key of a Flavour, whose UUID primary key the model generates, is cleared before the row is
+              copied to another node.
+        Expected: The UUID is kept, because it is the row's own key and not one that the database generates.
+        """
+        flavour = Flavour()
+        flavour_id = flavour.id
+
+        MoveCommand.clear_generated_primary_key(flavour)
+
+        self.assertEqual(flavour.id, flavour_id)

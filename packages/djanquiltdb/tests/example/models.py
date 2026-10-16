@@ -1,3 +1,5 @@
+import uuid
+
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager
 from django.db import IntegrityError, models
 from django.utils import timezone
@@ -96,6 +98,21 @@ class Organization(models.Model):
             result.append(suborganization.child)
 
         return result
+
+
+@sharded_model()
+class Note(models.Model):
+    """
+    A note about an organization. It refers to the organization without a database constraint and with
+    on_delete=DO_NOTHING, as the event tables of django-pghistory refer to the rows that they describe, so Django's
+    delete collector does not follow the relation, and DjanQuiltDB's simple collector does.
+    """
+
+    organization = models.ForeignKey('Organization', on_delete=models.DO_NOTHING, db_constraint=False, related_name='+')
+    text = models.CharField('text', max_length=100)
+
+    class Meta:
+        app_label = 'example'
 
 
 @sharded_model()
@@ -358,6 +375,66 @@ class Unrelated(models.Model):
 @sharded_model()
 class QuiltSession(BaseQuiltSession):
     """Sharded session model for testing session backend"""
+
+    class Meta:
+        app_label = 'example'
+
+
+class FlavourManager(models.Manager):
+    def get_by_natural_key(self, id):
+        return self.get(id=id)
+
+
+@public_model(allow_copy=True)
+class Flavour(models.Model):
+    """
+    A public model whose primary key is a UUID that the model generates, and which is also its natural key, so a copy on
+    another node has to keep it. Its timestamps are set when a row is saved, so a copy on another node has to keep those
+    too.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    objects = FlavourManager()
+
+    class Meta:
+        app_label = 'example'
+        unique_together = [['id']]
+
+    def natural_key(self):
+        return (self.id,)
+
+
+class SprinkleManager(models.Manager):
+    def get_by_natural_key(self, code):
+        return self.get(code=code)
+
+
+@public_model(allow_copy=True)
+class Sprinkle(models.Model):
+    """A public model whose primary key is not named id."""
+
+    code = models.CharField('code', max_length=32, primary_key=True)
+
+    objects = SprinkleManager()
+
+    class Meta:
+        app_label = 'example'
+        unique_together = [['code']]
+
+    def natural_key(self):
+        return (self.code,)
+
+
+@sharded_model()
+class Pudding(models.Model):
+    """A sharded model with foreign keys to the public models whose primary key is not an auto-increment id."""
+
+    name = models.CharField('name', max_length=64)
+    flavour = models.ForeignKey('Flavour', on_delete=models.DO_NOTHING, null=True)
+    sprinkle = models.ForeignKey('Sprinkle', on_delete=models.DO_NOTHING, null=True)
 
     class Meta:
         app_label = 'example'
