@@ -10,7 +10,7 @@ from types import SimpleNamespace
 
 from djanquiltdb_plugin_postgres_objects import decorators
 
-__version__ = '1.0.0'
+__version__ = '1.0.1'
 
 
 def install():

@@ -1,3 +1,29 @@
+v 4.2.0
+-------
+Added:
+ * Compatibility decorators for ``django-pghistory``, installed through the ``djanquiltdb[pghistory]`` extra.
+ * Plugin API serving extended from ``djanquiltdb.decorators.<name>`` to ``djanquiltdb.models.<name>``.
+ * Plugin hooks to inject behavior into management commands.
+ * ``djanquiltdb.utils.get_declared_sharding_mode`` helper method.
+
+Altered:
+ * Fixed ``dumpdata`` failing in every format when PyYAML is not installed.
+ * Fixed entering a shard raising an error inside an execute wrapper.
+ * Fixed the project failing to start when a sharded model has a class attribute that raises on access through the
+   class.
+ * Fixed the sharded queryset wrapper rejecting ``hints`` that are passed positionally.
+ * Fixed a proxy model having no sharding mode when a mode is declared only for its concrete model.
+ * Fixed ``move_shard_to_node`` firing user triggers of the target schema for the rows that it copies and retargets.
+ * Fixed ``move_shard_to_node`` giving a public row that it copies to the target node a new primary key when the key
+   is not an auto-increment column, such as a UUID, and failing for a public model whose primary key is not named
+   ``id``.
+ * Fixed ``move_shard_to_node`` setting the ``auto_now`` and ``auto_now_add`` fields of a public row that it copies to
+   the target node to the time of the move.
+ * Fixed ``clone_schema`` enabling every trigger of the clone, so a trigger that is disabled in the template was enabled
+   in every new shard.
+ * Fixed ``move_shard_to_node`` stopping on a foreign key without a database constraint that refers to a public row that
+   the source node no longer has. The foreign key keeps its value.
+
 v 4.1.0
 -------
 Added:

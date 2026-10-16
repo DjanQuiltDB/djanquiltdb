@@ -59,3 +59,4 @@ Things to know
     moving
     customization
     api
+    changelog
