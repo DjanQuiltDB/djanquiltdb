@@ -65,6 +65,11 @@ stops the move when the target node misses one of its rows. A row that the move 
 target node when the database generates the key, such as an auto-incrementing id. Any other primary key, such as a UUID
 that the model generates, is copied with the row.
 
+A foreign key without a database constraint (``db_constraint=False``) can refer to a public row that the source node
+no longer has. There is no natural key to retarget such a foreign key by, so it keeps its value, which is the id that
+the row had on the source node. The target node may use that id for another row. A foreign key with a database
+constraint whose row the source node does not have stops the move.
+
 Every sequence of the target, including sequences that no model uses, is first moved forward to the position of the
 matching sequence on the source. The matching sequence is the one owned by the same column. If there is none, it is the
 sequence with the same name that no column owns. For a source sequence that no column owns, it can also be the sequence

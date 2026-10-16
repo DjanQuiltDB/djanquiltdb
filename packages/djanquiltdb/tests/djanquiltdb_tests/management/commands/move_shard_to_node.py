@@ -1518,9 +1518,37 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         with self.target_shard_options.use():
             Cake.objects.all().delete(force=True)
 
+    def test_check_relations_keeps_an_unconstrained_foreign_key_to_a_row_that_the_source_node_does_not_have(self):
+        """
+        Case: A row of the shard has a foreign key without a database constraint, as the snapshot of a foreign key in an
+              event of django-pghistory has, to a public row that was deleted from the source node.
+        Expected: The foreign key keeps its value, and the row is not saved, because neither node has a row to retarget
+                  it to.
+        """
+
+        class UnconstrainedCake(models.Model):
+            type = models.ForeignKey(CakeType, on_delete=models.DO_NOTHING, db_constraint=False, related_name='+')
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        cake = UnconstrainedCake(id=1, type_id=5)
+
+        self.command.field_definitions = {
+            UnconstrainedCake: {'type_id': {'natural_keys': ('name',), 'related_model': CakeType}}
+        }
+        self.command.source_data = {CakeType: {}}
+        self.command.target_data = {CakeType: {}}
+
+        # The model has no table, so a save would fail.
+        self.command._check_relations(UnconstrainedCake, cake)
+
+        self.assertEqual(cake.type_id, 5)
+
     def test_retarget_relations_missing_source(self):
         """
-        Case: Call retarget_relations for a data set where some source data is missing.
+        Case: Call retarget_relations for a data set where the source node does not have the public row that a foreign
+              key with a database constraint refers to.
         Expected: Value error raised.
         """
         create_schema_on_node(

@@ -411,6 +411,21 @@ class Command(BaseCommand):
                 continue
 
             nat_keys_value = self.source_data[related_model].get(object_field_value)
+            if not nat_keys_value and not model._meta.get_field(field_name).db_constraint:
+                # A foreign key without a database constraint, such as the snapshot of a foreign key in an event of
+                # django-pghistory, can outlive the row that it refers to. Neither node has a row to retarget it to, so
+                # it keeps its value.
+                self.print(
+                    indent(
+                        gray(
+                            f'Retargeting <{object._meta.object_name}>{object.pk}, field {field_name} refers to a row '
+                            f'that the source node does not have, and keeps its value'
+                        ),
+                        1,
+                    )
+                )
+                continue
+
             if not nat_keys_value:
                 raise ValueError(
                     f'No related data found for <{object._meta.object_name}>{object.pk}.{field_name}:'
