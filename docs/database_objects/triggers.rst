@@ -84,3 +84,34 @@ from a template that never saw the change.
 nothing about whether the others agree with it.
 
 Add, remove or disable a trigger in a migration instead, and it lands everywhere it belongs.
+
+
+Triggers that write across sharding modes
+-----------------------------------------
+
+A trigger function usually names the tables that it writes without a schema, so PostgreSQL finds each table through the
+search path of the session that fires the trigger. That only works when the table that the trigger is on and the table that it
+writes are placed in the same way. DjanQuiltDB reads the function body of every django-pgtrigger trigger, and reports
+each write to a table of another sharding mode:
+
+``djanquiltdb.E001``, an error: a trigger on a public or mirrored model writes the table of a sharded model.
+    Every shard has its own copy of the table, and the trigger writes one copy only, so the other shards do not get
+    the write. A name without a schema finds the copy of the current shard. Outside a shard, the search path has no
+    sharded table, so the write that fired the trigger fails. A name that is qualified with the schema of a shard
+    always writes the copy of that shard.
+
+``djanquiltdb.E002``, an error: a trigger on a public or sharded model writes the table of a mirrored model.
+    A mirrored table has the same rows on every node, and DjanQuiltDB writes them on the primary node. The trigger
+    writes the mirrored table of the node that it runs on, so the nodes no longer have the same rows.
+
+``djanquiltdb.W003``, a warning: a trigger on a mirrored model writes the table of a public model.
+    A write to a mirrored table goes to the primary node, so the trigger writes the public table of that node only.
+    Public tables can differ per node, so this works, but the public tables of the other nodes do not get the write.
+
+A trigger like this usually comes from a relation that does not work across sharding modes, such as a copy of a column
+of a mirrored model on a sharded model, which a cascade trigger on the mirrored table keeps up to date. The fix is to
+change the relation, so there is deliberately no setting that allows one trigger. To run with such a trigger anyway,
+list the check in Django's ``SILENCED_SYSTEM_CHECKS``, which silences it for every trigger.
+
+The check only reads the function body. It does not find a write that the body leaves to a function that it calls,
+such as a ``PERFORM`` of another function, nor a write that it runs with a dynamic ``EXECUTE``.
