@@ -92,13 +92,18 @@ Then declare a shard model of your own and name it in the ``QUILT_DB`` setting::
 Models are placed with the decorators in ``djanquiltdb.decorators``; an undecorated model stays on the default node's
 public schema. ``manage.py migrate`` is shard-aware, and applies each migration wherever its models live.
 
-To declare Postgres views and functions the same way, install the extra::
-
-    pip install djanquiltdb[postgres-objects]
-
 To track model history with django-pghistory the same way, install the extra::
 
     pip install djanquiltdb[pghistory]
+
+To find and correct the out-of-date copies that django-postgres-denormalize keeps, in one shard or in every shard,
+install the extra::
+
+    pip install djanquiltdb[postgres-denormalize]
+
+To declare Postgres views and functions the same way, install the extra::
+
+    pip install djanquiltdb[postgres-objects]
 
 See the `installation docs <https://djanquiltdb.readthedocs.io/en/latest/getting_started/installation.html>`_ for the
 template schema that every node needs, and the `settings reference

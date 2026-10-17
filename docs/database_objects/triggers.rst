@@ -70,6 +70,10 @@ schema instead, so it is created once and shared by all of them.
 :ref:`pghistory extra <pghistory_extra>` installs a plugin that stores each generated event model in the same place as
 its tracked model. See :doc:`its documentation </plugins/pghistory/index>`.
 
+`django-postgres-denormalize <https://django-postgres-denormalize.readthedocs.io/>`_ keeps copies of related columns
+up to date with django-pgtrigger triggers. The ``postgres-denormalize`` extra installs a plugin with helpers that find
+and correct out-of-date copies in every shard. See :doc:`its documentation </plugins/postgres-denormalize/index>`.
+
 
 Why the management commands do not work
 ---------------------------------------

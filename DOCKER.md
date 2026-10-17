@@ -18,8 +18,9 @@ Run one package's environments by label, one environment, or hand extra argument
 
 ```bash
 docker compose run --rm test tox -m core
-docker compose run --rm test tox -m postgres-objects
 docker compose run --rm test tox -m pghistory
+docker compose run --rm test tox -m postgres-denormalize
+docker compose run --rm test tox -m postgres-objects
 docker compose run --rm test tox -e core-py314-dj60-pg17
 docker compose run --rm test tox -e core-py314-dj60-pg17 -- djanquiltdb_tests.router
 docker compose run --rm test tox -e postgres-objects-py314-dj60-pg17 -- -k ViewPlacementTestCase
@@ -29,8 +30,8 @@ The plugin and `core-pgtrigger` environments name their suites before the posarg
 follow; narrow those with `-k` instead, as above. The core environments name theirs as the posargs default, so a
 label handed to one of those replaces the list and behaves as it reads.
 
-The `ruff`, `docs` and the two coverage environments need no database; add `--no-deps` to skip starting the
-PostgreSQL containers for those:
+The `ruff`, `docs` and coverage environments need no database; add `--no-deps` to skip starting the PostgreSQL
+containers for those:
 
 ```bash
 docker compose run --no-deps --rm test tox -e docs
