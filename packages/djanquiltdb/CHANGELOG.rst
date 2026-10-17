@@ -1,3 +1,15 @@
+v 4.3.0 (2026-10-19)
+--------------------
+Added:
+ * System checks for django-pgtrigger triggers that write a table in another sharding mode.
+ * Plugin API serving extended to ``djanquiltdb.utils.<name>``.
+
+Altered:
+ * ``move_data_to_shard`` and ``purge_shard_data`` no longer fire django-pgtrigger triggers for the rows that they copy
+   and delete.
+ * Fixed ``djanquiltdb.testing.pending_migration_changes`` missing django-pgtrigger triggers that have no migration.
+ * Fixed system checks that depend on the database (including Django and other libraries) skipping sharded models.
+
 v 4.2.0
 -------
 Added:

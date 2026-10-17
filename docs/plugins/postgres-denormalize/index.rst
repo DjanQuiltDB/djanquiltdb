@@ -16,6 +16,7 @@ Plugin release |postgres-denormalize-version|.
     pitfalls
     moving
     api
+    changelog
 
 
 Things to know
