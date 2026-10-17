@@ -1,5 +1,5 @@
 """
-Discovery of library plugins, and the two namespaces that serve their API.
+Discovery of library plugins, and the three namespaces that serve their API.
 
 A plugin is a separate distribution that registers itself under the ``djanquiltdb.plugins`` entry-point group and
 carries glue for one declaration library. The registry is resolved lazily, on first use rather than at app-load time:
@@ -7,9 +7,10 @@ a project's declaration modules may be imported while the app registry is still 
 ``AppConfig.ready()`` has run, and the decorator re-export in :mod:`djanquiltdb.decorators` has to be able to answer
 then.
 
-A plugin's ``decorators`` and ``models`` modules are served as ``djanquiltdb.decorators.<name>`` and
-``djanquiltdb.models.<name>``, as the plugin's own module objects and not as copies. :class:`PluginImporter` handles
-import statements, and the ``__getattr__`` of each of the two core modules handles plain attribute access.
+A plugin's ``decorators``, ``models`` and ``utils`` modules are served as ``djanquiltdb.decorators.<name>``,
+``djanquiltdb.models.<name>`` and ``djanquiltdb.utils.<name>``, as the plugin's own module objects and not as copies.
+:class:`PluginImporter` handles import statements, and the ``__getattr__`` of each of the three core modules handles
+plain attribute access.
 """
 
 import contextlib
@@ -155,11 +156,12 @@ def load_plugin_by_name(name):
     return registered.load()
 
 
-#: Maps each core module that serves a namespace to the plugin attribute that it serves. A plugin that has neither
-#: attribute is still loaded, but nothing is served for it in these namespaces.
+#: Maps each core module that serves a namespace to the plugin attribute that it serves. A plugin that has none of these
+#: attributes is still loaded, but nothing is served for it in these namespaces.
 _PLUGIN_ATTRIBUTE_BY_NAMESPACE = {
     'djanquiltdb.decorators': 'decorators',
     'djanquiltdb.models': 'models',
+    'djanquiltdb.utils': 'utils',
 }
 
 
@@ -245,7 +247,7 @@ def install_plugin_importer():
     """
     Adds :class:`PluginImporter` to ``sys.meta_path``, if it is not there yet.
 
-    Both core modules that serve a namespace call this, because either one can be imported first.
+    Each core module that serves a namespace calls this, because any one of them can be imported first.
     """
     if not any(isinstance(finder, PluginImporter) for finder in sys.meta_path):
         sys.meta_path.insert(0, PluginImporter())

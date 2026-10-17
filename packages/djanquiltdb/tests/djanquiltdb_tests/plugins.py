@@ -12,15 +12,17 @@ from django.test import SimpleTestCase
 from djanquiltdb import decorators as djanquiltdb_decorators
 from djanquiltdb import models as djanquiltdb_models
 from djanquiltdb import plugins
+from djanquiltdb import utils as djanquiltdb_utils
 from djanquiltdb_tests import plugin_fixture
 
 FIXTURE_NAME = 'fixture'
 
 #: Each namespace, with the fixture module that it is expected to serve. The tests that import a plugin in each
-#: supported way loop over these pairs, so that one namespace cannot support something that the other does not.
+#: supported way loop over these pairs, so that one namespace cannot support something that another does not.
 NAMESPACE_AND_SERVED_FIXTURE_MODULE = (
     ('djanquiltdb.decorators', plugin_fixture.decorators),
     ('djanquiltdb.models', plugin_fixture.models),
+    ('djanquiltdb.utils', plugin_fixture.utils),
 )
 
 
@@ -35,11 +37,6 @@ def fake_entry_point(name=FIXTURE_NAME, plugin=None):
 
 
 class PluginNamespaceTestCase(SimpleTestCase):
-    """
-    Covers the namespaces that the plugin importer serves, and checks that each way to import a plugin works in the same
-    way in both namespaces.
-    """
-
     def setUp(self):
         super().setUp()
         self._remove_cached_fixture_aliases()
@@ -65,7 +62,7 @@ class PluginNamespaceTestCase(SimpleTestCase):
 
     def test_every_way_of_importing_returns_the_module_of_the_plugin(self):
         """
-        Case: The plugin module is reached in each of the three ways, in both namespaces: a from-import of the plugin
+        Case: The plugin module is reached in each of the three ways, in every namespace: a from-import of the plugin
               name, an import of the submodule, and plain attribute access on the core module.
         Expected: Each way returns the module of the plugin, and not a copy.
         """
@@ -86,7 +83,7 @@ class PluginNamespaceTestCase(SimpleTestCase):
                     self._remove_cached_fixture_aliases()
                     self.assertIs(getattr(sys.modules[namespace], FIXTURE_NAME), expected)
 
-    def test_an_individual_name_can_be_imported_from_either_namespace(self):
+    def test_an_individual_name_can_be_imported_from_every_namespace(self):
         """
         Case: A single name is imported from the plugin module in each namespace, as in
               ``from djanquiltdb.decorators.fixture import shiny_decorator``.
@@ -95,27 +92,42 @@ class PluginNamespaceTestCase(SimpleTestCase):
         with self.patch_installed_entry_points(fake_entry_point()):
             from djanquiltdb.decorators.fixture import shiny_decorator
             from djanquiltdb.models.fixture import FixtureEvent
+            from djanquiltdb.utils.fixture import fixture_helper
 
             self.assertIs(shiny_decorator, plugin_fixture.decorators.shiny_decorator)
             self.assertIs(FixtureEvent, plugin_fixture.models.FixtureEvent)
+            self.assertIs(fixture_helper, plugin_fixture.utils.fixture_helper)
 
     def test_the_namespaces_serve_different_modules(self):
         """
-        Case: The same plugin is reached in both namespaces.
-        Expected: djanquiltdb.decorators serves the decorators module of the plugin, and djanquiltdb.models serves its
-                  models module.
+        Case: The same plugin is reached in every namespace.
+        Expected: djanquiltdb.decorators serves the decorators module of the plugin, djanquiltdb.models serves its
+                  models module, and djanquiltdb.utils serves its utils module.
         """
         with self.patch_installed_entry_points(fake_entry_point()):
             from djanquiltdb.decorators import fixture as served_decorators_module
             from djanquiltdb.models import fixture as served_models_module
+            from djanquiltdb.utils import fixture as served_utils_module
 
             self.assertIs(served_decorators_module, plugin_fixture.decorators)
             self.assertIs(served_models_module, plugin_fixture.models)
-            self.assertIsNot(served_decorators_module, served_models_module)
+            self.assertIs(served_utils_module, plugin_fixture.utils)
+
+    def test_a_plugin_cannot_replace_a_name_that_utils_defines(self):
+        """
+        Case: A plugin registers the name use_shard, which djanquiltdb.utils defines itself, and use_shard is read from
+              djanquiltdb.utils.
+        Expected: The use_shard of djanquiltdb.utils, and not the utils module of the plugin.
+        """
+        with self.patch_installed_entry_points(fake_entry_point(name='use_shard')):
+            from djanquiltdb.utils import use_shard
+
+            self.assertIsNot(use_shard, plugin_fixture.utils)
+            self.assertIs(use_shard, vars(djanquiltdb_utils)['use_shard'])
 
     def test_a_name_that_no_plugin_registers_raises_the_usual_missing_name_errors(self):
         """
-        Case: A name that no installed plugin registers is used in either namespace.
+        Case: A name that no installed plugin registers is used in each namespace.
         Expected: ModuleNotFoundError for an import, and AttributeError for an attribute.
         """
         with self.patch_installed_entry_points(fake_entry_point()):
@@ -129,9 +141,9 @@ class PluginNamespaceTestCase(SimpleTestCase):
 
     def test_a_plugin_without_a_models_module_is_not_served_under_models(self):
         """
-        Case: A plugin object has decorators but no models, as the postgres-objects plugin does.
-        Expected: The plugin is served under djanquiltdb.decorators. Under djanquiltdb.models, an import raises
-                  ModuleNotFoundError and an attribute raises AttributeError.
+        Case: A plugin object has decorators but no models and no utils, as the postgres-objects plugin does.
+        Expected: The plugin is served under djanquiltdb.decorators. Under djanquiltdb.models and djanquiltdb.utils,
+                  an import raises ModuleNotFoundError and an attribute raises AttributeError.
         """
         plugin_with_only_decorators = types.SimpleNamespace(decorators=plugin_fixture.decorators, install=lambda: None)
 
@@ -141,8 +153,14 @@ class PluginNamespaceTestCase(SimpleTestCase):
             with self.assertRaises(ModuleNotFoundError):
                 import djanquiltdb.models.fixture  # noqa: F401
 
+            with self.assertRaises(ModuleNotFoundError):
+                import djanquiltdb.utils.fixture  # noqa: F401
+
             with self.assertRaises(AttributeError):
                 djanquiltdb_models.fixture
+
+            with self.assertRaises(AttributeError):
+                djanquiltdb_utils.fixture
 
     def test_private_names_are_never_served(self):
         """
@@ -353,7 +371,7 @@ class DuplicatePluginNameTestCase(SimpleTestCase):
 class PluginLoadingIsLazyTestCase(SimpleTestCase):
     def test_importing_the_namespace_modules_does_not_read_the_entry_points(self):
         """
-        Case: The two core modules that serve a namespace are imported on their own, as djanquiltdb.apps imports
+        Case: The three core modules that serve a namespace are imported on their own, as djanquiltdb.apps imports
               djanquiltdb.decorators while the app registry is still being populated.
         Expected: The entry points have not been read, because the models module of a plugin defines abstract models,
                   which cannot be imported that early.
@@ -366,7 +384,7 @@ class PluginLoadingIsLazyTestCase(SimpleTestCase):
             "settings.configure(INSTALLED_APPS=['django.contrib.contenttypes'], DATABASES={}, "
             "QUILT_DB={'SHARD_CLASS': 'djanquiltdb.models.BaseShard'})\n"
             'django.setup()\n'
-            'import djanquiltdb.decorators, djanquiltdb.models\n'
+            'import djanquiltdb.decorators, djanquiltdb.models, djanquiltdb.utils\n'
             'from djanquiltdb.plugins import _entry_points_by_name\n'
             'info = _entry_points_by_name.cache_info()\n'
             'assert info.misses == 0 and info.hits == 0, info\n'

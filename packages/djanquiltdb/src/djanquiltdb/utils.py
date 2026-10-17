@@ -22,7 +22,15 @@ from django.utils.module_loading import import_string
 
 from djanquiltdb import ShardingMode, State, public_modes
 from djanquiltdb.db import DefaultConnectionProxy
+from djanquiltdb.plugins import install_plugin_importer, served_plugin_module
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME, DatabaseWrapper
+
+# A plugin's utils module is served as the submodule djanquiltdb.utils.<plugin>, and the import system only asks
+# PluginImporter for a submodule when the parent module has a __path__. The list is empty, because no submodule is found
+# by searching it.
+__path__ = []
+
+install_plugin_importer()
 
 logger = logging.getLogger(__name__)
 
@@ -782,3 +790,17 @@ class disable_signals(object):
             signal.receivers = self.stashed_signals.get(signal, [])
             signal.sender_receivers_cache.clear()
         del self.stashed_signals[signal]
+
+
+def __getattr__(name):
+    """
+    Serves the utils module of a plugin under the plugin's registered name, for plain attribute access.
+    :class:`~djanquiltdb.plugins.PluginImporter` handles import statements. A name that this module defines itself is
+    found before this function runs, so a plugin cannot replace it.
+    """
+    module = served_plugin_module(__name__, name)
+
+    if module is None:
+        raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+
+    return module
