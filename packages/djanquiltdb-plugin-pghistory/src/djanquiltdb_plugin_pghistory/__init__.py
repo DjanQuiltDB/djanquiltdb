@@ -28,21 +28,19 @@ def install():
     send_context_to_every_node()
 
 
-# The plugin has no section for move_shard_to_node. That command disables every user trigger of the new schema while it
-# copies and retargets the rows, so the moved events keep their pgh_id and no event is recorded for the move. A public
-# row that the command copies to the target node is a new row there, so the triggers of its table record its events.
+# The hooks below only keep the events with the rows that they describe. None of them keeps the triggers from firing
+# while rows are moved or purged: DjanQuiltDB does that itself in move_shard_to_node, move_data_to_shard and
+# purge_shard_data, so no event is recorded for those rows without the plugin needing a hook.
 plugin = SimpleNamespace(
     decorators=decorators,
     models=models,
     install=install,
     move_data_to_shard=SimpleNamespace(
         post_collect=data_moves.keep_only_the_events_of_collected_rows,
-        move_context=data_moves.triggers_ignored_while_data_moves,
         post_delete=data_moves.delete_moved_events,
     ),
     purge_shard_data=SimpleNamespace(
         post_collect=data_moves.keep_only_the_events_of_collected_rows,
-        purge_context=data_moves.triggers_ignored_while_data_is_purged,
         post_delete=data_moves.delete_events_of_purged_rows,
     ),
 )

@@ -3,19 +3,10 @@ Moving shards and their data
 ============================
 
 The events of a sharded model are rows in the same shard as the rows that they describe, so DjanQuiltDB's commands
-that move data move the events too. A move only changes where the rows are stored, so it records no events for the rows
-that it moves.
-
-.. warning::
-
-    To record no events, the commands keep triggers from firing for the rows that they move or purge, and not only the
-    triggers of pghistory. ``move_shard_to_node`` disables every user trigger of the new schema while it copies and
-    retargets the rows, so no trigger of the project runs for them either. ``move_data_to_shard`` and
-    ``purge_shard_data`` run inside ``pgtrigger.ignore()``, which ignores every trigger that django-pgtrigger installs,
-    the project's own included. A trigger that was created in another way, for example with ``RunSQL``, still fires for
-    the copy and the delete.
-    Check what the triggers of the project do before you move a shard or its data, for example whether one keeps a
-    counter or a search column up to date, or rejects some writes.
+that move data move the events too. A move only changes where the rows are stored, and the commands keep the triggers
+from firing for the rows that they move or purge, so no events are recorded for those rows. The pages of
+:doc:`/operations/move_shard_to_node`, :doc:`/operations/move_data_to_shard` and :doc:`/operations/purge_shard_data`
+describe which triggers each command keeps from firing.
 
 Moving a shard to another node
 ==============================
@@ -49,8 +40,8 @@ move:
 
 * once the rows are collected, the plugin keeps only the events whose ``pgh_obj`` is a moved row. The history of every
   other row stays with that row;
-* the rows and their events are copied and deleted inside ``pgtrigger.ignore()``, so no event is recorded for the
-  copy in the target shard or for the delete in the source shard;
+* the command copies and deletes the rows and their events inside ``pgtrigger.ignore()``, so no event is recorded for
+  the copy in the target shard or for the delete in the source shard;
 * after the moved rows are deleted from the source shard, the plugin deletes their events there too. The relation from
   an event to its row has ``on_delete=DO_NOTHING``, so Django's collector, which deletes the rows, does not find the
   events.
@@ -77,7 +68,7 @@ Purging data
 the source shard of a ``move_data_to_shard --no-delete``. The plugin takes part in the purge as it does in a move:
 
 * once the rows are collected, the plugin keeps only the events whose ``pgh_obj`` is a purged row;
-* the rows are deleted inside ``pgtrigger.ignore()``, so no delete event is recorded for them;
+* the command deletes the rows inside ``pgtrigger.ignore()``, so no delete event is recorded for them;
 * after the rows are deleted, the plugin deletes the events of the purged rows. Those are the events whose ``pgh_obj``
   is a purged row, and for an event model without ``pgh_obj``, the events with a snapshot that points at a purged row.
 

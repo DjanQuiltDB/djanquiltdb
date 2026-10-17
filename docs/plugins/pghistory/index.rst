@@ -36,8 +36,7 @@ Things to know
   different from its name, and a proxy field that reads a key inside a key returns its value JSON-encoded. pghistory
   3.9 has these gaps too. See :doc:`tracking`.
 * Moving a shard or its data, or purging data, records no events for those rows, because their triggers do not fire.
-  That also holds for the project's own triggers: every one of them when a shard moves, and the ones that
-  django-pgtrigger installs when data moves or is purged. See :doc:`moving`.
+  See :doc:`moving`.
 * When data moves to another shard or is purged, only the events of the moved or purged rows go with it. The events of
   rows that were deleted before, or that belong to another root object now, stay. See :doc:`moving`.
 * A shard cannot move to another node while one of its events has a snapshot of a public row that was deleted since.

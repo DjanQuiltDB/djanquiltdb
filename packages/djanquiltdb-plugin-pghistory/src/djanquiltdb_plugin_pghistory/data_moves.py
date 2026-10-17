@@ -9,8 +9,6 @@ The modules that these hooks need are imported inside them, because DjanQuiltDB 
 is ready.
 """
 
-import contextlib
-
 
 def keep_only_the_events_of_collected_rows(command, data):
     """
@@ -40,59 +38,6 @@ def keep_only_the_events_of_collected_rows(command, data):
         tracked_model = model._meta.get_field('pgh_obj').related_model._meta.concrete_model
         collected_pks = collected_pks_by_model.get(tracked_model, set())
         data[model] = {event for event in data[model] if event.pgh_obj_id in collected_pks}
-
-
-@contextlib.contextmanager
-def triggers_ignored_on_the_node_of(shard):
-    """
-    Ignores every pgtrigger trigger, the event triggers of pghistory included, while the rows are copied and deleted,
-    or purged. The rows only change shards, or leave a shard that they were copied from, so their history already has
-    the events, and the command records none.
-
-    The triggers of the project are ignored too, and not only those of pghistory. A move does not write new data, so no
-    trigger acts on it, as move_shard_to_node does by disabling every user trigger of the new schema. The moving page of
-    the plugin docs warns about this.
-
-    pgtrigger.ignore() sends its setting with each statement that passes Django's execute wrappers, and
-    move_data_to_shard copies the rows with COPY, which does not. The setting belongs to the connection of a node, and
-    is local to the transaction of the command, so one statement on the node of the shard sets it for every COPY that
-    follows.
-    """
-    import pgtrigger
-    from django.db import DatabaseError
-    from djanquiltdb.utils import use_shard
-
-    with contextlib.ExitStack() as ignored_triggers:
-        ignored_triggers.enter_context(pgtrigger.ignore())
-
-        with use_shard(shard, active_only_schemas=False, lock=False) as env:
-            env.connection.cursor().execute('SELECT 1')
-
-        try:
-            yield
-        except BaseException:
-            # pgtrigger.ignore() resets its setting with a statement when it exits inside a transaction. After a failed
-            # statement, the transaction of the command only accepts a rollback, so the reset would fail and hide the
-            # error of the command. The rollback discards the setting anyway.
-            with contextlib.suppress(DatabaseError):
-                ignored_triggers.close()
-
-            raise
-
-
-def triggers_ignored_while_data_moves(command):
-    """
-    The move_context hook of move_data_to_shard. The command rejects a target shard on another node, so the node of the
-    source shard is the node of both shards.
-    """
-    return triggers_ignored_on_the_node_of(command.source_shard)
-
-
-def triggers_ignored_while_data_is_purged(command):
-    """
-    The purge_context hook of purge_shard_data.
-    """
-    return triggers_ignored_on_the_node_of(command.shard)
 
 
 def delete_moved_events(command, pk_set):
