@@ -1,3 +1,4 @@
+import contextlib
 import logging
 from collections import defaultdict
 from functools import wraps
@@ -6,7 +7,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
-from django.db import ProgrammingError, connections
+from django.db import DatabaseError, ProgrammingError, connections
 from django.db.models.signals import (
     post_delete,
     post_init,
@@ -487,6 +488,49 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
             func(*args, shard_id=shard.id, **(kwargs or {}))
         else:
             func(*args, shard=shard, **(kwargs or {}))
+
+
+@contextlib.contextmanager
+def pgtrigger_triggers_ignored(shard):
+    """
+    Ignores every django-pgtrigger trigger on the node of ``shard`` while the block runs, through
+    ``pgtrigger.ignore()``. When django-pgtrigger cannot be imported, the block runs as it is. Run this inside a
+    transaction on that node.
+
+    ``move_data_to_shard`` and ``purge_shard_data`` copy and delete rows inside it. The rows only change shards, or
+    leave a shard that they were copied from, so a trigger must not act on them a second time, as ``move_shard_to_node``
+    also ensures by disabling the user triggers of the new schema. That command can alter the tables of its new schema,
+    but the target shard of a data move is in use, and altering its tables would lock out the writes to them until the
+    move ends.
+
+    pgtrigger.ignore() sends its setting with each statement that passes Django's execute wrappers, and COPY does not.
+    The setting belongs to the connection of the node, and is local to the transaction, so one statement on the node of
+    the shard sets it for every COPY that follows.
+    """
+    # The import decides, and not apps.is_installed(): the triggers are registered when their models are defined, and a
+    # test case that limits available_apps would otherwise leave them firing.
+    try:
+        import pgtrigger
+    except ImportError:
+        yield
+        return
+
+    with contextlib.ExitStack() as ignored_triggers:
+        ignored_triggers.enter_context(pgtrigger.ignore())
+
+        with use_shard(shard, active_only_schemas=False, lock=False) as env:
+            env.connection.cursor().execute('SELECT 1')
+
+        try:
+            yield
+        except BaseException:
+            # pgtrigger.ignore() resets its setting with a statement when it exits inside a transaction. After a failed
+            # statement, the transaction only accepts a rollback, so the reset would fail and hide the error of the
+            # block. The rollback discards the setting anyway.
+            with contextlib.suppress(DatabaseError):
+                ignored_triggers.close()
+
+            raise
 
 
 def get_model_definition(model):

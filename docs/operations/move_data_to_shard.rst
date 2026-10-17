@@ -60,6 +60,18 @@ Two more operational notes. The rows deleted from the source in step 5 are the r
 resources keyed by those rows would destroy things the moved copy still references. And the copy buffers each table's
 export in memory, so peak memory use is proportional to the largest table being moved.
 
+The rows went through the triggers of the source shard when they were written, so the copy and the delete run inside
+``pgtrigger.ignore()``, and no trigger that django-pgtrigger installs fires for them. A trigger that records history,
+for example, would otherwise record every moved row a second time, and the check in step 4 would find a row that a
+trigger changed during the copy. The triggers are ignored for the statements of the move only, so the other tenants of
+both shards keep their triggers. A trigger that was created in another way, for example with ``RunSQL``, still fires.
+The target shard stays in use during the move, so the command does not disable the triggers of its tables, as
+``move_shard_to_node`` does for its new schema.
+
+Because no django-pgtrigger trigger fires for the moved rows, a trigger that keeps another row up to date, such as a
+counter, does not count them in the target shard, and still counts them in the source shard. Check what the triggers of
+the project do before you move data.
+
 Plugins can hook into the move. ``move_data_to_shard.post_collect`` runs once the rows are collected, and can leave
 rows out of the move. Inside the transaction, ``move_context`` wraps the copy and the delete, ``pre_copy`` and
 ``post_copy`` run around the copy, and ``pre_delete`` and ``post_delete`` around the delete from the source shard.
