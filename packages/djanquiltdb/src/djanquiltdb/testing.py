@@ -11,8 +11,8 @@ import itertools
 from unittest import mock
 
 from django.apps import apps
+from django.core.management.commands import makemigrations
 from django.db import DEFAULT_DB_ALIAS, connections
-from django.db.migrations.autodetector import MigrationAutodetector
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.questioner import NonInteractiveMigrationQuestioner
 from django.db.migrations.state import ProjectState
@@ -31,7 +31,9 @@ def pending_migration_changes(owned_apps, ignored_operations=()):
     that has no migration.
     """
     loader = MigrationLoader(None, ignore_no_migrations=True)
-    autodetector = MigrationAutodetector(
+    # The autodetector of the makemigrations command, which an app such as django-pgtrigger replaces with one that also
+    # detects the changes that it adds to the migrations.
+    autodetector = makemigrations.Command.autodetector(
         loader.project_state(),
         ProjectState.from_apps(apps),
         # The questioner calls a log function for a field that becomes non-nullable, and only makemigrations passes one.
