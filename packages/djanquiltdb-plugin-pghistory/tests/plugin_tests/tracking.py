@@ -34,8 +34,8 @@ class GeneratedEventModelTestCase(SimpleTestCase):
 
     def test_event_models_inherit_the_base_for_the_mode_of_the_tracked_model(self):
         """
-        Case: Models of each mode are tracked, the call site of Pie passes its own base, CustomCakeEvent, and the through
-              model of the many-to-many field on Cake is tracked through a proxy.
+        Case: Models of each mode are tracked, the call site of Pie passes its own base, CustomCakeEvent, and the
+              through model of the many-to-many field on Cake is tracked through a proxy.
         Expected: Each generated event model inherits the plugin base that matches the mode of its tracked model, and
                   the event model of Pie inherits the custom base, which is built on ShardedEvent. The event model of
                   the through model inherits ShardedEvent, because Cake, which declares the field, is sharded.

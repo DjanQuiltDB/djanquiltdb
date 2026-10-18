@@ -432,9 +432,9 @@ class AlignShardsWithTemplateTestCase(ShardingTransactionTestCase):
 
         with self.assertRaisesMessage(
             CommandError,
-            'default|el_chapo cannot be aligned with the template: Schema el_chapo cannot be aligned with schema template:'
-            ' el_chapo.gizmo_id_seq already exists, so gizmo_id_seq1 cannot be renamed to it Shards not aligned:'
-            ' default|el_chapo, default|pablo_escobar.',
+            'default|el_chapo cannot be aligned with the template: Schema el_chapo cannot be aligned with schema'
+            ' template: el_chapo.gizmo_id_seq already exists, so gizmo_id_seq1 cannot be renamed to it'
+            ' Shards not aligned: default|el_chapo, default|pablo_escobar.',
         ):
             self.call_command()
 

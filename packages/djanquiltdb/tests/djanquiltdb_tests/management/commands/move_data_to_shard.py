@@ -1156,7 +1156,8 @@ class MoveDataToShardTestCase(ShardingTestCase):
     def test_validate_data_integrity(self, mock_copy_data_stream, mock_filecmp, mock_sort):
         """
         Case: Call validate_data_integrity.
-        Expected: copy_data_stream to be called for each model for both shards, and compare_files called with file paths.
+        Expected: copy_data_stream to be called for each model for both shards, and compare_files called with file
+                  paths.
         """
         self.command.source_shard = self.source_shard
         self.command.target_shard = self.target_shard

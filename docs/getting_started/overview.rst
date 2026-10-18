@@ -105,8 +105,8 @@ the public schema, like before.
    :alt: Schema selection
    :align: center
 
-Here comes the trick. When we instruct the library to 'select a shard' it will set the PostgreSQL ``search_path`` to both the
-corresponding schema and the public schema. So the set of tables is always complete and what you expect.
+Here comes the trick. When we instruct the library to 'select a shard' it will set the PostgreSQL ``search_path`` to
+both the corresponding schema and the public schema. So the set of tables is always complete and what you expect.
 
 .. _the-complication:
 

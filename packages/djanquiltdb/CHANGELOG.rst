@@ -43,8 +43,8 @@ Added:
    sequences, primary key names and serial columns, which were all fixed in this version. Run it once after upgrading.
 
 Altered:
- * Fixed ``move_shard_to_node``, ``move_data_to_shard`` and ``loaddata`` failing on, or resetting the wrong sequence of, a
-   table whose sequence is not named after it (e.g. a table that was renamed after it was created).
+ * Fixed ``move_shard_to_node``, ``move_data_to_shard`` and ``loaddata`` failing on, or resetting the wrong sequence of,
+   a table whose sequence is not named after it (e.g. a table that was renamed after it was created).
  * Fixed ``move_shard_to_node`` leaving a moved shard's sequences that no model's primary key uses at the template's
    position.
  * Fixed cloned primary keys and identity sequences being named after their table instead of having the names they have
@@ -113,8 +113,8 @@ Altered:
  * Expanded documentation on trigger behavior and compatibility with ``django-pgtrigger`` in particular
  * Fixed generating new session keys with a custom ``SESSION_KEY_DELIMITER``.
  * Fixed renumbering of cloned identity sequences not named ``id``.
- * Fixed cloning of composite foreign keys aborting shard creation; ``ON DELETE``/``ON UPDATE`` actions and deferrability
-   now carry over faithfully instead of being dropped and forced.
+ * Fixed cloning of composite foreign keys aborting shard creation; ``ON DELETE``/``ON UPDATE`` actions and
+   deferrability now carry over faithfully instead of being dropped and forced.
  * Fixed the template's search path leaking into the enclosing transaction when creating a shard under
    ``transaction.atomic()``, silently redirecting later reads and writes to the template schema.
  * Fixed advisory lock release masking errors and stranding locks inside atomic blocks.
@@ -135,8 +135,8 @@ Altered:
  * Fixed the admin shard selector class binding when ``quilt_admin`` modules are imported before the app registry is
    ready.
  * Fixed ``quilt_admin`` ignoring ``PRIMARY_DB_ALIAS`` after a failover.
- * Fixed ``quilt_admin``'s maintenance checks swallowing errors, silently disabling write protection; a stale shard override
-   no longer breaks the admin.
+ * Fixed ``quilt_admin``'s maintenance checks swallowing errors, silently disabling write protection; a stale shard
+   override no longer breaks the admin.
  * Fixed function and trigger definitions being rewritten while cloning.
  * Fixed ``reset_sequence`` rewinding sequences advanced by concurrent writers.
  * Fixed maintenance states not being restored when entering maintenance fails midway.
@@ -212,7 +212,9 @@ Altered:
 v 0.6.3
 -------
 Altered:
- * ``get_all_mirrored_models``, ``get_all_public_models``, and ``get_all_public_schema_models`` util functions now also accept ``include_auto_created`` and ``include_proxy`` arguments. Like ``get_all_sharded_models`` already had. They are ``False`` by default, and can be used to fetch a more complete set of models.
+ * ``get_all_mirrored_models``, ``get_all_public_models``, and ``get_all_public_schema_models`` util functions now also
+   accept ``include_auto_created`` and ``include_proxy`` arguments. Like ``get_all_sharded_models`` already had. They
+   are ``False`` by default, and can be used to fetch a more complete set of models.
 
 v 0.6.2
 -------
@@ -225,13 +227,17 @@ Dropped:
 v 0.6.1
 -------
 Altered:
- * Routing for write queries to mirrored tables (if any) will be directed to the primary node if the current context does not do so already. This prevents your context to be destroyed if was correct already. (Example: a shard on the primary node is selected and you write to a mirrored table. In 0.6.0 this would scrap your shard context and only leave the ``public_schema`` in the ``search_path``.)
+ * Routing for write queries to mirrored tables (if any) will be directed to the primary node if the current context
+   does not do so already. This prevents your context to be destroyed if was correct already. (Example: a shard on the
+   primary node is selected and you write to a mirrored table. In 0.6.0 this would scrap your shard context and only
+   leave the ``public_schema`` in the ``search_path``.)
 
 v 0.6.0
 -------
 Added:
  * Dedicated view for the situation a node is down.
- * Primary connection as a setting. This is also the default connection the router uses. This means the 'default' name of a connection (Django stipulates) has no effect. It is just a name.
+ * Primary connection as a setting. This is also the default connection the router uses. This means the 'default' name
+   of a connection (Django stipulates) has no effect. It is just a name.
  * django.db.transaction gets monkey-patched to always start the transaction on the node that is active.
  * ``purge_schema`` management command to empty and remove a shard.
 

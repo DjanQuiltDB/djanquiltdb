@@ -116,8 +116,8 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTransactionT
         Case: A CakeType is added to the toppings of the Cake and removed again, so the events of the through model have
               a snapshot of the foreign key to it. The CakeType is then deleted from the source node, and the shard
               moves to the other node.
-        Expected: The move succeeds. The snapshots of the deleted CakeType keep its id, because neither node has a row to
-                  retarget them to, and the snapshot of the CakeType that the other node has is retargeted to it.
+        Expected: The move succeeds. The snapshots of the deleted CakeType keep its id, because neither node has a row
+                  to retarget them to, and the snapshot of the CakeType that the other node has is retargeted to it.
         """
         with use_shard(node_name='default', schema_name='public', override_class_method_use_shard=True):
             lemon = CakeType.objects.create(name='lemon')
@@ -149,7 +149,8 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTransactionT
     def test_the_moved_shard_records_new_events(self):
         """
         Case: The shard moves to the other node, and a Cake is then renamed in the moved shard.
-        Expected: The rename is recorded as a new event, after the copied ones, so the triggers fire again after the move.
+        Expected: The rename is recorded as a new event, after the copied ones, so the triggers fire again after the
+                  move.
         """
         self.move_the_shard()
 
@@ -458,9 +459,9 @@ class PurgeShardDataTestCase(ShardingTransactionTestCase):
 
     def test_purging_a_row_keeps_the_events_of_a_row_that_was_deleted_before(self):
         """
-        Case: A Cake has a slice that is deleted. The Cake is purged from the shard, once with Django's collector and once
-              with the simple collector, which finds the event of the slice through its snapshot of the foreign key to
-              the Cake.
+        Case: A Cake has a slice that is deleted. The Cake is purged from the shard, once with Django's collector and
+              once with the simple collector, which finds the event of the slice through its snapshot of the foreign key
+              to the Cake.
         Expected: The event of the deleted slice stays, as it does when the Cake is moved.
         """
         for simple_collector in (False, True):

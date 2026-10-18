@@ -20,12 +20,12 @@ class EventQueryCompiler(BaseEventQueryCompiler):
 
         annotations = {f'_{field.column}': Cast(field.pgh_proxy, output_field=field) for field in self.proxy_fields}
         # Known gap, which pghistory 3.9 has too: values() names each CTE column after the attname, but the outer query
-        # selects the column name. Only a query that selects the proxy fields of an event model goes through this CTE, and
-        # such a query fails when one of the fields of the model has a db_column. A query that leaves the proxy fields
-        # out, such as the ones of move_shard_to_node, works. A fix would select each field whose column differs from
-        # its attname through an annotation that is named after the column.
-        # Django rejects an annotation with the name of a field, so a column that is also the name of another field
-        # needs an alias that the SQL renames afterwards. KnownCompilerGapTestCase covers this gap.
+        # selects the column name. Only a query that selects the proxy fields of an event model goes through this CTE,
+        # and such a query fails when one of the fields of the model has a db_column. A query that leaves the proxy
+        # fields out, such as the ones of move_shard_to_node, works. A fix would select each field whose column differs
+        # from its attname through an annotation that is named after the column. Django rejects an annotation with the
+        # name of a field, so a column that is also the name of another field needs an alias that the SQL renames
+        # afterwards. KnownCompilerGapTestCase covers this gap.
         values = [field.attname for field in event_model._meta.fields if not hasattr(field, 'pgh_proxy')] + [
             f'_{field.column}' for field in self.proxy_fields
         ]

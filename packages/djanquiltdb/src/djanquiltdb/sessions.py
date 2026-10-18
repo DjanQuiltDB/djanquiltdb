@@ -86,15 +86,13 @@ class SessionStore(BaseSessionStore):
     def shard_selector(self, value):
         if not _get_shard_selector_regex().match(str(value)):
             raise ImproperlyConfigured(
-                'DjanQuiltDB session backend tried to set selector {} which is unmatched by SHARD_SELECTOR_REGEX {}'.format(
-                    value, _get_shard_selector_regex().pattern
-                )
+                'DjanQuiltDB session backend tried to set selector {} which is unmatched by '
+                'SHARD_SELECTOR_REGEX {}'.format(value, _get_shard_selector_regex().pattern)
             )
         if _get_shard_selector_regex().match(f'{value}{_get_delimiter()}'):
             raise ImproperlyConfigured(
-                'DjanQuiltDB session SESSION_KEY_DELIMITER {} is ambiguous for selector {} with SHARD_SELECTOR_REGEX {}'.format(
-                    _get_delimiter(), value, _get_shard_selector_regex().pattern
-                )
+                'DjanQuiltDB session SESSION_KEY_DELIMITER {} is ambiguous for selector {} with '
+                'SHARD_SELECTOR_REGEX {}'.format(_get_delimiter(), value, _get_shard_selector_regex().pattern)
             )
 
         self.__shard_selector = value

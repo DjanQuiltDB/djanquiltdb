@@ -5,13 +5,15 @@ Move Data To Shard
 Introduction
 ============
 
-Ideally you take sharding in consideration at the moment you first conceptualize the project. And you might start to use this library from day one. In that case, your data will always be created on the shards you want them to, and add shards as you go.
+Ideally you take sharding in consideration at the moment you first conceptualize the project. And you might start to use
+this library from day one. In that case, your data will always be created on the shards you want them to, and add shards
+as you go.
 
-If you have not, and discover after years your project needs sharding: you are faced with some problems.
-One of which is, all the data is in a single place: the default database on the public schema.
-The ``move_sharded_models`` command looks after that, and will relocate all sharded tables from the public schema to a single sharded schema.
-Next is to move data away from that 'main' schema, and into their own schemas. After all, you won't see any benefit from sharding if you use only a single shard.
-This can be done with the ``move_data_to_shard`` command.
+If you have not, and discover after years your project needs sharding: you are faced with some problems. One of which
+is, all the data is in a single place: the default database on the public schema. The ``move_sharded_models`` command
+looks after that, and will relocate all sharded tables from the public schema to a single sharded schema. Next is to
+move data away from that 'main' schema, and into their own schemas. After all, you won't see any benefit from sharding
+if you use only a single shard. This can be done with the ``move_data_to_shard`` command.
 
 
 Command usage
@@ -19,7 +21,9 @@ Command usage
 
 Root-object
 -----------
-With a 'root-object' we mean the top-level object of a data structure. This can be a User, an Organization, a Server, whatever tops your data structure. You often want to move this root object and all data that hangs beneath this over to another shard. That is exactly what this command does.
+With a 'root-object' we mean the top-level object of a data structure. This can be a User, an Organization, a Server,
+whatever tops your data structure. You often want to move this root object and all data that hangs beneath this over to
+another shard. That is exactly what this command does.
 
 Steps
 -----
@@ -85,11 +89,14 @@ rows that were copied. See :ref:`command_hooks`.
 ``get_target_shard``
 --------------------
 
-By default, the command assumes the target shard exists and won't suffer from receiving the data.
-Since it just copies the data over, no modification is done on the ids found within that data. So if there already exists data on the target shard that shares ids, you will get in trouble.
+By default, the command assumes the target shard exists and won't suffer from receiving the data. Since it just copies
+the data over, no modification is done on the ids found within that data. So if there already exists data on the target
+shard that shares ids, you will get in trouble.
 
-We advise you to move data over to a new, empty shard. Or know for sure that there won't be id collisions.
-If you want the command to create the target shard for you, you will discover it cannot do that out of the box. The library does not know what naming scheme you use, and what fields your Shard model might have in addition to the base. And if you use mapping models, there are even more considerations.
+We advise you to move data over to a new, empty shard. Or know for sure that there won't be id collisions. If you want
+the command to create the target shard for you, you will discover it cannot do that out of the box. The library does not
+know what naming scheme you use, and what fields your Shard model might have in addition to the base. And if you use
+mapping models, there are even more considerations.
 
 To solve this, you can easily extend the command and override the function it calls to retrieve its target:
 
@@ -115,7 +122,8 @@ Most options the command recognizes are mandatory. For example:
 
 .. code-block:: console
 
-    manage.py move_data_to_shard --source-shard-alias earth --target-shard-alias mars --model-name example.organization --root-object-id 1
+    manage.py move_data_to_shard --source-shard-alias earth --target-shard-alias mars \
+        --model-name example.organization --root-object-id 1
 
 ``--source-shard-alias``
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -136,11 +144,14 @@ The ``--root-object-id`` argument must be the id of the ``root_object``.
 
 ``--reuse-simple-collector-for-delete``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-The ``--reuse-simple-collector-for-delete`` argument forces the command to reuse the data gathered for the copy step for deletion as well.
-During the data collection for copy step, it uses the ``SimpleCollector`` within this library. This collector does not follow delete constraints or patterns (such as ``on_delete=CASCADE`` or ``on_delete=PROTECT``) to get the complete picture.
-Per default it will run Django's delete collector to collect data to delete from the source shard.
-Naturally, this collector does take constraints into account and will not delete data that might be used by objects outside the collected objects.
-Passing this option will allow the command to use the same data to delete from the source shard. Be careful when using this: for it might remove data used by other objects. But not using it leads to duplication of that data, since it will get copied and not deleted.
+The ``--reuse-simple-collector-for-delete`` argument forces the command to reuse the data gathered for the copy step for
+deletion as well. During the data collection for copy step, it uses the ``SimpleCollector`` within this library. This
+collector does not follow delete constraints or patterns (such as ``on_delete=CASCADE`` or ``on_delete=PROTECT``) to get
+the complete picture. Per default it will run Django's delete collector to collect data to delete from the source shard.
+Naturally, this collector does take constraints into account and will not delete data that might be used by objects
+outside the collected objects. Passing this option will allow the command to use the same data to delete from the source
+shard. Be careful when using this: for it might remove data used by other objects. But not using it leads to duplication
+of that data, since it will get copied and not deleted.
 
 ``--keep-validation-files``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -149,7 +160,8 @@ collected and written data, instead of deleting them after the move.
 
 ``--quiet``
 ~~~~~~~~~~~
-The ``--quiet`` option allows you to silence the output of the command. It will normally notify the user what it is doing by printing the step it is performing and listing per model that it is copying data.
+The ``--quiet`` option allows you to silence the output of the command. It will normally notify the user what it is
+doing by printing the step it is performing and listing per model that it is copying data.
 
 ``--no-input``
 ~~~~~~~~~~~~~~

@@ -27,7 +27,8 @@ class PublicPghistoryModelNaturalKeyTestCase(SimpleTestCase):
     def test_the_natural_key_of_an_aggregated_event_is_its_slug(self):
         """
         Case: natural_key() is called on an Events row.
-        Expected: It returns a tuple with the pgh_slug of the event, which names the event model and the id of the event.
+        Expected: It returns a tuple with the pgh_slug of the event, which names the event model and the id of the
+                  event.
         """
         self.assertEqual(Events(pgh_slug='example.CakeEvent:1').natural_key(), ('example.CakeEvent:1',))
 

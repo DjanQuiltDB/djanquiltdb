@@ -8,11 +8,10 @@ All others will result in a form of 'table does not exist' error.
 
 Overriding a connection
 -----------------------
-Database connections are overridden by the library. This happens by monkeypatching them upon startup.
-(See ``djanquiltdb.apps._patch_connections``). Remember that there is always an open connection to each node Django knows.
-For each of those connection we set our current active shard, if there is any.
-There are various ways to influence the active shard, and there are ways to route queries specifically,
-if you want to bypass this.
+Database connections are overridden by the library. This happens by monkeypatching them upon startup. (See
+``djanquiltdb.apps._patch_connections``). Remember that there is always an open connection to each node Django knows.
+For each of those connection we set our current active shard, if there is any. There are various ways to influence the
+active shard, and there are ways to route queries specifically, if you want to bypass this.
 
 The sharding context
 --------------------

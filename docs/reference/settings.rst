@@ -80,8 +80,8 @@ OVERRIDE_SHARDING_MODE
 ~~~~~~~~~~~~~~~~~~~~~~
 If you want to override the sharding mode for a specific model or application you can use
 ``QUILT_DB['OVERRIDE_SHARDING_MODE']`` configuration setting. The setting is a dictionary with tuple or list as a key
-and the ``ShardingMode`` enum as value. The key is composed from one or two lowercase strings and it is used as a lookup for
-an app or a model in an app.
+and the ``ShardingMode`` enum as value. The key is composed from one or two lowercase strings and it is used as a lookup
+for an app or a model in an app.
 
 .. code-block:: python
 

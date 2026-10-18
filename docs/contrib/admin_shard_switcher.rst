@@ -91,8 +91,8 @@ Include the admin URLs in your main URLconf. The URLs should be included under t
     The order matters: include ``admin.site.urls`` first, then include the shard switcher URLs.
 
 Once installed, a dropdown will appear in the top right corner of the Django admin interface (next to the user links).
-The dropdown lists all available shards and allows you to switch between them. The selected shard is stored in the session
-and will be used by your shard middleware for subsequent requests.
+The dropdown lists all available shards and allows you to switch between them. The selected shard is stored in the
+session and will be used by your shard middleware for subsequent requests.
 
 The dropdown shows:
 

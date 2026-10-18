@@ -251,10 +251,11 @@ loaded, and their contexts are exited in reverse order.
 ``purge_shard_data``
     ``post_collect(command, data)``, ``purge_context(command)``, ``pre_delete(command, pk_set)`` and
     ``post_delete(command, pk_set)``. ``post_collect`` runs once the rows to purge are collected, and before the
-    confirmation. As for ``move_data_to_shard``, a hook can remove instances from the sets in ``data``, and keeps
-    every model in it. A row that is removed is not deleted. The other hooks run around the delete of the collected rows. ``pk_set`` maps each model to
-    the primary keys of the rows that are purged. The delete and the hooks run in one transaction on the node of the
-    shard, with the ``pre_delete`` and ``post_delete`` signals disconnected. The command has the ``shard``.
+    confirmation. As for ``move_data_to_shard``, a hook can remove instances from the sets in ``data``, and keeps every
+    model in it. A row that is removed is not deleted. The other hooks run around the delete of the collected rows.
+    ``pk_set`` maps each model to the primary keys of the rows that are purged. The delete and the hooks run in one
+    transaction on the node of the shard, with the ``pre_delete`` and ``post_delete`` signals disconnected. The command
+    has the ``shard``.
 
 ``purge_schema``
     ``purge_context(command)``, ``pre_drop(command)`` and ``post_drop(command)``, around the drop of the schema. The

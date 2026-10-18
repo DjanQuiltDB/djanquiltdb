@@ -2,19 +2,25 @@
 Fixtures
 ========
 
-DjanQuiltDB extends Django's ``loaddata`` management command to support loading fixtures into specific PostgreSQL schemas. This allows you to load test data or initial data into different shards in a single fixture file. By extension, loading fixtures in a Django test case also supports this feature.
+DjanQuiltDB extends Django's ``loaddata`` management command to support loading fixtures into specific PostgreSQL
+schemas. This allows you to load test data or initial data into different shards in a single fixture file. By extension,
+loading fixtures in a Django test case also supports this feature.
 
 Introduction
 ============
 
-When working with sharded databases, you often need to load data into multiple schemas (shards). The sharding-aware fixture loader allows you to specify which schema each fixture entry should be loaded into using the ``_schema`` property.
+When working with sharded databases, you often need to load data into multiple schemas (shards). The sharding-aware
+fixture loader allows you to specify which schema each fixture entry should be loaded into using the ``_schema``
+property.
 
 The ``_schema`` Property
 ========================
 
-Each entry in your fixture file can include an optional ``_schema`` property that specifies which PostgreSQL schema the entry should be loaded into.
+Each entry in your fixture file can include an optional ``_schema`` property that specifies which PostgreSQL schema the
+entry should be loaded into.
 
-If an entry does not have a ``_schema`` property, it will be loaded into the default schema specified by the database connection you're using (typically the ``public`` schema).
+If an entry does not have a ``_schema`` property, it will be loaded into the default schema specified by the database
+connection you're using (typically the ``public`` schema).
 
 Supported Formats
 -----------------
@@ -48,7 +54,8 @@ To load data into the public schema, use ``public`` as the ``_schema`` value:
 Template Schema
 ~~~~~~~~~~~~~~~
 
-You can also load data into the template schema by using the template schema name. The template schema name is determined by the ``TEMPLATE_NAME`` setting.
+You can also load data into the template schema by using the template schema name. The template schema name is
+determined by the ``TEMPLATE_NAME`` setting.
 
 Usage
 =====

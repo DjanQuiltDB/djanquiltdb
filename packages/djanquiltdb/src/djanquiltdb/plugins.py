@@ -99,9 +99,9 @@ def load_plugins():
 
 def plugin_hooks(name):
     """
-    Returns the hook that each loaded plugin has under ``name``, in the order in which the plugins are loaded. A name has
-    the form ``<command>.<hook>``, and is read from the plugin object as an attribute path, so each command is a section
-    of its own, such as ``plugin.move_data_to_shard.pre_copy``. A plugin without the hook takes no part.
+    Returns the hook that each loaded plugin has under ``name``, in the order in which the plugins are loaded. A name
+    has the form ``<command>.<hook>``, and is read from the plugin object as an attribute path, so each command is a
+    section of its own, such as ``plugin.move_data_to_shard.pre_copy``. A plugin without the hook takes no part.
 
     The hooks that DjanQuiltDB calls are listed in the Plugins section of the API reference.
     """

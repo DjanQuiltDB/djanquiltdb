@@ -2061,7 +2061,8 @@ class IdentityColumnTestCase(ShardingTransactionTestCase):
                 self.assertEqual(
                     last_value,
                     max_id,
-                    f'Sequence last_value should equal max_id ({max_id}, from {org1.id} and {org2.id}), got {last_value}',
+                    f'Sequence last_value should equal max_id ({max_id}, from {org1.id} and {org2.id}), '
+                    f'got {last_value}',
                 )
                 if max_id > 0:
                     self.assertTrue(is_called, 'Sequence should be marked as called when max_id > 0')

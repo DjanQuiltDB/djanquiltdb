@@ -29,8 +29,8 @@ class AggregateEventsTestCase(ShardingTransactionTestCase):
         """
         Case: A cake is created in a shard, and Events spans CakeEvent while that shard is active, so the table in the
               union is on the search path. Then the same aggregate query runs with the other shard active.
-        Expected: Inside the shard of the cake, the insert event of the cake is returned. With the other shard active, no
-                  events are returned. The union names the table without a schema, so only the search path decides
+        Expected: Inside the shard of the cake, the insert event of the cake is returned. With the other shard active,
+                  no events are returned. The union names the table without a schema, so only the search path decides
                   which shard's rows the query finds.
         """
         with use_shard(self.shard):

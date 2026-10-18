@@ -13,7 +13,12 @@ extend-exclude = ["docs/_build"]
 extend-select = [
     # isort
     "I",
+    # docstrings and comments longer than max-doc-length
+    "W505",
 ]
+
+[lint.pycodestyle]
+max-doc-length = 120
 
 [format]
 quote-style = 'single'
