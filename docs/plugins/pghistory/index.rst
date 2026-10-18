@@ -8,6 +8,17 @@ stores each event table in the same place as the table of the tracked model. Ins
 
 Plugin release |pghistory-version|.
 
+.. toctree::
+    :maxdepth: 2
+
+    installation
+    tracking
+    moving
+    customization
+    api
+    changelog
+
+
 Things to know
 --------------
 
@@ -48,14 +59,3 @@ Things to know
   come from a wrapper of ``track()``. See :doc:`customization`.
 * A type checker cannot follow the names that the plugin serves lazily. Point it at the modules that define them. See
   :doc:`api`.
-
-
-.. toctree::
-    :maxdepth: 2
-
-    installation
-    tracking
-    moving
-    customization
-    api
-    changelog

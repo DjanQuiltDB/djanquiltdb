@@ -8,6 +8,17 @@ sharded. Installed through an extra of ``djanquiltdb`` itself::
 
 Plugin release |postgres-objects-version|.
 
+.. toctree::
+    :maxdepth: 2
+
+    installation
+    functions
+    views
+    generated_columns
+    api
+    changelog
+
+
 Things to know
 --------------
 
@@ -31,14 +42,3 @@ Things to know
   :doc:`generated_columns`.
 * Cloning a schema for a new shard does not copy aggregates, row-level security policies, or the grants and comments of
   views and functions. See :ref:`cloning_limitations`.
-
-
-.. toctree::
-    :maxdepth: 2
-
-    installation
-    functions
-    views
-    generated_columns
-    api
-    changelog
