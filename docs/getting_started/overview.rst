@@ -121,8 +121,6 @@ can have relations to the 'general' table living in the public schema, but not t
    :alt: Relations 1
    :align: center
 
--------------
-
 For a more detailed example:
 
 .. image:: /images/relations_2.svg

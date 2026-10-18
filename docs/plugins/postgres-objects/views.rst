@@ -37,6 +37,9 @@ Three decorators, matching the function ones:
 ``@sharded_view()``  Created on the template schema and on every shard, and not in the public schema.
 ==================== ========================================================================================
 
+Since a view that is not materialized has nothing to refresh, the difference between mirrored and public is purely a
+statement of intent and nothing more.
+
 A view over sharded tables has to be sharded itself. Note that this behavior differs substantially from that of a
 function: a function's body resolves its table names at execution time, so a ``PUBLIC`` function reads whichever shard
 the caller is pointed at. A view does not: its body is resolved when the view is *created*, binding it to the tables of
@@ -109,6 +112,3 @@ A ``@public_view()`` has a copy on the public schema of every node too, but its 
 refresh moves only the one on the connection in context, which is the right answer for a view whose sources differ per
 node. That is the whole of the difference between the two annotations, and the reason to pick one over the other for a
 materialized view.
-
-Since a view that is not materialized has nothing to refresh, the difference between mirrored and public is purely a
-statement of intent and nothing more.

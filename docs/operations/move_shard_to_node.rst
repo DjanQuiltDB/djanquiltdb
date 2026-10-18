@@ -9,7 +9,8 @@ Shards live on nodes, and sometimes a shard has to move: a node fills up, a tena
 wants rebalancing. ``move_shard_to_node`` relocates one whole shard - schema, data, views and all - to another node,
 and repoints the shard's registry row when everything has arrived.
 
-Example: ``move_shard_to_node --source-shard-alias earth --target-node-alias node_2``
+Command usage
+=============
 
 Steps
 -----
@@ -35,6 +36,10 @@ name - and the leftover is a stale copy of tenant data, which retention policies
 
 Options
 -------
+
+.. code-block:: console
+
+  manage.py move_shard_to_node --source-shard-alias earth --target-node-alias node_2
 
 ``--source-shard-alias``
 ~~~~~~~~~~~~~~~~~~~~~~~~

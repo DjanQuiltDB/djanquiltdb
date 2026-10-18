@@ -2,9 +2,6 @@
 Celery
 ======
 
-Celery shard unavailable decorator
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
 Celery tasks too need to be aware on which shard to do what. If the shard is unavailable during the execution of a view,
 the middleware is triggered to deal with the raised exception. To do the same for Celery tasks we suggest the following
 decorator.

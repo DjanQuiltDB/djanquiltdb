@@ -55,9 +55,12 @@ looks up each model's sequence through its auto-incrementing primary key column,
 renamed after it was created. If a model's auto-incrementing column has no sequence, or the shard has no such table or
 column, the command stops with an error that names the column. It stops before any sequence is reset.
 
-Two more operational notes. The rows deleted from the source in step 5 are the rows just copied to the target, so the
+
+Operational notes
+-----------------
+The rows deleted from the source in step 5 are the rows just copied to the target, so the
 ``pre_delete``/``post_delete`` signals are disconnected during that deletion - a handler cleaning up external
-resources keyed by those rows would destroy things the moved copy still references. And the copy buffers each table's
+resources keyed by those rows would destroy things the moved copy still references. The copy buffers each table's
 export in memory, so peak memory use is proportional to the largest table being moved.
 
 The rows went through the triggers of the source shard when they were written, so the copy and the delete run inside

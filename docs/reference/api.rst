@@ -198,6 +198,14 @@ registry is ready, so the project does not start, and every time that name is lo
 usual, so a name that no plugin serves is still a missing attribute or module. A registered plugin name takes precedence
 over a decorator with the same name that another plugin serves directly.
 
+.. autofunction:: load_plugins
+
+.. autofunction:: load_plugin_by_name
+
+.. autofunction:: raise_for_duplicate_plugin_names
+
+.. autofunction:: served_plugin_module
+
 .. _command_hooks:
 
 Command hooks
@@ -260,16 +268,8 @@ loaded, and their contexts are exited in reverse order.
     ``move_context(command)``, ``pre_move(command)`` and ``post_move(command)``, around the move of the sharded tables
     from the public schema into the schema of the shard. The command has the ``shard``.
 
-.. autofunction:: load_plugins
-
-.. autofunction:: load_plugin_by_name
-
-.. autofunction:: raise_for_duplicate_plugin_names
-
 .. autofunction:: plugin_hooks
 
 .. autofunction:: run_plugin_hooks
 
 .. autofunction:: entered_plugin_hook_contexts
-
-.. autofunction:: served_plugin_module

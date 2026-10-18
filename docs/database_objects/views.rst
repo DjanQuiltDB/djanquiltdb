@@ -62,6 +62,12 @@ template's views on the target schema for the same reason a clone does: a view i
 cannot carry it along. It then compares template and target as sorted name-and-kind pairs, so a view that arrives as
 the wrong kind is caught rather than only a missing one.
 
+Triggers on views
+~~~~~~~~~~~~~~~~~
+
+An ``INSTEAD OF`` trigger, which is what makes a view that is not automatically updatable writable, is cloned along
+with the view it is attached to. See :doc:`/database_objects/triggers`.
+
 
 Materialized views
 ------------------
@@ -100,13 +106,6 @@ them:
 * ``move_shard_to_node`` refreshes the target, using the *source's* populated set, because cloning populated the
   target's views while its tables were still empty.
 * ``move_sharded_models`` refreshes the target shard and then the public schema.
-
-
-Triggers on views
------------------
-
-An ``INSTEAD OF`` trigger, which is what makes a view that is not automatically updatable writable, is cloned along
-with the view it is attached to. See :doc:`/database_objects/triggers`.
 
 
 Renaming a table during a rolling deploy

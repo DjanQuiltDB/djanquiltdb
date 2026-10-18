@@ -75,8 +75,8 @@ up to date with django-pgtrigger triggers. The ``postgres-denormalize`` extra in
 and correct out-of-date copies in every shard. See :doc:`its documentation </plugins/postgres-denormalize/index>`.
 
 
-Why the management commands do not work
----------------------------------------
+Why pgtrigger's management commands do not work
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Do not use ``pgtrigger install``, ``pgtrigger uninstall``, ``pgtrigger enable``, ``pgtrigger disable`` or
 ``pgtrigger prune``. They change the database directly instead of through a migration, and so never pass the shard-aware

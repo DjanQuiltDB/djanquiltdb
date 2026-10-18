@@ -154,23 +154,8 @@ the proxy fields of an event model:
   the query. A key in the path of a proxy field that contains ``->``, or an underscore followed by the column of a
   proxy field, is changed too.
 
-Statement-level triggers
-========================
-
-``level=pghistory.Statement``, at a call site or for the whole project through ``PGHISTORY_LEVEL``, works as in
-pghistory, and the events are stored in the shard that has the rows.
-
-The trigger SQL of statement-level tracking always calls pghistory's ``_pgh_attach_context()`` function, regardless of
-whether the context is normalized or denormalized. At row level, the trigger calls it when the event model has a
-foreign key to the ``Context`` table, so only row-level tracking with a denormalized context does not call it. The
-``pghistory`` app's own migrations install the function, so it exists wherever :doc:`you placed that app
-<installation>`: inside each shard when the app is sharded, and in the public schema when the app is public or
-mirrored. Every search path ends with the public schema, so with a public app, the trigger of a model of every sharding
-mode reaches the function. With a sharded app, only a shard can reach it, so a write to a public or mirrored model
-whose trigger calls the function fails outside a shard, and the plugin reports ``djanquiltdb_plugin_pghistory.E004``.
-
 Aggregating across event models
-===============================
+-------------------------------
 
 ``pghistory.models.Events`` and its ``MiddlewareEvents`` proxy run each query as a ``UNION`` over the event tables that
 they are told to span. That union is built as raw SQL and is not routed, and it names each table without a schema, so
@@ -191,6 +176,21 @@ used. A sharded event model only shows up when a shard is already active by the 
 
 :doc:`The admin shard switcher </contrib/admin_shard_switcher>` makes the chosen shard active for each admin request, so
 pghistory's event pages list the events of that shard.
+
+Statement-level triggers
+========================
+
+``level=pghistory.Statement``, at a call site or for the whole project through ``PGHISTORY_LEVEL``, works as in
+pghistory, and the events are stored in the shard that has the rows.
+
+The trigger SQL of statement-level tracking always calls pghistory's ``_pgh_attach_context()`` function, regardless of
+whether the context is normalized or denormalized. At row level, the trigger calls it when the event model has a
+foreign key to the ``Context`` table, so only row-level tracking with a denormalized context does not call it. The
+``pghistory`` app's own migrations install the function, so it exists wherever :doc:`you placed that app
+<installation>`: inside each shard when the app is sharded, and in the public schema when the app is public or
+mirrored. Every search path ends with the public schema, so with a public app, the trigger of a model of every sharding
+mode reaches the function. With a sharded app, only a shard can reach it, so a write to a public or mirrored model
+whose trigger calls the function fails outside a shard, and the plugin reports ``djanquiltdb_plugin_pghistory.E004``.
 
 Reverting and manual events
 ===========================

@@ -75,17 +75,8 @@ be replaced piecemeal. Keep those off functions that live in the template schema
 for them to be bound to in the first place.
 
 
-Moving data between shards
---------------------------
-
-A generated column is never written, only computed, so the commands that move rows between schemas leave it out of the
-copy entirely: ``move_data_to_shard`` and ``move_shard_to_node`` name the copyable columns explicitly on both sides of
-the transfer. The target computes its own values with its own expression, which is the same one the rebinding pass
-gave it.
-
-
 Public functions reaching sharded tables
-----------------------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Note that a function can contain references to sharded tables even if it's stored in the public schema. If those table
 names do not have hardcoded schema qualifications in the function definition, they will resolve to the tables inside the
@@ -94,6 +85,15 @@ appropriate schema for the table holding the generated column in question at exe
 This is why it is **generally advisable** to create a function for a generated column as *public*, even if the generated
 column is on a *sharded* model. Each table in each shard can safely reference the single public function, without
 needing to clone the function to each shard and requiring a rewrite pass as described above.
+
+
+Moving data between shards
+--------------------------
+
+A generated column is never written, only computed, so the commands that move rows between schemas leave it out of the
+copy entirely: ``move_data_to_shard`` and ``move_shard_to_node`` name the copyable columns explicitly on both sides of
+the transfer. The target computes its own values with its own expression, which is the same one the rebinding pass
+gave it.
 
 
 With the postgres-objects extra
