@@ -839,6 +839,8 @@ deps = [
     # integrate.
     "celery>=5.6,<6.0",
     "-e {tox_root}/packages/djanquiltdb-plugin-celery",
+    "django-oauth-toolkit>=3.4,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-oauth-toolkit",
     "django-pghistory>=3.9.2,<4.0",
     "-e {tox_root}/packages/djanquiltdb-plugin-pghistory",
     "{env:POSTGRES_DENORMALIZE:django-postgres-denormalize>=1.0,<2.0}",

@@ -175,8 +175,9 @@ Plugins
 =======
 
 Optional features are separate distributions, which DjanQuiltDB finds through the ``djanquiltdb.plugins`` entry-point
-group. See :doc:`/plugins/celery/index`, :doc:`/plugins/pghistory/index`, :doc:`/plugins/postgres-denormalize/index` and
-:doc:`/plugins/postgres-objects/index` for the plugins in this repository.
+group. See :doc:`/plugins/celery/index`, :doc:`/plugins/oauth-toolkit/index`, :doc:`/plugins/pghistory/index`,
+:doc:`/plugins/postgres-denormalize/index` and :doc:`/plugins/postgres-objects/index` for the plugins in this
+repository.
 
 A plugin's API is served from inside ``djanquiltdb``, under the name that the plugin registers, so that name is part of
 the plugin's public API. ``djanquiltdb.base``, ``djanquiltdb.decorators``, ``djanquiltdb.middleware``,

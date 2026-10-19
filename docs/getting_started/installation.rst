@@ -285,6 +285,21 @@ the keyword arguments of the task identify, or in the shard that is active where
 in maintenance is retried, and a task can run once in every shard or on every node. See :doc:`the plugin's documentation
 </plugins/celery/index>`.
 
+.. _`oauth_toolkit_extra`:
+
+``oauth-toolkit``
+~~~~~~~~~~~~~~~~~
+
+The ``oauth-toolkit`` extra adds OAuth2 client ids and tokens that work with sharding::
+
+    pip install djanquiltdb[oauth-toolkit]
+
+It installs a plugin that makes this library work with `django-oauth-toolkit
+<https://django-oauth-toolkit.readthedocs.io/>`_. The client ids and tokens of the plugin have the shard selector of
+their shard in them, and its middleware enters that shard before the toolkit looks up a client id or a token. See
+:doc:`the plugin's documentation </plugins/oauth-toolkit/index>`, and :doc:`/guides/oauth2` for other OAuth2 and API
+token libraries.
+
 .. _`pghistory_extra`:
 
 ``pghistory``
