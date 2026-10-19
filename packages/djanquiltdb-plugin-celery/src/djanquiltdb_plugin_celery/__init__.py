@@ -6,7 +6,7 @@ and exports the public API of the plugin. DjanQuiltDB serves the decorators as `
 from types import SimpleNamespace
 
 from djanquiltdb_plugin_celery import decorators
-from djanquiltdb_plugin_celery.decorators import task_for_node, task_for_shard
+from djanquiltdb_plugin_celery.decorators import task_for_active_shard, task_for_node, task_for_shard
 
 __version__ = '1.0.0'
 
@@ -20,4 +20,4 @@ def install():
 
 plugin = SimpleNamespace(decorators=decorators, install=install)
 
-__all__ = ['install', 'plugin', 'task_for_node', 'task_for_shard']
+__all__ = ['install', 'plugin', 'task_for_active_shard', 'task_for_node', 'task_for_shard']

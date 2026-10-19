@@ -10,6 +10,7 @@ from djanquiltdb_plugin_celery.targets import TARGET_HEADER_NAME, TaskNodeError,
 from example.models import TenantShard, Widget
 from example.tasks import (
     create_widget,
+    record_inherited_target,
     record_node,
     record_received_node_name,
     record_received_shard_id,
@@ -247,6 +248,28 @@ class SendingTestCase(PluginTestCase):
             [('default', 'first_schema'), ('other', 'remote_schema')],
         )
 
+    def test_a_signature_without_a_target_raises_when_it_is_built(self):
+        """
+        Case: A signature and an immutable signature of record_target are built without a target, as a later task of a
+              chain, the body of a chord or a link callback is.
+        Expected: TaskShardError for each signature when it is built, and not later in the worker that sends the
+                  signature. The message of the error includes the task.
+        """
+        with self.assertRaisesMessage(TaskShardError, 'example.tasks.record_target has no shard'):
+            record_target.s()
+
+        with self.assertRaisesMessage(TaskShardError, 'example.tasks.record_target has no shard'):
+            record_target.si()
+
+    def test_a_signature_carries_the_target_of_its_keyword_arguments_in_its_header(self):
+        """
+        Case: A signature of record_target is built with the shard_id of remote.
+        Expected: The options of the signature have the target header, which the message is sent with.
+        """
+        signature = record_target.s(shard_id=self.remote.id)
+
+        self.assertEqual(signature.options['headers'], {TARGET_HEADER_NAME: {'shard_id': self.remote.id}})
+
 
 class TargetKeywordArgumentTestCase(PluginTestCase):
     """
@@ -271,16 +294,20 @@ class TargetKeywordArgumentTestCase(PluginTestCase):
         self.assertEqual(record_received_shard_id.delay(tenant_id=2).get(), self.remote.id)
         self.assertEqual(record_received_shard_id(tenant_id=1), self.first.id)
 
-    def test_a_function_that_declares_shard_id_receives_the_shard_of_a_header(self):
+    def test_a_function_that_declares_shard_id_receives_the_shard_of_a_header_or_of_the_active_shard(self):
         """
-        Case: record_received_shard_id is sent without keyword arguments, with a target header that identifies remote.
-        Expected: The function receives the shard_id of remote.
+        Case: record_received_shard_id, decorated with task_for_active_shard, is sent without keyword arguments: with a
+              target header that identifies remote, and inside use_shard() for first.
+        Expected: The function receives the shard_id of remote, and then the shard_id of first.
         """
         from_header = record_received_shard_id.apply_async(
             headers={TARGET_HEADER_NAME: {'shard_id': self.remote.id}}
         ).get()
 
-        self.assertEqual(from_header, self.remote.id)
+        with use_shard(self.first):
+            from_active_shard = record_received_shard_id.delay().get()
+
+        self.assertEqual((from_header, from_active_shard), (self.remote.id, self.first.id))
 
     def test_a_function_that_declares_the_mapping_kwarg_receives_the_value_that_is_sent(self):
         """
@@ -467,6 +494,21 @@ class SendingToATargetTestCase(PluginTestCase):
         )
         self.assertEqual(node_and_schema_of(signature_result), ('default', 'first_schema'))
         self.assertEqual(signature_result['kwargs'], {'colour': 'blue'})
+
+    def test_an_explicit_target_takes_precedence_over_the_active_shard(self):
+        """
+        Case: Inside use_shard() for first, record_inherited_target is sent with delay(), with delay_for_shard() for
+              remote, and with for_shard(remote).apply_async().
+        Expected: The first task runs in first, which is active, and the other two in remote.
+        """
+        with use_shard(self.first):
+            inherited = record_inherited_target.delay().get()
+            with_alias = record_inherited_target.delay_for_shard(self.remote).get()
+            with_for_shard = record_inherited_target.for_shard(self.remote).apply_async().get()
+
+        self.assertEqual(node_and_schema_of(inherited), ('default', 'first_schema'))
+        self.assertEqual(node_and_schema_of(with_alias), ('other', 'remote_schema'))
+        self.assertEqual(node_and_schema_of(with_for_shard), ('other', 'remote_schema'))
 
     def test_for_shard_without_a_shard_or_with_two_shards_raises(self):
         """

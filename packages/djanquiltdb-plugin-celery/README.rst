@@ -53,6 +53,7 @@ while that shard is in maintenance::
     send_invoice.delay(invoice_id=12, tenant_id=3)
 
 A task that is decorated with ``task_for_node`` runs in the public schema of the node that its ``node_name`` identifies.
+A task that is decorated with ``task_for_active_shard`` runs in the shard that is active where the task is sent.
 
 Install the plugin through the ``celery`` extra of DjanQuiltDB::
 

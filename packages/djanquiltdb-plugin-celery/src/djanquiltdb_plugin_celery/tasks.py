@@ -1,8 +1,10 @@
+import functools
 import inspect
 
 from celery.contrib.django.task import DjangoTask
+from django.db import connections, transaction
 from django.db.models import Model
-from djanquiltdb.utils import get_shard_class
+from djanquiltdb.utils import get_all_databases, get_shard_class
 
 from djanquiltdb_plugin_celery.targets import (
     NODE_NAME_KWARG,
@@ -15,6 +17,7 @@ from djanquiltdb_plugin_celery.targets import (
     describe_missing_shard,
     mapping_kwarg,
     node_target_from_task_kwargs,
+    shard_target_from_active_connection,
     shard_target_from_task_kwargs,
 )
 
@@ -24,11 +27,12 @@ KEYWORD_PARAMETER_KINDS = (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Para
 
 class QuiltTask(DjangoTask):
     """
-    The base class of the tasks that the plugin's decorators create. Each message of such a task carries its target in
-    the ``djanquiltdb_target`` header, which ``apply_async()`` and ``apply()`` add from the keyword arguments of the
-    task. Every way of sending a task reaches one of the two, also a signature, a group, a chord and a retry.
-    :meth:`for_shard` and :meth:`for_node` send a task to a target that is passed apart from the keyword arguments of
-    the task.
+    The base class of the tasks that the plugin's decorators create. Each message of such a task has its target in the
+    ``djanquiltdb_target`` header. ``apply_async()``, ``apply()`` and ``signature()`` add that header from the keyword
+    arguments of the task, or from the shard that is active where the task is sent or its signature is built. Every way
+    of sending a task goes through one of these three methods, also ``delay()``, a group, a chain, a chord, a link
+    callback and a retry. :meth:`for_shard` and :meth:`for_node` send a task to a target that is passed separately from
+    the keyword arguments of the task.
 
     The function of a task receives a keyword argument that identifies the target only when the function declares that
     keyword argument by name.
@@ -40,6 +44,10 @@ class QuiltTask(DjangoTask):
 
     #: Passed on to ``use_shard()`` as ``lock`` when it is not None.
     lock_target = None
+
+    #: Whether a task without a shard in its keyword arguments or its header gets the shard that is active where the
+    #: task is sent or its signature is built.
+    inherit_active_shard = False
 
     #: The signature of the function of the task, without the parameter for the task. The decorators set it.
     function_signature = None
@@ -53,17 +61,22 @@ class QuiltTask(DjangoTask):
 
         return shard_target_from_task_kwargs(kwargs or {})
 
-    def target_for_message(self, kwargs, options):
+    def target_of_message(self, headers, kwargs):
         """
-        Returns the target of a message of this task: the target header in ``options``, else the target that ``kwargs``
-        names, else None.
+        Returns the target of a message of this task, or of a call of this task as a function: the shard or node that
+        ``kwargs`` identifies, as ``runs_in`` says, else the target header in ``headers``, else, for a task that
+        inherits the active shard, the shard that is active on this thread, else None. The keyword arguments come first,
+        so that they take precedence over the header of a signature that is built inside a shard.
         """
-        headers = options.get('headers') or {}
+        target = self.target_of_task_kwargs(kwargs)
 
-        if TARGET_HEADER_NAME in headers:
-            return headers[TARGET_HEADER_NAME]
+        if target is None:
+            target = (headers or {}).get(TARGET_HEADER_NAME)
 
-        return self.target_of_task_kwargs(kwargs)
+        if target is None and self.inherit_active_shard:
+            target = shard_target_from_active_connection()
+
+        return target
 
     def missing_target_error(self, kwargs):
         """
@@ -131,10 +144,10 @@ class QuiltTask(DjangoTask):
 
     def options_with_target_header(self, kwargs, options):
         """
-        Returns ``options`` with the target header of the message. Raises TaskShardError or TaskNodeError when the
-        message has no target, so that nothing is sent.
+        Returns ``options`` with the target header of the message added. A message without a target raises
+        TaskShardError or TaskNodeError, so that nothing is sent.
         """
-        target = self.target_for_message(kwargs, options)
+        target = self.target_of_message(options.get('headers'), kwargs)
 
         if target is None:
             raise self.missing_target_error(kwargs)
@@ -149,24 +162,56 @@ class QuiltTask(DjangoTask):
     def apply(self, args=None, kwargs=None, **options):
         return super().apply(args, kwargs, **self.options_with_target_header(kwargs, options))
 
-    def target_of_request(self, kwargs):
+    def signature(self, args=None, *starargs, **starkwargs):
         """
-        Returns the target of the running request: its target header, else the target that ``kwargs`` names, as for a
-        task that is called directly, else None.
+        Returns a signature of this task with the target header of its message, so that the target is resolved where the
+        signature is built. The worker sends a later task of a chain, the body of a chord and a link callback, and the
+        shard of the sender is not active in the worker. A signature without a target raises TaskShardError or
+        TaskNodeError, as sending the task does.
         """
-        headers = self.request.headers or {}
+        signature = super().signature(args, *starargs, **starkwargs)
 
-        if TARGET_HEADER_NAME in headers:
-            return headers[TARGET_HEADER_NAME]
+        return signature.set(**self.options_with_target_header(signature.kwargs, signature.options))
 
-        return self.target_of_task_kwargs(kwargs)
+    def apply_async_on_commit(self, args=None, kwargs=None, **options):
+        """
+        Sends the task once the transactions that are open at the call commit, on every node. The target is resolved at
+        the call, so a task that inherits the active shard runs in the shard that is active at the call, and not in the
+        shard that is active at the commit. The task is not sent when one of the transactions rolls back, and is sent at
+        once when no transaction is open.
+        """
+        self.check_arguments(args, kwargs)
+        options = self.options_with_target_header(kwargs, options)
+        nodes_waiting_for_commit = {
+            node_name for node_name in get_all_databases() if connections[node_name].in_atomic_block
+        }
+
+        if not nodes_waiting_for_commit:
+            self.apply_async(args, kwargs, **options)
+            return
+
+        def send_once_every_node_commits(node_name):
+            nodes_waiting_for_commit.discard(node_name)
+
+            if not nodes_waiting_for_commit:
+                self.apply_async(args, kwargs, **options)
+
+        # Each node has a connection of its own. So each node that is in a transaction gets an on_commit() of its own
+        # at the call, inside the savepoint that is open there, and the last of them to run sends the task. A rollback
+        # on a node drops the on_commit() of that node, and then the task is not sent.
+        for node_name in list(nodes_waiting_for_commit):
+            transaction.on_commit(functools.partial(send_once_every_node_commits, node_name), using=node_name)
+
+    def delay_on_commit(self, *args, **kwargs):
+        self.apply_async_on_commit(args, kwargs)
 
     def for_shard(self, shard=None, /, **mapping_value):
         """
         Returns a :class:`TaskSenderForTarget` that sends this task to a shard: ``shard``, which is a shard or its
         primary key, or the shard of the mapping value that is passed by the keyword argument for a mapping value, such
-        as ``tenant_id``. Raises TaskShardError without a shard or with two, and TypeError for a task that runs on
-        a node, for an instance of another model, and for another keyword argument.
+        as ``tenant_id``. The shard takes precedence over the shard that is active where the task is sent. Raises
+        TaskShardError when the method receives no shard or two shards, and TypeError for a task that runs on a node,
+        for an instance of another model, and for another keyword argument.
 
         :Example:
             .. code-block:: python

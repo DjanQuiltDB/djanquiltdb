@@ -1,4 +1,4 @@
-from djanquiltdb.decorators.celery import task_for_node, task_for_shard
+from djanquiltdb.decorators.celery import task_for_active_shard, task_for_node, task_for_shard
 from djanquiltdb.router import get_active_connection
 
 from djanquiltdb_plugin_celery.targets import TARGET_HEADER_NAME
@@ -47,7 +47,7 @@ def record_schema_and_shard(shard=None):
     return {'schema_name': get_active_connection().schema_name, 'shard': shard}
 
 
-@task_for_shard
+@task_for_active_shard
 def record_received_shard_id(shard_id):
     return shard_id
 
@@ -65,3 +65,18 @@ def record_node(self, **kwargs):
 @task_for_node
 def record_received_node_name(node_name):
     return node_name
+
+
+@task_for_active_shard(bind=True)
+def record_inherited_target(self, **kwargs):
+    return describe_task_run(self, kwargs)
+
+
+@task_for_shard(bind=True, inherit_active_shard=True)
+def record_target_that_inherits(self, **kwargs):
+    return describe_task_run(self, kwargs)
+
+
+@task_for_active_shard
+def create_widget_in_active_shard(name, **kwargs):
+    return Widget.objects.create(name=name).pk
