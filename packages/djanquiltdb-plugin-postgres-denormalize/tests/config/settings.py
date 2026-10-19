@@ -56,8 +56,9 @@ QUILT_DB = {
 
 # The antipattern app copies a column of a mirrored model on a sharded model, so that the tests can show that
 # DjanQuiltDB's system check reports its cascade and fill triggers. Silencing the check is the only way to run with it,
-# as the documentation describes.
-SILENCED_SYSTEM_CHECKS = ['djanquiltdb.E001']
+# as the documentation describes. Both nodes run transactions at READ COMMITTED, which django-postgres-denormalize
+# reports as postgres_denormalize.W303.
+SILENCED_SYSTEM_CHECKS = ['djanquiltdb.E001', 'postgres_denormalize.W303']
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
