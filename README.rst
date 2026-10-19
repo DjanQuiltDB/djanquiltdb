@@ -49,6 +49,12 @@ This repository develops the library and its plugins, each shipped as a distribu
 
       pip install djanquiltdb[celery]
 
+* ``packages/djanquiltdb-plugin-oauth-toolkit``: client ids and tokens for `django-oauth-toolkit
+  <https://django-oauth-toolkit.readthedocs.io/>`_ that name their shard, and a middleware that enters that shard for
+  each request, installed through the core library's extra::
+
+      pip install djanquiltdb[oauth-toolkit]
+
 * ``packages/djanquiltdb-plugin-pghistory``: sharding support for the model history that `django-pghistory
   <https://django-pghistory.readthedocs.io/>`_ records, installed through the core library's extra::
 

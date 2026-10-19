@@ -96,6 +96,11 @@ To run Celery tasks in a shard, or once in every shard or on every node, install
 
     pip install djanquiltdb[celery]
 
+To issue django-oauth-toolkit client ids and tokens that name their shard, and enter that shard for each request,
+install the extra::
+
+    pip install djanquiltdb[oauth-toolkit]
+
 To track model history with django-pghistory, install the extra::
 
     pip install djanquiltdb[pghistory]

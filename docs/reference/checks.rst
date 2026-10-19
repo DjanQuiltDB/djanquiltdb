@@ -60,7 +60,9 @@ code that enters shards only inside ``sync_to_async`` or ``database_sync_to_asyn
 so, acknowledge each of them through ``SILENCED_SYSTEM_CHECKS``; :doc:`/guides/async` describes what is safe.
 
 Plugins register their own checks, with their own prefix. The celery plugin documents ``djanquiltdb_plugin_celery.E001``
-and ``E002`` on :doc:`its installation page </plugins/celery/installation>`. The pghistory plugin documents
+and ``E002`` on :doc:`its installation page </plugins/celery/installation>`. The oauth-toolkit plugin documents
+``djanquiltdb_plugin_oauth_toolkit.E001`` to ``E008``, ``W001`` and ``W002`` on :doc:`its installation page
+</plugins/oauth-toolkit/installation>`. The pghistory plugin documents
 ``djanquiltdb_plugin_pghistory.W001`` to ``W005``, ``E002`` and ``E004`` on :doc:`its installation page
 </plugins/pghistory/installation>`, and ``E001``, ``E003`` and ``E004`` on :doc:`its tracking page
 </plugins/pghistory/tracking>`. The postgres-objects plugin documents ``djanquiltdb_plugin_postgres_objects.E001`` and

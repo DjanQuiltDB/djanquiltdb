@@ -130,3 +130,6 @@ from the ``shard_selector`` attribute of the session, which the ``djanquiltdb.se
 ``djanquiltdb.middleware.UseShardMiddleware`` reads the same attribute as the id of a shard. ``SESSION_SHARD_SELECTOR_KEY``
 in ``QUILT_DB`` names another attribute. :doc:`/guides/sessions` describes the backend,
 and how the login flow sets the selector.
+
+A request that has an OAuth2 client id or an API token can name its shard in the same way. See
+:doc:`/guides/oauth2`.
