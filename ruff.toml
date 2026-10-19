@@ -3,6 +3,7 @@ line-length = 120
 # its own src roots, so first-party import classification stays per package.
 src = [
     "packages/djanquiltdb/src",
+    "packages/djanquiltdb-plugin-celery/src",
     "packages/djanquiltdb-plugin-pghistory/src",
     "packages/djanquiltdb-plugin-postgres-denormalize/src",
     "packages/djanquiltdb-plugin-postgres-objects/src",

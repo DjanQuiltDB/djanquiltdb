@@ -1,0 +1,19 @@
+# The sdist is what downstream packagers build and test from, so it includes the whole test project, not just the
+# importable package. Without the graft below, setuptools' defaults ship none of the fixture apps or settings that the
+# suite imports, and the suite in the sdist cannot run.
+#
+# The documentation is not here: docs/ is at the repository root and covers the core library and the in-tree plugins
+# together, so docs/ cannot be grafted into one package. The Documentation URL in pyproject.toml points to the
+# documentation.
+
+include CHANGELOG.rst
+include LICENSE
+include README.rst
+
+graft tests
+
+global-exclude *.py[cod]
+global-exclude __pycache__
+# A local test run leaves its coverage data in the test project; it is not part of the release.
+global-exclude .coverage
+global-exclude .coverage.*
