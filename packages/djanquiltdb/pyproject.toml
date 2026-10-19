@@ -48,6 +48,9 @@ celery = [
     # 1.1 serves its task classes from djanquiltdb.base, which 4.5 adds.
     "djanquiltdb-plugin-celery>=1.1,<2.0",
 ]
+oauth-toolkit = [
+    "djanquiltdb-plugin-oauth-toolkit>=1.0,<2.0",
+]
 pghistory = [
     # 1.1 serves ShardRoutedRevert from djanquiltdb.base, which 4.5 adds.
     "djanquiltdb-plugin-pghistory>=1.1,<2.0",
