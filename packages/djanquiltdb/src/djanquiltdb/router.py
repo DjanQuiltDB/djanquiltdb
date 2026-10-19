@@ -1,4 +1,6 @@
 import logging
+from contextlib import contextmanager
+from contextvars import ContextVar
 from threading import local
 
 from django.conf import settings
@@ -29,6 +31,23 @@ def set_active_connection(connection):
     afterwards, since the value outlives the block that set it.
     """
     setattr(_active_connection, 'connection', connection)
+
+
+_placement_is_node_scoped = ContextVar('placement_is_node_scoped', default=False)
+
+
+@contextmanager
+def node_scoped_placement():
+    """
+    Make ``allow_migrate`` answer a bare node name for the node as a whole, rather than for its public schema, until the
+    block ends. DjanQuiltDB runs the system checks in this block, because the database properties that they check
+    belong to the node.
+    """
+    token = _placement_is_node_scoped.set(True)
+    try:
+        yield
+    finally:
+        _placement_is_node_scoped.reset(token)
 
 
 class DynamicDbRouter:
@@ -96,6 +115,10 @@ class DynamicDbRouter:
         Sharded models are applied everywhere but the public schema, public and mirrored ones only in a public
         schema, and undecorated ones only in the default node's. An operation carrying no model, such as ``RunSQL``,
         needs a ``sharding_mode`` hint or an ``OVERRIDE_SHARDING_MODE`` entry to be placed at all.
+
+        Inside ``node_scoped_placement()``, which is where the system checks run, a bare node name stands for the whole
+        node, so it allows sharded models too. So do the ``ShardOptions`` that ``ShardOptions.from_alias()`` returns for
+        a bare node name.
         """
         options = ShardOptions.from_alias(connection_name)
         node_name, schema_name = (options.node_name, options.schema_name)
@@ -130,6 +153,8 @@ class DynamicDbRouter:
             )
 
         elif sharding_mode == ShardingMode.SHARDED:
+            if _placement_is_node_scoped.get() and options.names_only_the_node:
+                return True
             # Sharded models should never reside in the public schema.
             # Only on templates and the shared schemas.
             return schema_name != PUBLIC_SCHEMA_NAME

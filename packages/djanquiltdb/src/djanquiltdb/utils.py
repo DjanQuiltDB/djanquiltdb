@@ -1,3 +1,4 @@
+import contextlib
 import logging
 from collections import defaultdict
 from functools import wraps
@@ -6,7 +7,7 @@ from django.apps import apps
 from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 from django.core.management import call_command
-from django.db import ProgrammingError, connections
+from django.db import DatabaseError, ProgrammingError, connections
 from django.db.models.signals import (
     post_delete,
     post_init,
@@ -22,7 +23,15 @@ from django.utils.module_loading import import_string
 
 from djanquiltdb import ShardingMode, State, public_modes
 from djanquiltdb.db import DefaultConnectionProxy
+from djanquiltdb.plugins import install_plugin_importer, served_plugin_module
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME, DatabaseWrapper
+
+# A plugin's utils module is served as the submodule djanquiltdb.utils.<plugin>, and the import system only asks
+# PluginImporter for a submodule when the parent module has a __path__. The list is empty, because no submodule is found
+# by searching it.
+__path__ = []
+
+install_plugin_importer()
 
 logger = logging.getLogger(__name__)
 
@@ -481,6 +490,49 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
             func(*args, shard=shard, **(kwargs or {}))
 
 
+@contextlib.contextmanager
+def pgtrigger_triggers_ignored(shard):
+    """
+    Ignores every django-pgtrigger trigger on the node of ``shard`` while the block runs, through
+    ``pgtrigger.ignore()``. When django-pgtrigger cannot be imported, the block runs as it is. Run this inside a
+    transaction on that node.
+
+    ``move_data_to_shard`` and ``purge_shard_data`` copy and delete rows inside it. The rows only change shards, or
+    leave a shard that they were copied from, so a trigger must not act on them a second time, as ``move_shard_to_node``
+    also ensures by disabling the user triggers of the new schema. That command can alter the tables of its new schema,
+    but the target shard of a data move is in use, and altering its tables would lock out the writes to them until the
+    move ends.
+
+    pgtrigger.ignore() sends its setting with each statement that passes Django's execute wrappers, and COPY does not.
+    The setting belongs to the connection of the node, and is local to the transaction, so one statement on the node of
+    the shard sets it for every COPY that follows.
+    """
+    # The import decides, and not apps.is_installed(): the triggers are registered when their models are defined, and a
+    # test case that limits available_apps would otherwise leave them firing.
+    try:
+        import pgtrigger
+    except ImportError:
+        yield
+        return
+
+    with contextlib.ExitStack() as ignored_triggers:
+        ignored_triggers.enter_context(pgtrigger.ignore())
+
+        with use_shard(shard, active_only_schemas=False, lock=False) as env:
+            env.connection.cursor().execute('SELECT 1')
+
+        try:
+            yield
+        except BaseException:
+            # pgtrigger.ignore() resets its setting with a statement when it exits inside a transaction. After a failed
+            # statement, the transaction only accepts a rollback, so the reset would fail and hide the error of the
+            # block. The rollback discards the setting anyway.
+            with contextlib.suppress(DatabaseError):
+                ignored_triggers.close()
+
+            raise
+
+
 def get_model_definition(model):
     # Some models (ManyToOne for example) do not have a _meta them selves, but refer to another model for that.
     if not hasattr(model, '_meta'):
@@ -782,3 +834,17 @@ class disable_signals(object):
             signal.receivers = self.stashed_signals.get(signal, [])
             signal.sender_receivers_cache.clear()
         del self.stashed_signals[signal]
+
+
+def __getattr__(name):
+    """
+    Serves the utils module of a plugin under the plugin's registered name, for plain attribute access.
+    :class:`~djanquiltdb.plugins.PluginImporter` handles import statements. A name that this module defines itself is
+    found before this function runs, so a plugin cannot replace it.
+    """
+    module = served_plugin_module(__name__, name)
+
+    if module is None:
+        raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+
+    return module

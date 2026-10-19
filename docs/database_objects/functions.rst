@@ -54,6 +54,18 @@ context. Reach for ``SHARDED`` only when the *function itself* has to differ per
 does not immediately mean you need to make the function sharded.
 
 
+Where functions turn up
+-----------------------
+
+Three parts of the library lean on the placement rule above, and all three follow it identically: a ``SHARDED`` function
+is copied into every shard and each shard uses its own copy, while a ``PUBLIC`` function has a single copy that every
+shard shares:
+
+* the function a stored generated column's expression calls, see :doc:`/database_objects/generated_columns`
+* the function a trigger executes, see :doc:`/database_objects/triggers`
+* the functions a view's body calls, see :doc:`/database_objects/views`
+
+
 What a new shard inherits
 -------------------------
 
@@ -72,18 +84,6 @@ goes on calling that one copy.
 
 Procedures have no declarative route and no coverage of their own; write one with ``RunSQL`` as above and place it in
 the public schema.
-
-
-Where functions turn up
------------------------
-
-Three parts of the library lean on the placement rule above, and all three follow it identically: a ``SHARDED`` function
-is copied into every shard and each shard uses its own copy, while a ``PUBLIC`` function has a single copy that every
-shard shares:
-
-* the function a stored generated column's expression calls, see :doc:`/database_objects/generated_columns`
-* the function a trigger executes, see :doc:`/database_objects/triggers`
-* the functions a view's body calls, see :doc:`/database_objects/views`
 
 
 Calling a function from Django

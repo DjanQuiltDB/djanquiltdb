@@ -370,8 +370,8 @@ class EventBaseModeCheckTestCase(SimpleTestCase):
 
     def test_an_event_model_that_tracks_no_model_is_not_reported(self):
         """
-        Case: An abstract event model that is declared by hand as a subclass of ShardedEvent, and that tracks no model, is
-              checked.
+        Case: An abstract event model that is declared by hand as a subclass of ShardedEvent, and that tracks no model,
+              is checked.
         Expected: No error, because there is no tracked model whose mode could be different.
         """
 

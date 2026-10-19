@@ -2,22 +2,28 @@
 Fixtures
 ========
 
-DjanQuiltDB extends Django's ``loaddata`` management command to support loading fixtures into specific PostgreSQL schemas. This allows you to load test data or initial data into different shards in a single fixture file. By extension, loading fixtures in a Django test case also supports this feature.
+DjanQuiltDB extends Django's ``loaddata`` management command to support loading fixtures into specific PostgreSQL
+schemas. This allows you to load test data or initial data into different shards in a single fixture file. By extension,
+loading fixtures in a Django test case also supports this feature.
 
 Introduction
 ============
 
-When working with sharded databases, you often need to load data into multiple schemas (shards). The sharding-aware fixture loader allows you to specify which schema each fixture entry should be loaded into using the ``_schema`` property.
+When working with sharded databases, you often need to load data into multiple schemas (shards). The sharding-aware
+fixture loader allows you to specify which schema each fixture entry should be loaded into using the ``_schema``
+property.
 
 The ``_schema`` Property
 ========================
 
-Each entry in your fixture file can include an optional ``_schema`` property that specifies which PostgreSQL schema the entry should be loaded into.
+Each entry in your fixture file can include an optional ``_schema`` property that specifies which PostgreSQL schema the
+entry should be loaded into.
 
-If an entry does not have a ``_schema`` property, it will be loaded into the default schema specified by the database connection you're using (typically the ``public`` schema).
+If an entry does not have a ``_schema`` property, it will be loaded into the default schema specified by the database
+connection you're using (typically the ``public`` schema).
 
 Supported Formats
-=================
+-----------------
 
 The ``_schema`` property is supported for:
 
@@ -25,6 +31,31 @@ The ``_schema`` property is supported for:
 * **YAML** fixtures (``.yaml`` or ``.yml`` files)
 
 Other fixture formats (such as XML) will be loaded normally without schema awareness.
+
+Special Schema Names
+--------------------
+
+Public Schema
+~~~~~~~~~~~~~
+
+To load data into the public schema, use ``public`` as the ``_schema`` value:
+
+.. code-block:: json
+
+    {
+      "model": "example.Type",
+      "pk": 1,
+      "fields": {
+        "name": "admin"
+      },
+      "_schema": "public"
+    }
+
+Template Schema
+~~~~~~~~~~~~~~~
+
+You can also load data into the template schema by using the template schema name. The template schema name is
+determined by the ``TEMPLATE_NAME`` setting.
 
 Usage
 =====
@@ -53,6 +84,11 @@ The format is ``node_name|schema_name``, where:
 
 * ``node_name`` is the database connection name from your settings
 * ``schema_name`` is the default schema to use for entries without an explicit ``_schema`` property
+
+One scope note for multi-node projects: fixtures are per node. A dump records each entry's schema (``_schema``) but
+not the node it lived on, and a load sends every entry to the node named by ``--database``. Dumping a project whose
+shards are spread over several nodes and loading the result in one go would therefore rehome all of them onto a
+single node. Dump and reload node by node instead, passing ``--database`` on both sides.
 
 Example Fixture Files
 =====================
@@ -152,30 +188,6 @@ The same fixture can be written in YAML format:
       fields:
         name: Leader
 
-Special Schema Names
-====================
-
-Public Schema
--------------
-
-To load data into the public schema, use ``public`` as the ``_schema`` value:
-
-.. code-block:: json
-
-    {
-      "model": "example.Type",
-      "pk": 1,
-      "fields": {
-        "name": "admin"
-      },
-      "_schema": "public"
-    }
-
-Template Schema
----------------
-
-You can also load data into the template schema by using the template schema name. The template schema name is determined by the ``TEMPLATE_NAME`` setting.
-
 Schema Creation
 ===============
 
@@ -192,8 +204,3 @@ This means you don't need to manually create schemas before loading fixtures - t
 The sequence reset looks up each model's sequence through its auto-incrementing primary key column, so it also works for
 a table that was renamed after it was created. If a model's auto-incrementing column has no sequence, or the schema has
 no such table or column, the load stops with an error that names the column.
-
-One scope note for multi-node projects: fixtures are per node. A dump records each entry's schema (``_schema``) but
-not the node it lived on, and a load sends every entry to the node named by ``--database``. Dumping a project whose
-shards are spread over several nodes and loading the result in one go would therefore rehome all of them onto a
-single node. Dump and reload node by node instead, passing ``--database`` on both sides.

@@ -53,13 +53,47 @@ scenarios given default runners, is the following::
    pre_migrate.connect(create_template_schema_before_migrations)
 
 
-.. _`postgres_objects_extra`:
-
 Optional extras
 ---------------
 
 The base library covers models fully with decorators, and leaves database *objects* (views, functions, triggers) to be
 managed with hand-written ``RunSQL`` in a migration.
+
+If you wish to manage database triggers, we recommend
+`django-pgtrigger <https://github.com/AmbitionEng/django-pgtrigger>`_. See :doc:`/database_objects/triggers` for more
+information.
+
+.. _`pghistory_extra`:
+
+``pghistory``
+~~~~~~~~~~~~~
+
+The ``pghistory`` extra adds model history that works with sharding::
+
+    pip install djanquiltdb[pghistory]
+
+It installs a plugin that makes this library work with `django-pghistory <https://django-pghistory.readthedocs.io/>`_.
+The plugin's ``track()`` works like ``pghistory.track()``, and places each event model in the same place as the tracked
+model. See :doc:`the plugin's documentation </plugins/pghistory/index>`.
+
+.. _`postgres_denormalize_extra`:
+
+``postgres-denormalize``
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+The ``postgres-denormalize`` extra adds helpers for the copies that `django-postgres-denormalize
+<https://django-postgres-denormalize.readthedocs.io/>`_ keeps::
+
+    pip install djanquiltdb[postgres-denormalize]
+
+django-postgres-denormalize keeps copies of related columns up to date with triggers, and its functions that find and
+correct out-of-date copies work on the active shard only. The plugin's helpers enter one shard or every shard for you.
+See :doc:`the plugin's documentation </plugins/postgres-denormalize/index>`.
+
+.. _`postgres_objects_extra`:
+
+``postgres-objects``
+~~~~~~~~~~~~~~~~~~~~
 
 The ``postgres-objects`` extra adds the declarative alternative for views and functions::
 
@@ -75,20 +109,6 @@ decorators for that purpose analogous to the model decorators in the base librar
 See :doc:`/database_objects/views`, :doc:`/database_objects/functions` and :doc:`/database_objects/generated_columns`
 for what the extra changes in each case, and :doc:`the plugin's documentation </plugins/postgres-objects/index>` for the
 rest.
-
-.. _`pghistory_extra`:
-
-The ``pghistory`` extra adds model history that works with sharding::
-
-    pip install djanquiltdb[pghistory]
-
-It installs a plugin that makes this library work with `django-pghistory <https://django-pghistory.readthedocs.io/>`_.
-The plugin's ``track()`` works like ``pghistory.track()``, and places each event model in the same place as the tracked
-model. See :doc:`the plugin's documentation </plugins/pghistory/index>`.
-
-If you wish to manage database triggers, we recommend
-`django-pgtrigger <https://github.com/AmbitionEng/django-pgtrigger>`_. See :doc:`/database_objects/triggers` for more
-information.
 
 
 Creating models

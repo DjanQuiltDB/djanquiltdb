@@ -16,8 +16,8 @@ class EventManager(models.Manager.from_queryset(EventQuerySet)):
 @public_model()
 class Event(ShardRoutedRevert, config.base_model()):
     """
-    The natural key of an event is its pgh_id, because an event has no other value that identifies it. pghistory does not
-    inherit the Meta of the base, so each generated event model gets the pgh_id in its unique_together when it is
+    The natural key of an event is its pgh_id, because an event has no other value that identifies it. pghistory does
+    not inherit the Meta of the base, so each generated event model gets the pgh_id in its unique_together when it is
     created.
 
     The pgh_id only identifies an event on its own node, because each node generates its own. Nothing has a foreign key

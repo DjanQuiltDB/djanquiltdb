@@ -18,10 +18,17 @@ Steps
 
 #. Delete objects.
 
-The delete runs in one transaction, with the ``pre_delete`` and ``post_delete`` signals disconnected. Plugins can hook
-into the purge: ``purge_shard_data.post_collect`` runs once the rows are collected, and can leave rows out of the
-purge. ``purge_context`` wraps the delete, and ``pre_delete`` and ``post_delete`` run before and after it, inside the
-same transaction. See :ref:`command_hooks`.
+The delete runs in one transaction, with the ``pre_delete`` and ``post_delete`` signals disconnected, and inside
+``pgtrigger.ignore()``, so no trigger that django-pgtrigger installs fires for the purged rows. Those rows were usually
+copied to another shard before, so a trigger must not act on them, as ``move_data_to_shard`` also ensures. A trigger
+that was created in another way, for example with ``RunSQL``, still fires.
+
+Because no django-pgtrigger trigger fires for the purged rows, a trigger that keeps another row up to date, such as a
+counter, still counts them after the purge. Check what the triggers of the project do before you purge data.
+
+Plugins can hook into the purge: ``purge_shard_data.post_collect`` runs once the rows are collected, and can leave rows
+out of the purge. ``purge_context`` wraps the delete, and ``pre_delete`` and ``post_delete`` run before and after it,
+inside the same transaction. See :ref:`command_hooks`.
 
 Options
 -------

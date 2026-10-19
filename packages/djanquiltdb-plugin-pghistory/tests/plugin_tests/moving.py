@@ -1,8 +1,5 @@
-from types import SimpleNamespace
-
 import pghistory
 from django.core.management import call_command
-from django.db import transaction
 from django.test import SimpleTestCase
 from djanquiltdb import ShardingMode, State
 from djanquiltdb.plugins import plugin_hooks
@@ -15,8 +12,6 @@ from djanquiltdb_plugin_pghistory.data_moves import (
     delete_events_of_purged_rows,
     delete_moved_events,
     keep_only_the_events_of_collected_rows,
-    triggers_ignored_while_data_is_purged,
-    triggers_ignored_while_data_moves,
 )
 from example.models import (
     Cake,
@@ -121,8 +116,8 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTransactionT
         Case: A CakeType is added to the toppings of the Cake and removed again, so the events of the through model have
               a snapshot of the foreign key to it. The CakeType is then deleted from the source node, and the shard
               moves to the other node.
-        Expected: The move succeeds. The snapshots of the deleted CakeType keep its id, because neither node has a row to
-                  retarget them to, and the snapshot of the CakeType that the other node has is retargeted to it.
+        Expected: The move succeeds. The snapshots of the deleted CakeType keep its id, because neither node has a row
+                  to retarget them to, and the snapshot of the CakeType that the other node has is retargeted to it.
         """
         with use_shard(node_name='default', schema_name='public', override_class_method_use_shard=True):
             lemon = CakeType.objects.create(name='lemon')
@@ -154,7 +149,8 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTransactionT
     def test_the_moved_shard_records_new_events(self):
         """
         Case: The shard moves to the other node, and a Cake is then renamed in the moved shard.
-        Expected: The rename is recorded as a new event, after the copied ones, so the triggers fire again after the move.
+        Expected: The rename is recorded as a new event, after the copied ones, so the triggers fire again after the
+                  move.
         """
         self.move_the_shard()
 
@@ -231,9 +227,10 @@ class MoveDataToShardTestCase(ShardingTransactionTestCase):
     def test_a_move_that_fails_raises_the_error_of_the_database(self):
         """
         Case: A Cookie is moved to a shard that already has a Cookie with the same id, so the copy fails inside the
-              transaction of the move, while the plugin ignores the triggers.
+              transaction of the move, while the command ignores the triggers.
         Expected: The command raises the unique violation of the copy, and not an error about the aborted transaction
-                  from the plugin's cleanup. COPY does not pass Django's error wrapping, so it is psycopg's own error.
+                  from the cleanup of pgtrigger.ignore(). COPY does not pass Django's error wrapping, so it is psycopg's
+                  own error.
         """
         with use_shard(self.source_shard):
             cookie = Cookie.objects.create(name='shortbread', glaze='none')
@@ -462,9 +459,9 @@ class PurgeShardDataTestCase(ShardingTransactionTestCase):
 
     def test_purging_a_row_keeps_the_events_of_a_row_that_was_deleted_before(self):
         """
-        Case: A Cake has a slice that is deleted. The Cake is purged from the shard, once with Django's collector and once
-              with the simple collector, which finds the event of the slice through its snapshot of the foreign key to
-              the Cake.
+        Case: A Cake has a slice that is deleted. The Cake is purged from the shard, once with Django's collector and
+              once with the simple collector, which finds the event of the slice through its snapshot of the foreign key
+              to the Cake.
         Expected: The event of the deleted slice stays, as it does when the Cake is moved.
         """
         for simple_collector in (False, True):
@@ -496,42 +493,16 @@ class KeepOnlyTheEventsOfCollectedRowsTestCase(SimpleTestCase):
         self.assertEqual(data, {Slice: set(), SliceEvent: set()})
 
 
-class TriggersIgnoredWhileDataMovesTestCase(ShardingTransactionTestCase):
-    available_apps = ['djanquiltdb', 'example', 'pghistory', 'django.contrib.auth', 'django.contrib.contenttypes']
-
+class DataMoveHooksTestCase(SimpleTestCase):
     def test_the_plugin_serves_its_hooks_in_the_sections_of_the_commands(self):
         """
         Case: DjanQuiltDB looks up the hooks of move_data_to_shard and purge_shard_data.
         Expected: It finds the plugin's own functions.
         """
         self.assertIn(keep_only_the_events_of_collected_rows, plugin_hooks('move_data_to_shard.post_collect'))
-        self.assertIn(triggers_ignored_while_data_moves, plugin_hooks('move_data_to_shard.move_context'))
         self.assertIn(delete_moved_events, plugin_hooks('move_data_to_shard.post_delete'))
         self.assertIn(keep_only_the_events_of_collected_rows, plugin_hooks('purge_shard_data.post_collect'))
-        self.assertIn(triggers_ignored_while_data_is_purged, plugin_hooks('purge_shard_data.purge_context'))
         self.assertIn(delete_events_of_purged_rows, plugin_hooks('purge_shard_data.post_delete'))
-
-    def test_a_copy_that_is_the_first_statement_in_the_context_records_no_event(self):
-        """
-        Case: Inside a transaction, a Cookie row is written with COPY, as the first statement after
-              triggers_ignored_while_data_moves() is entered. COPY does not pass Django's execute wrappers, through
-              which pgtrigger.ignore() sends its setting to the database.
-        Expected: The trigger of Cookie records no event, so the setting is already in the transaction when the context
-                  manager yields.
-        """
-        create_template_schema()
-        shard = Shard.objects.create(alias='one', schema_name='one_schema', node_name='default', state=State.ACTIVE)
-        command = SimpleNamespace(source_shard=shard, target_shard=shard)
-
-        with use_shard(shard, active_only_schemas=False, lock=False) as env:
-            cursor = env.connection.cursor()
-
-            with transaction.atomic(using='default'), triggers_ignored_while_data_moves(command):
-                with cursor.copy('COPY example_cookie (id, name, glaze) FROM STDIN') as copy:
-                    copy.write_row((1, 'shortbread', 'none'))
-
-            self.assertTrue(Cookie.objects.filter(pk=1).exists())
-            self.assertEqual(CookieEvent.objects.count(), 0)
 
 
 @run_only_when_the_context_table_is(ShardingMode.PUBLIC)

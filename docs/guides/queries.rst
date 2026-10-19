@@ -8,11 +8,10 @@ All others will result in a form of 'table does not exist' error.
 
 Overriding a connection
 -----------------------
-Database connections are overridden by the library. This happens by monkeypatching them upon startup.
-(See ``djanquiltdb.apps._patch_connections``). Remember that there is always an open connection to each node Django knows.
-For each of those connection we set our current active shard, if there is any.
-There are various ways to influence the active shard, and there are ways to route queries specifically,
-if you want to bypass this.
+Database connections are overridden by the library. This happens by monkeypatching them upon startup. (See
+``djanquiltdb.apps._patch_connections``). Remember that there is always an open connection to each node Django knows.
+For each of those connection we set our current active shard, if there is any. There are various ways to influence the
+active shard, and there are ways to route queries specifically, if you want to bypass this.
 
 The sharding context
 --------------------
@@ -41,35 +40,8 @@ Within a ``use_shard`` context manager, the active shard will be set to the give
                                                              # shard context: returns to None
   User.objects.all()  # Table does not exist error
 
-
-Object context persistence
---------------------------
-Objects received keep their sharding context information on itself (Saved on ``<model instance>._state.db``).
-This is useful, for any function you call on it will be performed within the sharding context of that object.
-
-.. code-block:: python
-
-  with use_shard(Shard.objects.get(id=1)):
-      user = User.objects.get(id=1)
-
-  # Outside of a sharding context
-  user.name = 'Bob'
-  user.save()  # Write is performed on shard-1
-
-Unless this is explicitly overwritten:
-
-.. code-block:: python
-
-  with use_shard(Shard.objects.get(id=1)):
-      user = User.objects.get(id=1)
-
-  # Outside of a sharding context
-  user.name = 'Bob'
-  user.save(using=Shard.objects.get(id=2))  # Write is performed on shard-2
-
-
-Sharding Options
-----------------
+What a sharding context accepts
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 In the examples given so far, we pass a Shard model instance to set up a sharding context, for example
 ``with use_shard(Shard.objects.get(id=1)):`` or ``User.objects.using(Shard.objects.get(id=1)).all()``.
 This is not the only way to tell the router which shard we want. Whatever value these functions are given, they create
@@ -105,6 +77,32 @@ a ``ShardOptions`` object from it, which the router uses to direct the query to 
 ``ShardOptions`` object, as described below.
 
 .. note:: :ref:`More info <api_utils>` on helper functions to easily create a sharding context.
+
+
+Object context persistence
+--------------------------
+Objects received keep their sharding context information on itself (Saved on ``<model instance>._state.db``).
+This is useful, for any function you call on it will be performed within the sharding context of that object.
+
+.. code-block:: python
+
+  with use_shard(Shard.objects.get(id=1)):
+      user = User.objects.get(id=1)
+
+  # Outside of a sharding context
+  user.name = 'Bob'
+  user.save()  # Write is performed on shard-1
+
+Unless this is explicitly overwritten:
+
+.. code-block:: python
+
+  with use_shard(Shard.objects.get(id=1)):
+      user = User.objects.get(id=1)
+
+  # Outside of a sharding context
+  user.name = 'Bob'
+  user.save(using=Shard.objects.get(id=2))  # Write is performed on shard-2
 
 
 Connections

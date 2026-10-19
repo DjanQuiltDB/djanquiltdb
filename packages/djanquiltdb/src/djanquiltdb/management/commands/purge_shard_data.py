@@ -16,6 +16,7 @@ from djanquiltdb.utils import (
     get_all_sharded_models,
     get_model_sharding_mode,
     get_shard_class,
+    pgtrigger_triggers_ignored,
     transaction_for_nodes,
 )
 
@@ -206,13 +207,15 @@ class Command(BaseCommand):
 
         The delete and the hooks of the plugins run in one transaction on the node of the shard, so a hook that fails
         leaves the data in place. The hooks also run with the signals disconnected, so a row that a hook deletes is
-        handled as the purged rows are.
+        handled as the purged rows are, and with the django-pgtrigger triggers ignored, because a purge removes rows
+        that were copied to another shard before.
         """
         # Read before the delete, which clears the primary keys of the instances that it deletes.
         pk_set = {model: [instance.pk for instance in instances] for model, instances in collector.data.items()}
 
         with (
             transaction_for_nodes(nodes=[self.shard.node_name]),
+            pgtrigger_triggers_ignored(self.shard),
             entered_plugin_hook_contexts('purge_shard_data.purge_context', self),
             disable_signals([pre_delete, post_delete]),
         ):

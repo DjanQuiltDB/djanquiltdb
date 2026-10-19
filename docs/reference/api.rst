@@ -160,12 +160,12 @@ Plugins
 .. currentmodule:: djanquiltdb.plugins
 
 Optional features are separate distributions, which DjanQuiltDB finds through the ``djanquiltdb.plugins`` entry-point
-group. See :doc:`/plugins/postgres-objects/index` and :doc:`/plugins/pghistory/index` for the plugins in this
-repository.
+group. See :doc:`/plugins/pghistory/index`, :doc:`/plugins/postgres-denormalize/index` and
+:doc:`/plugins/postgres-objects/index` for the plugins in this repository.
 
 A plugin's API is served from inside ``djanquiltdb``, under the name that the plugin registers, so that name is part of
-the plugin's public API. ``djanquiltdb.decorators`` and ``djanquiltdb.models`` each serve the plugin module that has the
-same name:
+the plugin's public API. ``djanquiltdb.decorators``, ``djanquiltdb.models`` and ``djanquiltdb.utils`` each serve the
+plugin module that has the same name:
 
 ``djanquiltdb.decorators.<name>``
     The plugin's ``decorators`` module, so its decorators are imported from the same place as the model decorators.
@@ -173,26 +173,38 @@ same name:
 ``djanquiltdb.models.<name>``
     The plugin's ``models`` module: base classes, querysets, and the like.
 
-A plugin that has only one of the two modules is only served under that one. Both namespaces support importing the
-plugin's module and importing a single name from it, and both ways are supported::
+``djanquiltdb.utils.<name>``
+    The plugin's ``utils`` module: functions, such as helpers that run in every shard. A plugin cannot be served there
+    under a name that ``djanquiltdb.utils`` defines itself, such as ``use_shard``, because that name is found first.
+
+A plugin is only served under the modules that it has. Every namespace supports importing the plugin's module and
+importing a single name from it, and both ways are supported::
 
     from djanquiltdb.decorators import pghistory
     from djanquiltdb.decorators.pghistory import track
 
 The served module is the plugin's own module object and not a copy, so a class is the same class whichever way it is
-imported. Neither namespace is a package on disk: the names are resolved when they are imported or read, so a plugin is
+imported. No namespace is a package on disk: the names are resolved when they are imported or read, so a plugin is
 only imported when something uses it. A type checker cannot follow these names, so for a type checker, import the names
 from the modules in the plugin's distribution package that define them.
 
 By default, the decorators of a plugin are also served directly from ``djanquiltdb.decorators``, next to the model
 decorators, which suits a placement decorator such as ``@public_function()``. A plugin that keeps its own namespace sets
-``SERVE_UNQUALIFIED = False`` in its decorators module. ``djanquiltdb.models`` has no such setting, because it only
-serves a plugin under the plugin's name.
+``SERVE_UNQUALIFIED = False`` in its decorators module. ``djanquiltdb.models`` and ``djanquiltdb.utils`` have no such
+setting, because they only serve a plugin under the plugin's name.
 
 When two installed distributions register the same name, DjanQuiltDB raises ``ImproperlyConfigured`` when the app
 registry is ready, so the project does not start, and every time that name is looked up. Other names are served as
 usual, so a name that no plugin serves is still a missing attribute or module. A registered plugin name takes precedence
 over a decorator with the same name that another plugin serves directly.
+
+.. autofunction:: load_plugins
+
+.. autofunction:: load_plugin_by_name
+
+.. autofunction:: raise_for_duplicate_plugin_names
+
+.. autofunction:: served_plugin_module
 
 .. _command_hooks:
 
@@ -239,10 +251,11 @@ loaded, and their contexts are exited in reverse order.
 ``purge_shard_data``
     ``post_collect(command, data)``, ``purge_context(command)``, ``pre_delete(command, pk_set)`` and
     ``post_delete(command, pk_set)``. ``post_collect`` runs once the rows to purge are collected, and before the
-    confirmation. As for ``move_data_to_shard``, a hook can remove instances from the sets in ``data``, and keeps
-    every model in it. A row that is removed is not deleted. The other hooks run around the delete of the collected rows. ``pk_set`` maps each model to
-    the primary keys of the rows that are purged. The delete and the hooks run in one transaction on the node of the
-    shard, with the ``pre_delete`` and ``post_delete`` signals disconnected. The command has the ``shard``.
+    confirmation. As for ``move_data_to_shard``, a hook can remove instances from the sets in ``data``, and keeps every
+    model in it. A row that is removed is not deleted. The other hooks run around the delete of the collected rows.
+    ``pk_set`` maps each model to the primary keys of the rows that are purged. The delete and the hooks run in one
+    transaction on the node of the shard, with the ``pre_delete`` and ``post_delete`` signals disconnected. The command
+    has the ``shard``.
 
 ``purge_schema``
     ``purge_context(command)``, ``pre_drop(command)`` and ``post_drop(command)``, around the drop of the schema. The
@@ -256,16 +269,8 @@ loaded, and their contexts are exited in reverse order.
     ``move_context(command)``, ``pre_move(command)`` and ``post_move(command)``, around the move of the sharded tables
     from the public schema into the schema of the shard. The command has the ``shard``.
 
-.. autofunction:: load_plugins
-
-.. autofunction:: load_plugin_by_name
-
-.. autofunction:: raise_for_duplicate_plugin_names
-
 .. autofunction:: plugin_hooks
 
 .. autofunction:: run_plugin_hooks
 
 .. autofunction:: entered_plugin_hook_contexts
-
-.. autofunction:: served_plugin_module

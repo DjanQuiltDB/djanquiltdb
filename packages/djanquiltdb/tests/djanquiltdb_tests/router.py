@@ -4,12 +4,19 @@ from unittest import mock
 
 from django.apps import apps
 from django.db import DEFAULT_DB_ALIAS, ProgrammingError, connections, models
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from djanquiltdb import State
 from djanquiltdb.decorators import mirrored_model, override_sharding_setting, public_model, sharded_model
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.router import DynamicDbRouter, _active_connection, get_active_connection, set_active_connection
+from djanquiltdb.router import (
+    DynamicDbRouter,
+    _active_connection,
+    _placement_is_node_scoped,
+    get_active_connection,
+    node_scoped_placement,
+    set_active_connection,
+)
 from djanquiltdb.utils import ShardingMode, create_schema_on_node, create_template_schema, migrate_schema, use_shard
 from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
 from example.models import (
@@ -732,6 +739,118 @@ class DynamicDbRouterTestCase(ShardingTestCase):
                 'default', 'example', model_name='organization', sharding_mode=ShardingMode.MIRRORED
             )
         )
+
+
+class NodeScopedPlacementTestCase(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+
+        self.router = DynamicDbRouter()
+
+    def test_a_bare_node_name_allows_a_sharded_model(self):
+        """
+        Case: Ask whether the sharded Organization may be migrated on the bare node names 'default' and 'other', outside
+              and inside node_scoped_placement().
+        Expected: Not allowed outside the block, because a bare node name is the node's public schema there. Allowed
+                  inside it, because a bare node name is the whole node there.
+        """
+        for node_name in ('default', 'other'):
+            with self.subTest(node_name=node_name):
+                self.assertFalse(self.router.allow_migrate(node_name, 'example', 'organization'))
+                with node_scoped_placement():
+                    self.assertTrue(self.router.allow_migrate(node_name, 'example', 'organization'))
+
+    def test_shard_options_for_a_bare_node_name_allow_a_sharded_model(self):
+        """
+        Case: Ask whether the sharded Organization may be migrated on the ShardOptions that ShardOptions.from_alias()
+              returns for the bare node name 'default', outside and inside node_scoped_placement().
+        Expected: The same answers as for the string 'default': not allowed outside the block, allowed inside it.
+        """
+        options = ShardOptions.from_alias('default')
+
+        self.assertFalse(self.router.allow_migrate(options, 'example', 'organization'))
+        with node_scoped_placement():
+            self.assertTrue(self.router.allow_migrate(options, 'example', 'organization'))
+
+    def test_a_name_with_a_schema_keeps_its_answer(self):
+        """
+        Case: Ask whether the sharded Organization may be migrated on the template schema, on the schema of a shard, on
+              a ShardOptions, and on a public schema named with its schema, outside and inside node_scoped_placement().
+        Expected: The same answer inside the block as outside it, so the public schema still does not allow it when it
+                  is named with its schema.
+        """
+        aliases = [
+            ('default|template', True),
+            ('other|some_shard', True),
+            (ShardOptions(node_name='default', schema_name='some_shard'), True),
+            ('default|public', False),
+            (('other', 'public'), False),
+            (ShardOptions(node_name='default', schema_name='public'), False),
+        ]
+
+        for alias, allowed in aliases:
+            with self.subTest(alias=alias):
+                self.assertIs(self.router.allow_migrate(alias, 'example', 'organization'), allowed)
+                with node_scoped_placement():
+                    self.assertIs(self.router.allow_migrate(alias, 'example', 'organization'), allowed)
+
+    def test_other_sharding_modes_keep_their_answer(self):
+        """
+        Case: Ask whether the mirrored Type, the public CakeType and DefaultUser, which has no sharding mode, may be
+              migrated on the bare node names 'default' and 'other', outside and inside node_scoped_placement().
+        Expected: The same answer inside the block as outside it: Type and CakeType on both nodes, DefaultUser on the
+                  default node only.
+        """
+        answers = [
+            ('type', 'default', True),
+            ('type', 'other', True),
+            ('caketype', 'default', True),
+            ('caketype', 'other', True),
+            ('defaultuser', 'default', True),
+            ('defaultuser', 'other', False),
+        ]
+
+        for model_name, node_name, allowed in answers:
+            with self.subTest(model_name=model_name, node_name=node_name):
+                self.assertIs(self.router.allow_migrate(node_name, 'example', model_name), allowed)
+                with node_scoped_placement():
+                    self.assertIs(self.router.allow_migrate(node_name, 'example', model_name), allowed)
+
+    @mock.patch('djanquiltdb.router.logger.warning')
+    def test_the_answers_before_the_sharding_mode_still_win(self, mock_logger_warning):
+        """
+        Case: Inside node_scoped_placement(), ask about a sharded model that has the test_model hint, about a model that
+              does not exist, and about an operation without a model or a sharding mode, each on a bare node name.
+        Expected: Not allowed for the test model, not allowed with a warning for the missing model, and a
+                  ProgrammingError for the operation without a sharding mode, as outside the block.
+        """
+        with node_scoped_placement():
+            self.assertFalse(self.router.allow_migrate('default', 'example', 'organization', model=DummyShardedModel))
+            self.assertFalse(self.router.allow_migrate('default', 'example', 'outer_space'))
+            with self.assertRaises(ProgrammingError):
+                self.router.allow_migrate('default', 'example', model_name=None)
+
+        self.assertEqual(mock_logger_warning.call_count, 1)
+
+    def test_the_block_ends_with_its_own_answer(self):
+        """
+        Case: A node_scoped_placement() block inside another one, and a block that an exception leaves.
+        Expected: The inner block leaves the outer one in force, and the answer outside a block is back to the public
+                  schema's, after the exception too.
+        """
+        with node_scoped_placement():
+            with node_scoped_placement():
+                pass
+            self.assertTrue(_placement_is_node_scoped.get())
+
+        self.assertFalse(_placement_is_node_scoped.get())
+
+        with self.assertRaises(RuntimeError):
+            with node_scoped_placement():
+                raise RuntimeError
+
+        self.assertFalse(_placement_is_node_scoped.get())
+        self.assertFalse(self.router.allow_migrate('default', 'example', 'organization'))
 
 
 class DynamicDbRouterSystemTestCase(ShardingTestCase):

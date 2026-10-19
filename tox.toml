@@ -6,19 +6,24 @@ env_list = [
     "core-py314-dj61-pg18",
     "core-pgtrigger-py314-dj60",
     "core-pgtrigger-py314-dj61",
-    "postgres-objects-py314-dj60-pg17",
-    "postgres-objects-py314-dj60-pg18",
-    "postgres-objects-py314-dj61-pg17",
-    "postgres-objects-py314-dj61-pg18",
     "pghistory-py314-dj60-pg17",
     "pghistory-py314-dj60-pg18",
     "pghistory-py314-dj61-pg17",
     "pghistory-py314-dj61-pg18",
+    "postgres-denormalize-py314-dj60-pg17",
+    "postgres-denormalize-py314-dj60-pg18",
+    "postgres-denormalize-py314-dj61-pg17",
+    "postgres-denormalize-py314-dj61-pg18",
+    "postgres-objects-py314-dj60-pg17",
+    "postgres-objects-py314-dj60-pg18",
+    "postgres-objects-py314-dj61-pg17",
+    "postgres-objects-py314-dj61-pg18",
     "ruff",
     "docs",
     "core-coverage",
-    "postgres-objects-coverage",
     "pghistory-coverage",
+    "postgres-denormalize-coverage",
+    "postgres-objects-coverage",
 ]
 
 # Every env installs the packages it needs as editable path deps, so pip resolves the plugin's djanquiltdb pin
@@ -180,106 +185,6 @@ commands = [
         "test",
         "djanquiltdb_tests.checks",
         "pgtrigger_tests",
-        "--noinput",
-        "--pattern=*.py",
-        { replace = "posargs", extend = true, default = [] },
-    ],
-]
-
-[env.postgres-objects-py314-dj60-pg17]
-description = "Run the postgres-objects plugin suite against Django 6.0 and PostgreSQL 17"
-labels = ["postgres-objects", "test"]
-deps = [
-    "Django>=6.0,<6.1",
-    "-e {tox_root}/packages/djanquiltdb",
-    "django-postgres-objects>=1.0,<2.0",
-    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
-]
-change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
-set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
-commands = [
-    [
-        "coverage",
-        "run",
-        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
-        "manage.py",
-        "test",
-        "plugin_tests",
-        "--noinput",
-        "--pattern=*.py",
-        { replace = "posargs", extend = true, default = [] },
-    ],
-]
-
-[env.postgres-objects-py314-dj60-pg18]
-description = "Run the postgres-objects plugin suite against Django 6.0 and PostgreSQL 18"
-labels = ["postgres-objects", "test"]
-deps = [
-    "Django>=6.0,<6.1",
-    "-e {tox_root}/packages/djanquiltdb",
-    "django-postgres-objects>=1.0,<2.0",
-    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
-]
-change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
-set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
-commands = [
-    [
-        "coverage",
-        "run",
-        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
-        "manage.py",
-        "test",
-        "plugin_tests",
-        "--noinput",
-        "--pattern=*.py",
-        { replace = "posargs", extend = true, default = [] },
-    ],
-]
-
-[env.postgres-objects-py314-dj61-pg17]
-description = "Run the postgres-objects plugin suite against Django 6.1 and PostgreSQL 17"
-labels = ["postgres-objects", "test"]
-deps = [
-    "Django>=6.1,<6.2",
-    "-e {tox_root}/packages/djanquiltdb",
-    "django-postgres-objects>=1.0,<2.0",
-    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
-]
-change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
-set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
-commands = [
-    [
-        "coverage",
-        "run",
-        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
-        "manage.py",
-        "test",
-        "plugin_tests",
-        "--noinput",
-        "--pattern=*.py",
-        { replace = "posargs", extend = true, default = [] },
-    ],
-]
-
-[env.postgres-objects-py314-dj61-pg18]
-description = "Run the postgres-objects plugin suite against Django 6.1 and PostgreSQL 18"
-labels = ["postgres-objects", "test"]
-deps = [
-    "Django>=6.1,<6.2",
-    "-e {tox_root}/packages/djanquiltdb",
-    "django-postgres-objects>=1.0,<2.0",
-    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
-]
-change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
-set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
-commands = [
-    [
-        "coverage",
-        "run",
-        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
-        "manage.py",
-        "test",
-        "plugin_tests",
         "--noinput",
         "--pattern=*.py",
         { replace = "posargs", extend = true, default = [] },
@@ -498,6 +403,208 @@ commands = [
     ],
 ]
 
+# POSTGRES_DENORMALIZE replaces the requirement of django-postgres-denormalize, for example with the path of a checkout
+# that is mounted into the container, to test the plugin against a version that is not on PyPI yet.
+[env.postgres-denormalize-py314-dj60-pg17]
+description = "Run the postgres-denormalize plugin suite against Django 6.0 and PostgreSQL 17"
+labels = ["postgres-denormalize", "test"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "{env:POSTGRES_DENORMALIZE:django-postgres-denormalize>=1.0,<2.0}",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-denormalize[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-denormalize-py314-dj60-pg18]
+description = "Run the postgres-denormalize plugin suite against Django 6.0 and PostgreSQL 18"
+labels = ["postgres-denormalize", "test"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "{env:POSTGRES_DENORMALIZE:django-postgres-denormalize>=1.0,<2.0}",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-denormalize[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-denormalize-py314-dj61-pg17]
+description = "Run the postgres-denormalize plugin suite against Django 6.1 and PostgreSQL 17"
+labels = ["postgres-denormalize", "test"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "{env:POSTGRES_DENORMALIZE:django-postgres-denormalize>=1.0,<2.0}",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-denormalize[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-denormalize-py314-dj61-pg18]
+description = "Run the postgres-denormalize plugin suite against Django 6.1 and PostgreSQL 18"
+labels = ["postgres-denormalize", "test"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "{env:POSTGRES_DENORMALIZE:django-postgres-denormalize>=1.0,<2.0}",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-denormalize[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-objects-py314-dj60-pg17]
+description = "Run the postgres-objects plugin suite against Django 6.0 and PostgreSQL 17"
+labels = ["postgres-objects", "test"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-postgres-objects>=1.0,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-objects-py314-dj60-pg18]
+description = "Run the postgres-objects plugin suite against Django 6.0 and PostgreSQL 18"
+labels = ["postgres-objects", "test"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-postgres-objects>=1.0,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-objects-py314-dj61-pg17]
+description = "Run the postgres-objects plugin suite against Django 6.1 and PostgreSQL 17"
+labels = ["postgres-objects", "test"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-postgres-objects>=1.0,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-objects-py314-dj61-pg18]
+description = "Run the postgres-objects plugin suite against Django 6.1 and PostgreSQL 18"
+labels = ["postgres-objects", "test"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-postgres-objects>=1.0,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
 [env.ruff]
 description = "Lint and check formatting across all packages and the docs"
 labels = ["lint"]
@@ -520,10 +627,12 @@ deps = [
     "-e {tox_root}/packages/djanquiltdb[docs]",
     # conf.py imports each plugin to read its version, and the API reference imports the libraries that the plugins
     # integrate.
-    "django-postgres-objects>=1.0,<2.0",
-    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects",
     "django-pghistory>=3.9.2,<4.0",
     "-e {tox_root}/packages/djanquiltdb-plugin-pghistory",
+    "{env:POSTGRES_DENORMALIZE:django-postgres-denormalize>=1.0,<2.0}",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-denormalize",
+    "django-postgres-objects>=1.0,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects",
 ]
 change_dir = "{tox_root}"
 commands = [["sphinx-build", "-b", "html", "-W", "docs", "docs/_build/html"]]
@@ -541,15 +650,6 @@ commands = [
     ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
 ]
 
-[env.postgres-objects-coverage]
-description = "Report on the coverage the postgres-objects plugin test envs recorded"
-labels = ["postgres-objects"]
-deps = ["coverage"]
-change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
-commands = [
-    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml"],
-]
-
 [env.pghistory-coverage]
 description = "Report on the coverage the pghistory plugin test envs recorded"
 labels = ["pghistory"]
@@ -557,6 +657,24 @@ deps = ["coverage"]
 change_dir = "{tox_root}/packages/djanquiltdb-plugin-pghistory/tests"
 commands = [
     ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml"],
+]
+
+[env.postgres-denormalize-coverage]
+description = "Report on the coverage the postgres-denormalize plugin test envs recorded"
+labels = ["postgres-denormalize"]
+deps = ["coverage"]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/tests"
+commands = [
+    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/pyproject.toml"],
+]
+
+[env.postgres-objects-coverage]
+description = "Report on the coverage the postgres-objects plugin test envs recorded"
+labels = ["postgres-objects"]
+deps = ["coverage"]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+commands = [
+    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml"],
 ]
 
 [env.core-build]
@@ -570,22 +688,33 @@ commands = [
     ["twine", "check", "dist/*"],
 ]
 
-[env.postgres-objects-build]
-description = "Build the djanquiltdb-plugin-postgres-objects sdist and wheel and check the metadata"
-labels = ["postgres-objects", "build"]
+[env.pghistory-build]
+description = "Build the djanquiltdb-plugin-pghistory sdist and wheel and check the metadata"
+labels = ["pghistory", "build"]
 deps = ["build", "twine"]
-change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects"
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-pghistory"
 commands = [
     ["python", "-c", "import shutil; shutil.rmtree('dist', ignore_errors=True)"],
     ["python", "-m", "build"],
     ["twine", "check", "dist/*"],
 ]
 
-[env.pghistory-build]
-description = "Build the djanquiltdb-plugin-pghistory sdist and wheel and check the metadata"
-labels = ["pghistory", "build"]
+[env.postgres-denormalize-build]
+description = "Build the djanquiltdb-plugin-postgres-denormalize sdist and wheel and check the metadata"
+labels = ["postgres-denormalize", "build"]
 deps = ["build", "twine"]
-change_dir = "{tox_root}/packages/djanquiltdb-plugin-pghistory"
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-denormalize"
+commands = [
+    ["python", "-c", "import shutil; shutil.rmtree('dist', ignore_errors=True)"],
+    ["python", "-m", "build"],
+    ["twine", "check", "dist/*"],
+]
+
+[env.postgres-objects-build]
+description = "Build the djanquiltdb-plugin-postgres-objects sdist and wheel and check the metadata"
+labels = ["postgres-objects", "build"]
+deps = ["build", "twine"]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects"
 commands = [
     ["python", "-c", "import shutil; shutil.rmtree('dist', ignore_errors=True)"],
     ["python", "-m", "build"],

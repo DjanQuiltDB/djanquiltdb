@@ -44,16 +44,22 @@ This repository develops the library and its plugins, each shipped as a distribu
 
       pip install djanquiltdb
 
+* ``packages/djanquiltdb-plugin-pghistory``: sharding support for the model history that `django-pghistory
+  <https://django-pghistory.readthedocs.io/>`_ records, installed through the core library's extra::
+
+      pip install djanquiltdb[pghistory]
+
+* ``packages/djanquiltdb-plugin-postgres-denormalize``: helpers that find and correct out-of-date copies that
+  `django-postgres-denormalize <https://django-postgres-denormalize.readthedocs.io/>`_ keeps, in one shard or in every
+  shard, installed through the core library's extra::
+
+      pip install djanquiltdb[postgres-denormalize]
+
 * ``packages/djanquiltdb-plugin-postgres-objects``: sharding decorators for the PostgreSQL functions and views
   `django-postgres-objects <https://github.com/djanquiltdb/django-postgres-objects>`_ declares, installed through the
   core library's extra::
 
       pip install djanquiltdb[postgres-objects]
-
-* ``packages/djanquiltdb-plugin-pghistory``: sharding support for the model history that `django-pghistory
-  <https://django-pghistory.readthedocs.io/>`_ records, installed through the core library's extra::
-
-      pip install djanquiltdb[pghistory]
 
 DjanQuiltDB discovers plugins through the ``djanquiltdb.plugins`` entry-point group, so plugins can also be developed
 outside this repository.

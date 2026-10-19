@@ -311,8 +311,8 @@ class DjangoCouplingTestCase(SimpleTestCase):
         self.assertEqual(
             changed,
             {},
-            'Django changed code the executors rely on. Check the shared states path in djanquiltdb.management.executor '
-            'against each change, then add its fingerprint to DJANGO_FINGERPRINTS.',
+            'Django changed code the executors rely on. Check the shared states path in '
+            'djanquiltdb.management.executor against each change, then add its fingerprint to DJANGO_FINGERPRINTS.',
         )
 
     def test_migration_apply_and_mutate_state_signatures(self):

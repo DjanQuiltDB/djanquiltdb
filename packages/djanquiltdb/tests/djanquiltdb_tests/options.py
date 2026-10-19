@@ -268,6 +268,21 @@ class ShardOptionsTestCase(ShardingTestCase):
         self.assertEqual(shard_options.node_name, 'default')
         self.assertEqual(shard_options.schema_name, 'test_schema')
 
+    def test_from_alias_tells_whether_it_names_only_the_node(self):
+        """
+        Case: Get the ShardOptions from a bare node name, from a node name and schema name separated by a pipe, from a
+              tuple of a node name and the public schema, and from an existing ShardOptions for the public schema.
+        Expected: names_only_the_node is True for the bare node name only, and the options from the bare node name are
+                  equal to the ones that name the public schema.
+        """
+        self.assertTrue(ShardOptions.from_alias('default').names_only_the_node)
+        self.assertFalse(ShardOptions.from_alias('default|public').names_only_the_node)
+        self.assertFalse(ShardOptions.from_alias(('default', 'public')).names_only_the_node)
+        self.assertFalse(
+            ShardOptions.from_alias(ShardOptions(node_name='default', schema_name='public')).names_only_the_node
+        )
+        self.assertEqual(ShardOptions.from_alias('default'), ShardOptions.from_alias('default|public'))
+
     def test_from_alias_invalid(self):
         """
         Case: Get the ShardOptions from an alias that is invalid

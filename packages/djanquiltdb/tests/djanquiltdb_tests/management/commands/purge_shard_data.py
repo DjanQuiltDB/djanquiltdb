@@ -161,9 +161,9 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
     def test_the_hooks_of_a_plugin_run_around_the_delete(self):
         """
         Case: The data of an organization is purged while a plugin has every hook of purge_shard_data.
-        Expected: post_collect runs first and receives the collected rows. Then purge_context is entered, pre_delete runs
-                  before the delete and post_delete after it, and purge_context is exited last. The other plain hooks
-                  receive the primary keys of the purged rows.
+        Expected: post_collect runs first and receives the collected rows. Then purge_context is entered, pre_delete
+                  runs before the delete and post_delete after it, and purge_context is exited last. The other plain
+                  hooks receive the primary keys of the purged rows.
         """
         calls = []
 

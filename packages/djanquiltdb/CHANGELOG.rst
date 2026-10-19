@@ -1,5 +1,17 @@
-v 4.2.0
--------
+v 4.3.0 (2026-10-19)
+--------------------
+Added:
+ * System checks for django-pgtrigger triggers that write a table in another sharding mode.
+ * Plugin API serving extended to ``djanquiltdb.utils.<name>``.
+
+Altered:
+ * ``move_data_to_shard`` and ``purge_shard_data`` no longer fire django-pgtrigger triggers for the rows that they copy
+   and delete.
+ * Fixed ``djanquiltdb.testing.pending_migration_changes`` missing django-pgtrigger triggers that have no migration.
+ * Fixed system checks that depend on the database (including Django and other libraries) skipping sharded models.
+
+v 4.2.0 (2026-10-16)
+--------------------
 Added:
  * Compatibility decorators for ``django-pghistory``, installed through the ``djanquiltdb[pghistory]`` extra.
  * Plugin API serving extended from ``djanquiltdb.decorators.<name>`` to ``djanquiltdb.models.<name>``.
@@ -24,15 +36,15 @@ Altered:
  * Fixed ``move_shard_to_node`` stopping on a foreign key without a database constraint that refers to a public row that
    the source node no longer has. The foreign key keeps its value.
 
-v 4.1.0
--------
+v 4.1.0 (2026-10-09)
+--------------------
 Added:
  * The ``align_shards_with_template`` command, to repair various issues in shards cloned in previous versions related to
    sequences, primary key names and serial columns, which were all fixed in this version. Run it once after upgrading.
 
 Altered:
- * Fixed ``move_shard_to_node``, ``move_data_to_shard`` and ``loaddata`` failing on, or resetting the wrong sequence of, a
-   table whose sequence is not named after it (e.g. a table that was renamed after it was created).
+ * Fixed ``move_shard_to_node``, ``move_data_to_shard`` and ``loaddata`` failing on, or resetting the wrong sequence of,
+   a table whose sequence is not named after it (e.g. a table that was renamed after it was created).
  * Fixed ``move_shard_to_node`` leaving a moved shard's sequences that no model's primary key uses at the template's
    position.
  * Fixed cloned primary keys and identity sequences being named after their table instead of having the names they have
@@ -49,8 +61,8 @@ Altered:
  * Fixed cloning overwriting the settings and position of an identity sequence or a serial column's sequence that the
    schema cloned into already has under the name of a template sequence.
 
-v 4.0.1
--------
+v 4.0.1 (2026-10-05)
+--------------------
 Deprecated:
  * The ``class_method_use_shard_from_db_arg`` decorator, to be removed in 5.0. Use ``shard_aware_from_db`` instead.
 
@@ -67,8 +79,8 @@ Altered:
  * Fixed ``--keepdb`` with ``--parallel`` running tests against outdated database clones from an earlier run. A clone is
    now rebuilt when the test database has new migrations.
 
-v 4.0.0
--------
+v 4.0.0 (2026-08-27)
+--------------------
 Added:
  * Support for generated columns in sharded tables.
  * Support for sharded views.
@@ -101,8 +113,8 @@ Altered:
  * Expanded documentation on trigger behavior and compatibility with ``django-pgtrigger`` in particular
  * Fixed generating new session keys with a custom ``SESSION_KEY_DELIMITER``.
  * Fixed renumbering of cloned identity sequences not named ``id``.
- * Fixed cloning of composite foreign keys aborting shard creation; ``ON DELETE``/``ON UPDATE`` actions and deferrability
-   now carry over faithfully instead of being dropped and forced.
+ * Fixed cloning of composite foreign keys aborting shard creation; ``ON DELETE``/``ON UPDATE`` actions and
+   deferrability now carry over faithfully instead of being dropped and forced.
  * Fixed the template's search path leaking into the enclosing transaction when creating a shard under
    ``transaction.atomic()``, silently redirecting later reads and writes to the template schema.
  * Fixed advisory lock release masking errors and stranding locks inside atomic blocks.
@@ -123,8 +135,8 @@ Altered:
  * Fixed the admin shard selector class binding when ``quilt_admin`` modules are imported before the app registry is
    ready.
  * Fixed ``quilt_admin`` ignoring ``PRIMARY_DB_ALIAS`` after a failover.
- * Fixed ``quilt_admin``'s maintenance checks swallowing errors, silently disabling write protection; a stale shard override
-   no longer breaks the admin.
+ * Fixed ``quilt_admin``'s maintenance checks swallowing errors, silently disabling write protection; a stale shard
+   override no longer breaks the admin.
  * Fixed function and trigger definitions being rewritten while cloning.
  * Fixed ``reset_sequence`` rewinding sequences advanced by concurrent writers.
  * Fixed maintenance states not being restored when entering maintenance fails midway.
@@ -137,8 +149,8 @@ Altered:
    multi-table inheritance child.
  * Fixed the test projects' models and migrations disagreeing on their state.
 
-v 3.1.2
--------
+v 3.1.2 (2026-05-28)
+--------------------
 Added:
  * PEP 621 metadata
 
@@ -146,13 +158,13 @@ Altered:
  * Sped up attribute lookups in ``quilt_admin`` while switched to another shard
  * Fixed a bug where modifications in a shard-switched ``quilt_admin`` would raise ``IntegrityError`` on admin audit log
 
-v 3.1.1
--------
+v 3.1.1 (2026-04-23)
+--------------------
 Altered:
  * Fixed a bug in the search path reset per transaction for PgBouncer transaction mode.
 
-v 3.1.0
--------
+v 3.1.0 (2026-04-23)
+--------------------
 Altered:
  * Set search paths per transaction instead of per session for compatibility with PgBouncer transaction mode.
  * ``dumpdata`` management command now supports schema-aware fixture JSON/YAML files.
@@ -160,8 +172,8 @@ Altered:
  * Database serialization now includes sharded data.
  * Database-backed session backend (``djanquiltdb.sessions``) now cleanly clears a session if its signature is expired.
 
-v 3.0.0
--------
+v 3.0.0 (2026-01-14)
+--------------------
 Altered:
  * Renamed from 'patchman-django-sharding' to 'djanquiltdb' due to shift in project stewardship.
  * Updated settings and models to match rename, breaking backwards compatibility.
@@ -183,43 +195,49 @@ Dropped:
  * Support for Django 3.2 and 4.0.
  * Support for Python 3.6 and 3.11.
 
-v 2.0.0
--------
+v 2.0.0 (2023-11-20)
+--------------------
 Added:
  * support for Django 3.2 and 4.0
  * support for Python 3.11
 Dropped:
  * support for Django 2.2
 
-v 1.0.0
--------
+v 1.0.0 (2023-02-03)
+--------------------
 Altered:
  * Name change from 'django-sharding' to 'patchman-django-sharding' to make this library have a unique name.
  * ``move_shard_to_node`` management command is a lot faster in retargeting data.
 
-v 0.6.3
--------
+v 0.6.3 (2022-12-15)
+--------------------
 Altered:
- * ``get_all_mirrored_models``, ``get_all_public_models``, and ``get_all_public_schema_models`` util functions now also accept ``include_auto_created`` and ``include_proxy`` arguments. Like ``get_all_sharded_models`` already had. They are ``False`` by default, and can be used to fetch a more complete set of models.
+ * ``get_all_mirrored_models``, ``get_all_public_models``, and ``get_all_public_schema_models`` util functions now also
+   accept ``include_auto_created`` and ``include_proxy`` arguments. Like ``get_all_sharded_models`` already had. They
+   are ``False`` by default, and can be used to fetch a more complete set of models.
 
-v 0.6.2
--------
+v 0.6.2 (2022-06-01)
+--------------------
 Altered:
  * ``move_shard_to_node`` management command to copy PUBLIC data if missing and retarget the copied data recursively.
 
 Dropped:
  * Dropped support for Python 3.4 and 3.5. Lowest supported version of python now is 3.6.
 
-v 0.6.1
--------
+v 0.6.1 (2021-06-10)
+--------------------
 Altered:
- * Routing for write queries to mirrored tables (if any) will be directed to the primary node if the current context does not do so already. This prevents your context to be destroyed if was correct already. (Example: a shard on the primary node is selected and you write to a mirrored table. In 0.6.0 this would scrap your shard context and only leave the ``public_schema`` in the ``search_path``.)
+ * Routing for write queries to mirrored tables (if any) will be directed to the primary node if the current context
+   does not do so already. This prevents your context to be destroyed if was correct already. (Example: a shard on the
+   primary node is selected and you write to a mirrored table. In 0.6.0 this would scrap your shard context and only
+   leave the ``public_schema`` in the ``search_path``.)
 
-v 0.6.0
--------
+v 0.6.0 (2021-02-24)
+--------------------
 Added:
  * Dedicated view for the situation a node is down.
- * Primary connection as a setting. This is also the default connection the router uses. This means the 'default' name of a connection (Django stipulates) has no effect. It is just a name.
+ * Primary connection as a setting. This is also the default connection the router uses. This means the 'default' name
+   of a connection (Django stipulates) has no effect. It is just a name.
  * django.db.transaction gets monkey-patched to always start the transaction on the node that is active.
  * ``purge_schema`` management command to empty and remove a shard.
 
@@ -227,8 +245,8 @@ Altered:
  * Routing for write queries to mirrored tables (if any) will always lead to the primary node.
  * Routing for read/write queries to the mapping table (if any) will always lead to the primary node.
 
-v 0.5.4
--------
+v 0.5.4 (2020-08-26)
+--------------------
 Added:
  * support for Django 2.2.
  * Ability to move a shard to a different node (``move_shard_to_node`` management command).
@@ -241,17 +259,17 @@ Altered:
    * ``mirrored_model``: Data lives on the public schemas of all nodes.
    * ``sharded_model``: Data lives in a sharded schema on one of the nodes.
 
-v 0.5.3
--------
+v 0.5.3 (2020-02-13)
+--------------------
 Added:
  * Allows SHARDED -> MIRRORED relations in migrations.
 
-v 0.5.2
--------
+v 0.5.2 (2019-12-18)
+--------------------
 Altered:
  * Apply the ``shard_mode`` for model functions to proxy models as well.
 
-v 0.5.1
--------
+v 0.5.1 (2019-12-17)
+--------------------
 Dropped:
  * Support for Django versions below 1.11.

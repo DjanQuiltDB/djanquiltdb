@@ -1168,9 +1168,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     @contextlib.contextmanager
     def user_triggers_disabled(self, table_names, schema_name=None, _cursor=None):
         """
-        Disable the user triggers of the given tables of the schema while the block runs, and give each one its own state
-        again after it: enabled, enabled always, enabled for replicas, or disabled. Triggers that enforce foreign keys
-        stay enabled.
+        Disable the user triggers of the given tables of the schema while the block runs, and give each one its own
+        state again after it: enabled, enabled always, enabled for replicas, or disabled. Triggers that enforce foreign
+        keys stay enabled.
 
         Run this inside a transaction. ALTER TABLE locks each table until the transaction ends, and when the block
         raises, the triggers are left disabled for the rollback to restore. Postgres cannot alter a table while a

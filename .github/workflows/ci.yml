@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [master]
-    tags: ['v*', 'plugin-postgres-objects-v*', 'plugin-pghistory-v*']
+    tags: ['v*', 'plugin-pghistory-v*', 'plugin-postgres-denormalize-v*', 'plugin-postgres-objects-v*']
   pull_request:
   workflow_dispatch:
 
@@ -38,18 +38,6 @@ jobs:
             postgres: "17"
           - toxenv: core-pgtrigger-py314-dj61
             postgres: "17"
-          - toxenv: postgres-objects-py314-dj60-pg17
-            postgres: "17"
-            coverageenv: postgres-objects-coverage
-          - toxenv: postgres-objects-py314-dj60-pg18
-            postgres: "18"
-            coverageenv: postgres-objects-coverage
-          - toxenv: postgres-objects-py314-dj61-pg17
-            postgres: "17"
-            coverageenv: postgres-objects-coverage
-          - toxenv: postgres-objects-py314-dj61-pg18
-            postgres: "18"
-            coverageenv: postgres-objects-coverage
           - toxenv: pghistory-py314-dj60-pg17
             postgres: "17"
             coverageenv: pghistory-coverage
@@ -62,6 +50,30 @@ jobs:
           - toxenv: pghistory-py314-dj61-pg18
             postgres: "18"
             coverageenv: pghistory-coverage
+          - toxenv: postgres-denormalize-py314-dj60-pg17
+            postgres: "17"
+            coverageenv: postgres-denormalize-coverage
+          - toxenv: postgres-denormalize-py314-dj60-pg18
+            postgres: "18"
+            coverageenv: postgres-denormalize-coverage
+          - toxenv: postgres-denormalize-py314-dj61-pg17
+            postgres: "17"
+            coverageenv: postgres-denormalize-coverage
+          - toxenv: postgres-denormalize-py314-dj61-pg18
+            postgres: "18"
+            coverageenv: postgres-denormalize-coverage
+          - toxenv: postgres-objects-py314-dj60-pg17
+            postgres: "17"
+            coverageenv: postgres-objects-coverage
+          - toxenv: postgres-objects-py314-dj60-pg18
+            postgres: "18"
+            coverageenv: postgres-objects-coverage
+          - toxenv: postgres-objects-py314-dj61-pg17
+            postgres: "17"
+            coverageenv: postgres-objects-coverage
+          - toxenv: postgres-objects-py314-dj61-pg18
+            postgres: "18"
+            coverageenv: postgres-objects-coverage
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}
@@ -152,19 +164,23 @@ jobs:
           cache: pip
           cache-dependency-path: packages/*/pyproject.toml
       - run: python -m pip install --upgrade pip 'tox>=4.21'
-      - run: tox -e core-build,postgres-objects-build,pghistory-build
+      - run: tox -e core-build,pghistory-build,postgres-denormalize-build,postgres-objects-build
       - uses: actions/upload-artifact@v4
         with:
           name: dist-djanquiltdb
           path: packages/djanquiltdb/dist/
       - uses: actions/upload-artifact@v4
         with:
-          name: dist-plugin-postgres-objects
-          path: packages/djanquiltdb-plugin-postgres-objects/dist/
-      - uses: actions/upload-artifact@v4
-        with:
           name: dist-plugin-pghistory
           path: packages/djanquiltdb-plugin-pghistory/dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-plugin-postgres-denormalize
+          path: packages/djanquiltdb-plugin-postgres-denormalize/dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-plugin-postgres-objects
+          path: packages/djanquiltdb-plugin-postgres-objects/dist/
 
   publish-core:
     name: publish djanquiltdb to PyPI
@@ -183,23 +199,6 @@ jobs:
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
 
-  publish-plugin-postgres-objects:
-    name: publish djanquiltdb-plugin-postgres-objects to PyPI
-    if: startsWith(github.ref, 'refs/tags/plugin-postgres-objects-v')
-    needs: [test, lint, pre-commit, docs, build]
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-    environment:
-      name: pypi-plugin-postgres-objects
-      url: https://pypi.org/p/djanquiltdb-plugin-postgres-objects
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dist-plugin-postgres-objects
-          path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
-
   publish-plugin-pghistory:
     name: publish djanquiltdb-plugin-pghistory to PyPI
     if: startsWith(github.ref, 'refs/tags/plugin-pghistory-v')
@@ -214,5 +213,39 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: dist-plugin-pghistory
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-plugin-postgres-denormalize:
+    name: publish djanquiltdb-plugin-postgres-denormalize to PyPI
+    if: startsWith(github.ref, 'refs/tags/plugin-postgres-denormalize-v')
+    needs: [test, lint, pre-commit, docs, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi-plugin-postgres-denormalize
+      url: https://pypi.org/p/djanquiltdb-plugin-postgres-denormalize
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-plugin-postgres-denormalize
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-plugin-postgres-objects:
+    name: publish djanquiltdb-plugin-postgres-objects to PyPI
+    if: startsWith(github.ref, 'refs/tags/plugin-postgres-objects-v')
+    needs: [test, lint, pre-commit, docs, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi-plugin-postgres-objects
+      url: https://pypi.org/p/djanquiltdb-plugin-postgres-objects
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-plugin-postgres-objects
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1

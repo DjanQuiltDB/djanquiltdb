@@ -22,6 +22,7 @@ from djanquiltdb.utils import (
     get_mapping_class,
     get_model_sharding_mode,
     get_shard_class,
+    pgtrigger_triggers_ignored,
     transaction_for_nodes,
     use_shard,
 )
@@ -174,6 +175,9 @@ class Command(BaseCommand):
             nodes = list({self.source_shard.node_name, self.target_shard.node_name})
             with (
                 transaction_for_nodes(nodes=nodes),
+                # The rows only change shards, so no django-pgtrigger trigger acts on the copy or the delete. The
+                # command rejects a target shard on another node, so the node of the source shard is the node of both.
+                pgtrigger_triggers_ignored(self.source_shard),
                 entered_plugin_hook_contexts('move_data_to_shard.move_context', self),
             ):
                 run_plugin_hooks('move_data_to_shard.pre_copy', self, pk_set)
