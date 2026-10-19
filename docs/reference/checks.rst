@@ -31,3 +31,27 @@ Plugins register their own checks, with their own prefix. The pghistory plugin d
 ``djanquiltdb_plugin_pghistory.W001`` to ``W005``, ``E002`` and ``E004`` on :doc:`its installation page
 </plugins/pghistory/installation>`, and ``E001``, ``E003`` and ``E004`` on :doc:`its tracking page
 </plugins/pghistory/tracking>`.
+
+
+Checks that depend on the database
+----------------------------------
+
+Some checks look at each database where a model's table lives. Django's own checks do this for the constraints and
+indexes of a model, for the length of its column names and for the column types that it uses, and other packages do it
+for settings such as the isolation level. They ask the routers whether the model's table lives in a database, through
+``allow_migrate``.
+
+When ``migrate`` runs its operations, a bare node name such as ``'default'`` stands for the node's ``public`` schema,
+where a sharded model has no table. While the system checks run, the router answers a bare node name for the node as a
+whole instead, so a sharded model is checked on every node, like a public or mirrored model. A name with a schema, such
+as ``'default|template'``, keeps its usual answer.
+
+Django runs these checks in ``migrate``, in the test runner, and in ``manage.py check --database``. ``migrate`` stops at
+an error, so it also stops at an error for a sharded model, such as a constraint on a field that does not exist.
+
+The router also answers this way when the caller took ``run_checks`` before DjanQuiltDB was ready. A Celery worker does
+this as it starts. It runs the system checks without a database, so Django's checks that depend on the database do not
+run there, and it ignores the messages of the checks. Only a check that raises an exception stops the worker.
+
+A check that queries a table through the bare node name reaches the ``public`` schema, where a sharded model has no
+table, so it fails for a sharded model.

@@ -82,6 +82,7 @@ class DjanQuiltDBConfig(AppConfig):
         _register_checks()
         _patch_connections()
         _patch_transactions()
+        _patch_checks()
         # A plugin's install() can give a model of a third-party app the natural key that a public model needs, so the
         # plugins are installed before the public models are validated.
         _install_plugins()
@@ -250,3 +251,55 @@ def _patch_transactions():
 
     setattr(django.db.transaction, 'get_connection', get_connection)
     setattr(django.db.transaction, 'atomic', atomic)
+
+
+def _patch_checks():
+    """
+    Monkeypatch the get_checks method of Django's check registry, so that every system check runs inside
+    node_scoped_placement(). The checks that ask the routers where a table lives then see the sharded models on every
+    node.
+
+    Django's run_checks takes the checks from the registry's get_checks. So the wrapped checks reach every caller of
+    run_checks, also a caller that took run_checks before DjanQuiltDB was ready, such as a Celery worker as it starts.
+    """
+    import django.core.checks.registry
+
+    registry = django.core.checks.registry.registry
+    get_checks = registry.get_checks
+    if getattr(get_checks, '_quilt_node_scoped_placement_wrapped', False):
+        return
+
+    @functools.wraps(get_checks)
+    def wrapped(*args, **kwargs):
+        return [_NodeScopedCheck(check) for check in get_checks(*args, **kwargs)]
+
+    wrapped._quilt_node_scoped_placement_wrapped = True
+    setattr(registry, 'get_checks', wrapped)
+
+
+class _NodeScopedCheck:
+    """
+    A system check that runs inside node_scoped_placement(). It has the attributes of the check that it wraps, such as
+    the ``tags`` that run_checks selects the checks by. It is also equal to that check, so code that looks for a
+    registered check in get_checks() still finds it.
+    """
+
+    def __init__(self, check):
+        functools.update_wrapper(self, check)
+
+    def __call__(self, *args, **kwargs):
+        from djanquiltdb.router import node_scoped_placement
+
+        with node_scoped_placement():
+            return self.__wrapped__(*args, **kwargs)
+
+    def __eq__(self, other):
+        if isinstance(other, _NodeScopedCheck):
+            other = other.__wrapped__
+        return self.__wrapped__ == other
+
+    def __hash__(self):
+        return hash(self.__wrapped__)
+
+    def __repr__(self):
+        return repr(self.__wrapped__)

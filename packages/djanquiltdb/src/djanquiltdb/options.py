@@ -13,6 +13,11 @@ class ShardOptions:
     """
 
     def __init__(self, **options):
+        # Whether the alias that these options were built from named the node without a schema. The router answers such
+        # an alias for the node as a whole while the system checks run. It is left out of the options that `__eq__`
+        # compares, because the alias targets the public schema all the same.
+        self.names_only_the_node = options.pop('names_only_the_node', False)
+
         # Save the options, so we can compare it with other ShardOptions instances in `__eq__`
         self.options = frozenset(options.items())
 
@@ -90,8 +95,11 @@ class ShardOptions:
         elif isinstance(alias, get_shard_class()):
             return cls.from_shard(alias)
         elif isinstance(alias, str):
-            node_name, schema_name = alias.split('|') if '|' in alias else (alias, PUBLIC_SCHEMA_NAME)
-            return cls(node_name=node_name, schema_name=schema_name)
+            if '|' in alias:
+                node_name, schema_name = alias.split('|')
+                return cls(node_name=node_name, schema_name=schema_name)
+
+            return cls(node_name=alias, schema_name=PUBLIC_SCHEMA_NAME, names_only_the_node=True)
         elif isinstance(alias, tuple) and len(alias) == 2:
             node_name, schema_name = alias
             return cls(node_name=node_name, schema_name=schema_name)

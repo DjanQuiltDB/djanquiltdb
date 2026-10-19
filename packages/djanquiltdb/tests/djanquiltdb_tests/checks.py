@@ -1,14 +1,17 @@
 from io import StringIO
 from unittest import mock, skipIf, skipUnless
 
+import django.core.checks
+import django.core.checks.registry
 from django.apps import apps
-from django.core.checks.registry import registry
-from django.core.management import call_command
+from django.core.checks.registry import CheckRegistry, registry
+from django.core.management import call_command, get_commands, load_command_class
 from django.core.management.base import SystemCheckError
-from django.db import models
+from django.db import models, router
 from django.test import SimpleTestCase, override_settings
-from django.test.utils import isolate_apps
+from django.test.utils import isolate_apps, override_system_checks
 
+from djanquiltdb.apps import _patch_checks
 from djanquiltdb.checks import (
     MUTE_SETTING,
     PGTRIGGER_APP_NAME,
@@ -18,7 +21,8 @@ from djanquiltdb.checks import (
     written_tables,
 )
 from djanquiltdb.decorators import override_sharding_setting, public_model
-from example.models import CakeType, DefaultUser, Type, User
+from djanquiltdb.router import _placement_is_node_scoped
+from example.models import CakeType, DefaultUser, Organization, Type, User
 
 # Only the dedicated tox environment installs django-pgtrigger and puts it in INSTALLED_APPS. Everywhere else the
 # check must stay silent, which is a case worth asserting in its own right.
@@ -417,3 +421,141 @@ class TriggerWritesCheckTestCase(SimpleTestCase):
         with mock.patch('pgtrigger.registered', return_value=registered):
             with override_settings(SILENCED_SYSTEM_CHECKS=['djanquiltdb.E001']):
                 call_command('check', tags=['models'], stdout=StringIO(), stderr=StringIO())
+
+
+def missing_field_constraint():
+    return models.UniqueConstraint(fields=['missing'], name='unique_missing')
+
+
+def missing_field_messages(messages, model):
+    return [message for message in messages if message.id == 'models.E012' and message.obj is model]
+
+
+def raise_an_error(app_configs=None, **kwargs):
+    raise RuntimeError
+
+
+class NodeScopedPlacementInChecksTestCase(SimpleTestCase):
+    databases = '__all__'
+
+    def setUp(self):
+        super().setUp()
+
+        self.placements = []
+
+        # A plain function, because the check registry sets an attribute on every check that it registers.
+        def record_placement(app_configs=None, **kwargs):
+            self.placements.append(router.allow_migrate_model('default', Organization))
+            return []
+
+        self.record_placement = record_placement
+
+    def test_every_name_of_run_checks_runs_the_checks_node_scoped(self):
+        """
+        Case: Run the checks through django.core.checks.run_checks, through django.core.checks.registry.run_checks and
+              through the registry's own run_checks, with a check that asks the router about the sharded Organization
+              on the bare node name 'default'.
+        Expected: The check is told each time that Organization is allowed, and outside the checks it is not.
+        """
+        with override_system_checks([self.record_placement]):
+            django.core.checks.run_checks()
+            django.core.checks.registry.run_checks()
+            registry.run_checks()
+
+        self.assertEqual(self.placements, [True, True, True])
+        self.assertFalse(router.allow_migrate_model('default', Organization))
+
+    def test_the_check_command_runs_the_checks_node_scoped(self):
+        """
+        Case: Run `manage.py check` with a check that asks the router about the sharded Organization on the bare node
+              name 'default'.
+        Expected: The check is told that Organization is allowed.
+        """
+        with override_system_checks([self.record_placement]):
+            call_command('check', stdout=StringIO(), stderr=StringIO())
+
+        self.assertEqual(self.placements, [True])
+
+    def test_a_check_that_raises_ends_the_node_scoped_placement(self):
+        """
+        Case: Run the checks with a check that raises.
+        Expected: The exception reaches the caller, and the router answers for the public schema again afterwards.
+        """
+        with override_system_checks([raise_an_error]):
+            with self.assertRaises(RuntimeError):
+                django.core.checks.run_checks()
+
+        self.assertFalse(_placement_is_node_scoped.get())
+
+    def test_migrate_places_its_operations_after_the_checks_end(self):
+        """
+        Case: Run `migrate` with its checks, with a check that asks the router about the sharded Organization on the
+              bare node name 'default', and record the router's answer once the command starts its work.
+        Expected: The check is told that Organization is allowed, and the command is told that it is not, so migrate
+                  creates no sharded table in a public schema.
+        """
+        command_class = type(load_command_class(get_commands()['migrate'], 'migrate'))
+
+        def handle(*args, **options):
+            self.placements.append(router.allow_migrate_model('default', Organization))
+
+        with override_system_checks([self.record_placement]):
+            with mock.patch.object(command_class, 'handle', side_effect=handle):
+                call_command('migrate', skip_checks=False, stdout=StringIO(), stderr=StringIO())
+
+        self.assertEqual(self.placements, [True, False])
+
+    def test_patching_twice_wraps_once(self):
+        """
+        Case: Patch the check registry again, as a second AppConfig.ready() would, and take the checks from it.
+        Expected: get_checks stays the same function, and the check that it returns wraps the registered check
+                  directly, so the check is not wrapped twice.
+        """
+        get_checks = registry.get_checks
+
+        _patch_checks()
+
+        self.assertIs(registry.get_checks, get_checks)
+        with override_system_checks([self.record_placement]):
+            [check] = registry.get_checks()
+        self.assertIs(check.__wrapped__, self.record_placement)
+
+    def test_django_checks_the_constraints_of_a_sharded_model(self):
+        """
+        Case: The sharded Organization has a unique constraint on a field that does not exist, and the checks run for
+              the database 'default'.
+        Expected: models.E012 for Organization, which Django only reports for a database that the routers allow the
+                  model on.
+        """
+        with mock.patch.object(Organization._meta, 'constraints', [missing_field_constraint()]):
+            messages = django.core.checks.run_checks(tags=['models'], databases=['default'])
+
+        self.assertEqual(len(missing_field_messages(messages, Organization)), 1)
+
+    def test_a_run_checks_taken_before_djanquiltdb_was_ready_checks_a_sharded_model(self):
+        """
+        Case: The sharded Organization has a unique constraint on a field that does not exist. The checks run for the
+              database 'default' through Django's own CheckRegistry.run_checks, bound to the registry. A caller that
+              took run_checks before DjanQuiltDB was ready has this method, such as a Celery worker as it starts.
+        Expected: models.E012 for Organization, as through django.core.checks.run_checks.
+        """
+        run_checks = CheckRegistry.run_checks.__get__(registry)
+
+        with mock.patch.object(Organization._meta, 'constraints', [missing_field_constraint()]):
+            messages = run_checks(tags=['models'], databases=['default'])
+
+        self.assertEqual(len(missing_field_messages(messages, Organization)), 1)
+
+    def test_django_checks_the_constraints_of_a_public_model(self):
+        """
+        Case: The public CakeType has a unique constraint on a field that does not exist, and its checks run for the
+              database 'default', inside and outside run_checks.
+        Expected: models.E012 for CakeType both times, because the public schema of 'default' has its table either
+                  way.
+        """
+        with mock.patch.object(CakeType._meta, 'constraints', [missing_field_constraint()]):
+            messages = django.core.checks.run_checks(tags=['models'], databases=['default'])
+            direct_messages = CakeType.check(databases=['default'])
+
+        self.assertEqual(len(missing_field_messages(messages, CakeType)), 1)
+        self.assertEqual(len(missing_field_messages(direct_messages, CakeType)), 1)
