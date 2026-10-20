@@ -100,6 +100,17 @@ def _value_for_header(value):
     return value if isinstance(value, (int, str)) else str(value)
 
 
+def _mapping_value_for_header(mapping_value):
+    """
+    Returns the value that the mapping field stores for ``mapping_value``, as a value for a message header. A model
+    instance is replaced by the value that the mapping field stores for it, which is the value that the worker looks up
+    and the value that ``use_shard_for()`` and the move commands lock.
+    """
+    from djanquiltdb.utils import stored_mapping_value
+
+    return _value_for_header(stored_mapping_value(mapping_value))
+
+
 def _given_shard_kwargs(kwargs):
     return [name for name in accepted_shard_kwargs() if kwargs.get(name) is not None]
 
@@ -108,8 +119,9 @@ def shard_target_from_task_kwargs(kwargs):
     """
     Returns the shard that the keyword arguments of a task identify, or None when they do not identify a shard. A
     keyword argument whose value is None does not identify a shard. Raises TaskShardError when the keyword arguments
-    identify more than one shard. A model instance in a target is replaced by its primary key, and a value that is not
-    an integer or a string by its string, so that the target can be sent in a message header.
+    identify more than one shard. So that the target can be sent in a message header, a shard instance is replaced by
+    its primary key, a model instance that is passed as a mapping value is replaced by the value that the mapping field
+    stores for it, and a value that is not an integer or a string is replaced by its string.
     """
     given = _given_shard_kwargs(kwargs)
 
@@ -122,9 +134,11 @@ def shard_target_from_task_kwargs(kwargs):
         )
 
     name = given[0]
-    value = _value_for_header(kwargs[name])
 
-    return {'shard_id': value} if name == SHARD_ID_KWARG else {'mapping_value': value}
+    if name == SHARD_ID_KWARG:
+        return {'shard_id': _value_for_header(kwargs[name])}
+
+    return {'mapping_value': _mapping_value_for_header(kwargs[name])}
 
 
 def node_target_from_task_kwargs(kwargs):
@@ -153,7 +167,7 @@ def shard_target_from_active_connection():
         return None
 
     if active_connection.mapping_value is not None:
-        return {'mapping_value': _value_for_header(active_connection.mapping_value)}
+        return {'mapping_value': _mapping_value_for_header(active_connection.mapping_value)}
 
     if active_connection.shard_id is not None:
         return {'shard_id': _value_for_header(active_connection.shard_id)}

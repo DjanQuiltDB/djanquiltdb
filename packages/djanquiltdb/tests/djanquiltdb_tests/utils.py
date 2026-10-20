@@ -57,6 +57,7 @@ from djanquiltdb.utils import (
     migrate_schema,
     move_model_to_schema,
     schema_exists,
+    stored_mapping_value,
     transaction_for_every_node,
     transaction_for_nodes,
     use_shard,
@@ -193,6 +194,47 @@ class GetMappingClass(SimpleTestCase):
             self.assertIsNone(get_mapping_class())
 
         self.assertEqual(get_mapping_class(), OrganizationShard)
+
+
+class StoredMappingValueTestCase(SimpleTestCase):
+    def test_a_value_that_is_not_a_model_instance(self):
+        """
+        Case: Call stored_mapping_value() with the mapping values 7, 0 and 'north'.
+        Expected: Each value as it is.
+        """
+        for mapping_value in (7, 0, 'north'):
+            with self.subTest(mapping_value=mapping_value):
+                self.assertEqual(stored_mapping_value(mapping_value), mapping_value)
+
+    def test_a_model_instance_for_a_mapping_field_that_is_not_a_foreign_key(self):
+        """
+        Case: Call stored_mapping_value() with an Organization whose primary key is 42, while the mapping field
+              organization_id of OrganizationShard is not a foreign key.
+        Expected: 42, the primary key of the instance.
+        """
+        self.assertEqual(stored_mapping_value(Organization(pk=42)), 42)
+
+    @isolate_apps('djanquiltdb')
+    def test_a_model_instance_for_a_foreign_key_to_another_field(self):
+        """
+        Case: Call stored_mapping_value() with a MirroredUser, while the mapping field of the mapping model is a foreign
+              key to the email address of MirroredUser.
+        Expected: The email address of the user, which the mapping field stores, and not its primary key.
+        """
+
+        class MirroredUserShard(models.Model):
+            shard = models.ForeignKey(Shard, on_delete=models.CASCADE, related_name='+')
+            user = models.ForeignKey(MirroredUser, to_field='email', on_delete=models.CASCADE, related_name='+')
+
+            mapping_field = 'user'
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with mock.patch('djanquiltdb.utils.get_mapping_class', return_value=MirroredUserShard):
+            stored_value = stored_mapping_value(MirroredUser(pk=42, email='luke@layton.l5'))
+
+        self.assertEqual(stored_value, 'luke@layton.l5')
 
 
 class SetActiveConnectionTestCase(ResetConnectionTestCaseMixin, SimpleTestCase):

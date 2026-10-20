@@ -60,6 +60,35 @@ def get_primary_db_alias():
     return settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
 
 
+def stored_mapping_value(mapping_value):
+    """
+    Returns the value that the mapping field stores for ``mapping_value``. When the mapping field is a foreign key, the
+    mapping value can be a model instance. The stored value is then the primary key of the instance, or the field that
+    ``to_field`` names. Any other mapping value is returned as it is.
+    """
+    from django.db.models import Model
+
+    if not isinstance(mapping_value, Model):
+        return mapping_value
+
+    mapping_model = get_mapping_class()
+    mapping_field = mapping_model and mapping_model._meta.get_field(mapping_model.mapping_field)
+    stored_field = mapping_field.target_field if mapping_field and mapping_field.is_relation else None
+
+    return getattr(mapping_value, stored_field.attname) if stored_field else mapping_value.pk
+
+
+def mapping_lock_key(mapping_value):
+    """
+    Returns the name of the advisory lock of ``mapping_value``. ``use_shard_for()`` takes the shared lock of this name,
+    and the move commands take the exclusive lock. The name has the value that the mapping field stores, as
+    ``stored_mapping_value()`` returns it. ``use_shard_for()`` then locks the same key for a model instance and for
+    the value that the mapping field stores for that instance. The move commands read that stored value from the
+    mapping table, so they lock the same key too.
+    """
+    return 'mapping_{}'.format(stored_mapping_value(mapping_value))
+
+
 @cache
 def get_mapping_class():
     """

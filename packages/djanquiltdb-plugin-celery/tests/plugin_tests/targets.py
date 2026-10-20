@@ -2,9 +2,12 @@ import json
 import uuid
 from unittest import mock
 
+from django.db import models
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import isolate_apps
 from djanquiltdb import State
 from djanquiltdb.decorators import override_sharding_setting
+from djanquiltdb.options import ShardOptions
 from djanquiltdb.router import get_active_connection
 from djanquiltdb.utils import StateException, get_mapping_class, use_shard, use_shard_for
 
@@ -21,6 +24,31 @@ from djanquiltdb_plugin_celery.targets import (
 )
 from example.models import Shard, Widget
 from plugin_tests.base import PluginTestCase
+
+
+def define_a_mapping_model_with_a_foreign_key_to_an_email_address():
+    """
+    Defines a Customer model and a CustomerShard mapping model whose mapping field is a foreign key to the email address
+    of a Customer, and returns both. Call it inside isolate_apps('example'), so that the models stay out of the app
+    registry.
+    """
+
+    class Customer(models.Model):
+        email = models.EmailField(unique=True)
+
+        class Meta:
+            app_label = 'example'
+
+    class CustomerShard(models.Model):
+        shard = models.ForeignKey(Shard, on_delete=models.CASCADE, related_name='+')
+        customer = models.ForeignKey(Customer, to_field='email', on_delete=models.CASCADE, related_name='+')
+
+        mapping_field = 'customer'
+
+        class Meta:
+            app_label = 'example'
+
+    return Customer, CustomerShard
 
 
 class ShardTargetFromTaskKwargsTestCase(SimpleTestCase):
@@ -110,9 +138,28 @@ class ShardTargetFromTaskKwargsTestCase(SimpleTestCase):
         Case: The tenant_id of a task is a model instance with the primary key 2, as use_shard_for() takes for a mapping
               field that is a foreign key.
         Expected: The target has the primary key 2, which the worker uses to look up the mapping, and not the display
-                  string of the instance.
+                  string of the instance. The mapping field tenant_id is not a foreign key to another field, so the
+                  primary key is the value that it stores.
         """
         self.assertEqual(shard_target_from_task_kwargs({'tenant_id': Widget(pk=2)}), {'mapping_value': 2})
+
+    @isolate_apps('example')
+    def test_a_model_instance_is_turned_into_the_value_that_the_mapping_field_stores(self):
+        """
+        Case: The customer of a task is a Customer with the primary key 42, while the mapping field of the mapping model
+              is a foreign key to the email address of a Customer.
+        Expected: The target has the email address, which the mapping field stores, so that the worker finds the mapping
+                  and locks the key that use_shard_for() and the move commands lock for the customer.
+        """
+        customer_model, mapping_model = define_a_mapping_model_with_a_foreign_key_to_an_email_address()
+
+        with (
+            mock.patch('djanquiltdb.utils.get_mapping_class', return_value=mapping_model),
+            override_settings(QUILT_CELERY={'MAPPING_KWARG': 'customer'}),
+        ):
+            target = shard_target_from_task_kwargs({'customer': customer_model(pk=42, email='luke@layton.l5')})
+
+        self.assertEqual(target, {'mapping_value': 'luke@layton.l5'})
 
 
 class NodeTargetFromTaskKwargsTestCase(SimpleTestCase):
@@ -258,6 +305,30 @@ class ShardTargetFromActiveConnectionTestCase(PluginTestCase):
         """
         with use_shard_for(2):
             self.assertEqual(shard_target_from_active_connection(), {'mapping_value': 2})
+
+    @isolate_apps('example')
+    def test_a_mapping_value_that_is_a_model_instance_is_the_value_that_the_mapping_field_stores(self):
+        """
+        Case: shard_target_from_active_connection() is called while the options of first with a Customer as the mapping
+              value are active, and the mapping field of the mapping model is a foreign key to the email address of a
+              Customer.
+        Expected: A target that identifies the shard by the email address, which the mapping field stores.
+        """
+        customer_model, mapping_model = define_a_mapping_model_with_a_foreign_key_to_an_email_address()
+        options = ShardOptions(
+            node_name='default',
+            schema_name='first_schema',
+            shard_id=self.first.id,
+            mapping_value=customer_model(pk=42, email='luke@layton.l5'),
+        )
+
+        with (
+            mock.patch('djanquiltdb.utils.get_mapping_class', return_value=mapping_model),
+            mock.patch('djanquiltdb.router.get_active_connection', return_value=options),
+        ):
+            target = shard_target_from_active_connection()
+
+        self.assertEqual(target, {'mapping_value': 'luke@layton.l5'})
 
     def test_inside_the_public_schema_of_a_node_there_is_no_shard(self):
         """

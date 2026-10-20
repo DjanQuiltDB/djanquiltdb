@@ -2,7 +2,14 @@ from django.db import connections
 
 from djanquiltdb import State
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import StateException, get_mapping_class, get_shard_class, use_shard, use_shard_for
+from djanquiltdb.utils import (
+    StateException,
+    get_mapping_class,
+    get_shard_class,
+    mapping_lock_key,
+    use_shard,
+    use_shard_for,
+)
 
 
 class ShardOptions:
@@ -117,7 +124,7 @@ class ShardOptions:
             lock_keys.append('shard_{}'.format(self.shard_id))
 
         if self.mapping_value is not None:
-            lock_keys.append('mapping_{}'.format(self.mapping_value))
+            lock_keys.append(mapping_lock_key(self.mapping_value))
 
         return lock_keys
 

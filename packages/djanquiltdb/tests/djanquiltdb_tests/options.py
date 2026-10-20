@@ -1,9 +1,9 @@
 from unittest import mock
 
-from django.db import connections
-from django.test.utils import CaptureQueriesContext
+from django.db import connections, models
+from django.test.utils import CaptureQueriesContext, isolate_apps
 
-from djanquiltdb import State
+from djanquiltdb import STATES, State
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import override_sharding_setting
 from djanquiltdb.options import ShardOptions
@@ -11,7 +11,7 @@ from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.router import get_active_connection
 from djanquiltdb.utils import StateException, create_template_schema, use_shard, use_shard_for
 from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
-from example.models import Organization, OrganizationShard, Shard
+from example.models import MirroredUser, Organization, OrganizationShard, Shard
 
 
 class ShardOptionsTestCase(ShardingTestCase):
@@ -346,6 +346,50 @@ class ShardOptionsTestCase(ShardingTestCase):
             node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id, mapping_value=0
         )
         self.assertEqual(shard_options.lock_keys, ['shard_{}'.format(self.shard.id), 'mapping_0'])
+
+    def test_lock_keys_mapping_value_model_instance(self):
+        """
+        Case: Get the lock keys from a ShardOptions instance whose mapping value is a model instance, which
+              use_shard_for() accepts when the mapping field is a foreign key.
+        Expected: List with `shard_<SHARD_ID>` and `mapping_<PRIMARY_KEY>` returned. This is the lock that
+                  move_data_to_shard takes for the mapping value.
+        """
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name,
+            schema_name=self.shard.schema_name,
+            shard_id=self.shard.id,
+            mapping_value=Organization(pk=42),
+        )
+        self.assertEqual(shard_options.lock_keys, ['shard_{}'.format(self.shard.id), 'mapping_42'])
+
+    @isolate_apps('djanquiltdb')
+    def test_lock_keys_mapping_value_model_instance_for_a_foreign_key_to_another_field(self):
+        """
+        Case: Get the lock keys from a ShardOptions instance whose mapping value is a MirroredUser, while the mapping
+              field of the mapping model is a foreign key to the email address of MirroredUser.
+        Expected: List with `shard_<SHARD_ID>` and `mapping_<EMAIL_ADDRESS>` returned. The email address is the value
+                  that the mapping field stores, so use_shard_for() locks the same key for the user and for the email
+                  address of the user.
+        """
+
+        class MirroredUserShard(models.Model):
+            shard = models.ForeignKey(Shard, on_delete=models.CASCADE, related_name='+')
+            user = models.ForeignKey(MirroredUser, to_field='email', on_delete=models.CASCADE, related_name='+')
+            state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
+
+            mapping_field = 'user'
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with mock.patch('djanquiltdb.utils.get_mapping_class', return_value=MirroredUserShard):
+            shard_options = ShardOptions(
+                node_name=self.shard.node_name,
+                schema_name=self.shard.schema_name,
+                shard_id=self.shard.id,
+                mapping_value=MirroredUser(pk=42, email='luke@layton.l5'),
+            )
+            self.assertEqual(shard_options.lock_keys, ['shard_{}'.format(self.shard.id), 'mapping_luke@layton.l5'])
 
     def test_is_public_schema(self):
         """

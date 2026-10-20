@@ -22,6 +22,7 @@ from djanquiltdb.utils import (
     get_mapping_class,
     get_model_sharding_mode,
     get_shard_class,
+    mapping_lock_key,
     pgtrigger_triggers_ignored,
     transaction_for_nodes,
     use_shard,
@@ -505,8 +506,8 @@ class Command(BaseCommand):
                 root_object_id = root_object.id
                 mapping_object = mapping_model.objects.for_target(root_object_id)
 
-                # Get exclusive advisory lock on the mapping object.
-                source_connection.acquire_advisory_lock(key='mapping_{}'.format(root_object_id), shared=False)
+                # Take the exclusive advisory lock of the mapping value, whose shared lock use_shard_for() takes.
+                source_connection.acquire_advisory_lock(key=mapping_lock_key(root_object_id), shared=False)
 
                 self.old_source_state[root_object_id] = mapping_object.state
                 mapping_object.state = State.MAINTENANCE
@@ -544,7 +545,7 @@ class Command(BaseCommand):
                 mapping_object.save(update_fields=['state', 'shard'])
 
                 # Release the exclusive advisory lock
-                source_connection.release_advisory_lock(key='mapping_{}'.format(root_object_id), shared=False)
+                source_connection.release_advisory_lock(key=mapping_lock_key(root_object_id), shared=False)
         else:
             # pre_execution records the old state before flipping; when it failed before getting there, the shard was
             # never flipped and there is nothing to restore.
