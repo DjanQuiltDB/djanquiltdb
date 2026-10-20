@@ -3,8 +3,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from threading import local
 
-from django.conf import settings
-from django.db import DEFAULT_DB_ALIAS, ProgrammingError
+from django.db import ProgrammingError
 
 from djanquiltdb import ShardingMode, public_modes
 from djanquiltdb.options import ShardOptions
@@ -64,7 +63,7 @@ class DynamicDbRouter:
         already retrieved objects or when explicitly provide directions (i.e. ``.using()``).
         """
         if getattr(get_model_definition(model), 'route_to_primary_db', None):
-            return settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
+            return get_primary_db_alias()
         shard_options = hints.get('_shard_options')
         instance_options = hints.get('instance') is not None and hints['instance']._state.db
         return instance_options or shard_options or get_active_connection()
@@ -75,7 +74,7 @@ class DynamicDbRouter:
         Otherwise, refer to normal behavior of db_for_read.
         """
         if get_model_sharding_mode(model) is ShardingMode.MIRRORED:
-            default_node_name = settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
+            default_node_name = get_primary_db_alias()
             db = self.db_for_read(model, **hints)
             if not isinstance(db, ShardOptions) or db.node_name != default_node_name:
                 return default_node_name
