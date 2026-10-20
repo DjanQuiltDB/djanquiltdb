@@ -1,11 +1,13 @@
 import subprocess  # nosec
 import sys
 
+import djanquiltdb.utils.celery as utils_namespace
 from django.test import SimpleTestCase
-from djanquiltdb import decorators
+from djanquiltdb import decorators, utils
 from djanquiltdb.decorators import celery
 from djanquiltdb.decorators.celery import task_for_shard
 from djanquiltdb.plugins import load_plugins
+from djanquiltdb.utils.celery import fan_out
 
 import djanquiltdb_plugin_celery
 
@@ -52,6 +54,21 @@ class PluginDiscoveryTestCase(SimpleTestCase):
         Expected: It is the plugin's own decorator.
         """
         self.assertIs(task_for_shard, djanquiltdb_plugin_celery.task_for_shard)
+
+    def test_the_helpers_are_served_from_the_core_utils_module(self):
+        """
+        Case: djanquiltdb.utils.celery is imported, read as an attribute of djanquiltdb.utils, and fan_out is imported
+              from inside it.
+        Expected: Each is the plugin's utils module or the plugin's fan_out function, and each name in the __all__ of
+                  the utils module is the same object that the distribution package exports.
+        """
+        self.assertIs(utils_namespace, djanquiltdb_plugin_celery.utils)
+        self.assertIs(utils.celery, djanquiltdb_plugin_celery.utils)
+        self.assertIs(fan_out, djanquiltdb_plugin_celery.fan_out)
+
+        for name in djanquiltdb_plugin_celery.utils.__all__:
+            with self.subTest(name=name):
+                self.assertIs(getattr(utils_namespace, name), getattr(djanquiltdb_plugin_celery, name))
 
     def test_the_decorators_are_not_attributes_of_the_core_decorators_module(self):
         """

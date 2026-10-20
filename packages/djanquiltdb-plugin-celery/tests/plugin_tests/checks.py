@@ -27,6 +27,8 @@ class QuiltCelerySettingCheckTestCase(SimpleTestCase):
             'RETRY_BACKOFF': True,
             'RETRY_BACKOFF_MAX': 120,
             'RETRY_JITTER': True,
+            'FANOUT_QUEUE': 'fanout',
+            'FANOUT_SPREAD': (5, 10),
         }
     )
     def test_every_key_with_a_value_of_its_type_passes(self):
@@ -91,6 +93,28 @@ class QuiltCelerySettingCheckTestCase(SimpleTestCase):
         self.assertIn('a string', messages[0].msg)
         self.assertIn("QUILT_CELERY['RETRY_BACKOFF_MAX']", messages[1].msg)
         self.assertIn('an integer', messages[1].msg)
+
+    def test_a_spread_is_an_integer_or_a_pair_of_integers_that_are_not_negative_and_ascending(self):
+        """
+        Case: QUILT_CELERY['FANOUT_SPREAD'] is set to each of 30, 0, [5, 10], (5, 5), 'soon', (5, 'ten'), (1, 2, 3), -5,
+              (-1, 5) and (300, 0).
+        Expected: No message for an integer and a pair of integers that are not negative and ascending, and
+                  djanquiltdb_plugin_celery.E002 for the others.
+        """
+        for spread, expected_ids in [
+            (30, []),
+            (0, []),
+            ([5, 10], []),
+            ((5, 5), []),
+            ('soon', ['djanquiltdb_plugin_celery.E002']),
+            ((5, 'ten'), ['djanquiltdb_plugin_celery.E002']),
+            ((1, 2, 3), ['djanquiltdb_plugin_celery.E002']),
+            (-5, ['djanquiltdb_plugin_celery.E002']),
+            ((-1, 5), ['djanquiltdb_plugin_celery.E002']),
+            ((300, 0), ['djanquiltdb_plugin_celery.E002']),
+        ]:
+            with self.subTest(spread=spread), self.settings(QUILT_CELERY={'FANOUT_SPREAD': spread}):
+                self.assertEqual(message_ids(check_quilt_celery_setting(None)), expected_ids)
 
     @override_settings(QUILT_CELERY=['MAX_RETRIES'])
     def test_a_setting_that_is_not_a_dict_is_reported(self):

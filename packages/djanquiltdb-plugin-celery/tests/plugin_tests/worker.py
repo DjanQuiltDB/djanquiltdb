@@ -6,7 +6,16 @@ from djanquiltdb.utils import use_shard
 
 from config.celery import app
 from djanquiltdb_plugin_celery.targets import TaskShardError
-from example.tasks import record_inherited_target, record_node, record_target
+from djanquiltdb_plugin_celery.utils import aggregate_per_shard
+from example.tasks import (
+    collect_counts,
+    count_widgets,
+    create_widget,
+    record_every_shard,
+    record_inherited_target,
+    record_node,
+    record_target,
+)
 from plugin_tests.base import PluginTestCase
 from plugin_tests.tasks import node_and_schema_of
 
@@ -74,6 +83,31 @@ class WorkerTestCase(PluginTestCase):
             self.assertEqual(get_active_connection().schema_name, 'first_schema')
 
         self.assertEqual(node_and_schema_of(result), ('default', 'first_schema'))
+
+    def test_the_worker_runs_a_fan_out_in_every_active_shard(self):
+        """
+        Case: record_every_shard is published without a target.
+        Expected: The worker sends one task for first and one for remote, and runs each in its shard.
+        """
+        task_ids = record_every_shard.delay().get(timeout=RESULT_TIMEOUT)
+        results = [app.AsyncResult(task_id).get(timeout=RESULT_TIMEOUT) for task_id in task_ids]
+
+        self.assertEqual(
+            [node_and_schema_of(result) for result in results],
+            [('default', 'first_schema'), ('other', 'remote_schema')],
+        )
+
+    def test_the_worker_runs_a_chord_over_every_active_shard(self):
+        """
+        Case: first has one widget, and aggregate_per_shard() runs count_widgets, which ignores its results, in each
+              active shard with collect_counts as the callback.
+        Expected: The callback receives the count of first and of remote.
+        """
+        create_widget.delay('anvil', shard_id=self.first.id).get(timeout=RESULT_TIMEOUT)
+
+        result = aggregate_per_shard(count_widgets, collect_counts.s())
+
+        self.assertEqual(result.get(timeout=RESULT_TIMEOUT), [1, 0])
 
     def test_the_worker_runs_each_task_of_a_chain_in_its_own_target(self):
         """

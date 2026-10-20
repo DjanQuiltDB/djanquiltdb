@@ -49,6 +49,14 @@ class QuiltTask(DjangoTask):
     #: task is sent or its signature is built.
     inherit_active_shard = False
 
+    #: Whether a task that runs without a target sends itself once for each shard of the fan-out, or once for every
+    #: node, as ``runs_in`` says. Without a fan-out, such a task raises TaskShardError or TaskNodeError. The
+    #: ``fanout_*`` attributes below are passed on to the fan-out.
+    fans_out = False
+    fanout_queue = None
+    fanout_spread = None
+    fanout_include_maintenance = False
+
     #: The signature of the function of the task, without the parameter for the task. The decorators set it.
     function_signature = None
 
@@ -144,10 +152,14 @@ class QuiltTask(DjangoTask):
 
     def options_with_target_header(self, kwargs, options):
         """
-        Returns ``options`` with the target header of the message added. A message without a target raises
-        TaskShardError or TaskNodeError, so that nothing is sent.
+        Returns ``options`` with the target header of the message added. For a message of a fan-out task without a
+        target, ``options`` is returned unchanged, because that message starts the fan-out. Any other message without a
+        target raises TaskShardError or TaskNodeError, so that nothing is sent.
         """
         target = self.target_of_message(options.get('headers'), kwargs)
+
+        if target is None and self.fans_out:
+            return options
 
         if target is None:
             raise self.missing_target_error(kwargs)
@@ -167,7 +179,8 @@ class QuiltTask(DjangoTask):
         Returns a signature of this task with the target header of its message, so that the target is resolved where the
         signature is built. The worker sends a later task of a chain, the body of a chord and a link callback, and the
         shard of the sender is not active in the worker. A signature without a target raises TaskShardError or
-        TaskNodeError, as sending the task does.
+        TaskNodeError, as sending the task does, unless the task is decorated with ``task_for_every_shard`` or
+        ``task_for_every_node``.
         """
         signature = super().signature(args, *starargs, **starkwargs)
 
@@ -328,6 +341,27 @@ class QuiltTask(DjangoTask):
         ``for_node(node_name).apply_async_on_commit(args, kwargs, **options)``.
         """
         return self.for_node(node_name).apply_async_on_commit(args, kwargs, **options)
+
+    def fan_out_to_every_target(self, args, kwargs):
+        """
+        Sends this task once for every shard or every node, as ``runs_in`` says, with the arguments of the running
+        request, and returns the ids of the tasks that it sends.
+        """
+        from djanquiltdb_plugin_celery.utils import fan_out, fan_out_to_nodes
+
+        if self.runs_in == 'node':
+            results = fan_out_to_nodes(self, args, kwargs, queue=self.fanout_queue, spread=self.fanout_spread)
+        else:
+            results = fan_out(
+                self,
+                args,
+                kwargs,
+                queue=self.fanout_queue,
+                spread=self.fanout_spread,
+                include_maintenance=self.fanout_include_maintenance,
+            )
+
+        return [result.id for result in results]
 
 
 class TaskSenderForTarget:

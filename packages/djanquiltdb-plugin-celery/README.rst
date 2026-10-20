@@ -53,7 +53,18 @@ while that shard is in maintenance::
     send_invoice.delay(invoice_id=12, tenant_id=3)
 
 A task that is decorated with ``task_for_node`` runs in the public schema of the node that its ``node_name`` identifies.
-A task that is decorated with ``task_for_active_shard`` runs in the shard that is active where the task is sent.
+A task that is decorated with ``task_for_active_shard`` runs in the shard that is active where the task is sent. A task
+that is decorated with ``task_for_every_shard`` runs once in every active shard when it is sent without a shard::
+
+    from djanquiltdb.decorators.celery import task_for_every_shard
+
+
+    @task_for_every_shard(queue='fanout', spread=(0, 300))
+    def clean_up_drafts():
+        Draft.objects.filter(updated_at__lt=a_month_ago()).delete()
+
+
+    clean_up_drafts.delay()
 
 Install the plugin through the ``celery`` extra of DjanQuiltDB::
 

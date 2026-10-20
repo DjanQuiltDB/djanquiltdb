@@ -2,24 +2,35 @@ from django.conf import settings
 from django.core import checks
 from djanquiltdb.utils import get_mapping_class
 
-from djanquiltdb_plugin_celery.settings import QUILT_CELERY_DEFAULTS
+from djanquiltdb_plugin_celery.settings import (
+    QUEUE_DESCRIPTION,
+    QUILT_CELERY_DEFAULTS,
+    SPREAD_DESCRIPTION,
+    is_spread,
+)
 from djanquiltdb_plugin_celery.targets import NODE_NAME_KWARG, SHARD_ID_KWARG
 
-#: The types that each key of QUILT_CELERY takes, and how a message describes them.
-QUILT_CELERY_TYPES = {
-    'MAPPING_KWARG': ((str, type(None)), 'a string or None'),
-    'MAX_RETRIES': ((int, type(None)), 'an integer or None'),
-    'RETRY_BACKOFF': ((bool, int), 'a boolean or an integer'),
-    'RETRY_BACKOFF_MAX': ((int,), 'an integer'),
-    'RETRY_JITTER': ((bool,), 'a boolean'),
+#: For each key of QUILT_CELERY: a function that returns whether a value of the key is valid, and how a message
+#: describes the valid values. A boolean is an instance of int, so the keys that accept an integer and not a boolean
+#: exclude it.
+QUILT_CELERY_VALIDATORS = {
+    'MAPPING_KWARG': (lambda value: isinstance(value, (str, type(None))), 'a string or None'),
+    'MAX_RETRIES': (
+        lambda value: value is None or (isinstance(value, int) and not isinstance(value, bool)),
+        'an integer or None',
+    ),
+    'RETRY_BACKOFF': (lambda value: isinstance(value, (bool, int)), 'a boolean or an integer'),
+    'RETRY_BACKOFF_MAX': (lambda value: isinstance(value, int) and not isinstance(value, bool), 'an integer'),
+    'RETRY_JITTER': (lambda value: isinstance(value, bool), 'a boolean'),
+    'FANOUT_QUEUE': (lambda value: isinstance(value, (str, type(None))), QUEUE_DESCRIPTION),
+    'FANOUT_SPREAD': (is_spread, SPREAD_DESCRIPTION),
 }
 
 
 @checks.register(checks.Tags.compatibility)
 def check_quilt_celery_setting(app_configs, **kwargs):
     """
-    Reports a QUILT_CELERY setting that is not a dict (djanquiltdb_plugin_celery.E002), a key that the plugin does not
-    read (djanquiltdb_plugin_celery.E001), and a value of the wrong type (djanquiltdb_plugin_celery.E002).
+    Reports a QUILT_CELERY setting, key or value that the celery plugin cannot use.
     """
     quilt_celery = getattr(settings, 'QUILT_CELERY', {})
 
@@ -36,8 +47,8 @@ def check_quilt_celery_setting(app_configs, **kwargs):
         if name not in QUILT_CELERY_DEFAULTS
     ]
 
-    for name, (types, description) in QUILT_CELERY_TYPES.items():
-        if name in quilt_celery and not isinstance(quilt_celery[name], types):
+    for name, (is_valid, description) in QUILT_CELERY_VALIDATORS.items():
+        if name in quilt_celery and not is_valid(quilt_celery[name]):
             messages.append(
                 checks.Error(
                     "QUILT_CELERY['{}'] is {!r}, and it accepts {}.".format(name, quilt_celery[name], description),

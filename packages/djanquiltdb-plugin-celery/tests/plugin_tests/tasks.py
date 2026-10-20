@@ -10,6 +10,7 @@ from djanquiltdb_plugin_celery.targets import TARGET_HEADER_NAME, TaskNodeError,
 from example.models import TenantShard, Widget
 from example.tasks import (
     create_widget,
+    record_every_shard,
     record_inherited_target,
     record_node,
     record_received_node_name,
@@ -509,6 +510,15 @@ class SendingToATargetTestCase(PluginTestCase):
         self.assertEqual(node_and_schema_of(inherited), ('default', 'first_schema'))
         self.assertEqual(node_and_schema_of(with_alias), ('other', 'remote_schema'))
         self.assertEqual(node_and_schema_of(with_for_shard), ('other', 'remote_schema'))
+
+    def test_for_shard_on_a_fan_out_task_runs_in_that_shard_only(self):
+        """
+        Case: record_every_shard, decorated with task_for_every_shard, is sent with for_shard(remote).delay().
+        Expected: It runs in remote, and sends nothing.
+        """
+        result = record_every_shard.for_shard(self.remote).delay().get()
+
+        self.assertEqual(node_and_schema_of(result), ('other', 'remote_schema'))
 
     def test_for_shard_without_a_shard_or_with_two_shards_raises(self):
         """
