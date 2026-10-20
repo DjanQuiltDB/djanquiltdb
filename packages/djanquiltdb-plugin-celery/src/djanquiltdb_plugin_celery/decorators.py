@@ -63,6 +63,13 @@ def _create_quilt_task(func, task_attributes, options):
 
     options = dict(options)
     bind = options.pop('bind', False)
+    base = options.pop('base', QuiltTask)
+
+    if not issubclass(base, QuiltTask):
+        raise TypeError(
+            'The base of {} is {}, which does not inherit from QuiltTask. The tasks of the celery plugin need '
+            'the methods of QuiltTask to send and to enter their targets.'.format(func.__qualname__, base.__qualname__)
+        )
 
     # The wrapper is always bound, because it reads the request of the task. The function receives the task only when it
     # is decorated with bind=True.
@@ -88,7 +95,7 @@ def _create_quilt_task(func, task_attributes, options):
     run_in_target.__signature__ = WRAPPER_SIGNATURE
     task_attributes = {**task_attributes, 'function_signature': _signature_of_function(func, bind)}
 
-    return shared_task(bind=True, base=QuiltTask, **task_attributes, **_retry_options(options))(run_in_target)
+    return shared_task(bind=True, base=base, **task_attributes, **_retry_options(options))(run_in_target)
 
 
 def _task_decorator_or_task(task_attributes, func, options):
@@ -126,8 +133,9 @@ def task_for_shard(func=None, *, inherit_active_shard=False, lock=None, **option
     :param lock: Passed on to ``use_shard()`` as ``lock``. By default, ``use_shard()`` locks the shard while the task
         runs.
     :param options: The options of ``celery.shared_task()``. ``max_retries``, ``retry_backoff``, ``retry_backoff_max``
-        and ``retry_jitter`` default to the QUILT_CELERY settings, and the exceptions of ``autoretry_for`` are retried
-        besides StateException.
+        and ``retry_jitter`` default to the QUILT_CELERY settings, and StateException is added to the exceptions of
+        ``autoretry_for``. ``base`` defaults to :class:`~djanquiltdb_plugin_celery.tasks.QuiltTask`, and a
+        ``base`` that does not inherit from that class raises TypeError.
 
     :Example:
         .. code-block:: python

@@ -1,12 +1,14 @@
 from unittest import mock
 
-from celery import group, signals
+from celery import Task, group, signals
 from django.test import override_settings
+from djanquiltdb.router import get_active_connection
 from djanquiltdb.utils import StateException, use_shard
 
 from config.celery import app
 from djanquiltdb_plugin_celery.decorators import task_for_shard
 from djanquiltdb_plugin_celery.targets import TARGET_HEADER_NAME, TaskNodeError, TaskQuiltError, TaskShardError
+from djanquiltdb_plugin_celery.tasks import QuiltTask
 from example.models import TenantShard, Widget
 from example.tasks import (
     create_widget,
@@ -769,6 +771,37 @@ class DecoratorOptionsTestCase(PluginTestCase):
 
         self.assertEqual(first_bound_function(shard_id=self.first.id), first_bound_function.name)
         self.assertEqual(second_bound_function(shard_id=self.first.id), second_bound_function.name)
+
+    def test_a_subclass_of_the_task_class_can_be_the_base(self):
+        """
+        Case: A task is decorated with base= a subclass of QuiltTask that records each success, and is sent for first.
+        Expected: The task is an instance of the subclass, runs in first, and the subclass records its success.
+        """
+        successes = []
+
+        class RecordingTask(QuiltTask):
+            def on_success(self, retval, task_id, args, kwargs):
+                successes.append(retval)
+
+        @task_for_shard(name='plugin_tests.tasks.with_a_base_of_its_own', base=RecordingTask)
+        def with_a_base_of_its_own(**kwargs):
+            return get_active_connection().schema_name
+
+        with_a_base_of_its_own.delay(shard_id=self.first.id)
+
+        self.assertIsInstance(with_a_base_of_its_own, RecordingTask)
+        self.assertEqual(successes, ['first_schema'])
+
+    def test_a_base_that_is_not_a_subclass_of_the_task_class_is_refused(self):
+        """
+        Case: A task is decorated with base=celery.Task, which does not inherit from QuiltTask.
+        Expected: TypeError at the decoration, whose message includes both classes.
+        """
+        with self.assertRaisesMessage(TypeError, 'QuiltTask'):
+
+            @task_for_shard(name='plugin_tests.tasks.with_a_plain_base', base=Task)
+            def with_a_plain_base(**kwargs):
+                pass  # pragma: no cover
 
     def test_the_autoretry_exceptions_of_the_decorator_are_added_to_state_exception(self):
         """
