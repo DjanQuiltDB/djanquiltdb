@@ -19,6 +19,7 @@ from djanquiltdb.utils import (
     get_mapping_class,
     get_model_sharding_mode,
     get_shard_class,
+    mapping_lock_key,
     transaction_for_nodes,
 )
 
@@ -152,7 +153,8 @@ class Command(BaseCommand):
         We do this so we wait until all current usages of the shard are done (since they set a shared lock),
         and cause all new usages to wait for this lock the be released.
 
-        We also set the shard in maintenance
+        We also set the shard in maintenance. The lock of the shard is taken before the locks of the mappings, in the
+        order that use_shard_for() takes them, so the command and a use_shard_for() do not wait for each other.
         """
         source_connection = connections[self.source_shard.node_name]
         mapping_model = get_mapping_class()
@@ -163,21 +165,24 @@ class Command(BaseCommand):
                 widgets=[progressbar.RotatingMarker(), ' Acquiring locks; ', progressbar.Timer()],
             )
 
-        if mapping_model:
-            for mapping_object in mapping_model.objects.for_shard(self.source_shard).iterator():
-                # Get exclusive advisory lock on the mapping object.
-                source_connection.acquire_advisory_lock(key='mapping_{}'.format(mapping_object.id), shared=False)
-
-                self.old_source_states[mapping_object.id] = mapping_object.state
-                mapping_object.state = State.MAINTENANCE
-                mapping_object.save(update_fields=['state'])
-
         # Get exclusive advisory lock on the sharding object.
         source_connection.acquire_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
 
         self.old_shard_state = self.source_shard.state
         self.source_shard.state = State.MAINTENANCE
         self.source_shard.save(update_fields=['state'])
+
+        if mapping_model:
+            for mapping_object in mapping_model.objects.for_shard(self.source_shard).iterator():
+                # Take the exclusive advisory lock of the mapping value, whose shared lock use_shard_for() takes. For a
+                # foreign key, serializable_value() returns the value that the field stores without reading the related
+                # row.
+                mapping_value = mapping_object.serializable_value(mapping_model.mapping_field)
+                source_connection.acquire_advisory_lock(key=mapping_lock_key(mapping_value), shared=False)
+
+                self.old_source_states[mapping_object.id] = mapping_object.state
+                mapping_object.state = State.MAINTENANCE
+                mapping_object.save(update_fields=['state'])
 
         if not self.quiet:
             bar.finish()
@@ -614,7 +619,8 @@ class Command(BaseCommand):
                 mapping_object.save(update_fields=['state'])
 
                 # Release the exclusive advisory lock
-                source_connection.release_advisory_lock(key='mapping_{}'.format(root_object_id), shared=False)
+                mapping_value = mapping_object.serializable_value(mapping_model.mapping_field)
+                source_connection.release_advisory_lock(key=mapping_lock_key(mapping_value), shared=False)
 
         # Restore shard state and set its node to the target.
         # pre_execution records the old state just before flipping the shard; when it failed earlier, the shard itself
