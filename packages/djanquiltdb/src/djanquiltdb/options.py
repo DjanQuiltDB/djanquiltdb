@@ -92,8 +92,6 @@ class ShardOptions:
         """
         if isinstance(alias, cls):
             return alias
-        elif isinstance(alias, get_shard_class()):
-            return cls.from_shard(alias)
         elif isinstance(alias, str):
             if '|' in alias:
                 node_name, schema_name = alias.split('|')
@@ -103,6 +101,8 @@ class ShardOptions:
         elif isinstance(alias, tuple) and len(alias) == 2:
             node_name, schema_name = alias
             return cls(node_name=node_name, schema_name=schema_name)
+        elif isinstance(alias, get_shard_class()):
+            return cls.from_shard(alias)
 
         raise ValueError('{} is an invalid connection alias.'.format(alias))
 

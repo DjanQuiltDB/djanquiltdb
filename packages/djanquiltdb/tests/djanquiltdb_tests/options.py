@@ -292,6 +292,19 @@ class ShardOptionsTestCase(ShardingTestCase):
         with self.assertRaisesMessage(ValueError, '{} is an invalid connection alias.'.format(alias)):
             ShardOptions.from_alias(alias)
 
+    def test_from_alias_does_not_look_up_the_shard_class_for_a_string_or_a_tuple(self):
+        """
+        Case: Get the ShardOptions from a bare node name, from a node name and schema name separated by a pipe, and from
+              a tuple of a node name and schema name.
+        Expected: The shard class is not looked up, because none of these aliases can be a shard.
+        """
+        with mock.patch('djanquiltdb.options.get_shard_class', return_value=Shard) as mock_get_shard_class:
+            ShardOptions.from_alias('default')
+            ShardOptions.from_alias('default|test_schema')
+            ShardOptions.from_alias(('default', 'test_schema'))
+
+        mock_get_shard_class.assert_not_called()
+
     def test_lock_keys_none(self):
         """
         Case: Get the lock keys from a ShardOptions instance that has no shard id and no mapping value
