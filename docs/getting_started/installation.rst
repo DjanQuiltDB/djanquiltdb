@@ -63,6 +63,20 @@ If you wish to manage database triggers, we recommend
 `django-pgtrigger <https://github.com/AmbitionEng/django-pgtrigger>`_. See :doc:`/database_objects/triggers` for more
 information.
 
+.. _`celery_extra`:
+
+``celery``
+~~~~~~~~~~
+
+The ``celery`` extra adds `Celery <https://docs.celeryq.dev/>`_ tasks that work with sharding::
+
+    pip install djanquiltdb[celery]
+
+It installs a plugin that makes this library work with Celery. The plugin's task decorators run a task in the shard that
+the keyword arguments of the task identify, or in the shard that is active where the task is sent. A task whose shard is
+in maintenance is retried, and a task can run once in every shard or on every node. See :doc:`the plugin's documentation
+</plugins/celery/index>`.
+
 .. _`pghistory_extra`:
 
 ``pghistory``

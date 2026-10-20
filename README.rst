@@ -44,6 +44,11 @@ This repository develops the library and its plugins, each shipped as a distribu
 
       pip install djanquiltdb
 
+* ``packages/djanquiltdb-plugin-celery``: `Celery <https://docs.celeryq.dev/>`_ tasks that run in a shard, or once in
+  every shard or on every node, installed through the core library's extra::
+
+      pip install djanquiltdb[celery]
+
 * ``packages/djanquiltdb-plugin-pghistory``: sharding support for the model history that `django-pghistory
   <https://django-pghistory.readthedocs.io/>`_ records, installed through the core library's extra::
 

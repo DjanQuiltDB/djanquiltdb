@@ -27,7 +27,8 @@ E002 and W003 report. ``MUTE_PGTRIGGER_COMPATIBILITY_WARNING`` (see :doc:`/refer
 E001, E002 and W003 have no setting of their own: ``SILENCED_SYSTEM_CHECKS`` is the only way to silence them.
 ``manage.py check <app_label>`` reports them for the triggers on the models of the apps that it names only.
 
-Plugins register their own checks, with their own prefix. The pghistory plugin documents
+Plugins register their own checks, with their own prefix. The celery plugin documents ``djanquiltdb_plugin_celery.E001``
+and ``E002`` on :doc:`its installation page </plugins/celery/installation>`. The pghistory plugin documents
 ``djanquiltdb_plugin_pghistory.W001`` to ``W005``, ``E002`` and ``E004`` on :doc:`its installation page
 </plugins/pghistory/installation>`, and ``E001``, ``E003`` and ``E004`` on :doc:`its tracking page
 </plugins/pghistory/tracking>`.

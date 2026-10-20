@@ -59,7 +59,7 @@ DjanQuiltDB finds them through the ``djanquiltdb.plugins`` entry-point group.
     :maxdepth: 2
     :caption: Integrations
 
-    integrations/celery
+    plugins/celery/index
     plugins/pghistory/index
     plugins/postgres-denormalize/index
     plugins/postgres-objects/index

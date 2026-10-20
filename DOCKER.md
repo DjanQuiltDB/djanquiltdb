@@ -18,6 +18,7 @@ Run one package's environments by label, one environment, or hand extra argument
 
 ```bash
 docker compose run --rm test tox -m core
+docker compose run --rm test tox -m celery
 docker compose run --rm test tox -m pghistory
 docker compose run --rm test tox -m postgres-denormalize
 docker compose run --rm test tox -m postgres-objects
