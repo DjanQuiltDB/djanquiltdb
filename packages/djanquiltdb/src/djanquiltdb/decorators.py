@@ -228,24 +228,25 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
         * state: Single length char field with utils.States as options.
         * a field that is listed as the 'mapping_field' as argument to the decorator
 
-    :note: This decorator does not determine the sharding mode for this model. You can apply a sharding decorator in
-        addition. Do note that marking the mapping model as @sharded_model defeats its purpose.
+    :note: This decorator does not determine the sharding mode for this model. Decorate the model with
+        ``@mirrored_model()`` too, so that every node has the mapping table.
 
     :Example:
         .. code-block:: python
 
             from django.db import models
-            from djanquiltdb.decorators import shard_mapping_model, sharded_model
+            from djanquiltdb.decorators import mirrored_model, shard_mapping_model
             from djanquiltdb.models import BaseShard
             from djanquiltdb.utils import State
 
 
+            @mirrored_model()
             class Shard(BaseShard):
                 class Meta:
                     app_label = 'example'
 
 
-            @public_model()
+            @mirrored_model()
             @shard_mapping_model(mapping_field='organization_id')
             class ShardMapping(models.Model):
                 # List every organization in this model, so you can easily request in which shard they live.
@@ -358,10 +359,11 @@ def sharded_model():
         .. code-block:: python
 
             from django.db import models
-            from djanquiltdb.decorators import sharded_model
+            from djanquiltdb.decorators import mirrored_model, sharded_model
             from djanquiltdb.models import BaseShard
 
 
+            @mirrored_model()
             class Shard(BaseShard):
                 class Meta:
                     app_label = 'example'

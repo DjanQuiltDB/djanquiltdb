@@ -34,6 +34,7 @@ the wanted shard from mapping table automatically.
     }
 
     # myapp.models
+    @mirrored_model()
     @shard_mapping_model(mapping_field='organization_id')
     class OrganizationShard(models.Model):
         shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
@@ -48,7 +49,7 @@ the wanted shard from mapping table automatically.
     with use_shard_for(user.organization_id):
         # do things on my shard
 
-Additionally, you can mirror the mapping model by adding ``@mirrored_model`` to it.
+Decorate the mapping model with ``@mirrored_model()``, like the Shard model, so that every node has the mapping table.
 
 
 NEW_SHARD_NODE

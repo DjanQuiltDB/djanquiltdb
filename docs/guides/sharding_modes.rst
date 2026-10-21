@@ -19,6 +19,6 @@ Special decorator:
 
 * ``@shard_mapping_model(mapping_field='user_id')``: The mapping table is optional. When defined it allows usages
   of helper functions to select shards based on the mapping values. Specifically the field designated as mapping field
-  in the decorator.
+  in the decorator. Decorate the mapping model, like the Shard model, with ``@mirrored_model()`` as well.
 
 :ref:`More info <api_decorators>` on decorators and how to use them.

@@ -128,16 +128,20 @@ rest.
 Creating models
 ---------------
 
-The sharding application requires you to create a custom ``Shard`` model, which inherits from the base model.
+The sharding application requires you to create a custom ``Shard`` model, which inherits from the base model. Decorate
+it with ``@mirrored_model()``, so that every node has the shard registry, and do the same for a mapping model (see
+:doc:`/reference/settings`).
 
 
 ``myapp/models.py`` ::
 
     from django.db import models
 
+    from djanquiltdb.decorators import mirrored_model
     from djanquiltdb.models import BaseShard
 
 
+    @mirrored_model()
     class Shard(BaseShard):
         class Meta:
             app_label = 'myapp'

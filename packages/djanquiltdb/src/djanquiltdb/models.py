@@ -60,10 +60,9 @@ class BaseShard(models.Model):
 
     .. rubric:: Mirroring
 
-    You can, if you wish, apply the ``@mirrored_model`` decorator to this model as well.
-    Like all mirrored models, you will have to keep them in sync yourself.
-    Though this library does provide helper functions to accomplish that.
-    Since this model will create a schema when saved, it has logic to only do so on the node it targets.
+    Decorate this model with ``@mirrored_model()``, so that every node has the shard registry, which DjanQuiltDB reads
+    on the node that is active. As for every mirrored model, keep the copies the same on every node.
+    Saving a shard creates its schema on the node of the shard only.
     """
 
     alias = models.CharField(max_length=128, db_index=True, unique=True)

@@ -429,16 +429,18 @@ def get_shard_for(target_value, active_only=True, field=None):
             }
 
             # myapp.models
-            from djanquiltdb.decorators import shard_mapping_model
+            from djanquiltdb.decorators import mirrored_model, shard_mapping_model
             from djanquiltdb.models import BaseShard
             from djanquiltdb.utils import State
 
 
+            @mirrored_model()
             class Shard(BaseShard):
                 class Meta:
                     app_label = 'myapp'
 
 
+            @mirrored_model()
             @shard_mapping_model(mapping_field='organization_id')
             class OrganizationShard(models.Model):
                 shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
@@ -512,16 +514,18 @@ class use_shard_for(use_shard):
             }
 
             # myapp.models
-            from djanquiltdb.decorators import shard_mapping_model
+            from djanquiltdb.decorators import mirrored_model, shard_mapping_model
             from djanquiltdb.models import BaseShard
             from djanquiltdb.utils import State
 
 
+            @mirrored_model()
             class Shard(BaseShard):
                 class Meta:
                     app_label = 'myapp'
 
 
+            @mirrored_model()
             @shard_mapping_model(mapping_field='organization_id')
             class OrganizationShard(models.Model):
                 shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
