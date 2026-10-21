@@ -1,8 +1,9 @@
 from contextlib import contextmanager
 from unittest import mock
 
-from django.db import DatabaseError, IntegrityError, InterfaceError, connections, transaction
+from django.db import DatabaseError, IntegrityError, InterfaceError, ProgrammingError, connections, transaction
 from django.db.backends.base.base import BaseDatabaseWrapper
+from django.db.backends.postgresql.base import DatabaseWrapper as PostgresDatabaseWrapper
 from django.db.models.expressions import RawSQL
 from django.db.utils import OperationalError
 from django.test import override_settings
@@ -33,7 +34,7 @@ from djanquiltdb_tests import (
     skip_without_virtual_generated_column_support,
 )
 from djanquiltdb_tests.sql import CREATE_ALLUPPERCASE, DROP_ALLUPPERCASE
-from example.models import Cake, Organization, OrganizationShard, Shard, Type, User
+from example.models import Cake, Organization, OrganizationShard, Shard, SuperType, Type, User
 
 
 def create_role_for_this_test_database(test_case, cursor, role_name):
@@ -256,6 +257,66 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
                     cursor.execute('SELECT current_schema()')
 
                     self.assertEqual(cursor.fetchone()[0], shard.schema_name)
+
+    def test_a_failed_statement_in_a_savepoint_leaves_the_transaction_usable(self):
+        """
+        Case: In a transaction, a SuperType is created, a statement in an inner atomic() fails with ProgrammingError,
+              and a second SuperType is created.
+        Expected: The rollback to the savepoint of the inner atomic() keeps the connection open, and both SuperTypes are
+                  committed.
+        """
+        with transaction.atomic(using='default'):
+            SuperType.objects.create(name='Before')
+
+            with self.assertRaises(ProgrammingError):
+                with transaction.atomic(using='default'):
+                    connections['default'].cursor().execute('SELECT 1 FROM djanquiltdb_no_such_table')
+
+            SuperType.objects.create(name='After')
+
+        self.assertCountEqual(SuperType.objects.values_list('name', flat=True), ['Before', 'After'])
+
+    def test_a_failed_statement_in_a_savepoint_in_a_shard_leaves_the_transaction_usable(self):
+        """
+        Case: In a shard, a transaction creates an Organization, a statement in an inner atomic() fails with
+              ProgrammingError, and a second Organization is created.
+        Expected: The rollback to the savepoint of the inner atomic() keeps the connection open, and both Organizations
+                  are committed.
+        """
+        create_template_schema()
+        shard = Shard.objects.create(alias='one', schema_name='one_schema', node_name='default', state=State.ACTIVE)
+
+        with use_shard(shard) as env:
+            with transaction.atomic(using='default'):
+                Organization.objects.create(name='Before')
+
+                with self.assertRaises(ProgrammingError):
+                    with transaction.atomic(using='default'):
+                        env.connection.cursor().execute('SELECT 1 FROM djanquiltdb_no_such_table')
+
+                Organization.objects.create(name='After')
+
+            self.assertCountEqual(Organization.objects.values_list('name', flat=True), ['Before', 'After'])
+
+    def test_a_usable_connection_is_checked_once_after_an_error(self):
+        """
+        Case: Outside a transaction, a statement fails with ProgrammingError, and then two more statements run.
+        Expected: The connection is checked with is_usable() once, before the first of those statements, and the
+                  errors_occurred flag is cleared, so the second statement runs without a check.
+        """
+        node_connection = connections['default']
+
+        with self.assertRaises(ProgrammingError):
+            node_connection.cursor().execute('SELECT 1 FROM djanquiltdb_no_such_table')
+
+        with mock.patch.object(
+            PostgresDatabaseWrapper, 'is_usable', autospec=True, side_effect=PostgresDatabaseWrapper.is_usable
+        ) as mock_is_usable:
+            node_connection.cursor().execute('SELECT 1')
+            node_connection.cursor().execute('SELECT 1')
+
+        self.assertEqual(mock_is_usable.call_count, 1)
+        self.assertFalse(node_connection.errors_occurred)
 
     def test_get_ps_schema_with_existing_schema(self):
         """

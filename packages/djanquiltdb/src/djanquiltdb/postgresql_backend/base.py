@@ -1781,13 +1781,21 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def _close_if_errors_made_unusable(self):
         """
-        Closes the connection when the errors_occurred flag is set and the connection is not usable, so that the next
-        cursor comes from a new connection.
+        Outside a transaction, closes the connection when the errors_occurred flag is set and the connection is not
+        usable, so that the next cursor comes from a new connection, and clears the flag when the connection is usable.
+
+        Inside a transaction, this method does nothing. A failed statement aborts the transaction, so is_usable() fails
+        on a connection that still works, and the rollback of the transaction or of its savepoint recovers from the
+        error.
         """
-        if self.connection is not None and self.errors_occurred:
-            if not self.is_usable():
-                logger.warning('Database connection is unusable. Reconnecting and continuing.')
-                self.close()
+        if self.connection is None or not self.errors_occurred or not self.autocommit:
+            return
+
+        if self.is_usable():
+            self.errors_occurred = False
+        else:
+            logger.warning('Database connection is unusable. Reconnecting and continuing.')
+            self.close()
 
     def _get_cursor(self, name=None, skip_lock=False):
         """
