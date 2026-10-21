@@ -440,7 +440,7 @@ def get_shard_for(target_value, active_only=True, field=None):
             )
         if mapping_object.shard.state != State.ACTIVE:
             raise StateException(
-                'Shard {} state is {}'.format(mapping_object.state, mapping_object.shard.get_state_display()),
+                'Shard {} state is {}'.format(mapping_object.shard, mapping_object.shard.get_state_display()),
                 mapping_object.shard.state,
             )
     return mapping_object.shard

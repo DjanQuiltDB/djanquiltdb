@@ -1183,6 +1183,19 @@ class GetShardForTestCase(ShardingTestCase):
         with self.assertRaises(StateException):
             get_shard_for(1)
 
+    def test_shard_in_maintenance(self):
+        """
+        Case: Use get_shard_for while the mapping object is active and its shard is in maintenance.
+        Expected: A StateException whose message names the shard and whose state is the state of the shard.
+        """
+        self.shard1.state = State.MAINTENANCE
+        self.shard1.save(update_fields=['state'])
+
+        with self.assertRaisesMessage(StateException, 'Shard test_sharding(default|test_schema) state is ') as error:
+            get_shard_for(1)
+
+        self.assertEqual(error.exception.state, State.MAINTENANCE)
+
     def test_active_only_schemas_false(self):
         """
         Case: Use get_shard_for with active_only set to False, while having the mapping model in maintenance.
