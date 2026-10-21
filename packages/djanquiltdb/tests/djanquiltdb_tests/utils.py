@@ -1161,6 +1161,24 @@ class GetShardForTestCase(ShardingTestCase):
         """
         self.assertEqual(get_shard_for(1), self.shard1)
 
+    def test_inside_a_shard_without_the_public_schema_with_a_mapping_model_that_is_read_on_the_active_node(self):
+        """
+        Case: Use get_shard_for while a use_shard for a shard is entered with include_public set to False, and the
+              mapping model has route_to_primary_db set to False, so that the router sends it to the active connection.
+        Expected: Correct shard returned, because get_shard_for reads the mapping table in the public schema of the
+                  active node, which the search_path of the shard does not have.
+        """
+        create_template_schema('default')
+        entered_shard = Shard.objects.create(
+            alias='entered_shard', schema_name='test_entered_schema', node_name='default', state=State.ACTIVE
+        )
+
+        with mock.patch.object(OrganizationShard, 'route_to_primary_db', False):
+            with use_shard(entered_shard, include_public=False):
+                shard = get_shard_for(1)
+
+        self.assertEqual(shard, self.shard1)
+
     @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     def test_get_shard_for_without_setting(self):
         """

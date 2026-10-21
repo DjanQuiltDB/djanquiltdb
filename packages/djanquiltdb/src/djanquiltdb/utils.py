@@ -431,7 +431,11 @@ def get_shard_for(target_value, active_only=True, field=None):
     if not mapping_model:
         raise ImproperlyConfigured('Missing or incorrect type of a setting QUILT_DB["{}"].'.format('MAPPING_MODEL'))
 
-    mapping_object = mapping_model.objects.select_related('shard').for_target(target_value, field)
+    mapping_object = (
+        mapping_model.objects.using(public_schema_alias_for_reading(mapping_model))
+        .select_related('shard')
+        .for_target(target_value, field)
+    )
     if active_only:
         if mapping_object.state != State.ACTIVE:
             raise StateException(

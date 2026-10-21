@@ -7,6 +7,7 @@ from djanquiltdb.utils import (
     get_mapping_class,
     get_shard_class,
     mapping_lock_key,
+    public_schema_alias_for_reading,
     use_shard,
     use_shard_for,
 )
@@ -85,7 +86,8 @@ class ShardOptions:
                     "You set 'check_active_mapping_values' to True while you didn't define the mapping model."
                 )
 
-            if mapping_model.objects.for_shard(shard).in_maintenance().exists():
+            mapping_objects = mapping_model.objects.using(public_schema_alias_for_reading(mapping_model))
+            if mapping_objects.for_shard(shard).in_maintenance().exists():
                 raise StateException(
                     'Shard {} contains mapping objects that are in maintenance'.format(shard), State.MAINTENANCE
                 )
@@ -158,6 +160,8 @@ class ShardOptions:
         if self.mapping_value is not None:
             return use_shard_for(self.mapping_value, **self.kwargs)
         elif self.shard_id is not None:
-            return use_shard(get_shard_class().objects.get(id=self.shard_id), **self.kwargs)
+            shard_class = get_shard_class()
+            shard = shard_class.objects.using(public_schema_alias_for_reading(shard_class)).get(id=self.shard_id)
+            return use_shard(shard, **self.kwargs)
 
         return use_shard(node_name=self.node_name, schema_name=self.schema_name, **self.kwargs)

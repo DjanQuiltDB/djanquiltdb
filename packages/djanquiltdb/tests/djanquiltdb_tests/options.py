@@ -391,6 +391,36 @@ class ShardOptionsTestCase(ShardingTestCase):
             )
             self.assertEqual(shard_options.lock_keys, ['shard_{}'.format(self.shard.id), 'mapping_luke@layton.l5'])
 
+    def test_use_inside_a_shard_without_the_public_schema(self):
+        """
+        Case: Enter what use() returns for options with the id of a shard, while a use_shard for another shard on the
+              same node is entered with include_public set to False.
+        Expected: The shard is entered, because use() looks up the shard in the public schema of the active node, which
+                  the search_path of the other shard does not have.
+        """
+        second_shard = Shard.objects.create(
+            alias='second', schema_name='test_second_schema', node_name='default', state=State.ACTIVE
+        )
+        shard_options = ShardOptions(node_name='default', schema_name='test_second_schema', shard_id=second_shard.id)
+
+        with use_shard(self.shard, include_public=False):
+            with shard_options.use() as env:
+                self.assertEqual(get_active_connection(), env.options)
+
+    def test_from_shard_check_active_mapping_values_inside_a_shard_without_the_public_schema(self):
+        """
+        Case: Call from_shard with check_active_mapping_values set to True, while a use_shard for the shard is entered
+              with include_public set to False, and the mapping model has route_to_primary_db set to False, so that the
+              router sends it to the active connection.
+        Expected: Options for the shard returned, because from_shard reads the mapping table in the public schema of
+                  the active node, which the search_path of the shard does not have.
+        """
+        with mock.patch.object(OrganizationShard, 'route_to_primary_db', False):
+            with use_shard(self.shard, include_public=False):
+                shard_options = ShardOptions.from_shard(self.shard, check_active_mapping_values=True)
+
+        self.assertEqual(shard_options.shard_id, self.shard.id)
+
     def test_is_public_schema(self):
         """
         Case: Check ShardOptions.is_public_schema() for a public schema and for a non-public schema
