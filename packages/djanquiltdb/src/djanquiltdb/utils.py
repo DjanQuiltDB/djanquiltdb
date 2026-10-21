@@ -1,4 +1,5 @@
 import contextlib
+import copy
 import logging
 from collections import defaultdict
 from functools import cache, wraps
@@ -182,6 +183,12 @@ class use_shard(object):
         else:
             raise ValueError('You need to provide at least a shard or a node name.')
 
+        self._clear_entry_state()
+
+    def _clear_entry_state(self):
+        """
+        Sets the state that this context keeps while it is entered to the state of a context that is not entered.
+        """
         self._enabled = False
         self._locks_are_xact = False
         # The lock keys that this context adds to the lock counts of the node connection, and removes from those counts
@@ -218,11 +225,20 @@ class use_shard(object):
     def __call__(self, querying_func):
         @wraps(querying_func)
         def inner(*args, **kwargs):
-            # Call the function in our context manager
-            with self:
+            # Each call enters a copy of this context, so that a call inside another call of the function, and a call
+            # from another thread, have state of their own.
+            with self.copy_for_one_call():
                 return querying_func(*args, **kwargs)
 
         return inner
+
+    def copy_for_one_call(self):
+        """
+        Returns a copy of this context that has the same options and is not entered.
+        """
+        context = copy.copy(self)
+        context._clear_entry_state()
+        return context
 
     def acquire_lock(self):
         # Record how the locks are scoped: inside a transaction acquire_locks takes transaction-scoped locks,
@@ -296,6 +312,15 @@ class use_shard(object):
 
     def enable(self):
         from djanquiltdb.router import get_active_connection, set_active_connection  # Prevent cyclic imports
+
+        # A context keeps the state of one entry, so it cannot be entered again before it is left. A function that is
+        # decorated with this context enters a copy of it for each call instead.
+        if self._enabled:
+            raise RuntimeError(
+                'This use_shard for {}|{} is entered already, and cannot be entered again.'.format(
+                    self.options.node_name, self.options.schema_name
+                )
+            )
 
         # First: Look up the connection of the node, so that an unknown node raises an error here. The connection
         # property builds the connection to the target the first time that code reads it.

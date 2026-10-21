@@ -1142,6 +1142,116 @@ class UseShardInsideEnteredUseShardTestCase(ShardingTransactionTestCase):
         self.assertIn('"example_organizationshard"', statements[2])
         self.assertIn('"example_shard"', statements[2])
 
+    def test_recursive_function_decorated_with_use_shard(self):
+        """
+        Case: Call a function that is decorated with one use_shard object for a shard, and that calls itself once.
+        Expected: After the call, the shard is unlocked, the lock counts of the connection are empty, and the active
+                  connection is the connection that was active before the call, because each call enters a use_shard
+                  of its own.
+        """
+        active_connection = get_active_connection()
+        calls = []
+
+        @use_shard(self.shard)
+        def call_once_more(depth):
+            calls.append(get_active_connection())
+            if depth:
+                call_once_more(depth - 1)
+
+        call_once_more(1)
+
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(self.lock_is_free('shard_{}'.format(self.shard.id)))
+        self.assertEqual(connections['default'].session_locks_of_entered_use_shards, {})
+        self.assertEqual(get_active_connection(), active_connection)
+
+    def test_function_decorated_with_use_shard_called_from_two_threads_at_once(self):
+        """
+        Case: At the same time, two threads call a function that is decorated with one use_shard object for a shard:
+              the second thread enters the function while the first thread is inside it.
+        Expected: In each thread, the lock counts of the connection are empty after the call, and the active connection
+                  is the connection that was active before the call, because each call enters a use_shard of its own.
+        """
+        first_thread_entered = threading.Event()
+        second_thread_left = threading.Event()
+        states_after_the_call = {}
+
+        @use_shard(self.shard)
+        def wait_inside_the_shard(thread_name):
+            if thread_name == 'first':
+                first_thread_entered.set()
+                second_thread_left.wait(5)
+
+        def call_in_a_thread(thread_name):
+            try:
+                active_connection = get_active_connection()
+                wait_inside_the_shard(thread_name)
+                states_after_the_call[thread_name] = (
+                    dict(connections['default'].session_locks_of_entered_use_shards),
+                    get_active_connection() == active_connection,
+                )
+            finally:
+                if thread_name == 'second':
+                    second_thread_left.set()
+                connections.close_all()
+
+        first_thread = threading.Thread(target=call_in_a_thread, args=('first',))
+        second_thread = threading.Thread(target=call_in_a_thread, args=('second',))
+
+        first_thread.start()
+        first_thread_entered.wait(5)
+        second_thread.start()
+        first_thread.join(10)
+        second_thread.join(10)
+
+        self.assertEqual(states_after_the_call, {'first': ({}, True), 'second': ({}, True)})
+
+    def test_entering_an_entered_use_shard_again_raises(self):
+        """
+        Case: Enter a use_shard object for a shard, then a use_shard object for another shard, and then the first
+              use_shard object again.
+        Expected: A RuntimeError when the first use_shard object is entered again, because a use_shard object keeps the
+                  state of one entry. After both use_shard objects are left, both shards are unlocked and the active
+                  connection is the connection that was active before.
+        """
+        active_connection = get_active_connection()
+        first_context = use_shard(self.shard)
+        second_context = use_shard(self.other_shard)
+
+        with first_context:
+            with second_context:
+                with self.assertRaisesMessage(RuntimeError, 'is entered already'):
+                    with first_context:
+                        pass
+
+        self.assertTrue(self.lock_is_free('shard_{}'.format(self.shard.id)))
+        self.assertTrue(self.lock_is_free('shard_{}'.format(self.other_shard.id)))
+        self.assertEqual(get_active_connection(), active_connection)
+
+    def test_functions_decorated_with_use_shard_that_call_each_other(self):
+        """
+        Case: A function decorated with a use_shard object for a shard calls a function decorated with a use_shard
+              object for another shard, which calls the first function again.
+        Expected: No error, and after the call both shards are unlocked and the active connection is the connection
+                  that was active before, because each call enters a use_shard of its own.
+        """
+        active_connection = get_active_connection()
+
+        @use_shard(self.shard)
+        def enter_the_first_shard(depth):
+            if depth:
+                enter_the_other_shard(depth - 1)
+
+        @use_shard(self.other_shard)
+        def enter_the_other_shard(depth):
+            enter_the_first_shard(depth)
+
+        enter_the_first_shard(1)
+
+        self.assertTrue(self.lock_is_free('shard_{}'.format(self.shard.id)))
+        self.assertTrue(self.lock_is_free('shard_{}'.format(self.other_shard.id)))
+        self.assertEqual(get_active_connection(), active_connection)
+
 
 class GetShardForTestCase(ShardingTestCase):
     def setUp(self):
