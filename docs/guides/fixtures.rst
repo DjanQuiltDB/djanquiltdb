@@ -22,15 +22,26 @@ entry should be loaded into.
 If an entry does not have a ``_schema`` property, it will be loaded into the default schema specified by the database
 connection you're using (typically the ``public`` schema).
 
+Apart from the ``_schema`` property, a fixture loads as it does with Django's ``loaddata``:
+
+* The entries are saved in the order of the fixture.
+* ``--exclude`` leaves out the models and apps that it names.
+* An entry whose model the router does not allow in its schema is skipped, and counted as Django counts it:
+  ``Installed 3 object(s) (of 4)``. A sharded model, for example, is only allowed in the schema of a shard, and a public
+  or mirrored model only in the ``public`` schema.
+* Foreign keys and natural keys are looked up in the schema of the entry, and a natural key may name an entry that comes
+  later in the fixture.
+
 Supported Formats
 -----------------
 
 The ``_schema`` property is supported for:
 
 * **JSON** fixtures (``.json`` files)
+* **JSON Lines** fixtures (``.jsonl`` files)
 * **YAML** fixtures (``.yaml`` or ``.yml`` files)
 
-Other fixture formats (such as XML) will be loaded normally without schema awareness.
+Fixtures in other formats, such as XML, are loaded into the default schema of the database connection.
 
 Special Schema Names
 --------------------
