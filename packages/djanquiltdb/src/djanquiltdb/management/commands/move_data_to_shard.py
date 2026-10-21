@@ -24,6 +24,7 @@ from djanquiltdb.utils import (
     get_shard_class,
     mapping_lock_key,
     pgtrigger_triggers_ignored,
+    shard_lock_key,
     transaction_for_nodes,
     use_shard,
 )
@@ -513,7 +514,7 @@ class Command(BaseCommand):
                 mapping_object.save(update_fields=['state'])
         else:
             # Take the exclusive advisory lock of the source shard, whose shared lock use_shard takes.
-            source_connection.acquire_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
+            source_connection.acquire_advisory_lock(key=shard_lock_key(self.source_shard.id), shared=False)
 
             self.old_shard_state = self.source_shard.state
             self.source_shard.state = State.MAINTENANCE
@@ -552,7 +553,7 @@ class Command(BaseCommand):
             if hasattr(self, 'old_shard_state'):
                 self.source_shard.state = self.old_shard_state
                 self.source_shard.save(update_fields=['state'])
-            source_connection.release_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
+            source_connection.release_advisory_lock(key=shard_lock_key(self.source_shard.id), shared=False)
 
     @staticmethod
     def copy_data_stream(cursor, sql, file_obj):

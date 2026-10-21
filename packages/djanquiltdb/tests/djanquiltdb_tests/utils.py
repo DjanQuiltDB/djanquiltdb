@@ -57,6 +57,7 @@ from djanquiltdb.utils import (
     migrate_schema,
     move_model_to_schema,
     schema_exists,
+    shard_lock_key,
     stored_mapping_value,
     transaction_for_every_node,
     transaction_for_nodes,
@@ -194,6 +195,16 @@ class GetMappingClass(SimpleTestCase):
             self.assertIsNone(get_mapping_class())
 
         self.assertEqual(get_mapping_class(), OrganizationShard)
+
+
+class ShardLockKeyTestCase(SimpleTestCase):
+    def test_the_name_has_the_shard_id(self):
+        """
+        Case: Call shard_lock_key() with the shard ids 3 and 0.
+        Expected: 'shard_3' and 'shard_0', the names of the advisory locks that use_shard and the move commands take.
+        """
+        self.assertEqual(shard_lock_key(3), 'shard_3')
+        self.assertEqual(shard_lock_key(0), 'shard_0')
 
 
 class StoredMappingValueTestCase(SimpleTestCase):

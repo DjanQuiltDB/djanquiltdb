@@ -61,6 +61,14 @@ def get_primary_db_alias():
     return settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
 
 
+def shard_lock_key(shard_id):
+    """
+    Returns the name of the advisory lock of the shard with ``shard_id``. ``use_shard()`` takes the shared lock of this
+    name, and the move commands take the exclusive lock.
+    """
+    return 'shard_{}'.format(shard_id)
+
+
 def stored_mapping_value(mapping_value):
     """
     Returns the value that the mapping field stores for ``mapping_value``. When the mapping field is a foreign key, the

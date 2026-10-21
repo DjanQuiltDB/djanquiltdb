@@ -20,6 +20,7 @@ from djanquiltdb.utils import (
     get_model_sharding_mode,
     get_shard_class,
     mapping_lock_key,
+    shard_lock_key,
     transaction_for_nodes,
 )
 
@@ -167,7 +168,7 @@ class Command(BaseCommand):
             )
 
         # Take the exclusive advisory lock of the source shard, whose shared lock use_shard takes.
-        source_connection.acquire_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
+        source_connection.acquire_advisory_lock(key=shard_lock_key(self.source_shard.id), shared=False)
 
         self.old_shard_state = self.source_shard.state
         self.source_shard.state = State.MAINTENANCE
@@ -635,7 +636,7 @@ class Command(BaseCommand):
 
         # Release the lock of the source shard only after the shard is saved: a use_shard that waits for the lock reads
         # the shard again once it holds the lock, and must read the shard where it is after the move.
-        source_connection.release_advisory_lock(key='shard_{}'.format(self.source_shard.id), shared=False)
+        source_connection.release_advisory_lock(key=shard_lock_key(self.source_shard.id), shared=False)
 
     @staticmethod
     def copy_data_stream(cursor, sql, file_obj):

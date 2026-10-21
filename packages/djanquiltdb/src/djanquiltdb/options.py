@@ -8,6 +8,7 @@ from djanquiltdb.utils import (
     get_shard_class,
     mapping_lock_key,
     public_schema_alias_for_reading,
+    shard_lock_key,
     use_shard,
     use_shard_for,
 )
@@ -126,7 +127,7 @@ class ShardOptions:
         lock_keys = []
 
         if self.shard_id is not None:
-            lock_keys.append('shard_{}'.format(self.shard_id))
+            lock_keys.append(shard_lock_key(self.shard_id))
 
         if self.mapping_value is not None:
             lock_keys.append(mapping_lock_key(self.mapping_value))
