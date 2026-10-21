@@ -117,7 +117,7 @@ source = [
 
 [tool.coverage.report]
 omit = ["*/.tox/*"]
-fail_under = 87
+fail_under = 91
 
 [tool.coverage.html]
 directory = "../coverage"
