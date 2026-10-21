@@ -193,8 +193,9 @@ Schema Creation
 
 The fixture loader will automatically:
 
-1. Ensure the template schema exists and has all migrations applied
-2. Create any shard schemas that don't exist yet (cloning them from the template schema)
+1. When a fixture names a schema that doesn't exist yet, create the template schema if it is missing, and apply all
+   migrations to it
+2. Create the shard schemas that don't exist yet, cloning them from the template schema
 3. Load entries into their respective schemas
 4. Reset the sequences of the loaded models in each schema, so that the next row created gets a higher id than the
    loaded rows

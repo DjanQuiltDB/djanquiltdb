@@ -9,7 +9,7 @@ from django.db import connection, models
 from djanquiltdb import State
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import create_template_schema, use_shard, use_shard_for
+from djanquiltdb.utils import create_template_schema, get_template_name, use_shard, use_shard_for
 from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
 from example.models import Organization, Shard, Statement, SuperType, Type, User
 
@@ -101,6 +101,68 @@ class LoadDataTestCase(ShardingTestCase):
 
         self.assertEqual(SuperType.objects.using('other').count(), 1)
         self.assertEqual(SuperType.objects.count(), 0)
+
+    def write_fixture(self, fixture_data):
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            json.dump(fixture_data, f)
+        self.addCleanup(os.unlink, f.name)
+        return f.name
+
+    def test_a_fixture_for_the_public_schema_leaves_the_template_schema_alone(self):
+        """
+        Case: The template schema exists, and a fixture without _schema entries is loaded.
+        Expected: The entries load, and loaddata neither creates nor migrates the template schema.
+        """
+        create_template_schema()
+        fixture_path = self.write_fixture([{'model': 'example.SuperType', 'pk': 1, 'fields': {'name': 'Public'}}])
+
+        with (
+            mock.patch('djanquiltdb.management.commands.loaddata.create_template_schema') as mock_create_template,
+            mock.patch('djanquiltdb.management.commands.loaddata.migrate_schema') as mock_migrate_schema,
+        ):
+            call_command('loaddata', fixture_path, verbosity=0)
+
+        self.assertEqual(SuperType.objects.get(pk=1).name, 'Public')
+        self.assertFalse(mock_create_template.called)
+        self.assertFalse(mock_migrate_schema.called)
+
+    def test_a_fixture_for_an_existing_shard_leaves_the_template_schema_alone(self):
+        """
+        Case: A fixture with _schema entries for the schema of an existing shard is loaded.
+        Expected: The entries load into the shard, and loaddata neither creates nor migrates the template schema.
+        """
+        create_template_schema()
+        shard = Shard.objects.create(node_name='default', schema_name='test_schema', alias='schema', state=State.ACTIVE)
+        fixture_path = self.write_fixture(
+            [{'model': 'example.Organization', 'pk': 1, 'fields': {'name': 'Sharded'}, '_schema': shard.schema_name}]
+        )
+
+        with (
+            mock.patch('djanquiltdb.management.commands.loaddata.create_template_schema') as mock_create_template,
+            mock.patch('djanquiltdb.management.commands.loaddata.migrate_schema') as mock_migrate_schema,
+        ):
+            call_command('loaddata', fixture_path, verbosity=0)
+
+        with use_shard(shard):
+            self.assertEqual(Organization.objects.get(pk=1).name, 'Sharded')
+        self.assertFalse(mock_create_template.called)
+        self.assertFalse(mock_migrate_schema.called)
+
+    def test_a_fixture_for_a_new_schema_creates_the_template_schema_and_the_schema(self):
+        """
+        Case: Neither the template schema nor the schema that the _schema entries of a fixture name exist, and the
+              fixture is loaded.
+        Expected: The template schema and the schema are created, and the entries load into the schema.
+        """
+        fixture_path = self.write_fixture(
+            [{'model': 'example.Organization', 'pk': 1, 'fields': {'name': 'New'}, '_schema': 'new_schema'}]
+        )
+
+        call_command('loaddata', fixture_path, verbosity=0)
+
+        self.assertEqual(connection.get_ps_schema(get_template_name()), get_template_name())
+        with use_shard(node_name='default', schema_name='new_schema'):
+            self.assertEqual(Organization.objects.get(pk=1).name, 'New')
 
     def test_reset_sequences(self):
         """

@@ -164,24 +164,23 @@ class Command(LoadDataCommand):
             schema_name = entry_copy.pop('_schema', default_schema)
             entries_by_schema[schema_name].append(entry_copy)
 
-        # Ensure template schema exists and has migrations applied
-        create_template_schema(node_name=node_name, interactive=False, verbosity=self.verbosity)
-        # Ensure template schema has all migrations applied (in case it existed but migrations weren't up to date)
+        # The schemas that the fixture names and that do not exist yet are cloned from the template schema, so only then
+        # is the template schema created, or migrated when it exists already.
         connection = connections[node_name]
-        if connection.get_ps_schema(template_name):
-            # Migrate template schema to ensure it has all tables
+        missing_schema_names = [
+            schema_name
+            for schema_name in entries_by_schema
+            if schema_name != PUBLIC_SCHEMA_NAME and not connection.get_ps_schema(schema_name)
+        ]
+
+        if missing_schema_names:
+            create_template_schema(node_name=node_name, interactive=False, verbosity=self.verbosity)
             migrate_schema(node_name=node_name, schema_name=template_name, interactive=False, verbosity=self.verbosity)
 
-        # Ensure all schemas exist and are cloned from template
-        for schema_name in entries_by_schema.keys():
-            # Skip public schema and template schema - they don't need to be cloned
-            if schema_name in (PUBLIC_SCHEMA_NAME, template_name):
-                continue
-
-            # Check if schema exists
-            if not connection.get_ps_schema(schema_name):
-                # Create schema and clone from template
-                create_schema_on_node(schema_name=schema_name, node_name=node_name, migrate=True)
+            for schema_name in missing_schema_names:
+                # create_template_schema() has created the template schema itself.
+                if schema_name != template_name:
+                    create_schema_on_node(schema_name=schema_name, node_name=node_name, migrate=True)
 
         # Load each schema group and track counts
         total_objects_loaded = 0
