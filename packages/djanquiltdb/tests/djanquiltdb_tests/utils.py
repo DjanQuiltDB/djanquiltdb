@@ -680,27 +680,27 @@ class UseShardTestCase(ShardingTestCase):
         env.disable()
         mock_release_lock.assert_called_once_with()
 
-    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock_for_each_key')
     def test_acquire_lock(self, mock_acquire_lock):
         """
         Case: Call use_shard.acquire_lock().
-        Expected: Connection's acquire_advisory_lock to be called with the correct arguments.
+        Expected: Connection's acquire_advisory_lock_for_each_key to be called with the correct arguments.
         """
         env = use_shard(self.shard)
         env.connection = connections[env.options]
         env.acquire_lock()
-        mock_acquire_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True, xact=True)
+        mock_acquire_lock.assert_called_once_with(['shard_{}'.format(self.shard.id)], shared=True, xact=True)
 
-    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
-    def test_release_lock(self, mock_release_advisory_lock):
+    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock_for_each_key')
+    def test_release_lock(self, mock_release_lock):
         """
         Case: Call use_shard.release_lock().
-        Expected: Connection's release_advisory_lock to be called with the correct arguments.
+        Expected: Connection's release_advisory_lock_for_each_key to be called with the correct arguments.
         """
         env = use_shard(self.shard)
         env.connection = connections[env.options]
         env.release_lock()
-        mock_release_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
+        mock_release_lock.assert_called_once_with(['shard_{}'.format(self.shard.id)], shared=True)
 
     def test_multiple_disable(self):
         """
@@ -934,42 +934,36 @@ class UseShardForTestCase(ShardingTestCase):
             self.assertEqual(env.options.mapping_value, 1)
             self.assertEqual(env.options.kwargs['lock'], False)
 
-    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock_for_each_key')
     def test_acquire_lock(self, mock_acquire_lock):
         """
         Case: Call the acquire_lock method on a use_shard_for instance.
-        Expected: DatabaseWrapper.acquire_advisory_lock called with the correct parameters.
+        Expected: DatabaseWrapper.acquire_advisory_lock_for_each_key called once, with the lock key of the shard and the
+                  lock key of the mapping value.
         """
         env = use_shard_for(self.org_shard1.organization_id)
         env.connection = connections[env.options]
         env.acquire_lock()
 
-        self.assertEqual(mock_acquire_lock.call_count, 2)
-
-        mock_acquire_lock.assert_has_calls(
-            [
-                mock.call('shard_{}'.format(self.shard1.id), shared=True, xact=True),
-                mock.call('mapping_{}'.format(self.org_shard1.organization_id), shared=True, xact=True),
-            ]
+        mock_acquire_lock.assert_called_once_with(
+            ['shard_{}'.format(self.shard1.id), 'mapping_{}'.format(self.org_shard1.organization_id)],
+            shared=True,
+            xact=True,
         )
 
-    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
-    def test_release_lock(self, mock_release_advisory_lock):
+    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock_for_each_key')
+    def test_release_lock(self, mock_release_lock):
         """
         Case: Call the release_lock method on a use_shard_for instance.
-        Expected: DatabaseWrapper.release_advisory_lock called with the correct parameters.
+        Expected: DatabaseWrapper.release_advisory_lock_for_each_key called once, with the lock key of the shard and the
+                  lock key of the mapping value.
         """
         env = use_shard_for(self.org_shard1.organization_id)
         env.connection = connections[env.options]
         env.release_lock()
 
-        self.assertEqual(mock_release_advisory_lock.call_count, 2)
-
-        mock_release_advisory_lock.assert_has_calls(
-            [
-                mock.call('shard_{}'.format(self.shard1.id), shared=True),
-                mock.call('mapping_{}'.format(self.org_shard1.organization_id), shared=True),
-            ]
+        mock_release_lock.assert_called_once_with(
+            ['shard_{}'.format(self.shard1.id), 'mapping_{}'.format(self.org_shard1.organization_id)], shared=True
         )
 
 
@@ -1134,9 +1128,11 @@ class UseShardInsideEnteredUseShardTestCase(ShardingTransactionTestCase):
         """
         Case: Enter and leave use_shard_for a mapping value while no use_shard is entered. The use_shard_for is
               constructed before the statements are counted, because the constructor looks up the mapping value.
-        Expected: Five statements: the locks of the shard and of the mapping value, one read of the mapping value and
-                  its shard once the locks are held, and the releases of the locks.
+        Expected: Three statements: the locks of the shard and of the mapping value in one statement, one read of the
+                  mapping value and its shard once the locks are held, and the releases of the locks in one statement.
         """
+        shard_key = LockCursorWrapperMixin.get_int_from_key('shard_{}'.format(self.shard.id))
+        mapping_key = LockCursorWrapperMixin.get_int_from_key('mapping_1')
         env = use_shard_for(1)
 
         with CaptureQueriesContext(connections['default']) as captured:
@@ -1145,13 +1141,17 @@ class UseShardInsideEnteredUseShardTestCase(ShardingTransactionTestCase):
 
         statements = [query['sql'] for query in captured.captured_queries]
 
-        self.assertEqual(len(statements), 5)
+        self.assertEqual(len(statements), 3)
         self.assertEqual(
-            [statement for statement in statements if 'pg_advisory' in statement],
-            [statements[0], statements[1], statements[3], statements[4]],
+            statements[0],
+            'SELECT pg_advisory_lock_shared({}), pg_advisory_lock_shared({});'.format(shard_key, mapping_key),
         )
-        self.assertIn('"example_organizationshard"', statements[2])
-        self.assertIn('"example_shard"', statements[2])
+        self.assertIn('"example_organizationshard"', statements[1])
+        self.assertIn('"example_shard"', statements[1])
+        self.assertEqual(
+            statements[2],
+            'SELECT pg_advisory_unlock_shared({}), pg_advisory_unlock_shared({});'.format(shard_key, mapping_key),
+        )
 
     def test_recursive_function_decorated_with_use_shard(self):
         """

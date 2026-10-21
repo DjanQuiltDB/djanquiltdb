@@ -11,7 +11,9 @@ class LockCursorWrapperMixin:
 
     @contextmanager
     def _lock(self):
-        if not self.lock or not self.db.shard_options.lock_keys:
+        lock_keys = self.lock and self.db.shard_options.lock_keys
+
+        if not lock_keys:
             # No need to set an advisory lock on executing SQL queries, so we return early.
             yield
             return
@@ -25,15 +27,13 @@ class LockCursorWrapperMixin:
         # session-level lock until the connection closes. A xact lock travels with the transaction instead and is
         # released by its commit or rollback.
         xact = self.db.in_atomic_block
-        for key in self.db.shard_options.lock_keys:
-            cursor.acquire_advisory_lock(key, shared=True, xact=xact)
+        cursor.acquire_advisory_lock_for_each_key(lock_keys, shared=True, xact=xact)
 
         try:
             yield
         finally:
             if not xact:
-                for key in self.db.shard_options.lock_keys:
-                    cursor.release_advisory_lock(key, shared=True)
+                cursor.release_advisory_lock_for_each_key(lock_keys, shared=True)
 
             cursor.close()
 
@@ -50,17 +50,41 @@ class LockCursorWrapperMixin:
         Set a shared or exclusive advisory lock on a given key, session-scoped by default or, with xact=True,
         scoped to the current transaction so its commit or rollback releases the lock.
         """
-        return super().execute(
-            'SELECT pg_advisory{}_lock{}(%s);'.format('_xact' if xact else '', '_shared' if shared else ''),
-            [self.get_int_from_key(key)],
-        )
+        return self.acquire_advisory_lock_for_each_key([key], shared=shared, xact=xact)
 
     def release_advisory_lock(self, key, shared=True):
         """
         Release a shared or exclusive advisory lock on a given key.
         """
+        return self.release_advisory_lock_for_each_key([key], shared=shared)
+
+    def acquire_advisory_lock_for_each_key(self, keys, shared=True, xact=False):
+        """
+        Sets a shared or exclusive advisory lock on each of ``keys`` in one statement, session-scoped by default or,
+        with xact=True, scoped to the current transaction. Postgres evaluates the select list from left to right, so
+        the locks are taken in the order of ``keys``.
+        """
+        function = 'pg_advisory{}_lock{}'.format('_xact' if xact else '', '_shared' if shared else '')
+        return self._execute_function_for_each_key(function, keys)
+
+    def release_advisory_lock_for_each_key(self, keys, shared=True):
+        """
+        Releases a shared or exclusive advisory lock on each of ``keys`` in one statement, in the order of ``keys``.
+        """
+        function = 'pg_advisory_unlock{}'.format('_shared' if shared else '')
+        return self._execute_function_for_each_key(function, keys)
+
+    def _execute_function_for_each_key(self, function, keys):
+        """
+        Runs one statement that calls ``function`` once for each of ``keys``, with the number that get_int_from_key()
+        makes of the key. Without keys, no statement runs.
+        """
+        if not keys:
+            return None
+
         return super().execute(
-            'SELECT pg_advisory_unlock{}(%s);'.format('_shared' if shared else ''), [self.get_int_from_key(key)]
+            'SELECT {};'.format(', '.join('{}(%s)'.format(function) for _ in keys)),
+            [self.get_int_from_key(key) for key in keys],
         )
 
     @staticmethod

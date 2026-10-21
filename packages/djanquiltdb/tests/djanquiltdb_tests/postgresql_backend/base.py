@@ -19,7 +19,13 @@ from djanquiltdb.postgresql_backend.base import (
     get_validated_schema_name,
 )
 from djanquiltdb.postgresql_backend.utils import LockCursorWrapperMixin
-from djanquiltdb.utils import create_schema_on_node, create_template_schema, get_template_name, use_shard
+from djanquiltdb.utils import (
+    create_schema_on_node,
+    create_template_schema,
+    get_template_name,
+    use_shard,
+    use_shard_for,
+)
 from djanquiltdb_tests import (
     ShardingTestCase,
     ShardingTransactionTestCase,
@@ -27,7 +33,7 @@ from djanquiltdb_tests import (
     skip_without_virtual_generated_column_support,
 )
 from djanquiltdb_tests.sql import CREATE_ALLUPPERCASE, DROP_ALLUPPERCASE
-from example.models import Cake, Organization, Shard, Type, User
+from example.models import Cake, Organization, OrganizationShard, Shard, Type, User
 
 
 def create_role_for_this_test_database(test_case, cursor, role_name):
@@ -1257,6 +1263,53 @@ class AdvisoryLockingTestCase(ShardingTransactionTestCase):
             ['SELECT pg_advisory_lock_shared({});'.format(key), 'SELECT pg_advisory_unlock_shared({});'.format(key)],
         )
 
+    def test_lock_for_each_key_in_one_statement(self):
+        """
+        Case: Acquire shared advisory locks on two keys with acquire_advisory_lock_for_each_key, and release them with
+              release_advisory_lock_for_each_key.
+        Expected: Each call runs one statement. While the locks are held, another session cannot get an exclusive lock
+                  on either key; after the release, it can get both.
+        """
+        with CaptureQueriesContext(self.connection1) as captured:
+            self.connection1.acquire_advisory_lock_for_each_key(['test', 'test2'], shared=True)
+
+        self.assertEqual(len(captured.captured_queries), 1)
+        self.assertFalse(self.get_lock(self.connection2, 'test'))
+        self.assertFalse(self.get_lock(self.connection2, 'test2'))
+
+        with CaptureQueriesContext(self.connection1) as captured:
+            self.connection1.release_advisory_lock_for_each_key(['test', 'test2'], shared=True)
+
+        self.assertEqual(len(captured.captured_queries), 1)
+        self.assertTrue(self.get_lock(self.connection2, 'test'))
+        self.assertTrue(self.get_lock(self.connection2, 'test2'))
+
+    def test_use_shard_for_locks_and_unlocks_both_keys_in_one_statement_each(self):
+        """
+        Case: Enter and leave use_shard_for outside a transaction.
+        Expected: One statement takes the shared locks of the shard and of the mapping value, and one statement releases
+                  them, both in that order. After use_shard_for is left, another session can get both locks.
+        """
+        create_template_schema('default')
+        shard = Shard.objects.create(node_name='default', schema_name='test_schema', alias='test', state=State.ACTIVE)
+        OrganizationShard.objects.create(organization_id=1, shard=shard, slug='test')
+        shard_key = LockCursorWrapperMixin.get_int_from_key('shard_{}'.format(shard.id))
+        mapping_key = LockCursorWrapperMixin.get_int_from_key('mapping_1')
+
+        with CaptureQueriesContext(self.connection1) as captured:
+            with use_shard_for(1):
+                pass
+
+        self.assertEqual(
+            [query['sql'] for query in captured.captured_queries if 'pg_advisory' in query['sql']],
+            [
+                'SELECT pg_advisory_lock_shared({}), pg_advisory_lock_shared({});'.format(shard_key, mapping_key),
+                'SELECT pg_advisory_unlock_shared({}), pg_advisory_unlock_shared({});'.format(shard_key, mapping_key),
+            ],
+        )
+        self.assertTrue(self.get_lock(self.connection2, 'shard_{}'.format(shard.id)))
+        self.assertTrue(self.get_lock(self.connection2, 'mapping_1'))
+
     def test_shared_blocks_exclusive_lock(self):
         """
         Case: Set a shared advisory lock and then try to set an exclusive one.
@@ -1348,8 +1401,8 @@ class AdvisoryLockingIntegrationTestCase(ShardingTestCase):
             node_name='default', schema_name='test_schema', alias='test', state=State.ACTIVE
         )
 
-    @mock.patch.object(LockCursorWrapperMixin, 'acquire_advisory_lock')
-    @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock')
+    @mock.patch.object(LockCursorWrapperMixin, 'acquire_advisory_lock_for_each_key')
+    @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock_for_each_key')
     def test_lock_use_shard(self, mock_release_advisory_lock, mock_acquire_advisory_lock):
         """
         Case: Retrieve an object in a use_shard context, inside the transaction the test case wraps around
@@ -1360,11 +1413,11 @@ class AdvisoryLockingIntegrationTestCase(ShardingTestCase):
         with self.shard.use():
             Organization.objects.create(name='Hogwarts')
 
-        mock_acquire_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True, xact=True)
+        mock_acquire_advisory_lock.assert_called_once_with(['shard_{}'.format(self.shard.id)], shared=True, xact=True)
         mock_release_advisory_lock.assert_not_called()
 
-    @mock.patch.object(LockCursorWrapperMixin, 'acquire_advisory_lock')
-    @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock')
+    @mock.patch.object(LockCursorWrapperMixin, 'acquire_advisory_lock_for_each_key')
+    @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock_for_each_key')
     def test_lock_on_execute(self, mock_release_advisory_lock, mock_acquire_advisory_lock):
         """
         Case: Retrieve an object with the using method, inside the transaction the test case wraps around
@@ -1374,7 +1427,7 @@ class AdvisoryLockingIntegrationTestCase(ShardingTestCase):
         """
         Organization.objects.using(self.shard).create(name='Hogwarts')
 
-        mock_acquire_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True, xact=True)
+        mock_acquire_advisory_lock.assert_called_once_with(['shard_{}'.format(self.shard.id)], shared=True, xact=True)
         mock_release_advisory_lock.assert_not_called()
 
 
@@ -1530,65 +1583,77 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
         with self.assertRaisesMessage(ValueError, 'The alias is managed by the main connection and cannot be changed.'):
             connection_.alias = 'other'
 
-    @mock.patch.object(ShardDatabaseWrapper, 'acquire_advisory_lock')
-    def test_acquire_locks(self, mock_acquire_advisory_lock):
+    @mock.patch.object(ShardDatabaseWrapper, 'acquire_advisory_lock_for_each_key')
+    def test_acquire_locks(self, mock_acquire_locks):
         """
         Case: Acquire lock on a ShardDatabaseWrapper while having a shard_id set on ShardOptions
-        Expected: Lock keys from the ShardOptions used to call acquire_advisory_lock
+        Expected: Lock keys from the ShardOptions used to call acquire_advisory_lock_for_each_key
         """
         shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name, shard_id=self.shard.id)
         connection_ = ShardDatabaseWrapper(self.connection, shard_options)
         connection_.acquire_locks()
-        mock_acquire_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True, xact=False)
+        mock_acquire_locks.assert_called_once_with(['shard_{}'.format(self.shard.id)], shared=True, xact=False)
 
-    @mock.patch.object(ShardDatabaseWrapper, 'acquire_advisory_lock')
-    def test_acquire_locks_with_mapping_value(self, mock_acquire_advisory_lock):
+    @mock.patch.object(ShardDatabaseWrapper, 'acquire_advisory_lock_for_each_key')
+    def test_acquire_locks_with_mapping_value(self, mock_acquire_locks):
         """
         Case: Acquire lock on a ShardDatabaseWrapper while having a shard_id and a mapping value set on ShardOptions
-        Expected: Lock keys from the ShardOptions used to call acquire_advisory_lock
+        Expected: acquire_advisory_lock_for_each_key called once, with both lock keys from the ShardOptions
         """
         shard_options = ShardOptions(
             node_name='default', schema_name=self.shard.schema_name, shard_id=self.shard.id, mapping_value=42
         )
         connection_ = ShardDatabaseWrapper(self.connection, shard_options)
         connection_.acquire_locks()
-        self.assertEqual(mock_acquire_advisory_lock.call_count, 2)
-        mock_acquire_advisory_lock.assert_has_calls(
-            [
-                mock.call('shard_{}'.format(self.shard.id), shared=True, xact=False),
-                mock.call('mapping_42', shared=True, xact=False),
-            ]
+        mock_acquire_locks.assert_called_once_with(
+            ['shard_{}'.format(self.shard.id), 'mapping_42'], shared=True, xact=False
         )
 
-    @mock.patch.object(ShardDatabaseWrapper, 'release_advisory_lock')
-    def test_release_locks(self, mock_release_advisory_lock):
+    @mock.patch.object(ShardDatabaseWrapper, 'acquire_advisory_lock_for_each_key')
+    def test_acquire_locks_without_lock_keys(self, mock_acquire_locks):
+        """
+        Case: Acquire lock on a ShardDatabaseWrapper whose ShardOptions have no shard_id and no mapping value
+        Expected: acquire_advisory_lock_for_each_key not called
+        """
+        shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name)
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+        connection_.acquire_locks()
+        self.assertFalse(mock_acquire_locks.called)
+
+    @mock.patch.object(ShardDatabaseWrapper, 'release_advisory_lock_for_each_key')
+    def test_release_locks(self, mock_release_locks):
         """
         Case: Release lock on a ShardDatabaseWrapper while having a shard_id set on ShardOptions
-        Expected: Lock keys from the ShardOptions used to call release_advisory_lock
+        Expected: Lock keys from the ShardOptions used to call release_advisory_lock_for_each_key
         """
         shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name, shard_id=self.shard.id)
         connection_ = ShardDatabaseWrapper(self.connection, shard_options)
         connection_.release_locks()
-        mock_release_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
+        mock_release_locks.assert_called_once_with(['shard_{}'.format(self.shard.id)], shared=True)
 
-    @mock.patch.object(ShardDatabaseWrapper, 'release_advisory_lock')
-    def test_release_locks_with_mapping_value(self, mock_release_advisory_lock):
+    @mock.patch.object(ShardDatabaseWrapper, 'release_advisory_lock_for_each_key')
+    def test_release_locks_with_mapping_value(self, mock_release_locks):
         """
         Case: Release lock on a ShardDatabaseWrapper while having a shard_id and a mapping value set on ShardOptions
-        Expected: Lock keys from the ShardOptions used to call release_advisory_lock
+        Expected: release_advisory_lock_for_each_key called once, with both lock keys from the ShardOptions
         """
         shard_options = ShardOptions(
             node_name='default', schema_name=self.shard.schema_name, shard_id=self.shard.id, mapping_value=42
         )
         connection_ = ShardDatabaseWrapper(self.connection, shard_options)
         connection_.release_locks()
-        self.assertEqual(mock_release_advisory_lock.call_count, 2)
-        mock_release_advisory_lock.assert_has_calls(
-            [
-                mock.call('shard_{}'.format(self.shard.id), shared=True),
-                mock.call('mapping_42', shared=True),
-            ]
-        )
+        mock_release_locks.assert_called_once_with(['shard_{}'.format(self.shard.id), 'mapping_42'], shared=True)
+
+    @mock.patch.object(ShardDatabaseWrapper, 'release_advisory_lock_for_each_key')
+    def test_release_locks_without_lock_keys(self, mock_release_locks):
+        """
+        Case: Release lock on a ShardDatabaseWrapper whose ShardOptions have no shard_id and no mapping value
+        Expected: release_advisory_lock_for_each_key not called
+        """
+        shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name)
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+        connection_.release_locks()
+        self.assertFalse(mock_release_locks.called)
 
     def test_lock_on_execute(self):
         """

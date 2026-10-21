@@ -1699,6 +1699,21 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         cursor = _cursor or self._get_lock_cursor()
         cursor.release_advisory_lock(key, shared=shared)
 
+    def acquire_advisory_lock_for_each_key(self, keys, shared=True, xact=False):
+        """
+        Sets a shared or exclusive advisory lock on each of ``keys`` in one statement, session-scoped or
+        transaction-scoped, in the order of ``keys``. Like acquire_advisory_lock, this method uses a cursor that does
+        not set the search_path.
+        """
+        self._get_lock_cursor().acquire_advisory_lock_for_each_key(keys, shared=shared, xact=xact)
+
+    def release_advisory_lock_for_each_key(self, keys, shared=True):
+        """
+        Releases a shared or exclusive advisory lock on each of ``keys`` in one statement, in the order of ``keys``.
+        Like acquire_advisory_lock, this method uses a cursor that does not set the search_path.
+        """
+        self._get_lock_cursor().release_advisory_lock_for_each_key(keys, shared=shared)
+
     def _get_lock_cursor(self):
         """
         Returns a cursor for the advisory lock statements. Like _cursor(), this method closes the connection when errors
@@ -1910,12 +1925,15 @@ class ShardDatabaseWrapper(DatabaseWrapper):
             raise ValueError('The alias is managed by the main connection and cannot be changed.')
 
     def acquire_locks(self, shared=True):
-        # Inside a transaction the locks are transaction-scoped, so the rollback a failure inside the context
-        # forces releases them; see LockCursorWrapperMixin._lock for the rationale.
-        xact = self.in_atomic_block
-        for key in self.shard_options.lock_keys:
-            self.acquire_advisory_lock(key, shared=shared, xact=xact)
+        lock_keys = self.shard_options.lock_keys
+
+        if lock_keys:
+            # Inside a transaction the locks are transaction-scoped, so the rollback a failure inside the context
+            # forces releases them; see LockCursorWrapperMixin._lock for the rationale.
+            self.acquire_advisory_lock_for_each_key(lock_keys, shared=shared, xact=self.in_atomic_block)
 
     def release_locks(self, shared=True):
-        for key in self.shard_options.lock_keys:
-            self.release_advisory_lock(key, shared=shared)
+        lock_keys = self.shard_options.lock_keys
+
+        if lock_keys:
+            self.release_advisory_lock_for_each_key(lock_keys, shared=shared)
