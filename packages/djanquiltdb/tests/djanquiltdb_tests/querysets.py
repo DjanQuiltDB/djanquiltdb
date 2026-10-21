@@ -1,4 +1,5 @@
 import pickle  # nosec
+from unittest import mock
 
 from django.db import IntegrityError
 from django.db.models import QuerySet
@@ -6,6 +7,8 @@ from django.db.models import QuerySet
 from djanquiltdb import State
 from djanquiltdb.apps import post_init
 from djanquiltdb.options import ShardOptions
+from djanquiltdb.postgresql_backend.base import ShardDatabaseWrapper
+from djanquiltdb.router import set_active_connection
 from djanquiltdb.utils import create_template_schema, use_shard
 from djanquiltdb_tests import ShardingTestCase
 from example.models import Cake, Organization, Shard, Suborganization, SuperType, User
@@ -45,6 +48,49 @@ class QuerySetTestCase(ShardingTestCase):
 
         self.assertEqual(all_chocolate_cakes._hints, {'_shard_options': env.options})
         self.assertEqual(list(all_chocolate_cakes), [cake])  # Evaluated here, outside the use_shard context
+
+    def test_a_queryset_that_is_created_in_a_shard_builds_no_shard_connection(self):
+        """
+        Case: Create a queryset of a sharded model in a use_shard context.
+        Expected: The queryset has the options of the shard in its hints, and no ShardDatabaseWrapper is built to find
+                  those options.
+        """
+        with use_shard(self.shard) as env:
+            with mock.patch.object(
+                ShardDatabaseWrapper, '__init__', autospec=True, side_effect=ShardDatabaseWrapper.__init__
+            ) as mock_init:
+                all_organizations = Organization.objects.all()
+
+        self.assertEqual(all_organizations._hints, {'_shard_options': env.options})
+        self.assertFalse(mock_init.called)
+
+    def test_a_queryset_that_is_created_on_the_public_schema_has_no_shard_options(self):
+        """
+        Case: Create a queryset of a sharded model while the active connection is the name of a node, and while it is
+              the public schema of a node.
+        Expected: The hints of the queryset have no shard options.
+        """
+        all_organizations = Organization.objects.all()
+
+        with use_shard(node_name='default'):
+            all_organizations_on_public = Organization.objects.all()
+
+        self.assertEqual(all_organizations._hints, {})
+        self.assertEqual(all_organizations_on_public._hints, {})
+
+    def test_a_queryset_that_is_created_while_a_node_and_schema_string_is_active_has_its_shard_options(self):
+        """
+        Case: Create a queryset of a sharded model while the active connection is a 'node|schema' string.
+        Expected: The hints of the queryset have the shard options of that node and schema.
+        """
+        set_active_connection('default|{}'.format(self.shard.schema_name))
+
+        all_organizations = Organization.objects.all()
+
+        self.assertEqual(
+            all_organizations._hints,
+            {'_shard_options': ShardOptions(node_name='default', schema_name=self.shard.schema_name)},
+        )
 
     def test_hints_passed_as_a_positional_argument_get_the_shard_added(self):
         """
