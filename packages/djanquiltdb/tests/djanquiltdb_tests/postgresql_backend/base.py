@@ -1409,16 +1409,32 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
 
         for field in ShardDatabaseWrapper._PROXY_FIELDS:
             # First set the value on the ShardDatabaseWrapper instance and check whether the field is changed on the
-            # main connection. Basically tests __setattr__.
+            # main connection.
             value = mock.MagicMock()
             setattr(connection_, field, value)
-            self.assertIs(getattr(connection_._main_connection, field), value)
+            self.assertIs(getattr(self.connection, field), value)
 
-            # And next set it on the main connection and check whether the value on the ShardDatabaseWrapper is proxied
-            # to the main connection. Basically tests __getattribute__.
+            # And next set it on the main connection and check whether the ShardDatabaseWrapper reads the value of the
+            # main connection.
             other_value = mock.MagicMock()
             setattr(self.connection, field, other_value)
-            self.assertIs(getattr(connection_._main_connection, field), other_value)
+            self.assertIs(getattr(connection_, field), other_value)
+
+    def test_fields_outside_proxy_fields_are_set_on_the_shard_connection(self):
+        """
+        Case: Set schema_name and include_public_schema, which are not in _PROXY_FIELDS, on a ShardDatabaseWrapper.
+        Expected: The ShardDatabaseWrapper has the new values, and the main connection keeps its own values.
+        """
+        shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name)
+        connection_ = ShardDatabaseWrapper(self.connection, shard_options)
+
+        connection_.schema_name = 'other_schema'
+        connection_.include_public_schema = False
+
+        self.assertEqual(connection_.schema_name, 'other_schema')
+        self.assertFalse(connection_.include_public_schema)
+        self.assertEqual(self.connection.schema_name, PUBLIC_SCHEMA_NAME)
+        self.assertTrue(self.connection.include_public_schema)
 
     def test_expected_proxy_fields(self):
         """

@@ -1798,13 +1798,47 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         return wrapped_cursor
 
 
+class MainConnectionField:
+    """
+    A field of ShardDatabaseWrapper that reads and sets the field of the same name on the main connection. While the
+    shard connection is initialized, setting the field stores the value on the shard connection itself, so that
+    DatabaseWrapper.__init__() does not reset the state of the main connection.
+    """
+
+    def __init__(self, name):
+        self.name = name
+
+    def __get__(self, instance, owner=None):
+        if instance is None:
+            return self
+
+        return getattr(instance._main_connection, self.name)
+
+    def __set__(self, instance, value):
+        if instance._initialized:
+            setattr(instance._main_connection, self.name, value)
+        else:
+            instance.__dict__[self.name] = value
+
+
+def add_main_connection_fields(cls):
+    """
+    Class decorator that adds a MainConnectionField to the class for each name in its _PROXY_FIELDS.
+    """
+    for name in cls._PROXY_FIELDS:
+        setattr(cls, name, MainConnectionField(name))
+
+    return cls
+
+
+@add_main_connection_fields
 class ShardDatabaseWrapper(DatabaseWrapper):
     """
     Wrapper around DatabaseWrapper that handles shard routing. This class shares the connection of the database wrapper
-    it wraps (from now one called the main connection). This ensures that we are not making a new connection to the
-    database each time we switch to a certain schema name. In order to do this, we route all calls to the properties
-    defined in _PROXY_FIELDS to the main connection instance (which are the same fields as in the constructor of
-    DjangoBaseDatabaseWrapper, excluding `alias`, but including `current_search_paths`).
+    it wraps (from now on called the main connection), so that switching to another schema does not make a new
+    connection to the database. Each field in _PROXY_FIELDS is a MainConnectionField, which reads and sets the field on
+    the main connection. These are the fields that the constructor of Django's BaseDatabaseWrapper sets, except for
+    `alias`, plus `current_search_paths` and `session_locks_of_entered_use_shards`.
 
     Note that this class should not be used for connections to the public schema. You can use the main connection for
     that one.
@@ -1842,9 +1876,8 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         self._main_connection = main_connection
         self.shard_options = options
 
-        # We proxy the fields specified in _PROXY_FIELDS to the main connection. Because we call the super().__init__
-        # here, that means that we would reset the values of the fields we proxy. We don't want that here, so we keep
-        # track whether we are in the initialization state and only set the proxy values outside of the __init__ method.
+        # super().__init__() sets every field in _PROXY_FIELDS. While _initialized is False, those values are stored on
+        # this connection, so that they do not reset the fields of the main connection.
         self._initialized = False
         super().__init__(
             settings_dict=main_connection.settings_dict,
@@ -1875,18 +1908,6 @@ class ShardDatabaseWrapper(DatabaseWrapper):
     def alias(self, value):
         if value != self._main_connection.alias:
             raise ValueError('The alias is managed by the main connection and cannot be changed.')
-
-    def __getattribute__(self, item):
-        if item in ShardDatabaseWrapper._PROXY_FIELDS:
-            return getattr(self._main_connection, item)
-        return super().__getattribute__(item)
-
-    def __setattr__(self, key, value):
-        # We don’t want to reset the attributes on the main connection when initializing this class instance, hence we
-        # check on the value of self._initialized here.
-        if key in ShardDatabaseWrapper._PROXY_FIELDS and self._initialized:
-            return setattr(self._main_connection, key, value)
-        return super().__setattr__(key, value)
 
     def acquire_locks(self, shared=True):
         # Inside a transaction the locks are transaction-scoped, so the rollback a failure inside the context
