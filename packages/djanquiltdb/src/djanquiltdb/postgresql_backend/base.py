@@ -1162,12 +1162,20 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         finally:
             self.current_search_paths = None
 
+    def _savepoint_rollback(self, sid):
+        # A rollback to a savepoint undoes a SET search_path that ran after the savepoint was set. _cursor() sets the
+        # search_path of this connection before the rollback runs, but that SET fails when an error aborted the
+        # transaction, so the search_path of the session can differ from current_search_paths afterwards. With
+        # current_search_paths set to None, the next _cursor() call sets the search_path again.
+        try:
+            super()._savepoint_rollback(sid)
+        finally:
+            self.current_search_paths = None
+
     def commit(self):
-        # Invalidate current_search_paths so the next _cursor() call re-issues SET search_path. Required for PgBouncer
-        # transaction pooling (the next transaction may be handed a different physical connection with no search_path
-        # set) and for direct connections (SET search_path is session-level, not transactional, so we cannot pretend the
-        # session was reset just because the transaction ended). None as sentinel never compares equal to a list, so the
-        # early-exit in _cursor() always falls through.
+        # With current_search_paths set to None, the next _cursor() call sets the search_path again. This is needed for
+        # PgBouncer in transaction pooling mode, where the next transaction can run on another server connection, which
+        # has another search_path. None is never equal to a list of schemas, so _cursor() always sets the search_path.
         try:
             super().commit()
         finally:

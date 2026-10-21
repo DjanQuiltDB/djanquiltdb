@@ -219,6 +219,38 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
         self.assertTrue(mock_commit.called)
         self.assertIsNone(connection.current_search_paths)
 
+    def test_a_shard_runs_queries_in_its_schema_after_a_failed_query_rolls_back_to_a_savepoint(self):
+        """
+        Case: In a shard, a transaction on the node sets a savepoint with transaction.savepoint() while the search_path
+              is the public schema. A query in the shard sets the search_path to the shard and fails, and
+              transaction.savepoint_rollback() rolls back to the savepoint, which undoes that SET search_path. Then
+              another query runs in the shard.
+        Expected: The current schema of the query is the schema of the shard.
+        """
+        create_template_schema()
+        shard = Shard.objects.create(alias='one', schema_name='one_schema', node_name='default', state=State.ACTIVE)
+
+        with use_shard(shard) as env:
+            with transaction.atomic(using='default'):
+                # This test sets and rolls back the savepoint with transaction.savepoint() and savepoint_rollback(),
+                # because an inner atomic() does not show the stale search_path. The rollback itself runs on a cursor
+                # of the node connection, so _cursor() sets the search_path to the public schema first; that SET fails
+                # in the aborted transaction, and current_search_paths keeps the schema of the shard. But atomic()
+                # releases the savepoint right after the rollback, and the RELEASE SAVEPOINT runs on another cursor of
+                # the node connection, whose SET search_path succeeds and makes current_search_paths match the session
+                # again. So the stale search_path shows only when other code than atomic() rolls back to a savepoint.
+                savepoint_id = transaction.savepoint(using='default')
+
+                with self.assertRaises(DatabaseError):
+                    env.connection.cursor().execute('SELECT 1 / 0')
+
+                transaction.savepoint_rollback(savepoint_id, using='default')
+
+                with env.connection.cursor() as cursor:
+                    cursor.execute('SELECT current_schema()')
+
+                    self.assertEqual(cursor.fetchone()[0], shard.schema_name)
+
     def test_get_ps_schema_with_existing_schema(self):
         """
         Case: Call connection.get_ps_schema with an existing schema name.
