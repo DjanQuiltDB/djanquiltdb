@@ -80,11 +80,3 @@ Base classes
 .. currentmodule:: djanquiltdb.base.pghistory
 
 .. autoclass:: ShardRoutedRevert
-
-
-The plugin object
-=================
-
-.. currentmodule:: djanquiltdb_plugin_pghistory
-
-.. autofunction:: install

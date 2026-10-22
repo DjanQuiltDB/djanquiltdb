@@ -31,6 +31,7 @@ Decorators
 
 .. automodule:: djanquiltdb.decorators
     :members:
+    :exclude-members: class_method_use_shard, override_sharding_setting
 
 
 Models
@@ -54,6 +55,7 @@ schema that cannot live in the library.
 
 .. autoclass:: ShardOptions
     :members:
+    :exclude-members: lock_keys
 
 
 Routing
@@ -65,11 +67,8 @@ The router decides which node and schema a query reaches, from the sharding mode
 whichever shard is active on the current thread.
 
 .. autoclass:: DynamicDbRouter
-    :members:
 
 .. autofunction:: get_active_connection
-
-.. autofunction:: set_active_connection
 
 
 .. _api_utils:
@@ -78,8 +77,8 @@ Utilities
 =========
 
 .. automodule:: djanquiltdb.utils
-   :members: use_shard, use_shard_for, get_shard_for, for_each_shard, create_schema_on_node, create_template_schema,
-      migrate_schema
+   :members: use_shard, use_shard_for, get_shard_for, for_each_shard, create_template_schema
+   :exclude-members: copy_for_one_call, read_shard_after_locking, check_shard_after_locking
 
 
 Migration operations
@@ -154,12 +153,14 @@ Ships with the package rather than with the suite, so a project's own tests and 
 
 .. autoclass:: ResetConnectionTestCaseMixin
     :members:
+    :exclude-members: setUp
 
 .. autoclass:: CleanShardingArtifactsMixin
     :members:
 
 .. autoclass:: OverrideMirroredRoutingMixin
     :members:
+    :exclude-members: setUp, reset_router_override
 
 .. autofunction:: skip_without_virtual_generated_column_support
 
@@ -170,8 +171,6 @@ Ships with the package rather than with the suite, so a project's own tests and 
 
 Plugins
 =======
-
-.. currentmodule:: djanquiltdb.plugins
 
 Optional features are separate distributions, which DjanQuiltDB finds through the ``djanquiltdb.plugins`` entry-point
 group. See :doc:`/plugins/celery/index`, :doc:`/plugins/pghistory/index`, :doc:`/plugins/postgres-denormalize/index` and
@@ -222,14 +221,6 @@ When two installed distributions register the same name, DjanQuiltDB raises ``Im
 registry is ready, so the project does not start, and every time that name is looked up. Other names are served as
 usual, so a name that no plugin serves is still a missing attribute or module. A registered plugin name takes precedence
 over a decorator with the same name that another plugin serves directly.
-
-.. autofunction:: load_plugins
-
-.. autofunction:: load_plugin_by_name
-
-.. autofunction:: raise_for_duplicate_plugin_names
-
-.. autofunction:: served_plugin_module
 
 .. _command_hooks:
 
@@ -293,9 +284,3 @@ loaded, and their contexts are exited in reverse order.
 ``move_sharded_models``
     ``move_context(command)``, ``pre_move(command)`` and ``post_move(command)``, around the move of the sharded tables
     from the public schema into the schema of the shard. The command has the ``shard``.
-
-.. autofunction:: plugin_hooks
-
-.. autofunction:: run_plugin_hooks
-
-.. autofunction:: entered_plugin_hook_contexts

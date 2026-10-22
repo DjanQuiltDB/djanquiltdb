@@ -32,11 +32,3 @@ Views
 .. autofunction:: sharded_view
 
 .. autofunction:: single_node_unsharded_view
-
-
-The plugin object
-=================
-
-.. currentmodule:: djanquiltdb_plugin_postgres_objects
-
-.. autofunction:: install

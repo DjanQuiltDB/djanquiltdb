@@ -80,11 +80,3 @@ to inherit from this class.
         apply_async_on_commit_for_node
 
 .. autoclass:: TaskSenderForTarget
-
-
-The plugin object
-=================
-
-.. currentmodule:: djanquiltdb_plugin_celery
-
-.. autofunction:: install
