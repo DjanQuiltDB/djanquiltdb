@@ -60,6 +60,24 @@ renamed after it was created. If a model's auto-incrementing column has no seque
 column, the command stops with an error that names the column. It stops before any sequence is reset.
 
 
+Replication lag
+---------------
+The command saves the mapping objects, or the source shard without a mapping model, as in maintenance when it starts,
+and with the target shard and their previous state when it ends. The mapping model and the Shard model are mirrored, so
+these saves go to the primary node, and the replication of the project copies them to the other nodes later.
+
+``use_shard_for()`` reads the mapping table on the primary node, unless the mapping model sets ``route_to_primary_db``
+to ``False``, so it sees the target shard as soon as the command ends. A process on another node that reads the copy
+of that node instead:
+
+* raises ``StateException`` while that copy has the mapping object or the shard in maintenance, and a task of the
+  celery plugin tries again later;
+* enters the source shard while that copy is behind by longer than the whole move, and what it writes there is not in
+  the target shard.
+
+Keep the lag of the replication well below the time that a move takes.
+
+
 Operational notes
 -----------------
 The rows deleted from the source in step 5 are the rows just copied to the target, so the

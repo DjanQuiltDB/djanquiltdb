@@ -34,6 +34,21 @@ closing output names it. Verify the move, then remove that schema with the ``pur
 gone, the shard cannot move back to that node - the command refuses a target node that already holds a schema by that
 name - and the leftover is a stale copy of tenant data, which retention policies may care about.
 
+Replication lag
+---------------
+The command saves the shard as in maintenance when it starts, and with the target node and its previous state when it
+ends. The Shard model is mirrored, so both saves go to the primary node, and the replication of the project copies them
+to the other nodes later. A process on another node reads the shard from the copy of the registry on that node:
+
+* While that copy has the shard in maintenance, entering the shard raises ``StateException``, and a task of the celery
+  plugin tries again later.
+* While that copy is behind by longer than the whole move, it still has the shard on the source node and active. The
+  process then enters the source schema, which keeps its rows until ``purge_schema`` removes it, and what it writes there
+  is not in the moved shard.
+
+Keep the lag of the replication well below the time that a move takes, and check that the registry of every node has
+the target node before you remove the source schema.
+
 Options
 -------
 
