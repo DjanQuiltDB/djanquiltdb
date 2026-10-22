@@ -71,8 +71,9 @@ The task class
 
 .. currentmodule:: djanquiltdb.base.celery
 
-The decorators create their tasks with this class as the base. A task class of your own that is passed as ``base`` has
-to inherit from this class.
+The decorators create their tasks with this class as the base, combined with the task class of the Celery app, see
+:doc:`installation`. A task class of your own that is passed as ``base``, or that ``QUILT_CELERY['TASK_BASE']`` names,
+has to inherit from this class.
 
 .. autoclass:: QuiltTask
     :members: for_shard, for_node, delay_for_shard, apply_async_for_shard, delay_on_commit_for_shard,

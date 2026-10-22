@@ -29,6 +29,7 @@ class QuiltCelerySettingCheckTestCase(SimpleTestCase):
             'RETRY_JITTER': True,
             'FANOUT_QUEUE': 'fanout',
             'FANOUT_SPREAD': (5, 10),
+            'TASK_BASE': 'example.task_bases.ProjectQuiltTask',
         }
     )
     def test_every_key_with_a_value_of_its_type_passes(self):
@@ -93,6 +94,26 @@ class QuiltCelerySettingCheckTestCase(SimpleTestCase):
         self.assertIn('a string', messages[0].msg)
         self.assertIn("QUILT_CELERY['RETRY_BACKOFF_MAX']", messages[1].msg)
         self.assertIn('an integer', messages[1].msg)
+
+    def test_a_task_base_is_a_dotted_path_of_a_subclass_of_quilt_task(self):
+        """
+        Case: QUILT_CELERY['TASK_BASE'] is set to 3, which is not a string, to example.task_bases.Missing, which does
+              not import, and to celery.Task, which does not inherit from QuiltTask.
+        Expected: djanquiltdb_plugin_celery.E002 for each, whose message includes the key and the reason.
+        """
+        cases = [
+            (3, 'a dotted path or None'),
+            ('example.task_bases.Missing', 'does not import'),
+            ('celery.Task', 'does not inherit from QuiltTask'),
+        ]
+
+        for task_base, reason in cases:
+            with self.subTest(task_base=task_base), self.settings(QUILT_CELERY={'TASK_BASE': task_base}):
+                messages = check_quilt_celery_setting(None)
+
+                self.assertEqual(message_ids(messages), ['djanquiltdb_plugin_celery.E002'])
+                self.assertIn("QUILT_CELERY['TASK_BASE']", messages[0].msg)
+                self.assertIn(reason, messages[0].msg)
 
     def test_a_spread_is_an_integer_or_a_pair_of_integers_that_are_not_negative_and_ascending(self):
         """

@@ -19,6 +19,9 @@ QUILT_CELERY_DEFAULTS = {
     # The countdown of each task that a fan-out sends: a random number of seconds from 0 to an integer, or between a
     # pair of integers, which are not negative and in ascending order. None means no countdown.
     'FANOUT_SPREAD': None,
+    # The dotted path of the base class of a task whose decorator is not given a base, which inherits from QuiltTask.
+    # None means QuiltTask combined with the task class of the Celery app.
+    'TASK_BASE': None,
 }
 
 #: How a message describes the values that a spread accepts.

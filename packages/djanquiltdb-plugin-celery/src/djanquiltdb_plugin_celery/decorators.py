@@ -8,12 +8,14 @@ import annotationlib
 import functools
 import inspect
 
+from celery import _state as celery_state
 from celery import shared_task
+from celery.local import Proxy
 from djanquiltdb.utils import StateException
 
 from djanquiltdb_plugin_celery.settings import ensure_valid_queue, ensure_valid_spread, quilt_celery_setting
 from djanquiltdb_plugin_celery.targets import use_target
-from djanquiltdb_plugin_celery.tasks import QuiltTask
+from djanquiltdb_plugin_celery.tasks import QuiltTask, task_base_of_app, task_base_of_the_setting
 
 SERVE_UNQUALIFIED = False
 
@@ -63,12 +65,14 @@ def _create_quilt_task(func, task_attributes, options):
 
     options = dict(options)
     bind = options.pop('bind', False)
-    base = options.pop('base', QuiltTask)
+    base = options.pop('base', None) or task_base_of_the_setting()
 
-    if not issubclass(base, QuiltTask):
+    if base is not None and not (isinstance(base, type) and issubclass(base, QuiltTask)):
         raise TypeError(
             'The base of {} is {}, which does not inherit from QuiltTask. The tasks of the celery plugin need '
-            'the methods of QuiltTask to send and to enter their targets.'.format(func.__qualname__, base.__qualname__)
+            'the methods of QuiltTask to send and to enter their targets.'.format(
+                func.__qualname__, getattr(base, '__qualname__', repr(base))
+            )
         )
 
     # The wrapper is always bound, because it reads the request of the task. The function receives the task only when it
@@ -94,8 +98,39 @@ def _create_quilt_task(func, task_attributes, options):
     # the function receives them.
     run_in_target.__signature__ = WRAPPER_SIGNATURE
     task_attributes = {**task_attributes, 'function_signature': _signature_of_function(func, bind)}
+    task_options = {'bind': True, **task_attributes, **_retry_options(options)}
 
-    return shared_task(bind=True, base=base, **task_attributes, **_retry_options(options))(run_in_target)
+    if base is not None:
+        return shared_task(base=base, **task_options)(run_in_target)
+
+    return _shared_task_based_on_each_app(run_in_target, task_options)
+
+
+def _shared_task_based_on_each_app(fun, options):
+    """
+    Returns the task of ``fun`` as ``celery.shared_task(**options)`` returns it, except that each app that registers the
+    task gives it the base class that task_base_of_app() returns for that app. The body is the body of
+    ``celery.shared_task()`` with that one change, and uses the same hooks of Celery. The base is resolved for each app,
+    and not from the current app, because a tasks module can be imported before the Celery app of the project exists.
+    """
+
+    def register_in(app):
+        return app._task_from_fun(fun, base=task_base_of_app(app), **options)
+
+    # An app that is finalized later registers the task when it is finalized, and an app that is finalized already
+    # registers it now.
+    celery_state.connect_on_app_finalize(register_in)
+
+    for app in celery_state._get_active_apps():
+        if app.finalized:
+            with app._finalize_mutex:
+                register_in(app)
+
+    def task_of_the_current_app():
+        app = celery_state.get_current_app()
+        return app.tasks[options.get('name') or app.gen_task_name(fun.__name__, fun.__module__)]
+
+    return Proxy(task_of_the_current_app)
 
 
 def _task_decorator_or_task(task_attributes, func, options):
@@ -134,8 +169,9 @@ def task_for_shard(func=None, *, inherit_active_shard=False, lock=None, **option
         runs.
     :param options: The options of ``celery.shared_task()``. ``max_retries``, ``retry_backoff``, ``retry_backoff_max``
         and ``retry_jitter`` default to the QUILT_CELERY settings, and StateException is added to the exceptions of
-        ``autoretry_for``. ``base`` defaults to :class:`~djanquiltdb.base.celery.QuiltTask`, and a
-        ``base`` that does not inherit from that class raises TypeError.
+        ``autoretry_for``. ``base`` defaults to the class that ``QUILT_CELERY['TASK_BASE']`` names, else to
+        :class:`~djanquiltdb.base.celery.QuiltTask` combined with the task class of the Celery app, and a ``base``
+        that does not inherit from QuiltTask raises TypeError.
 
     :Example:
         .. code-block:: python

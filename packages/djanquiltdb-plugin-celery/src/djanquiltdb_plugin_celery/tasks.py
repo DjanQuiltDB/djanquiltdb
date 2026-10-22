@@ -2,10 +2,13 @@ import functools
 import inspect
 
 from celery.contrib.django.task import DjangoTask
+from celery.utils.imports import symbol_by_name
 from django.db import connections, transaction
 from django.db.models import Model
+from django.utils.module_loading import import_string
 from djanquiltdb.utils import get_all_databases, get_shard_class
 
+from djanquiltdb_plugin_celery.settings import quilt_celery_setting
 from djanquiltdb_plugin_celery.targets import (
     NODE_NAME_KWARG,
     SHARD_ID_KWARG,
@@ -414,3 +417,46 @@ class TaskSenderForTarget:
 
     def si(self, *args, **kwargs):
         return self.signature(args, kwargs, immutable=True)
+
+
+@functools.cache
+def quilt_task_based_on(app_task_class):
+    """
+    Returns the task class that combines QuiltTask with ``app_task_class``, the task class of the Celery app, so that a
+    task of the plugin also gets what the project's task class adds, such as a ``__call__`` that records each run. The
+    methods of QuiltTask come first, because they send and enter the target. The class is created once for each task
+    class of an app, so the tasks of one app share it.
+    """
+    return type(QuiltTask.__name__, (QuiltTask, app_task_class), {'__module__': QuiltTask.__module__})
+
+
+def task_base_of_the_setting():
+    """
+    Returns the class that ``QUILT_CELERY['TASK_BASE']`` names, or None when the setting names none. Like the retry
+    settings, the setting is read when a task is decorated.
+    """
+    task_base = quilt_celery_setting('TASK_BASE')
+
+    return None if task_base is None else import_string(task_base)
+
+
+def task_base_of_app(app):
+    """
+    Returns the base class of a task in the Celery app ``app``, when neither the decorator of the task nor
+    ``QUILT_CELERY['TASK_BASE']`` gives one: QuiltTask combined with the task class of the app, which Celery's
+    ``task_cls`` sets. Celery's Django fixup makes ``DjangoTask`` the task class of an app without a ``task_cls`` of its
+    own, and QuiltTask already inherits from it, so such an app gets QuiltTask itself. A task class of the app that
+    already inherits from QuiltTask is returned as it is.
+
+    It is called when the app registers the task, so a task that is decorated before the app exists gets the task class
+    of the app as well.
+    """
+    app_task_class = symbol_by_name(app.task_cls)
+
+    if issubclass(app_task_class, QuiltTask):
+        return app_task_class
+
+    if issubclass(QuiltTask, app_task_class):
+        return QuiltTask
+
+    return quilt_task_based_on(app_task_class)
