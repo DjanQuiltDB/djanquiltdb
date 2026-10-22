@@ -254,9 +254,9 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
 
     :param mapping_field: Name of the primary field used to query the table to find a shard.
         This is used by the MappingQuerySet object manager.
-    :param route_to_primary_db: Always route read and write queries for this model to the primary database,
-        should there be more than one. Default is ``True``. If set to ``False`` the queries are routed according
-        to the current prevailing sharding context as normal.
+    :param route_to_primary_db: The mapping model is mirrored, so it is always written on the primary node. This
+        argument decides where it is read: on the primary node when ``True``, the default, and on the active node when
+        ``False``.
 
     :note: Some fields are required to use this model:
 
