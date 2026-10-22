@@ -134,7 +134,7 @@ def task_for_shard(func=None, *, inherit_active_shard=False, lock=None, **option
         runs.
     :param options: The options of ``celery.shared_task()``. ``max_retries``, ``retry_backoff``, ``retry_backoff_max``
         and ``retry_jitter`` default to the QUILT_CELERY settings, and StateException is added to the exceptions of
-        ``autoretry_for``. ``base`` defaults to :class:`~djanquiltdb_plugin_celery.tasks.QuiltTask`, and a
+        ``autoretry_for``. ``base`` defaults to :class:`~djanquiltdb.base.celery.QuiltTask`, and a
         ``base`` that does not inherit from that class raises TypeError.
 
     :Example:

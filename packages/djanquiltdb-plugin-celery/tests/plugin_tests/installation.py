@@ -1,9 +1,11 @@
 import subprocess  # nosec
 import sys
 
+import djanquiltdb.base.celery as base_namespace
 import djanquiltdb.utils.celery as utils_namespace
 from django.test import SimpleTestCase
-from djanquiltdb import decorators, utils
+from djanquiltdb import base, decorators, utils
+from djanquiltdb.base.celery import QuiltTask
 from djanquiltdb.decorators import celery
 from djanquiltdb.decorators.celery import task_for_shard
 from djanquiltdb.plugins import load_plugins
@@ -69,6 +71,21 @@ class PluginDiscoveryTestCase(SimpleTestCase):
         for name in djanquiltdb_plugin_celery.utils.__all__:
             with self.subTest(name=name):
                 self.assertIs(getattr(utils_namespace, name), getattr(djanquiltdb_plugin_celery, name))
+
+    def test_the_task_classes_are_served_from_the_core_base_module(self):
+        """
+        Case: djanquiltdb.base.celery is imported, read as an attribute of djanquiltdb.base, and QuiltTask is imported
+              from inside it.
+        Expected: Each is the plugin's base module or the class that the plugin defines, and each name in the __all__
+                  of the base module is the same object that the distribution package exports.
+        """
+        self.assertIs(base_namespace, djanquiltdb_plugin_celery.base)
+        self.assertIs(base.celery, djanquiltdb_plugin_celery.base)
+        self.assertIs(QuiltTask, djanquiltdb_plugin_celery.tasks.QuiltTask)
+
+        for name in djanquiltdb_plugin_celery.base.__all__:
+            with self.subTest(name=name):
+                self.assertIs(getattr(base_namespace, name), getattr(djanquiltdb_plugin_celery, name))
 
     def test_the_decorators_are_not_attributes_of_the_core_decorators_module(self):
         """

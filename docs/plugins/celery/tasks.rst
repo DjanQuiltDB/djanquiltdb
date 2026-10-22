@@ -118,7 +118,7 @@ ordinary keyword arguments for a task of ``task_for_node``. The decorator takes 
 ``for_shard()`` on a task of ``task_for_node``, and ``for_node()`` on a task that runs in a shard, raise ``TypeError``.
 
 ``TaskShardError`` and ``TaskNodeError`` both inherit from ``TaskQuiltError``, so ``except TaskQuiltError`` catches a
-task without a target of either kind.
+task without a target of either kind. All three are imported from ``djanquiltdb.utils.celery``.
 
 
 The target in the message
