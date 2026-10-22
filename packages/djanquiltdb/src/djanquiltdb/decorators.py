@@ -9,7 +9,6 @@ from django.db import models
 from django.test import override_settings
 
 from djanquiltdb import STATES, ShardingMode
-from djanquiltdb.db import connection
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.plugins import install_plugin_importer
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
@@ -43,8 +42,10 @@ def _reset_shard_mapping_models():
 
 def class_method_use_shard(func):
     """
-    Decorator that is used to decorate all class methods of a certain class. It will make sure that the class methods
-    are run in the same shard as the instance lives in.
+    Decorator for the methods of a model class. A decorated method runs in the shard that the instance is stored in. The
+    decorator enters no use_shard when that shard is active already, or when the active shard is entered with
+    override_class_method_use_shard set to True. A method of an instance that has no database runs on the active
+    connection.
     """
 
     @functools.wraps(func)
@@ -53,11 +54,19 @@ def class_method_use_shard(func):
             return func(self, *args, **kwargs)
 
         shard_options = ShardOptions.from_alias(self._state.db)
-        override_class_method_use_shard = hasattr(connection, 'shard_options') and connection.shard_options.kwargs.get(
-            'override_class_method_use_shard', False
-        )
+        active_connection = get_active_connection()
 
-        if shard_options == get_active_connection() or override_class_method_use_shard:
+        if shard_options == active_connection:
+            return func(self, *args, **kwargs)
+
+        # Read override_class_method_use_shard from the options of the active connection, because reading it from the
+        # connection object builds a new shard connection. The setting applies to a shard only, so it has no effect
+        # while a public schema is active.
+        if (
+            isinstance(active_connection, ShardOptions)
+            and not active_connection.is_public_schema()
+            and active_connection.kwargs.get('override_class_method_use_shard', False)
+        ):
             return func(self, *args, **kwargs)
 
         with shard_options.use():

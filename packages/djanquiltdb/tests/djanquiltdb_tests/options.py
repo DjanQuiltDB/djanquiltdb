@@ -1,13 +1,17 @@
 from unittest import mock
 
-from djanquiltdb import State
+from django.db import connections, models
+from django.test.utils import CaptureQueriesContext, isolate_apps
+
+from djanquiltdb import STATES, State
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import override_sharding_setting
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import StateException, create_template_schema
-from djanquiltdb_tests import ShardingTestCase
-from example.models import Organization, OrganizationShard, Shard
+from djanquiltdb.router import get_active_connection
+from djanquiltdb.utils import StateException, create_template_schema, use_shard, use_shard_for
+from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
+from example.models import MirroredUser, Organization, OrganizationShard, Shard
 
 
 class ShardOptionsTestCase(ShardingTestCase):
@@ -292,6 +296,19 @@ class ShardOptionsTestCase(ShardingTestCase):
         with self.assertRaisesMessage(ValueError, '{} is an invalid connection alias.'.format(alias)):
             ShardOptions.from_alias(alias)
 
+    def test_from_alias_does_not_look_up_the_shard_class_for_a_string_or_a_tuple(self):
+        """
+        Case: Get the ShardOptions from a bare node name, from a node name and schema name separated by a pipe, and from
+              a tuple of a node name and schema name.
+        Expected: The shard class is not looked up, because none of these aliases can be a shard.
+        """
+        with mock.patch('djanquiltdb.options.get_shard_class', return_value=Shard) as mock_get_shard_class:
+            ShardOptions.from_alias('default')
+            ShardOptions.from_alias('default|test_schema')
+            ShardOptions.from_alias(('default', 'test_schema'))
+
+        mock_get_shard_class.assert_not_called()
+
     def test_lock_keys_none(self):
         """
         Case: Get the lock keys from a ShardOptions instance that has no shard id and no mapping value
@@ -319,6 +336,90 @@ class ShardOptionsTestCase(ShardingTestCase):
             node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id, mapping_value=42
         )
         self.assertEqual(shard_options.lock_keys, ['shard_{}'.format(self.shard.id), 'mapping_42'])
+
+    def test_lock_keys_mapping_value_zero(self):
+        """
+        Case: Get the lock keys from a ShardOptions instance that has a shard id and the mapping value 0
+        Expected: List with `shard_<SHARD_ID>` and `mapping_0` returned, because 0 is a mapping value like any other
+        """
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id, mapping_value=0
+        )
+        self.assertEqual(shard_options.lock_keys, ['shard_{}'.format(self.shard.id), 'mapping_0'])
+
+    def test_lock_keys_mapping_value_model_instance(self):
+        """
+        Case: Get the lock keys from a ShardOptions instance whose mapping value is a model instance, which
+              use_shard_for() accepts when the mapping field is a foreign key.
+        Expected: List with `shard_<SHARD_ID>` and `mapping_<PRIMARY_KEY>` returned. This is the lock that
+                  move_data_to_shard takes for the mapping value.
+        """
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name,
+            schema_name=self.shard.schema_name,
+            shard_id=self.shard.id,
+            mapping_value=Organization(pk=42),
+        )
+        self.assertEqual(shard_options.lock_keys, ['shard_{}'.format(self.shard.id), 'mapping_42'])
+
+    @isolate_apps('djanquiltdb')
+    def test_lock_keys_mapping_value_model_instance_for_a_foreign_key_to_another_field(self):
+        """
+        Case: Get the lock keys from a ShardOptions instance whose mapping value is a MirroredUser, while the mapping
+              field of the mapping model is a foreign key to the email address of MirroredUser.
+        Expected: List with `shard_<SHARD_ID>` and `mapping_<EMAIL_ADDRESS>` returned. The email address is the value
+                  that the mapping field stores, so use_shard_for() locks the same key for the user and for the email
+                  address of the user.
+        """
+
+        class MirroredUserShard(models.Model):
+            shard = models.ForeignKey(Shard, on_delete=models.CASCADE, related_name='+')
+            user = models.ForeignKey(MirroredUser, to_field='email', on_delete=models.CASCADE, related_name='+')
+            state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
+
+            mapping_field = 'user'
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with mock.patch('djanquiltdb.utils.get_mapping_class', return_value=MirroredUserShard):
+            shard_options = ShardOptions(
+                node_name=self.shard.node_name,
+                schema_name=self.shard.schema_name,
+                shard_id=self.shard.id,
+                mapping_value=MirroredUser(pk=42, email='luke@layton.l5'),
+            )
+            self.assertEqual(shard_options.lock_keys, ['shard_{}'.format(self.shard.id), 'mapping_luke@layton.l5'])
+
+    def test_use_inside_a_shard_without_the_public_schema(self):
+        """
+        Case: Enter what use() returns for options with the id of a shard, while a use_shard for another shard on the
+              same node is entered with include_public set to False.
+        Expected: The shard is entered, because use() looks up the shard in the public schema of the active node, which
+                  the search_path of the other shard does not have.
+        """
+        second_shard = Shard.objects.create(
+            alias='second', schema_name='test_second_schema', node_name='default', state=State.ACTIVE
+        )
+        shard_options = ShardOptions(node_name='default', schema_name='test_second_schema', shard_id=second_shard.id)
+
+        with use_shard(self.shard, include_public=False):
+            with shard_options.use() as env:
+                self.assertEqual(get_active_connection(), env.options)
+
+    def test_from_shard_check_active_mapping_values_inside_a_shard_without_the_public_schema(self):
+        """
+        Case: Call from_shard with check_active_mapping_values set to True, while a use_shard for the shard is entered
+              with include_public set to False, and the mapping model has route_to_primary_db set to False, so that the
+              router sends it to the active connection.
+        Expected: Options for the shard returned, because from_shard reads the mapping table in the public schema of
+                  the active node, which the search_path of the shard does not have.
+        """
+        with mock.patch.object(OrganizationShard, 'route_to_primary_db', False):
+            with use_shard(self.shard, include_public=False):
+                shard_options = ShardOptions.from_shard(self.shard, check_active_mapping_values=True)
+
+        self.assertEqual(shard_options.shard_id, self.shard.id)
 
     def test_is_public_schema(self):
         """
@@ -349,6 +450,23 @@ class ShardOptionsTestCase(ShardingTestCase):
         self.assertEqual(shard_options.use(), _use_shard_for)
 
         mock_use_shard_for.assert_called_once_with(42, **kwargs)
+
+    @mock.patch('djanquiltdb.options.use_shard_for')
+    def test_use_mapping_value_zero(self, mock_use_shard_for):
+        """
+        Case: Call ShardOptions's use() method while having the mapping value 0 set
+        Expected: Return a use_shard_for instance with the mapping value 0, because 0 is a mapping value like any other
+        """
+        _use_shard_for = mock.MagicMock()
+        mock_use_shard_for.return_value = _use_shard_for
+
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id, mapping_value=0
+        )
+
+        self.assertEqual(shard_options.use(), _use_shard_for)
+
+        mock_use_shard_for.assert_called_once_with(0)
 
     @mock.patch('djanquiltdb.options.use_shard')
     def test_use_shard_id(self, mock_use_shard):
@@ -424,6 +542,17 @@ class ShardOptionsTestCase(ShardingTestCase):
             self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
             self.assertEqual(connection.shard_options.shard_id, self.shard.id)
 
+    def test_use_shard_id_without_a_node_integration(self):
+        """
+        Case: Call ShardOptions's use() method on options that have a shard id but no node name and no schema name, like
+              the options of a target that identifies a shard by its id only.
+        Expected: Looks up the shard and switches the connection to it
+        """
+        shard_options = ShardOptions(node_name=None, schema_name=None, shard_id=self.shard.id)
+
+        with shard_options.use():
+            self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
+
     def test_use_integration(self):
         """
         Case: Call ShardOptions's use() method while having a no mapping value and no shard id set
@@ -437,3 +566,107 @@ class ShardOptionsTestCase(ShardingTestCase):
         with shard_options.use():
             self.assertEqual(connection.alias, '{}|{}'.format(self.shard.node_name, self.shard.schema_name))
             self.assertTrue(Organization.objects.filter(name='Foo').exists())
+
+
+class ShardOptionsUseInsideEnteredUseShardTestCase(ShardingTransactionTestCase):
+    """
+    Each test has two active shards on the default node, ``self.shard`` with the mapping value 1 and
+    ``self.other_shard``, and runs outside a transaction.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        create_template_schema()
+        self.shard = Shard.objects.create(
+            alias='test', schema_name='test_schema', node_name='default', state=State.ACTIVE
+        )
+        self.other_shard = Shard.objects.create(
+            alias='other', schema_name='test_other_schema', node_name='default', state=State.ACTIVE
+        )
+        OrganizationShard.objects.create(shard=self.shard, organization_id=1, slug='test')
+
+    def put_shard_into_maintenance(self):
+        Shard.objects.filter(id=self.shard.id).update(state=State.MAINTENANCE)
+        # The flush after the test fails on a shard in maintenance, so the cleanup makes the shard active again.
+        self.addCleanup(Shard.objects.filter(id=self.shard.id).update, state=State.ACTIVE)
+
+    def test_use_runs_no_statements(self):
+        """
+        Case: Call use() on the options of a mapping value while a use_shard_for of that mapping value is entered and
+              another shard is active.
+        Expected: The options become the active connection without running a statement, because the entered
+                  use_shard_for holds the locks of the shard and of the mapping value.
+        """
+        with use_shard_for(1):
+            shard_options = get_active_connection()
+
+            with use_shard(self.other_shard):
+                with CaptureQueriesContext(connections['default']) as captured:
+                    with shard_options.use():
+                        self.assertEqual(get_active_connection(), shard_options)
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_use_does_not_check_the_state_again(self):
+        """
+        Case: Put a shard into maintenance while a use_shard of that shard is entered, enter another shard, and call
+              use() on the options of the first shard.
+        Expected: No StateException, because the outer use_shard checks the state when it enters the shard, and its
+                  locks make the move commands wait until it is left.
+        """
+        with use_shard(self.shard):
+            shard_options = get_active_connection()
+            self.put_shard_into_maintenance()
+
+            with use_shard(self.other_shard):
+                with shard_options.use():
+                    self.assertEqual(get_active_connection(), shard_options)
+
+    def test_use_checks_the_state_without_an_entered_use_shard(self):
+        """
+        Case: Call use() on the options of a shard in maintenance, while no use_shard of that shard is entered.
+        Expected: A StateException, because use() looks up the shard and checks its state.
+        """
+        shard_options = ShardOptions(
+            node_name=self.shard.node_name, schema_name=self.shard.schema_name, shard_id=self.shard.id
+        )
+        self.put_shard_into_maintenance()
+
+        with self.assertRaises(StateException):
+            with shard_options.use():
+                pass
+
+    def test_use_entered_after_the_entered_use_shard_is_left(self):
+        """
+        Case: Call use() on the options of a shard while a use_shard of that shard is entered, leave that use_shard, and
+              then enter what use() returned.
+        Expected: The shard is entered and its lock is counted, because what use() returned takes the lock of the shard
+                  and reads the shard again, as the use_shard that is left no longer holds the lock.
+        """
+        with use_shard(self.shard):
+            shard_options = get_active_connection()
+            context = shard_options.use()
+
+        with context:
+            self.assertEqual(get_active_connection(), shard_options)
+            self.assertEqual(
+                connections['default'].session_locks_of_entered_use_shards['shard_{}'.format(self.shard.id)], 1
+            )
+
+    def test_use_entered_after_the_entered_use_shard_is_left_for_a_moved_shard(self):
+        """
+        Case: Call use() on the options of a shard while a use_shard of that shard is entered, leave that use_shard,
+              move the shard to another schema, and then enter what use() returned.
+        Expected: A StateException, because what use() returned reads the shard again once it holds the lock, and the
+                  shard is no longer in the schema of the options.
+        """
+        with use_shard(self.shard):
+            context = get_active_connection().use()
+
+        Shard.objects.filter(id=self.shard.id).update(schema_name='test_other_schema')
+        self.addCleanup(Shard.objects.filter(id=self.shard.id).update, schema_name='test_schema')
+
+        with self.assertRaisesMessage(StateException, 'which differs from the shard'):
+            with context:
+                pass

@@ -1,0 +1,99 @@
+[build-system]
+# The PEP 639 license expression below needs setuptools 77, which is also new enough that `wheel` does not have to be
+# declared here.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "djanquiltdb-plugin-celery"
+dynamic = ["version"]
+description = "Celery tasks that run in a shard, or once in every shard, of a DjanQuiltDB project"
+readme = "README.rst"
+requires-python = ">=3.14"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [
+    { name = "DjanQuiltDB Project", email = "djanquiltdb@portal42.net" },
+]
+keywords = [
+    "django",
+    "database",
+    "sharding",
+    "postgresql",
+    "celery",
+    "tasks",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Framework :: Celery",
+    "Framework :: Django",
+    "Framework :: Django :: 6.0",
+    "Framework :: Django :: 6.1",
+    "Topic :: Database",
+]
+dependencies = [
+    "django>=6.0,<7.0",
+    # 4.4 enters a shard id or a mapping value of 0, and reads the shard again once use_shard holds its lock, so that a
+    # task that is retried during a move does not enter the shard where it was before the move.
+    "djanquiltdb>=4.4,<5.0",
+    # 5.6 is the first release that supports Python 3.14. QuiltTask, the task class of the plugin, subclasses
+    # celery.contrib.django.task.DjangoTask and relies on Celery passing custom message headers on to
+    # task.request.headers, so a new major version has to be checked before the upper bound is raised.
+    "celery>=5.6,<6.0",
+]
+
+[project.entry-points."djanquiltdb.plugins"]
+celery = "djanquiltdb_plugin_celery:plugin"
+
+[project.urls]
+Homepage = "https://github.com/DjanQuiltDB/djanquiltdb"
+Documentation = "https://djanquiltdb.readthedocs.io/en/latest/plugins/celery/index.html"
+Source = "https://github.com/DjanQuiltDB/djanquiltdb/tree/master/packages/djanquiltdb-plugin-celery"
+Issues = "https://github.com/DjanQuiltDB/djanquiltdb/issues"
+Changelog = "https://github.com/DjanQuiltDB/djanquiltdb/blob/master/packages/djanquiltdb-plugin-celery/CHANGELOG.rst"
+
+[project.optional-dependencies]
+lint = [
+    "ruff==0.15.21",
+]
+test = [
+    "coverage",
+    "psycopg[binary]>=3.0.0",
+    "dj-database-url",
+]
+docs = [
+    "sphinx>=8,<10",
+]
+dev = [
+    "djanquiltdb-plugin-celery[test,lint,docs]",
+    "pre-commit",
+    # 4.21 is the first release with native TOML configuration, so that tox.ini is not needed.
+    "tox>=4.21",
+    "build",
+    "twine",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "djanquiltdb_plugin_celery.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.coverage.run]
+source = ["djanquiltdb_plugin_celery"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100
+
+# The shared settings are in ruff.toml at the repository root, and only the src roots are set per package.
+[tool.ruff]
+extend = "../../ruff.toml"
+src = ["src", "tests"]

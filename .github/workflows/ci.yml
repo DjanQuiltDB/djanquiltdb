@@ -3,7 +3,7 @@ name: CI
 on:
   push:
     branches: [master]
-    tags: ['v*', 'plugin-pghistory-v*', 'plugin-postgres-denormalize-v*', 'plugin-postgres-objects-v*']
+    tags: ['v*', 'plugin-celery-v*', 'plugin-pghistory-v*', 'plugin-postgres-denormalize-v*', 'plugin-postgres-objects-v*']
   pull_request:
   workflow_dispatch:
 
@@ -38,6 +38,18 @@ jobs:
             postgres: "17"
           - toxenv: core-pgtrigger-py314-dj61
             postgres: "17"
+          - toxenv: celery-py314-dj60-pg17
+            postgres: "17"
+            coverageenv: celery-coverage
+          - toxenv: celery-py314-dj60-pg18
+            postgres: "18"
+            coverageenv: celery-coverage
+          - toxenv: celery-py314-dj61-pg17
+            postgres: "17"
+            coverageenv: celery-coverage
+          - toxenv: celery-py314-dj61-pg18
+            postgres: "18"
+            coverageenv: celery-coverage
           - toxenv: pghistory-py314-dj60-pg17
             postgres: "17"
             coverageenv: pghistory-coverage
@@ -164,11 +176,15 @@ jobs:
           cache: pip
           cache-dependency-path: packages/*/pyproject.toml
       - run: python -m pip install --upgrade pip 'tox>=4.21'
-      - run: tox -e core-build,pghistory-build,postgres-denormalize-build,postgres-objects-build
+      - run: tox -e core-build,celery-build,pghistory-build,postgres-denormalize-build,postgres-objects-build
       - uses: actions/upload-artifact@v4
         with:
           name: dist-djanquiltdb
           path: packages/djanquiltdb/dist/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-plugin-celery
+          path: packages/djanquiltdb-plugin-celery/dist/
       - uses: actions/upload-artifact@v4
         with:
           name: dist-plugin-pghistory
@@ -196,6 +212,23 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: dist-djanquiltdb
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  publish-plugin-celery:
+    name: publish djanquiltdb-plugin-celery to PyPI
+    if: startsWith(github.ref, 'refs/tags/plugin-celery-v')
+    needs: [test, lint, pre-commit, docs, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi-plugin-celery
+      url: https://pypi.org/p/djanquiltdb-plugin-celery
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist-plugin-celery
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
 

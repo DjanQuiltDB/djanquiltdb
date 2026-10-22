@@ -3,12 +3,14 @@ import os
 from contextlib import contextmanager
 from unittest import mock
 
+from django.conf import settings
 from django.db import connections
 from django.db.backends.base.creation import BaseDatabaseCreation
 from django.db.backends.postgresql.creation import DatabaseCreation as PostgresDatabaseCreation
 from django.db.migrations.recorder import MigrationRecorder
 from django.db.utils import load_backend
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
+from django.utils.module_loading import import_string
 
 from djanquiltdb import ShardingMode, State
 from djanquiltdb.db import connection
@@ -57,6 +59,18 @@ class DatabaseCreationClassTestCase(ShardingTransactionTestCase):
         self.assertEqual(get_database_creation_class(), TemplateDatabaseCreation)
         with self.new_connection('default') as conn:
             self.assertEqual(conn.creation.__class__, TemplateDatabaseCreation)
+
+    def test_the_database_creation_class_is_imported_once_for_two_connections(self):
+        """
+        Case: Override QUILT_DB with its own value, which empties the cache, and create two connections.
+        Expected: The database creation class is imported once.
+        """
+        with override_settings(QUILT_DB=settings.QUILT_DB):
+            with mock.patch('djanquiltdb.postgresql_backend.base.import_string', wraps=import_string) as wrapped:
+                with self.new_connection('default'), self.new_connection('default'):
+                    pass
+
+        self.assertEqual(wrapped.call_count, 1)
 
 
 @mock.patch.object(BaseDatabaseCreation, 'create_test_db', autospec=True)

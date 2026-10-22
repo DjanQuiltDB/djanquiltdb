@@ -3,13 +3,12 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from threading import local
 
-from django.conf import settings
-from django.db import DEFAULT_DB_ALIAS, ProgrammingError
+from django.db import ProgrammingError
 
 from djanquiltdb import ShardingMode, public_modes
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import get_model_definition, get_model_sharding_mode, get_sharding_mode
+from djanquiltdb.utils import get_model_definition, get_model_sharding_mode, get_primary_db_alias, get_sharding_mode
 
 logger = logging.getLogger(__name__)
 
@@ -18,9 +17,14 @@ _active_connection = local()
 
 def get_active_connection():
     """
-    Get the active connection name. Fall back to the PRIMARY_DB_ALIAS setting, or to DEFAULT_DB_ALIAS if that fails too.
+    Returns the active connection of this thread, which set_active_connection() sets: ShardOptions or a connection
+    alias. When the thread has no active connection, returns QUILT_DB['PRIMARY_DB_ALIAS'], or DEFAULT_DB_ALIAS when
+    QUILT_DB does not have that key.
     """
-    return getattr(_active_connection, 'connection', settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS))
+    try:
+        return _active_connection.connection
+    except AttributeError:
+        return get_primary_db_alias()
 
 
 def set_active_connection(connection):
@@ -57,22 +61,23 @@ class DynamicDbRouter:
 
     def db_for_read(self, model, **hints):
         """
-        We normally route to the active connection (usually set by ``use_shard``). This is overridden by the state of
-        already retrieved objects or when explicitly provide directions (i.e. ``.using()``).
+        Returns the primary connection for a model that has ``route_to_primary_db`` set. For any other model, returns
+        the first of: the database of the ``instance`` hint, the ``_shard_options`` hint, and the active connection,
+        which ``use_shard`` usually sets.
         """
         if getattr(get_model_definition(model), 'route_to_primary_db', None):
-            return settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
+            return get_primary_db_alias()
         shard_options = hints.get('_shard_options')
         instance_options = hints.get('instance') is not None and hints['instance']._state.db
         return instance_options or shard_options or get_active_connection()
 
     def db_for_write(self, model, **hints):
         """
-        For MIRRORED models, return the primary connection if the context is for a follower node.
-        Otherwise, refer to normal behavior of db_for_read.
+        For a MIRRORED model, returns the primary connection when db_for_read returns an alias, or options for a node
+        other than the primary node. In all other cases, returns what db_for_read returns.
         """
         if get_model_sharding_mode(model) is ShardingMode.MIRRORED:
-            default_node_name = settings.QUILT_DB.get('PRIMARY_DB_ALIAS', DEFAULT_DB_ALIAS)
+            default_node_name = get_primary_db_alias()
             db = self.db_for_read(model, **hints)
             if not isinstance(db, ShardOptions) or db.node_name != default_node_name:
                 return default_node_name

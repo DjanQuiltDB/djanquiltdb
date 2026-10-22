@@ -44,6 +44,9 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+celery = [
+    "djanquiltdb-plugin-celery>=1.0,<2.0",
+]
 pghistory = [
     "djanquiltdb-plugin-pghistory>=1.0,<2.0",
 ]
@@ -114,7 +117,7 @@ source = [
 
 [tool.coverage.report]
 omit = ["*/.tox/*"]
-fail_under = 86
+fail_under = 87
 
 [tool.coverage.html]
 directory = "../coverage"

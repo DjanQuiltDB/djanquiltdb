@@ -13,13 +13,17 @@ IN THE SOFTWARE.
 """
 
 import contextlib
+import functools
 import logging
 import re
+from collections import Counter
 
 from django.conf import settings
+from django.core.signals import setting_changed
 from django.db.backends.base.base import NO_DB_ALIAS
 from django.db.backends.postgresql.base import DatabaseWrapper as BaseDatabaseWrapper
 from django.db.utils import DatabaseError, IntegrityError
+from django.dispatch import receiver
 from django.utils.module_loading import import_string
 from psycopg.errors import InternalError
 
@@ -1085,10 +1089,24 @@ def get_validated_schema_name(schema_name, is_template=False):
     return schema_name
 
 
+@functools.cache
 def get_database_creation_class():
+    """
+    Returns the class that creates the test databases: the class that QUILT_DB['DATABASE_CREATION_CLASS'] points to, or
+    DatabaseCreation when QUILT_DB does not have that key. The class is cached until QUILT_DB changes.
+    """
     return import_string(
         settings.QUILT_DB.get('DATABASE_CREATION_CLASS', 'djanquiltdb.postgresql_backend.creation.DatabaseCreation')
     )
+
+
+@receiver(setting_changed)
+def reset_cached_database_creation_class(setting, **kwargs):
+    """
+    Clears the cached database creation class when override_settings() changes QUILT_DB.
+    """
+    if setting == 'QUILT_DB':
+        get_database_creation_class.cache_clear()
 
 
 class DatabaseWrapper(BaseDatabaseWrapper):
@@ -1099,21 +1117,25 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Replace the default introspection with a patched version of
-        # the DatabaseIntrospection that only returns the table list
-        # for the currently selected schema.
+        # Replace the default introspection with DatabaseSchemaIntrospection, which only returns the tables of the
+        # selected schema.
         self.introspection = DatabaseSchemaIntrospection(self)
 
-        # Give the library user the possibility to overwrite the database creation class. This allows them to adjust the
-        # creation of the test database, to make a default shard for example.
+        # Projects can replace the database creation class with QUILT_DB['DATABASE_CREATION_CLASS'], to change how the
+        # test database is created, for example to create a default shard.
         self.creation = get_database_creation_class()(self)
 
         self.current_search_paths = [PUBLIC_SCHEMA_NAME]
 
+        # For each advisory lock key, the number of use_shard contexts that are entered and not left yet and that hold
+        # the key for the session of this connection. A use_shard that is entered inside these contexts finds its locks
+        # in this counter and takes no locks of its own.
+        self.session_locks_of_entered_use_shards = Counter()
+
         self.schema_name = PUBLIC_SCHEMA_NAME
         self.include_public_schema = True
 
-        # Django < 2.0 require this attribute set, in our case it should be just a noop.
+        # Django versions before 2.0 require this attribute. The function that it is set to does nothing.
         if hasattr(self, '_start_transaction_under_autocommit'):
             self._start_transaction_under_autocommit = lambda x: None
 
@@ -1122,7 +1144,17 @@ class DatabaseWrapper(BaseDatabaseWrapper):
 
     def close(self):
         self.current_search_paths = [PUBLIC_SCHEMA_NAME]
+        # Closing the connection ends the session and releases the advisory locks of the session, so the lock counts
+        # start at zero.
+        self.session_locks_of_entered_use_shards = Counter()
         super().close()
+
+    def entered_use_shards_hold_session_locks(self, lock_keys):
+        """
+        Whether use_shard contexts that are entered and not left yet hold every one of ``lock_keys`` for the session of
+        this connection. Returns False when ``lock_keys`` is empty.
+        """
+        return bool(lock_keys) and all(self.session_locks_of_entered_use_shards[key] for key in lock_keys)
 
     def rollback(self):
         try:
@@ -1643,16 +1675,31 @@ class DatabaseWrapper(BaseDatabaseWrapper):
     def acquire_advisory_lock(self, key, shared=True, xact=False, _cursor=None):
         """
         Set a shared or exclusive advisory lock on a given key, session-scoped or transaction-scoped.
+
+        Without ``_cursor``, this method uses a cursor that does not set the search_path, because the lock functions do
+        not depend on the search_path. Entering and leaving a shard without running a query in the shard then does not
+        change the search_path of the node.
         """
-        cursor = _cursor or self.cursor()
+        cursor = _cursor or self._get_lock_cursor()
         cursor.acquire_advisory_lock(key, shared=shared, xact=xact)
 
     def release_advisory_lock(self, key, shared=True, _cursor=None):
         """
-        Release a shared or exclusive advisory lock on a given key.
+        Release a shared or exclusive advisory lock on a given key. Like acquire_advisory_lock, this method uses a
+        cursor that does not set the search_path, unless ``_cursor`` is passed.
         """
-        cursor = _cursor or self.cursor()
+        cursor = _cursor or self._get_lock_cursor()
         cursor.release_advisory_lock(key, shared=shared)
+
+    def _get_lock_cursor(self):
+        """
+        Returns a cursor for the advisory lock statements. Like _cursor(), this method closes the connection when errors
+        make it unusable, so that the cursor comes from a new connection. Unlike _cursor(), this method does not set the
+        search_path, and so does not check that the schema exists: a use_shard of a shard whose schema does not exist
+        takes its locks and is entered, and the first query in the shard raises IntegrityError.
+        """
+        self._close_if_errors_made_unusable()
+        return self._get_cursor(skip_lock=True)
 
     def cursor(self):
         """
@@ -1661,20 +1708,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         return self._cursor()
 
     def _cursor(self, name=None):
-        """Database cursor to write whatever we want.
-
-        Typically used for migrations, this function will check
-        to see if SCHEMA_NAME is set or not. If it is, then it
-        will create it if it doesn't yet exist. Finally, it will
-        point to that schema.
-
-        Check for a connection and see if it is usable. If not: close the connection and the Super() class will
-        automatically reconnect in its _cursor() function.
         """
-        if self.connection is not None and self.errors_occurred:
-            if not self.is_usable():
-                logger.warning('Database connection is unusable. Reconnecting and continuing.')
-                self.close()
+        Returns a cursor for the schema of this connection. When the session has another search_path, this method sets
+        the search_path to the schema, followed by the public schema when ``include_public_schema`` is True, and raises
+        IntegrityError when the schema does not exist. Before that, a connection that is unusable after errors is
+        closed, so that the cursor comes from a new connection.
+        """
+        self._close_if_errors_made_unusable()
 
         cursor = self._get_cursor(name=name)
 
@@ -1683,13 +1723,13 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         else:
             search_paths = [self.schema_name]
 
-        # No need to set search paths for operations without a database,
-        # or when there are no changes to the selected schemas.
+        # No search_path is set for a connection without a database, or when current_search_paths has these schemas
+        # already.
         if self.alias == NO_DB_ALIAS or self.current_search_paths == search_paths:
             return cursor
 
-        # Use unnamed cursors for schema operations - named cursors require SELECT statements
-        # and cannot execute SET commands like SET search_path
+        # The schema operations use unnamed cursors, because a named cursor only runs SELECT statements and cannot run
+        # SET search_path.
         with self._get_cursor(name=None, skip_lock=True) as cursor_for_get_ps_schema:
             if self.schema_name != PUBLIC_SCHEMA_NAME and not self.get_ps_schema(
                 self.schema_name, cursor_for_get_ps_schema
@@ -1697,15 +1737,14 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 raise IntegrityError("Schema '{}' does not exist.".format(self.schema_name))
 
         with self._get_cursor(name=None, skip_lock=True) as cursor_for_search_path:
-            # In the event that an error already happened in this transaction and we are going
-            # to rollback we should just ignore database error when setting the search_path
-            # if the next instruction is not a rollback it will just fail also, so
-            # we do not have to worry that it's not the good one
+            # When an earlier error in this transaction makes the transaction roll back, setting the search_path fails
+            # too. That failure is logged and ignored, and current_search_paths is not updated: the next statement that
+            # is not a rollback fails on the transaction anyway.
             try:
                 # The statement is a plain string, because Django documents the sql argument of an execute wrapper as a
                 # string, and the wrapper that pghistory.context() registers fails on a psycopg Composed object. A
-                # schema that was created outside DjanQuiltDB can have any name, so each name is quoted here, with
-                # every double quote in it doubled, as Postgres escapes an identifier. quote_name() does not do that.
+                # schema that is created outside DjanQuiltDB can have any name, so each name is quoted here, with every
+                # double quote in it doubled, as Postgres escapes an identifier. quote_name() does not do that.
                 identifiers = ', '.join('"{}"'.format(schema.replace('"', '""')) for schema in search_paths)
                 sql_ = 'SET search_path = {}'.format(identifiers)
                 cursor_for_search_path.execute(sql_)
@@ -1716,6 +1755,16 @@ class DatabaseWrapper(BaseDatabaseWrapper):
                 self.current_search_paths = search_paths
 
         return cursor
+
+    def _close_if_errors_made_unusable(self):
+        """
+        Closes the connection when the errors_occurred flag is set and the connection is not usable, so that the next
+        cursor comes from a new connection.
+        """
+        if self.connection is not None and self.errors_occurred:
+            if not self.is_usable():
+                logger.warning('Database connection is unusable. Reconnecting and continuing.')
+                self.close()
 
     def _get_cursor(self, name=None, skip_lock=False):
         """
@@ -1770,6 +1819,7 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         'errors_occurred',
         '_thread_ident',
         'current_search_paths',
+        'session_locks_of_entered_use_shards',
         'run_on_commit',
         'run_commit_hooks_on_set_autocommit_on',
         'rollback_exc',

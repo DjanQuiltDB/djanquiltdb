@@ -11,7 +11,7 @@ from django.core import signing
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
-from djanquiltdb.sessions import SessionStore, _get_delimiter, _get_session_key_regex, _get_shard_selector_regex
+from djanquiltdb.sessions import SessionStore
 from djanquiltdb.utils import State, create_template_schema, use_shard
 from djanquiltdb_tests import ShardingTestCase
 from example.models import Organization, OrganizationShard, QuiltSession, Shard
@@ -100,17 +100,6 @@ class SessionStoreShardRoutingTestCase(ShardingTestCase):
 class SessionStoreDelimiterTestCase(SimpleTestCase):
     """New session keys must use the configured SESSION_KEY_DELIMITER, not a hardcoded one."""
 
-    def setUp(self):
-        super().setUp()
-        self._clear_setting_caches()
-        self.addCleanup(self._clear_setting_caches)
-
-    @staticmethod
-    def _clear_setting_caches():
-        _get_shard_selector_regex.cache_clear()
-        _get_delimiter.cache_clear()
-        _get_session_key_regex.cache_clear()
-
     def test_configured_delimiter_round_trips(self):
         """
         Case: SESSION_KEY_DELIMITER is set to a non-default value and a new session key is minted.
@@ -120,6 +109,41 @@ class SessionStoreDelimiterTestCase(SimpleTestCase):
         with mock.patch.object(SessionStore, 'exists', return_value=False):
             session_key = store._get_new_session_key()
         self.assertEqual(SessionStore(session_key=session_key).shard_selector, '42')
+
+
+@override_settings(
+    QUILT_DB={
+        'SHARD_CLASS': 'example.models.Shard',
+        'MAPPING_MODEL': 'example.models.OrganizationShard',
+    },
+    QUILT_SESSIONS={
+        'SESSION_MODEL': 'example.models.QuiltSession',
+    },
+)
+class SessionSettingChangeTestCase(SimpleTestCase):
+    def assert_new_session_key_uses_delimiter(self, delimiter):
+        store = SessionStore(shard_selector=42)
+        with mock.patch.object(SessionStore, 'exists', return_value=False):
+            session_key = store._get_new_session_key()
+
+        signed_value = signing.loads(session_key, serializer=store.serializer, salt=store.salt)
+        self.assertTrue(signed_value.startswith(f'S42{delimiter}'), signed_value)
+        self.assertEqual(SessionStore(session_key=session_key).shard_selector, '42')
+
+    def test_a_change_to_the_delimiter_setting_reaches_the_session_keys(self):
+        """
+        Case: A session key is created with the default SESSION_KEY_DELIMITER K, another while the delimiter is Z, and
+              another after that override ends.
+        Expected: The keys use K, then Z, then K again, and SessionStore reads the shard selector 42 from each key.
+        """
+        self.assert_new_session_key_uses_delimiter('K')
+
+        with override_settings(
+            QUILT_SESSIONS={'SESSION_MODEL': 'example.models.QuiltSession', 'SESSION_KEY_DELIMITER': 'Z'}
+        ):
+            self.assert_new_session_key_uses_delimiter('Z')
+
+        self.assert_new_session_key_uses_delimiter('K')
 
 
 @override_settings(

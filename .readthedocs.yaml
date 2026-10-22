@@ -16,6 +16,8 @@ python:
       extra_requirements:
         - docs
     - method: pip
+      path: packages/djanquiltdb-plugin-celery
+    - method: pip
       path: packages/djanquiltdb-plugin-pghistory
     - method: pip
       path: packages/djanquiltdb-plugin-postgres-denormalize

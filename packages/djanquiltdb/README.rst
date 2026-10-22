@@ -92,7 +92,11 @@ Then declare a shard model of your own and name it in the ``QUILT_DB`` setting::
 Models are placed with the decorators in ``djanquiltdb.decorators``; an undecorated model stays on the default node's
 public schema. ``manage.py migrate`` is shard-aware, and applies each migration wherever its models live.
 
-To track model history with django-pghistory the same way, install the extra::
+To run Celery tasks in a shard, or once in every shard or on every node, install the extra::
+
+    pip install djanquiltdb[celery]
+
+To track model history with django-pghistory, install the extra::
 
     pip install djanquiltdb[pghistory]
 

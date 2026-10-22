@@ -1,0 +1,289 @@
+"""
+The task decorators of the plugin. DjanQuiltDB serves this module as ``djanquiltdb.decorators.celery``. Because
+``SERVE_UNQUALIFIED`` is False, DjanQuiltDB does not also serve these decorators as attributes of
+``djanquiltdb.decorators``, so that a call site names the plugin, as in ``@celery.task_for_shard``.
+"""
+
+import annotationlib
+import functools
+import inspect
+
+from celery import shared_task
+from djanquiltdb.utils import StateException
+
+from djanquiltdb_plugin_celery.settings import ensure_valid_queue, ensure_valid_spread, quilt_celery_setting
+from djanquiltdb_plugin_celery.targets import use_target
+from djanquiltdb_plugin_celery.tasks import QuiltTask
+
+SERVE_UNQUALIFIED = False
+
+#: The signature of the wrapper of each function: the task, and any arguments.
+WRAPPER_SIGNATURE = inspect.Signature(
+    [
+        inspect.Parameter('self', inspect.Parameter.POSITIONAL_ONLY),
+        inspect.Parameter('args', inspect.Parameter.VAR_POSITIONAL),
+        inspect.Parameter('kwargs', inspect.Parameter.VAR_KEYWORD),
+    ]
+)
+
+
+def _retry_options(options):
+    """
+    Returns the Celery options that retry a task while its shard is in maintenance, with the values of ``options``
+    taking precedence over the QUILT_CELERY settings.
+    """
+    return {
+        'max_retries': quilt_celery_setting('MAX_RETRIES'),
+        'retry_backoff': quilt_celery_setting('RETRY_BACKOFF'),
+        'retry_backoff_max': quilt_celery_setting('RETRY_BACKOFF_MAX'),
+        'retry_jitter': quilt_celery_setting('RETRY_JITTER'),
+        **options,
+        'autoretry_for': (StateException, *options.get('autoretry_for', ())),
+    }
+
+
+def _signature_of_function(func, bind):
+    """
+    Returns the signature of ``func`` without the parameter for the task, which ``func`` takes when ``bind`` is True.
+    The arguments of each message of the task are checked against this signature.
+    """
+    signature = inspect.signature(func, annotation_format=annotationlib.Format.STRING)
+    parameters = list(signature.parameters.values())
+
+    return signature.replace(parameters=parameters[1:] if bind else parameters)
+
+
+def _create_quilt_task(func, task_attributes, options):
+    """
+    Returns the task of ``func``, with ``task_attributes`` as attributes of its QuiltTask class and ``options`` as
+    the options of ``celery.shared_task()``.
+    """
+    ensure_valid_spread(task_attributes.get('fanout_spread'), func.__qualname__)
+    ensure_valid_queue(task_attributes.get('fanout_queue'), func.__qualname__)
+
+    options = dict(options)
+    bind = options.pop('bind', False)
+    base = options.pop('base', QuiltTask)
+
+    if not issubclass(base, QuiltTask):
+        raise TypeError(
+            'The base of {} is {}, which does not inherit from QuiltTask. The tasks of the celery plugin need '
+            'the methods of QuiltTask to send and to enter their targets.'.format(func.__qualname__, base.__qualname__)
+        )
+
+    # The wrapper is always bound, because it reads the request of the task. The function receives the task only when it
+    # is decorated with bind=True.
+    @functools.wraps(func)
+    def run_in_target(self, *args, **kwargs):
+        target = self.target_of_message(self.request.headers, kwargs)
+
+        if target is None and self.fans_out:
+            return self.fan_out_to_every_target(args, kwargs)
+
+        if target is None:
+            raise self.missing_target_error(kwargs)
+
+        with use_target(target, lock=self.lock_target):
+            function_kwargs = self.kwargs_for_function(kwargs, self.entered_target_value(target))
+
+            return func(self, *args, **function_kwargs) if bind else func(*args, **function_kwargs)
+
+    # functools.wraps makes the wrapper report the signature of the function, and Celery checks the arguments of a
+    # message against the signature of the wrapper. The function does not receive a keyword argument of the target that
+    # it does not declare, so the wrapper takes any arguments, and QuiltTask checks the arguments in the form in which
+    # the function receives them.
+    run_in_target.__signature__ = WRAPPER_SIGNATURE
+    task_attributes = {**task_attributes, 'function_signature': _signature_of_function(func, bind)}
+
+    return shared_task(bind=True, base=base, **task_attributes, **_retry_options(options))(run_in_target)
+
+
+def _task_decorator_or_task(task_attributes, func, options):
+    """
+    Returns the task of ``func``, or, when ``func`` is None, the decorator that returns the task, so that each decorator
+    works with and without arguments.
+    """
+
+    def decorate(func):
+        return _create_quilt_task(func, task_attributes, options)
+
+    return decorate if func is None else decorate(func)
+
+
+def task_for_shard(func=None, *, inherit_active_shard=False, lock=None, **options):
+    """
+    Turns a function into a Celery task that runs in a shard: the shard that ``for_shard()`` is given, else the shard
+    that its keyword arguments identify. That shard is the target of the task. ``shard_id`` identifies a shard by its
+    primary key. The mapping field of the ``MAPPING_MODEL``, such as ``tenant_id``, identifies a shard by its
+    mapping value, and ``QUILT_CELERY['MAPPING_KWARG']`` can set another keyword argument for the mapping value.
+
+    The function receives ``shard_id`` and the keyword argument for a mapping value only when it declares them by name,
+    and ``**kwargs`` does not receive them. A function that declares ``shard_id`` receives the primary key of the shard
+    that the task runs in, also when the task is sent without ``shard_id``. ``node_name`` is an ordinary keyword
+    argument for the function: a task that runs on a node is decorated with :func:`task_for_node`. The arguments of the
+    task are checked against the function when the task is sent, unless the task is decorated with ``typing=False``.
+
+    Sending the task without a shard raises TaskShardError, unless the task inherits the active shard and a shard is
+    active where the task is sent. Sending the task with two shards raises TaskShardError too. While the shard is in
+    maintenance, the task is retried with an exponential backoff, and after the last retry the task fails with the
+    StateException.
+
+    :param inherit_active_shard: When True, a task that is sent without a shard in its keyword arguments runs in the
+        shard that is active where it is sent, as :func:`task_for_active_shard` does.
+    :param lock: Passed on to ``use_shard()`` as ``lock``. By default, ``use_shard()`` locks the shard while the task
+        runs.
+    :param options: The options of ``celery.shared_task()``. ``max_retries``, ``retry_backoff``, ``retry_backoff_max``
+        and ``retry_jitter`` default to the QUILT_CELERY settings, and StateException is added to the exceptions of
+        ``autoretry_for``. ``base`` defaults to :class:`~djanquiltdb_plugin_celery.tasks.QuiltTask`, and a
+        ``base`` that does not inherit from that class raises TypeError.
+
+    :Example:
+        .. code-block:: python
+
+            from djanquiltdb.decorators.celery import task_for_shard
+
+
+            @task_for_shard
+            def send_invoice(invoice_id):
+                Invoice.objects.get(pk=invoice_id).send()
+
+
+            send_invoice.for_shard(shard).delay(invoice_id=12)
+            send_invoice.delay_for_shard(shard, invoice_id=12)  # the same
+            send_invoice.delay(invoice_id=12, tenant_id=3)
+    """
+    task_attributes = {'runs_in': 'shard', 'lock_target': lock, 'inherit_active_shard': inherit_active_shard}
+
+    return _task_decorator_or_task(task_attributes, func, options)
+
+
+def task_for_node(func=None, **options):
+    """
+    Turns a function into a Celery task that runs in the public schema of a node: the node that ``for_node()`` is given,
+    else the node that its ``node_name`` keyword argument identifies. That schema is the target of the task. The
+    function receives ``node_name`` only when it declares it by name, and then also when the task is sent without
+    ``node_name``. ``shard_id`` and the keyword argument for a mapping value are ordinary keyword arguments for the
+    function. Sending the task without a node raises TaskNodeError. The public schema of a node has no lock, so the task
+    takes no ``lock``. ``options`` work as they do for :func:`task_for_shard`.
+
+    :Example:
+        .. code-block:: python
+
+            from djanquiltdb.decorators.celery import task_for_node
+
+
+            @task_for_node
+            def refresh_exchange_rates():
+                ExchangeRate.objects.refresh()
+
+
+            refresh_exchange_rates.for_node('other').delay()
+            refresh_exchange_rates.delay(node_name='other')  # the same
+    """
+    return _task_decorator_or_task({'runs_in': 'node'}, func, options)
+
+
+def task_for_active_shard(func=None, **options):
+    """
+    :func:`task_for_shard` for a task that runs in the shard that is active where the task is sent: inside
+    ``use_shard()``, ``use_shard_for()`` or a request that the DjanQuiltDB middleware wraps. The shard is resolved when
+    the task is sent, and is sent in the message header. The shard of ``for_shard()`` and a shard in the keyword
+    arguments take precedence over the active shard. Sending the task without a shard while no shard is active, or while
+    only the public schema of a node is active, raises TaskShardError.
+
+    :Example:
+        .. code-block:: python
+
+            from djanquiltdb.decorators.celery import task_for_active_shard
+
+
+            @task_for_active_shard
+            def recount_invoices():
+                Invoice.objects.recount()
+
+
+            with use_shard(shard):
+                recount_invoices.delay()  # runs in shard
+                recount_invoices.delay_for_shard(other_shard)  # runs in other_shard
+    """
+    return task_for_shard(func, inherit_active_shard=True, **options)
+
+
+def task_for_every_shard(func=None, *, queue=None, spread=None, include_maintenance=False, lock=None, **options):
+    """
+    :func:`task_for_shard` for a task that runs once in every active shard when it is sent without a shard. The message
+    that is sent without a shard starts a fan-out where it runs: the task sends itself once for each active shard, with
+    the ``shard_id`` of the shard added to the keyword arguments. So a periodic task in the beat schedule needs only the
+    name of the task. A task that is sent with a shard, in ``for_shard()`` or in its keyword arguments, runs in that
+    shard only. The task does not inherit the active shard, so that it also runs in every active shard when it is sent
+    inside ``use_shard()``.
+
+    The function receives ``shard_id`` only when it declares it by name, as for :func:`task_for_shard`. A function that
+    declares ``shard_id`` can declare it without a default, because the check of the arguments of a message counts
+    ``shard_id`` as given. The parameters after ``shard_id`` are passed by keyword, as ``shard_id`` is.
+
+    :param queue: The name of the queue of each task that the fan-out sends. Defaults to
+        ``QUILT_CELERY['FANOUT_QUEUE']``, else the routing of the Celery app, whose ``task_routes`` can route each task
+        by its ``shard_id``. A queue that is not a string raises ValueError.
+    :param spread: Delays each task that the fan-out sends by a random number of seconds: from 0 to an integer, or
+        between a pair of integers, which are not negative and in ascending order. Defaults to
+        ``QUILT_CELERY['FANOUT_SPREAD']``. Any other value raises ValueError.
+    :param include_maintenance: When True, the fan-out also sends the task to the shards in maintenance, where it is
+        retried as in any shard in maintenance, and fails with the StateException after the last retry.
+
+    :Example:
+        .. code-block:: python
+
+            from djanquiltdb.decorators.celery import task_for_every_shard
+
+
+            @task_for_every_shard(queue='fanout', spread=(0, 300))
+            def clean_up_drafts():
+                Draft.objects.filter(updated_at__lt=a_month_ago()).delete()
+
+
+            clean_up_drafts.delay()  # runs once in every active shard
+    """
+    task_attributes = {
+        'runs_in': 'shard',
+        'lock_target': lock,
+        'fans_out': True,
+        'fanout_queue': queue,
+        'fanout_spread': spread,
+        'fanout_include_maintenance': include_maintenance,
+    }
+
+    return _task_decorator_or_task(task_attributes, func, options)
+
+
+def task_for_every_node(func=None, *, queue=None, spread=None, **options):
+    """
+    :func:`task_for_node` for a task that runs once in the public schema of every node when it is sent without a
+    ``node_name``. The message that is sent without a ``node_name`` starts a fan-out where it runs: the task sends
+    itself once for each node in ``DATABASES``, with the ``node_name`` of the node added to the keyword arguments. A
+    task that is sent with a node, in ``for_node()`` or in its keyword arguments, runs on that node only. The function
+    receives ``node_name`` only when it declares it by name. A function that declares ``node_name`` can declare it
+    without a default, and the parameters after ``node_name`` are passed by keyword. ``queue`` and ``spread`` work as
+    they do for :func:`task_for_every_shard`.
+
+    :Example:
+        .. code-block:: python
+
+            from djanquiltdb.decorators.celery import task_for_every_node
+
+
+            @task_for_every_node
+            def refresh_exchange_rates():
+                ExchangeRate.objects.refresh()
+    """
+    task_attributes = {
+        'runs_in': 'node',
+        'fans_out': True,
+        'fanout_queue': queue,
+        'fanout_spread': spread,
+    }
+
+    return _task_decorator_or_task(task_attributes, func, options)
+
+
+__all__ = ['task_for_active_shard', 'task_for_every_node', 'task_for_every_shard', 'task_for_node', 'task_for_shard']

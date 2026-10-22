@@ -1,6 +1,17 @@
+from django.db import connections
+
 from djanquiltdb import State
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import StateException, get_mapping_class, get_shard_class, use_shard, use_shard_for
+from djanquiltdb.utils import (
+    StateException,
+    get_mapping_class,
+    get_shard_class,
+    mapping_lock_key,
+    public_schema_alias_for_reading,
+    shard_lock_key,
+    use_shard,
+    use_shard_for,
+)
 
 
 class ShardOptions:
@@ -76,7 +87,8 @@ class ShardOptions:
                     "You set 'check_active_mapping_values' to True while you didn't define the mapping model."
                 )
 
-            if mapping_model.objects.for_shard(shard).in_maintenance().exists():
+            mapping_objects = mapping_model.objects.using(public_schema_alias_for_reading(mapping_model))
+            if mapping_objects.for_shard(shard).in_maintenance().exists():
                 raise StateException(
                     'Shard {} contains mapping objects that are in maintenance'.format(shard), State.MAINTENANCE
                 )
@@ -86,14 +98,12 @@ class ShardOptions:
     @classmethod
     def from_alias(cls, alias):
         """
-        Options for any of the forms ``connections`` accepts as an alias: an existing ``ShardOptions``, a shard
-        instance, a ``'node'`` or ``'node|schema'`` string, or a ``(node, schema)`` tuple. A string naming only the
-        node targets its public schema.
+        Options for any of the forms that ``connections`` accepts as an alias: an existing ``ShardOptions``, a shard
+        instance, a ``'node'`` or ``'node|schema'`` string, or a ``(node, schema)`` tuple. A string that has only the
+        node name targets the public schema of that node.
         """
         if isinstance(alias, cls):
             return alias
-        elif isinstance(alias, get_shard_class()):
-            return cls.from_shard(alias)
         elif isinstance(alias, str):
             if '|' in alias:
                 node_name, schema_name = alias.split('|')
@@ -103,19 +113,24 @@ class ShardOptions:
         elif isinstance(alias, tuple) and len(alias) == 2:
             node_name, schema_name = alias
             return cls(node_name=node_name, schema_name=schema_name)
+        elif isinstance(alias, get_shard_class()):
+            return cls.from_shard(alias)
 
         raise ValueError('{} is an invalid connection alias.'.format(alias))
 
     @property
     def lock_keys(self):
-        """The advisory lock names this target implies, one per shard or mapping value it was resolved from."""
+        """
+        The names of the advisory locks that use_shard takes for these options: one for the shard id and one for the
+        mapping value, when the options have them.
+        """
         lock_keys = []
 
-        if self.shard_id:
-            lock_keys.append('shard_{}'.format(self.shard_id))
+        if self.shard_id is not None:
+            lock_keys.append(shard_lock_key(self.shard_id))
 
-        if self.mapping_value:
-            lock_keys.append('mapping_{}'.format(self.mapping_value))
+        if self.mapping_value is not None:
+            lock_keys.append(mapping_lock_key(self.mapping_value))
 
         return lock_keys
 
@@ -125,12 +140,29 @@ class ShardOptions:
 
     def use(self):
         """
-        The context manager that makes this target the active connection, equivalent to whichever of ``use_shard``
-        or ``use_shard_for`` matches how these options were resolved.
+        Returns the context manager that makes this target the active connection: ``use_shard_for()`` when the options
+        have a mapping value, ``use_shard()`` of the shard when they have a shard id, and ``use_shard()`` of the node
+        and schema in all other cases.
+
+        When use_shard contexts that are entered and not left yet hold all the advisory locks of these options for the
+        session, use() returns a ``use_shard()`` of these options. That use_shard does not look up the shard, check its
+        state or take locks, so that, for example, a sharded model method that runs while another shard is active runs
+        no statements. The entered contexts check the state when they enter the shard, unless ``active_only_schemas`` is
+        False, and their locks keep the move commands from changing the shard until the contexts are left. Options
+        without a node name look up the shard in every case.
         """
-        if self.mapping_value:
+        if (
+            self.lock
+            and self.node_name is not None
+            and connections[self.node_name].entered_use_shards_hold_session_locks(self.lock_keys)
+        ):
+            return use_shard(**dict(self.options))
+
+        if self.mapping_value is not None:
             return use_shard_for(self.mapping_value, **self.kwargs)
-        elif self.shard_id:
-            return use_shard(get_shard_class().objects.get(id=self.shard_id), **self.kwargs)
+        elif self.shard_id is not None:
+            shard_class = get_shard_class()
+            shard = shard_class.objects.using(public_schema_alias_for_reading(shard_class)).get(id=self.shard_id)
+            return use_shard(shard, **self.kwargs)
 
         return use_shard(node_name=self.node_name, schema_name=self.schema_name, **self.kwargs)

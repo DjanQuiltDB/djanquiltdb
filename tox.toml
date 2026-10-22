@@ -6,6 +6,10 @@ env_list = [
     "core-py314-dj61-pg18",
     "core-pgtrigger-py314-dj60",
     "core-pgtrigger-py314-dj61",
+    "celery-py314-dj60-pg17",
+    "celery-py314-dj60-pg18",
+    "celery-py314-dj61-pg17",
+    "celery-py314-dj61-pg18",
     "pghistory-py314-dj60-pg17",
     "pghistory-py314-dj60-pg18",
     "pghistory-py314-dj61-pg17",
@@ -21,6 +25,7 @@ env_list = [
     "ruff",
     "docs",
     "core-coverage",
+    "celery-coverage",
     "pghistory-coverage",
     "postgres-denormalize-coverage",
     "postgres-objects-coverage",
@@ -185,6 +190,106 @@ commands = [
         "test",
         "djanquiltdb_tests.checks",
         "pgtrigger_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.celery-py314-dj60-pg17]
+description = "Run the celery plugin suite against Django 6.0 and PostgreSQL 17"
+labels = ["celery", "test"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "celery>=5.6,<6.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-celery[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-celery/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-celery/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.celery-py314-dj60-pg18]
+description = "Run the celery plugin suite against Django 6.0 and PostgreSQL 18"
+labels = ["celery", "test"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "celery>=5.6,<6.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-celery[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-celery/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-celery/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.celery-py314-dj61-pg17]
+description = "Run the celery plugin suite against Django 6.1 and PostgreSQL 17"
+labels = ["celery", "test"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "celery>=5.6,<6.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-celery[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-celery/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-celery/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.celery-py314-dj61-pg18]
+description = "Run the celery plugin suite against Django 6.1 and PostgreSQL 18"
+labels = ["celery", "test"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "celery>=5.6,<6.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-celery[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-celery/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-celery/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
         "--noinput",
         "--pattern=*.py",
         { replace = "posargs", extend = true, default = [] },
@@ -627,6 +732,8 @@ deps = [
     "-e {tox_root}/packages/djanquiltdb[docs]",
     # conf.py imports each plugin to read its version, and the API reference imports the libraries that the plugins
     # integrate.
+    "celery>=5.6,<6.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-celery",
     "django-pghistory>=3.9.2,<4.0",
     "-e {tox_root}/packages/djanquiltdb-plugin-pghistory",
     "{env:POSTGRES_DENORMALIZE:django-postgres-denormalize>=1.0,<2.0}",
@@ -648,6 +755,15 @@ commands = [
     ["coverage", "combine", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
     ["coverage", "html", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
     ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
+]
+
+[env.celery-coverage]
+description = "Report on the coverage the celery plugin test envs recorded"
+labels = ["celery"]
+deps = ["coverage"]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-celery/tests"
+commands = [
+    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-celery/pyproject.toml"],
 ]
 
 [env.pghistory-coverage]
@@ -682,6 +798,17 @@ description = "Build the djanquiltdb sdist and wheel and check the metadata"
 labels = ["core", "build"]
 deps = ["build", "twine"]
 change_dir = "{tox_root}/packages/djanquiltdb"
+commands = [
+    ["python", "-c", "import shutil; shutil.rmtree('dist', ignore_errors=True)"],
+    ["python", "-m", "build"],
+    ["twine", "check", "dist/*"],
+]
+
+[env.celery-build]
+description = "Build the djanquiltdb-plugin-celery sdist and wheel and check the metadata"
+labels = ["celery", "build"]
+deps = ["build", "twine"]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-celery"
 commands = [
     ["python", "-c", "import shutil; shutil.rmtree('dist', ignore_errors=True)"],
     ["python", "-m", "build"],

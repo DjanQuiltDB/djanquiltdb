@@ -639,9 +639,9 @@ class ShardedMigrationHandleTestCase(MigrationTestCase):
 
 def assertSeparateDatabaseAndStateRan(test_case, schemas):
     """
-    Migrate the schemas with the test_migrations_separate_database migrations. Assert that each schema got the column
-    that SeparateDatabaseAndState adds, and ran its RunPython with a model that has the field. The caller rolls the
-    migrations back.
+    Migrate the schemas with the test_migrations_separate_database migrations. Assert that each schema has the column
+    that SeparateDatabaseAndState adds, and that the RunPython runs on each schema with a model that has the field. The
+    caller rolls the migrations back.
     """
     ran = import_module('migration_tests.test_migrations_separate_database.0002_pages').COUNT_PAGES_RUNS
     ran.clear()
@@ -660,13 +660,24 @@ def assertSeparateDatabaseAndStateRan(test_case, schemas):
                 with env.connection.cursor() as cursor:
                     columns = env.connection.introspection.get_table_description(cursor, 'migration_tests_author')
             test_case.assertIn('pages', [column.name for column in columns])
-    # The connection alias of a public schema is just the node name.
-    aliases = [
-        node_name if schema_name == 'public' else '{}|{}'.format(node_name, schema_name)
-        for node_name, schema_name in schemas
-    ]
+    aliases = [connection_alias(node_name, schema_name) for node_name, schema_name in schemas]
     test_case.assertEqual(sorted(alias for alias, fields in ran), sorted(aliases))
     test_case.assertEqual({tuple(fields) for alias, fields in ran}, {('id', 'name', 'pages')})
+
+
+def connection_alias(node_name, schema_name):
+    """
+    Returns the connection alias that a migration has on the schema. The alias of a public schema is the node name.
+    """
+    return node_name if schema_name == 'public' else '{}|{}'.format(node_name, schema_name)
+
+
+def count_render_starts(mock_progress_callback):
+    """
+    Returns how many times the progress callback of the command reports the start of a render of the historical models.
+    mock_progress_callback wraps that progress callback. Each start is a "Rendering model states..." line in the output.
+    """
+    return sum(1 for call in mock_progress_callback.call_args_list if call.args[1] == 'render_start')
 
 
 class ShardedMigrationSharedStatesTestCase(MigrationTestCase):
@@ -706,11 +717,20 @@ class ShardedMigrationSharedStatesTestCase(MigrationTestCase):
         'djanquiltdb.management.executor.compute_states_around_migration_operations',
         wraps=compute_states_around_migration_operations,
     )
-    def test_every_schema_gets_the_sql(self, mock_compute_states_around_migration_operations, mock_executor):
+    @mock.patch.object(
+        ShardedMigrate,
+        'migration_progress_callback',
+        autospec=True,
+        side_effect=ShardedMigrate.migration_progress_callback,
+    )
+    def test_every_schema_gets_the_sql(
+        self, mock_progress_callback, mock_compute_states_around_migration_operations, mock_executor
+    ):
         """
         Case: Migrate every public and template schema, sharing the project states of each migration.
-        Expected: Each schema holds the tables of the migrations, so the SQL is not shared. The run computes the states
-                  of each migration once per starting point, and builds the executor of each schema once.
+        Expected: Each schema has the tables of the migrations, so the SQL is not shared. The run computes the states of
+                  each migration once per starting point, and builds the executor of each schema once. The run renders
+                  the historical models once per starting point, not once per schema or per migration.
         """
         self.migrate_with_shared_states(fake=False, fake_initial=False)
 
@@ -723,10 +743,43 @@ class ShardedMigrationSharedStatesTestCase(MigrationTestCase):
                 self.assertIn('migration_tests_hometown', table_names)
                 self.assertNotIn('migration_tests_tribble', table_names)
 
-        # Three migrations in the plan, each computed once for the public schemas and once for the templates. They start
-        # from different points, because the templates are created without migrations and the public schemas are not.
+        # Three migrations in the plan, each computed once for the public schemas and once for the templates. The
+        # templates and the public schemas start from different points, because the templates are created without
+        # migrations and the public schemas are not.
         self.assertEqual(mock_compute_states_around_migration_operations.call_count, 2 * 3)
         self.assertEqual(mock_executor.call_count, len(self.schemas_to_migrate()))
+        # Only the first migration of each starting point renders the historical models. Each later migration starts
+        # from the state that the migration before it ends in, and that state is rendered already.
+        self.assertEqual(count_render_starts(mock_progress_callback), 2)
+
+        self.rollback_test_migrations()
+
+    @override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations_delayed'})
+    @mock.patch.object(
+        ShardedMigrate,
+        'migration_progress_callback',
+        autospec=True,
+        side_effect=ShardedMigrate.migration_progress_callback,
+    )
+    def test_data_migration_after_a_delayed_field_renders_once_per_starting_point(self, mock_progress_callback):
+        """
+        Case: Migrate every public and template schema, sharing the project states of each migration. The second
+              migration adds a non-relational field and then runs a RunPython. (The AddField delays re-rendering the
+              related models.)
+        Expected: The RunPython runs on each schema. The run renders the historical models once per starting point for
+                  the first migration, and once more per starting point for the RunPython, not once per schema. The
+                  RunPython receives one historical models registry per starting point, which shows that no schema
+                  renders the models again without reporting the render.
+        """
+        ran = import_module('migration_tests.test_migrations_delayed.0002_pages').RECORD_APPS_RUNS
+        ran.clear()
+
+        self.migrate_with_shared_states()
+
+        aliases = [connection_alias(node_name, schema_name) for node_name, schema_name in self.schemas_to_migrate()]
+        self.assertEqual(sorted(alias for alias, apps in ran), sorted(aliases))
+        self.assertEqual(count_render_starts(mock_progress_callback), 2 * 2)
+        self.assertEqual(len({id(apps) for alias, apps in ran}), 2)
 
         self.rollback_test_migrations()
 

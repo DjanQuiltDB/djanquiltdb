@@ -1,5 +1,7 @@
 import copy
 import datetime
+import time
+from threading import Thread
 from unittest import mock
 from unittest.mock import PropertyMock
 
@@ -8,15 +10,20 @@ from django.conf import settings
 from django.core.management import CommandError, call_command
 from django.db import DatabaseError, connections, models
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext, isolate_apps
 
+from djanquiltdb import STATES
 from djanquiltdb.management.commands.move_shard_to_node import Command as MoveCommand
 from djanquiltdb.options import ShardOptions
+from djanquiltdb.postgresql_backend.base import DatabaseWrapper
+from djanquiltdb.postgresql_backend.utils import LockCursorWrapperMixin
 from djanquiltdb.utils import (
     State,
     create_schema_on_node,
     create_template_schema,
     get_shard_for,
     get_template_name,
+    mapping_lock_key,
     use_shard,
     use_shard_for,
 )
@@ -33,6 +40,7 @@ from example.models import (
     CoatingType,
     DetailedReport,
     Flavour,
+    MirroredUser,
     Organization,
     OrganizationShard,
     Pudding,
@@ -414,6 +422,60 @@ class MoveShardToNodeTransactionTestCase(OverrideMirroredRoutingMixin, ShardingT
 
         self.source_shard.refresh_from_db()
         self.assertEqual(self.source_shard.state, State.ACTIVE)
+
+    def test_a_use_shard_for_that_holds_the_lock_of_the_shard_can_take_the_lock_of_its_mapping_during_a_move(self):
+        """
+        Case: A second database session holds the shared lock of the source shard, as a request that is entered in
+              use_shard_for() does while it waits for the lock of its mapping value. Run pre_execution and
+              post_execution in a thread, and let the second session take the shared lock of the mapping value while
+              pre_execution waits for its lock.
+        Expected: The second session gets the lock of the mapping value, because pre_execution takes the lock of the
+                  shard before the locks of the mappings. The request can finish and release the lock of the shard, so
+                  the request and the command do not wait for each other.
+        """
+        shard_key = LockCursorWrapperMixin.get_int_from_key('shard_{}'.format(self.source_shard.id))
+        mapping_key = LockCursorWrapperMixin.get_int_from_key('mapping_{}'.format(self.organization_1.id))
+
+        request_session = DatabaseWrapper(connections['default'].settings_dict, 'default')
+        self.addCleanup(request_session.close)
+
+        def run_the_command():
+            try:
+                self.command.source_shard = self.source_shard
+                self.command.old_source_states = {}
+                self.command.pre_execution()
+                self.command.post_execution(succeeded=False)
+            finally:
+                connections.close_all()
+
+        with request_session.cursor() as cursor:
+            cursor.execute('SELECT pg_advisory_lock_shared(%s)', [shard_key])
+
+            command_thread = Thread(target=run_the_command)
+            command_thread.start()
+
+            # Wait until the command waits for a lock that the request session holds.
+            for _ in range(100):
+                cursor.execute(
+                    'SELECT count(*) FROM pg_locks WHERE locktype = %s AND NOT granted AND database = '
+                    '(SELECT oid FROM pg_database WHERE datname = current_database())',
+                    ['advisory'],
+                )
+                if cursor.fetchone()[0]:
+                    break
+                time.sleep(0.05)
+
+            cursor.execute('SELECT pg_try_advisory_lock_shared(%s)', [mapping_key])
+            took_the_lock_of_the_mapping = cursor.fetchone()[0]
+
+            if took_the_lock_of_the_mapping:
+                cursor.execute('SELECT pg_advisory_unlock_shared(%s)', [mapping_key])
+            cursor.execute('SELECT pg_advisory_unlock_shared(%s)', [shard_key])
+
+        command_thread.join(10)
+
+        self.assertTrue(took_the_lock_of_the_mapping)
+        self.assertFalse(command_thread.is_alive())
 
     def test_sequences_of_auto_created_through_models_after_moving(self):
         """
@@ -1660,6 +1722,92 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         mock_get_all_models.assert_called_once_with(include_auto_created=True)
         mock_reset_sequence.assert_called_once_with(model_list=['app', 'noot', 'mies'])
 
+    @override_settings(
+        QUILT_DB={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
+    )
+    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    def test_pre_execution_locks_each_mapping_by_its_mapping_value(self, mock_acquire_lock):
+        """
+        Case: Call pre_execution with a mapping_model, for a shard with a mapping object for the mapping value 4242,
+              whose primary key is another number.
+        Expected: The command locks the shard first, and then `mapping_4242`, which is the lock name that
+                  use_shard_for() and move_data_to_shard use for the mapping value. The name has the mapping value, not
+                  the primary key of the mapping object. use_shard_for() takes the locks in the same order.
+        """
+        organization_shard = OrganizationShard.objects.create(
+            shard=self.source_shard, organization_id=4242, state=State.ACTIVE
+        )
+        self.assertNotEqual(organization_shard.id, 4242)
+
+        self.command.source_shard = self.source_shard
+        self.command.old_source_states = {}
+        self.command.pre_execution()
+
+        self.assertEqual(
+            mock_acquire_lock.call_args_list,
+            [
+                mock.call(key='shard_{}'.format(self.source_shard.id), shared=False),
+                mock.call(key='mapping_4242', shared=False),
+            ],
+        )
+
+    @isolate_apps('djanquiltdb')
+    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
+    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    def test_pre_and_post_execution_lock_the_value_that_a_foreign_key_mapping_field_stores(
+        self, mock_acquire_lock, mock_release_lock
+    ):
+        """
+        Case: Call pre_execution and post_execution with a mapping model whose mapping field is a foreign key to the
+              email address of MirroredUser, for a shard with one mapping object.
+        Expected: Both lock `mapping_<EMAIL_ADDRESS>`, which is the key that use_shard_for() locks for the email address
+                  and for the user, and neither reads the user.
+        """
+        MirroredUser.objects.create(name='Luke', email='luke@layton.l5')
+
+        class MirroredUserShard(models.Model):
+            shard = models.ForeignKey(Shard, on_delete=models.CASCADE, related_name='+')
+            user = models.ForeignKey(MirroredUser, to_field='email', on_delete=models.CASCADE, related_name='+')
+            state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
+
+            mapping_field = 'user'
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        mapping_object = MirroredUserShard(
+            id=7, shard_id=self.source_shard.id, user_id='luke@layton.l5', state=State.ACTIVE
+        )
+        mapping_objects = mock.Mock(iterator=mock.Mock(return_value=[mapping_object]))
+        mapping_manager = mock.Mock(
+            for_shard=mock.Mock(return_value=mapping_objects), get=mock.Mock(return_value=mapping_object)
+        )
+
+        self.command.source_shard = self.source_shard
+        self.command.target_node = 'other'
+        self.command.old_source_states = {}
+
+        with (
+            mock.patch(
+                'djanquiltdb.management.commands.move_shard_to_node.get_mapping_class', return_value=MirroredUserShard
+            ),
+            mock.patch('djanquiltdb.utils.get_mapping_class', return_value=MirroredUserShard),
+            mock.patch.object(MirroredUserShard, 'objects', mapping_manager, create=True),
+            mock.patch.object(MirroredUserShard, 'save'),
+        ):
+            with CaptureQueriesContext(connections['default']) as captured:
+                self.command.pre_execution()
+                self.command.post_execution(succeeded=False)
+
+            lock_key_of_the_email_address = mapping_lock_key('luke@layton.l5')
+            lock_key_of_the_user = mapping_lock_key(MirroredUser.objects.get(email='luke@layton.l5'))
+
+        self.assertEqual(lock_key_of_the_email_address, 'mapping_luke@layton.l5')
+        self.assertEqual(lock_key_of_the_user, 'mapping_luke@layton.l5')
+        self.assertIn(mock.call(key='mapping_luke@layton.l5', shared=False), mock_acquire_lock.call_args_list)
+        self.assertIn(mock.call(key='mapping_luke@layton.l5', shared=False), mock_release_lock.call_args_list)
+        self.assertFalse(any('example_mirroreduser' in query['sql'] for query in captured.captured_queries))
+
     @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_post_execution_non_mapping(self, mock_release_lock):
@@ -1681,21 +1829,50 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         self.assertEqual(self.source_shard.node_name, 'other')
         mock_release_lock.assert_called_once_with(key='shard_{}'.format(self.source_shard.id), shared=False)
 
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
+    def test_post_execution_saves_the_moved_shard_before_it_releases_the_lock_of_the_shard(self):
+        """
+        Case: Call post_execution after a successful move of a shard in maintenance, and read the row of the shard in
+              the shard registry at the moment that the lock of the shard is released.
+        Expected: The row has the target node and the old state of the shard already, so that a use_shard that waits
+                  for the lock reads the shard where it is after the move.
+        """
+        self.command.old_shard_state = State.ACTIVE
+        self.source_shard.state = State.MAINTENANCE
+        self.source_shard.save()
+
+        rows_at_release = []
+
+        def read_the_row_of_the_shard(key, shared):
+            if key == 'shard_{}'.format(self.source_shard.id):
+                rows_at_release.append(Shard.objects.values('node_name', 'state').get(pk=self.source_shard.pk))
+
+        self.command.source_shard = self.source_shard
+        self.command.target_node = 'other'
+
+        with mock.patch(
+            'djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock',
+            side_effect=read_the_row_of_the_shard,
+        ):
+            self.command.post_execution(succeeded=True)
+
+        self.assertEqual(rows_at_release, [{'node_name': 'other', 'state': State.ACTIVE}])
+
     @override_settings(
         QUILT_DB={'MAPPING_MODEL': 'example.models.OrganizationShard', 'SHARD_CLASS': 'example.models.Shard'}
     )
     @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
     def test_post_execution_with_mapping(self, mock_release_lock):
         """
-        Case: Call post_execution with a mapping_model.
-        Expected: The organization's mapping object's state to be restored and the lock to be released.
-                  And the shard's node has switched as well.
+        Case: Call post_execution with a mapping_model, for a mapping object for the mapping value 4242, whose primary
+              key is another number.
+        Expected: The state of the mapping object is restored, the lock of the mapping value is released, and the node
+                  of the shard is set to the target node.
         """
-        with use_shard(self.source_shard):
-            organization = Organization.objects.create(name='Layton inc.')
         self.organization_shard1 = OrganizationShard.objects.create(
-            shard=self.source_shard, organization_id=organization.id, state=State.ACTIVE
+            shard=self.source_shard, organization_id=4242, state=State.ACTIVE
         )
+        self.assertNotEqual(self.organization_shard1.id, 4242)
 
         self.command.old_shard_state = State.ACTIVE
         self.command.old_source_states = {self.organization_shard1.id: State.ACTIVE}
@@ -1716,7 +1893,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
 
         mock_release_lock.assert_has_calls(
             [
-                mock.call(key='mapping_{}'.format(self.organization_shard1.id), shared=False),
+                mock.call(key='mapping_4242', shared=False),
                 mock.call(key='shard_{}'.format(self.source_shard.id), shared=False),
             ]
         )
