@@ -20,12 +20,17 @@ in ``INSTALLED_APPS``.
                      rows.
 ``djanquiltdb.W003`` A ``django-pgtrigger`` trigger on a mirrored model writes the table of a public model. It writes
                      the public table of the primary node only.
+``djanquiltdb.E003`` The Shard model, or the mapping model, is not mirrored. DjanQuiltDB reads the shard registry and
+                     the mapping table in the public schema of the node that the router picks, so every node needs a
+                     copy of them. Decorate the model with ``@mirrored_model()``, and follow
+                     :ref:`making_an_existing_model_mirrored` for a project with more than one node.
 ==================== ==================================================================================================
 
 See :doc:`/database_objects/triggers` for why the settings of W001 and W002 matter, and for the triggers that E001,
 E002 and W003 report. ``MUTE_PGTRIGGER_COMPATIBILITY_WARNING`` (see :doc:`/reference/settings`) silences W001 and W002.
-E001, E002 and W003 have no setting of their own: ``SILENCED_SYSTEM_CHECKS`` is the only way to silence them.
-``manage.py check <app_label>`` reports them for the triggers on the models of the apps that it names only.
+E001, E002, E003 and W003 have no setting of their own: ``SILENCED_SYSTEM_CHECKS`` is the only way to silence them.
+``manage.py check <app_label>`` reports E001, E002 and W003 for the triggers on the models of the apps that it names
+only, and E003 for the Shard model and the mapping model when they are models of those apps.
 
 Plugins register their own checks, with their own prefix. The celery plugin documents ``djanquiltdb_plugin_celery.E001``
 and ``E002`` on :doc:`its installation page </plugins/celery/installation>`. The pghistory plugin documents

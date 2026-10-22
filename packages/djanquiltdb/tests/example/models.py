@@ -37,6 +37,7 @@ class Shard(BaseShard):
 
 
 # mapping table
+@mirrored_model()
 @shard_mapping_model(mapping_field='organization_id')
 class OrganizationShard(models.Model):
     shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)

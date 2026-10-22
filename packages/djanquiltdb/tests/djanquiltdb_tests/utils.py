@@ -1867,17 +1867,18 @@ class GetAllMirroredModels(ShardingTestCase):
     def test_with_override(self):
         """
         Case: Call get_all_mirrored_models, while the settings override models.
-        Expected: Only MirroredUser and Shard models returned. Type is overridden,
+        Expected: Only the MirroredUser, OrganizationShard and Shard models returned. Type is overridden,
                   the rest is sharded and/or not mirrored.
         Note: System test
         """
         with override_settings(QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example', 'type'): ShardingMode.SHARDED}}):
-            self.assertCountEqual(get_all_mirrored_models(), [MirroredUser, Shard])
+            self.assertCountEqual(get_all_mirrored_models(), [MirroredUser, OrganizationShard, Shard])
 
     def test_with_override_archived_models(self):
         """
         Case: Call get_all_mirrored_models, while the settings override no longer existing models.
-        Expected: Only Type and Shard models to be returned. The rest is sharded and/or not mirrored.
+        Expected: Only the Type, OrganizationShard and Shard models to be returned. The rest is sharded and/or not
+                  mirrored.
         Note: System test
         """
         with override_settings(
@@ -1888,7 +1889,7 @@ class GetAllMirroredModels(ShardingTestCase):
                 }
             }
         ):
-            self.assertCountEqual(get_all_mirrored_models(), [Type, Shard])
+            self.assertCountEqual(get_all_mirrored_models(), [Type, OrganizationShard, Shard])
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):
@@ -1912,6 +1913,7 @@ class GetAllMirroredModels(ShardingTestCase):
             result,
             [
                 "<class 'example.models.Shard'>",
+                "<class 'example.models.OrganizationShard'>",
                 "<class 'example.models.Type'>",
                 "<class 'example.models.MirroredUser'>",
                 "<class 'example.models.MirroredUser_type'>",
@@ -1929,6 +1931,7 @@ class GetAllMirroredModels(ShardingTestCase):
             result,
             [
                 "<class 'example.models.Shard'>",
+                "<class 'example.models.OrganizationShard'>",
                 "<class 'example.models.Type'>",
                 "<class 'example.models.MirroredUser'>",
                 "<class 'example.models.ProxyMirroredUser'>",
@@ -2025,20 +2028,20 @@ class GetAllPublicSchemaModels(ShardingTestCase):
     def test_with_override(self):
         """
         Case: Call get_all_public_schema_models, while the settings override models.
-        Expected: Only Shard, SuperType, MirroredModel and CakeType models to be returned.
+        Expected: Only Shard, OrganizationShard, SuperType, MirroredModel and CakeType models to be returned.
                   The rest is sharded and/or not mirrored.
         Note: System test
         """
         with override_settings(QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
             self.assertCountEqual(
                 get_all_public_schema_models(),
-                [Shard, SuperType, Type, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle],
+                [Shard, OrganizationShard, SuperType, Type, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle],
             )
 
     def test_with_override_archived_models(self):
         """
         Case: Call get_all_public_schema_models, while the settings override no longer existing models.
-        Expected: Only Shard, SuperType, MirroredUser and CakeType models to be returned.
+        Expected: Only Shard, OrganizationShard, SuperType, MirroredUser and CakeType models to be returned.
                   The rest is sharded and/or not mirrored, or does not exist.
         Note: System test
         """
@@ -2052,7 +2055,7 @@ class GetAllPublicSchemaModels(ShardingTestCase):
         ):
             self.assertCountEqual(
                 get_all_public_schema_models(),
-                [Shard, SuperType, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle],
+                [Shard, OrganizationShard, SuperType, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle],
             )
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
@@ -2077,6 +2080,7 @@ class GetAllPublicSchemaModels(ShardingTestCase):
             result,
             [
                 "<class 'example.models.Shard'>",
+                "<class 'example.models.OrganizationShard'>",
                 "<class 'example.models.Type'>",
                 "<class 'example.models.MirroredUser'>",
                 "<class 'example.models.MirroredUser_type'>",
@@ -2101,6 +2105,7 @@ class GetAllPublicSchemaModels(ShardingTestCase):
             result,
             [
                 "<class 'example.models.Shard'>",
+                "<class 'example.models.OrganizationShard'>",
                 "<class 'example.models.Type'>",
                 "<class 'example.models.MirroredUser'>",
                 "<class 'example.models.ProxyMirroredUser'>",

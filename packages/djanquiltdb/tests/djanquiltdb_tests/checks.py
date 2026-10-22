@@ -11,18 +11,21 @@ from django.db import models, router
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import isolate_apps, override_system_checks
 
+from djanquiltdb import STATES, State
 from djanquiltdb.apps import _patch_checks
 from djanquiltdb.checks import (
     MUTE_SETTING,
     PGTRIGGER_APP_NAME,
     check_pgtrigger_compatibility,
+    check_shard_and_mapping_models_are_mirrored,
     check_trigger_writes_stay_in_their_sharding_mode,
     cross_mode_trigger_messages,
     written_tables,
 )
 from djanquiltdb.decorators import override_sharding_setting, public_model
+from djanquiltdb.models import BaseShard
 from djanquiltdb.router import _placement_is_node_scoped
-from example.models import CakeType, DefaultUser, Organization, Type, User
+from example.models import CakeType, DefaultUser, Organization, Shard, Type, User
 
 # Only the dedicated tox environment installs django-pgtrigger and puts it in INSTALLED_APPS. Everywhere else the
 # check must stay silent, which is a case worth asserting in its own right.
@@ -421,6 +424,88 @@ class TriggerWritesCheckTestCase(SimpleTestCase):
         with mock.patch('pgtrigger.registered', return_value=registered):
             with override_settings(SILENCED_SYSTEM_CHECKS=['djanquiltdb.E001']):
                 call_command('check', tags=['models'], stdout=StringIO(), stderr=StringIO())
+
+
+class ShardAndMappingModelsAreMirroredCheckTestCase(SimpleTestCase):
+    def test_check_is_registered(self):
+        """
+        Case: The app config has been readied, as it is for every test run.
+        Expected: The check is part of Django's check registry.
+        """
+        self.assertIn(check_shard_and_mapping_models_are_mirrored, registry.get_checks())
+
+    def test_the_models_of_this_suite_pass(self):
+        """
+        Case: The check runs for the Shard model and the mapping model of the test project, which are both mirrored.
+        Expected: No messages.
+        """
+        self.assertEqual(check_shard_and_mapping_models_are_mirrored(None), [])
+
+    @isolate_apps('djanquiltdb')
+    def test_a_shard_model_that_is_not_mirrored(self):
+        """
+        Case: The check runs while the Shard model of the project is a subclass of BaseShard without @mirrored_model.
+        Expected: djanquiltdb.E003 for the Shard model, whose message names the model.
+        """
+
+        class UndecoratedShard(BaseShard):
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with mock.patch('djanquiltdb.checks.get_shard_class', return_value=UndecoratedShard):
+            messages = check_shard_and_mapping_models_are_mirrored(None)
+
+        self.assertEqual([(message.id, message.obj) for message in messages], [('djanquiltdb.E003', UndecoratedShard)])
+        self.assertIn('djanquiltdb.UndecoratedShard', messages[0].msg)
+
+    @isolate_apps('djanquiltdb')
+    def test_a_mapping_model_that_is_not_mirrored(self):
+        """
+        Case: The check runs while the mapping model of the project is not decorated with @mirrored_model.
+        Expected: djanquiltdb.E003 for the mapping model.
+        """
+
+        class UndecoratedTenantShard(models.Model):
+            shard = models.ForeignKey(Shard, on_delete=models.CASCADE, related_name='+')
+            tenant_id = models.PositiveIntegerField()
+            state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
+
+            mapping_field = 'tenant_id'
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with mock.patch('djanquiltdb.checks.get_mapping_class', return_value=UndecoratedTenantShard):
+            messages = check_shard_and_mapping_models_are_mirrored(None)
+
+        self.assertEqual(
+            [(message.id, message.obj) for message in messages], [('djanquiltdb.E003', UndecoratedTenantShard)]
+        )
+
+    @override_sharding_setting('MAPPING_MODEL')
+    def test_a_project_without_a_mapping_model(self):
+        """
+        Case: The check runs in a project without QUILT_DB['MAPPING_MODEL'].
+        Expected: No messages, because only the Shard model has to be mirrored.
+        """
+        self.assertEqual(check_shard_and_mapping_models_are_mirrored(None), [])
+
+    @isolate_apps('djanquiltdb')
+    def test_only_the_models_of_the_given_apps_are_checked(self):
+        """
+        Case: The check runs for the example app only, while the Shard model of the djanquiltdb app is not mirrored, as
+              `manage.py check example` runs it.
+        Expected: No messages, because the Shard model is not a model of the example app.
+        """
+
+        class UndecoratedShard(BaseShard):
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with mock.patch('djanquiltdb.checks.get_shard_class', return_value=UndecoratedShard):
+            messages = check_shard_and_mapping_models_are_mirrored([apps.get_app_config('example')])
+
+        self.assertEqual(messages, [])
 
 
 def missing_field_constraint():

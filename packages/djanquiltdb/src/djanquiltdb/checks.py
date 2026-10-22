@@ -11,7 +11,7 @@ from django.conf import settings
 from django.core import checks
 
 from djanquiltdb import ShardingMode
-from djanquiltdb.utils import get_declared_sharding_mode
+from djanquiltdb.utils import get_declared_sharding_mode, get_mapping_class, get_shard_class
 
 # The QUILT_DB key that silences the pgtrigger compatibility check.
 MUTE_SETTING = 'MUTE_PGTRIGGER_COMPATIBILITY_WARNING'
@@ -248,3 +248,42 @@ def check_trigger_writes_stay_in_their_sharding_mode(app_configs, **kwargs):
         triggers = [(model, trigger) for model, trigger in triggers if model._meta.app_label in app_labels]
 
     return cross_mode_trigger_messages(triggers)
+
+
+_NOT_MIRRORED_HINT = (
+    'DjanQuiltDB reads the {table} in the public schema of the node that the router picks, which is the node that is '
+    'active for a model that is not routed to the primary node, so every node needs a copy of it. Decorate the model '
+    'with @mirrored_model(), and keep the copies the same on every node, as for every mirrored model. If the project '
+    'has more than one node, also add a migration with CreateMissingMirroredTable, as "Making an existing model '
+    'mirrored" in the migrations guide describes.'
+)
+
+
+@checks.register(checks.Tags.models)
+def check_shard_and_mapping_models_are_mirrored(app_configs, **kwargs):
+    """
+    Report the Shard model, and the mapping model when the project has one, when it is not mirrored. When
+    ``app_configs`` is given, only the models of those apps are checked.
+    """
+    models_to_check = [
+        (get_shard_class(), 'Shard model', 'shard registry'),
+        (get_mapping_class(), 'mapping model', 'mapping table'),
+    ]
+    app_labels = None if app_configs is None else {app_config.label for app_config in app_configs}
+    errors = []
+
+    for model, kind, table in models_to_check:
+        if model is None or (app_labels is not None and model._meta.app_label not in app_labels):
+            continue
+
+        if get_declared_sharding_mode(model) is not ShardingMode.MIRRORED:
+            errors.append(
+                checks.Error(
+                    'The {} {} is not mirrored.'.format(kind, model._meta.label),
+                    hint=_NOT_MIRRORED_HINT.format(table=table),
+                    obj=model,
+                    id='djanquiltdb.E003',
+                )
+            )
+
+    return errors
