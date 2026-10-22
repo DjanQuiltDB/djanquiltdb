@@ -27,6 +27,9 @@ from djanquiltdb_plugin_celery.targets import (
 #: The kinds of parameter that a function declares by name, and that can be passed by keyword.
 KEYWORD_PARAMETER_KINDS = (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
 
+#: The kinds of parameter that can be passed by position.
+POSITIONAL_PARAMETER_KINDS = (inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD)
+
 
 class QuiltTask(DjangoTask):
     """
@@ -72,14 +75,44 @@ class QuiltTask(DjangoTask):
 
         return shard_target_from_task_kwargs(kwargs or {})
 
-    def target_of_message(self, headers, kwargs):
+    def names_passed_by_position(self, args):
+        """
+        Returns the names of the parameters of the function that ``args`` fill by position. A task that fans out takes
+        none of its target by position: its fan-out sends ``shard_id`` or ``node_name`` by keyword, so a positional
+        argument is the parameter after it, and not the target.
+        """
+        if self.fans_out or self.function_signature is None:
+            return []
+
+        positional_names = [
+            name
+            for name, parameter in self.function_signature.parameters.items()
+            if parameter.kind in POSITIONAL_PARAMETER_KINDS
+        ]
+
+        return positional_names[: len(args or ())]
+
+    def target_of_task_arguments(self, args, kwargs):
+        """
+        Returns the shard or node that the arguments identify, as ``runs_in`` says, or None: a keyword argument that
+        identifies the target, or a positional argument for a parameter of the function that does, such as the
+        ``tenant_id`` of ``send_invoice(tenant_id, invoice_id)``.
+        """
+        target_kwargs = self.target_kwargs()
+        positional_targets = {
+            name: value for name, value in zip(self.names_passed_by_position(args), args or ()) if name in target_kwargs
+        }
+
+        return self.target_of_task_kwargs({**positional_targets, **(kwargs or {})})
+
+    def target_of_message(self, headers, kwargs, args=()):
         """
         Returns the target of a message of this task, or of a call of this task as a function: the shard or node that
-        ``kwargs`` identifies, as ``runs_in`` says, else the target header in ``headers``, else, for a task that
-        inherits the active shard, the shard that is active on this thread, else None. The keyword arguments come first,
-        so that they take precedence over the header of a signature that is built inside a shard.
+        the arguments identify, as ``runs_in`` says, else the target header in ``headers``, else, for a task that
+        inherits the active shard, the shard that is active on this thread, else None. The arguments come first, so
+        that they take precedence over the header of a signature that is built inside a shard.
         """
-        target = self.target_of_task_kwargs(kwargs)
+        target = self.target_of_task_arguments(args, kwargs)
 
         if target is None:
             target = (headers or {}).get(TARGET_HEADER_NAME)
@@ -106,11 +139,12 @@ class QuiltTask(DjangoTask):
         """
         return [NODE_NAME_KWARG] if self.runs_in == 'node' else accepted_shard_kwargs()
 
-    def kwargs_for_function(self, kwargs, filled_value):
+    def kwargs_for_function(self, kwargs, filled_value, args=()):
         """
         Returns ``kwargs`` as the function of this task receives them. Each keyword argument that identifies the target
         is skipped, unless the function declares it by name. When the function declares ``shard_id``, or ``node_name``
-        for a task that runs on a node, and ``kwargs`` has no value for it, the function receives ``filled_value``.
+        for a task that runs on a node, and neither ``kwargs`` nor ``args`` has a value for it, the function receives
+        ``filled_value``.
         """
         declared_names = {
             name
@@ -123,7 +157,11 @@ class QuiltTask(DjangoTask):
         }
         filled_name = NODE_NAME_KWARG if self.runs_in == 'node' else SHARD_ID_KWARG
 
-        if filled_name in declared_names and function_kwargs.get(filled_name) is None:
+        if (
+            filled_name in declared_names
+            and function_kwargs.get(filled_name) is None
+            and filled_name not in self.names_passed_by_position(args)
+        ):
             function_kwargs[filled_name] = filled_value
 
         return function_kwargs
@@ -151,15 +189,15 @@ class QuiltTask(DjangoTask):
         if not self.typing or self.function_signature is None:
             return
 
-        self.function_signature.bind(*(args or ()), **self.kwargs_for_function(kwargs or {}, filled_value=0))
+        self.function_signature.bind(*(args or ()), **self.kwargs_for_function(kwargs or {}, filled_value=0, args=args))
 
-    def options_with_target_header(self, kwargs, options):
+    def options_with_target_header(self, kwargs, options, args=()):
         """
         Returns ``options`` with the target header of the message added. For a message of a fan-out task without a
         target, ``options`` is returned unchanged, because that message starts the fan-out. Any other message without a
         target raises TaskShardError or TaskNodeError, so that nothing is sent.
         """
-        target = self.target_of_message(options.get('headers'), kwargs)
+        target = self.target_of_message(options.get('headers'), kwargs, args)
 
         if target is None and self.fans_out:
             return options
@@ -172,10 +210,10 @@ class QuiltTask(DjangoTask):
     def apply_async(self, args=None, kwargs=None, **options):
         self.check_arguments(args, kwargs)
 
-        return super().apply_async(args, kwargs, **self.options_with_target_header(kwargs, options))
+        return super().apply_async(args, kwargs, **self.options_with_target_header(kwargs, options, args))
 
     def apply(self, args=None, kwargs=None, **options):
-        return super().apply(args, kwargs, **self.options_with_target_header(kwargs, options))
+        return super().apply(args, kwargs, **self.options_with_target_header(kwargs, options, args))
 
     def signature(self, args=None, *starargs, **starkwargs):
         """
@@ -187,7 +225,7 @@ class QuiltTask(DjangoTask):
         """
         signature = super().signature(args, *starargs, **starkwargs)
 
-        return signature.set(**self.options_with_target_header(signature.kwargs, signature.options))
+        return signature.set(**self.options_with_target_header(signature.kwargs, signature.options, signature.args))
 
     def apply_async_on_commit(self, args=None, kwargs=None, **options):
         """
@@ -197,7 +235,7 @@ class QuiltTask(DjangoTask):
         once when no transaction is open.
         """
         self.check_arguments(args, kwargs)
-        options = self.options_with_target_header(kwargs, options)
+        options = self.options_with_target_header(kwargs, options, args)
         nodes_waiting_for_commit = {
             node_name for node_name in get_all_databases() if connections[node_name].in_atomic_block
         }
@@ -371,46 +409,46 @@ class TaskSenderForTarget:
     """
     Sends a task to its target, with the methods of a task that send it. :meth:`QuiltTask.for_shard` and
     :meth:`QuiltTask.for_node` return it. Each method adds the target to the headers of the message, next to the headers
-    that the caller passes, and then calls the method of the task with the same name. The keyword arguments of the task
-    cannot identify a target as well: that raises TaskShardError or TaskNodeError before anything is sent.
+    that the caller passes, and then calls the method of the task with the same name. The arguments of the task cannot
+    identify a target as well: that raises TaskShardError or TaskNodeError before anything is sent.
     """
 
     def __init__(self, task, target):
         self.task = task
         self.target = target
 
-    def options_with_target_header(self, kwargs, options):
+    def options_with_target_header(self, kwargs, options, args=()):
         """
-        Returns ``options`` with the target in their headers. Raises TaskShardError or TaskNodeError when ``kwargs``
-        identifies a target too.
+        Returns ``options`` with the target in their headers. Raises TaskShardError or TaskNodeError when ``args`` or
+        ``kwargs`` identify a target too.
         """
-        if self.task.target_of_task_kwargs(kwargs) is not None:
+        if self.task.target_of_task_arguments(args, kwargs) is not None:
             if self.task.runs_in == 'node':
                 error_class, method, kind = TaskNodeError, 'for_node', 'node'
             else:
                 error_class, method, kind = TaskShardError, 'for_shard', 'shard'
 
             raise error_class(
-                '{task} is sent through {method}(), and its keyword arguments identify a {kind} as well. Pass the '
+                '{task} is sent through {method}(), and its arguments identify a {kind} as well. Pass the '
                 '{kind} only to {method}().'.format(task=self.task.name, method=method, kind=kind)
             )
 
         return {**options, 'headers': {**(options.get('headers') or {}), TARGET_HEADER_NAME: self.target}}
 
     def apply_async(self, args=None, kwargs=None, **options):
-        return self.task.apply_async(args, kwargs, **self.options_with_target_header(kwargs, options))
+        return self.task.apply_async(args, kwargs, **self.options_with_target_header(kwargs, options, args))
 
     def delay(self, *args, **kwargs):
         return self.apply_async(args, kwargs)
 
     def apply_async_on_commit(self, args=None, kwargs=None, **options):
-        return self.task.apply_async_on_commit(args, kwargs, **self.options_with_target_header(kwargs, options))
+        return self.task.apply_async_on_commit(args, kwargs, **self.options_with_target_header(kwargs, options, args))
 
     def delay_on_commit(self, *args, **kwargs):
         return self.apply_async_on_commit(args, kwargs)
 
     def signature(self, args=None, kwargs=None, **options):
-        return self.task.signature(args, kwargs, **self.options_with_target_header(kwargs, options))
+        return self.task.signature(args, kwargs, **self.options_with_target_header(kwargs, options, args))
 
     def s(self, *args, **kwargs):
         return self.signature(args, kwargs)

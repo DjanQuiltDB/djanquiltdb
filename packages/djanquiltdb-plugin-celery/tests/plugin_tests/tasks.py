@@ -19,6 +19,8 @@ from example.tasks import (
     record_received_shard_id,
     record_received_tenant_id,
     record_schema_and_shard,
+    record_schema_of_shard_id,
+    record_schema_of_tenant,
     record_target,
     record_target_with_one_retry,
     record_target_without_lock,
@@ -370,6 +372,66 @@ class TargetKeywordArgumentTestCase(PluginTestCase):
             without_typing.delay('anvil', shard_id=self.first.id)
 
         send_task.assert_called_once()
+
+
+class PositionalTargetTestCase(PluginTestCase):
+    """
+    A function that declares the parameter that identifies its target, shard_id or the mapping keyword argument, can
+    receive the target by position, as any argument of a function can be passed.
+    """
+
+    def test_a_shard_id_that_is_passed_by_position_is_the_target(self):
+        """
+        Case: record_schema_of_shard_id, whose function takes shard_id, is sent with the shard_id of remote by position.
+        Expected: It runs in the schema of remote, and the function receives the shard_id that was passed.
+        """
+        result = record_schema_of_shard_id.delay(self.remote.id).get()
+
+        self.assertEqual(result, ['remote_schema', self.remote.id])
+
+    def test_a_mapping_value_that_is_passed_by_position_is_the_target(self):
+        """
+        Case: record_schema_of_tenant, whose function takes tenant_id and label, is sent with tenant 2 and a label, both
+              by position.
+        Expected: It runs in the schema of remote, the shard of tenant 2, and the function receives both arguments.
+        """
+        result = record_schema_of_tenant.delay(2, 'invoice').get()
+
+        self.assertEqual(result, ['remote_schema', 2, 'invoice'])
+
+    def test_a_task_called_as_a_function_takes_its_target_by_position(self):
+        """
+        Case: record_schema_of_shard_id is called as a function with the shard_id of first by position.
+        Expected: It runs in the schema of first.
+        """
+        self.assertEqual(record_schema_of_shard_id(self.first.id), ['first_schema', self.first.id])
+
+    def test_a_signature_takes_its_target_by_position(self):
+        """
+        Case: A signature of record_schema_of_shard_id is built with the shard_id of remote by position, and sent.
+        Expected: It runs in the schema of remote.
+        """
+        result = record_schema_of_shard_id.s(self.remote.id).apply_async().get()
+
+        self.assertEqual(result, ['remote_schema', self.remote.id])
+
+    def test_a_target_by_position_and_another_by_keyword_are_two_targets(self):
+        """
+        Case: record_schema_of_tenant is sent with tenant 2 by position and the shard_id of first by keyword.
+        Expected: TaskShardError before anything is sent, as for two shards in the keyword arguments.
+        """
+        with mock.patch.object(app, 'send_task') as send_task, self.assertRaises(TaskShardError):
+            record_schema_of_tenant.delay(2, 'invoice', shard_id=self.first.id)
+
+        send_task.assert_not_called()
+
+    def test_for_shard_refuses_a_target_by_position_as_well(self):
+        """
+        Case: record_schema_of_shard_id is sent through for_shard(first) with the shard_id of remote by position.
+        Expected: TaskShardError, whose message says that the arguments identify a shard as well.
+        """
+        with self.assertRaisesMessage(TaskShardError, 'its arguments identify a shard as well'):
+            record_schema_of_shard_id.for_shard(self.first).delay(self.remote.id)
 
 
 class SendingToATargetTestCase(PluginTestCase):

@@ -2,10 +2,10 @@ celery
 ======
 This plugin makes DjanQuiltDB and `Celery <https://docs.celeryq.dev/>`_ work together. Its decorators turn a function
 into a Celery task that runs in one shard, with ``shared_task_for_shard``, or in the public schema of one node, with
-``shared_task_for_node``. That shard or schema is the *target* of the task. ``for_shard()`` and ``for_node()`` send a task to a
-target, and the keyword arguments of the task can identify the target too. A task can also run in the shard that is
-active where the task is sent. A task whose shard is in maintenance is retried. A *fan-out* sends a task once to every
-shard, or once to every node. Install the plugin through an extra of ``djanquiltdb`` itself::
+``shared_task_for_node``. That shard or schema is the *target* of the task. ``for_shard()`` and ``for_node()`` send a
+task to a target, and the keyword arguments of the task can identify the target too. A task can also run in the shard
+that is active where the task is sent. A task whose shard is in maintenance is retried. A *fan-out* sends a task once to
+every shard, or once to every node. Install the plugin through an extra of ``djanquiltdb`` itself::
 
     pip install djanquiltdb[celery]
 
@@ -34,9 +34,9 @@ Things to know
   well. See :doc:`tasks`.
 * Sending a task without a target, or building its signature without one, raises ``TaskShardError`` or
   ``TaskNodeError`` before anything is published. Both inherit from ``TaskQuiltError``. See :doc:`tasks`.
-* Only a task that is decorated with ``shared_task_for_active_shard``, or with ``inherit_active_shard=True``, runs in the shard
-  that is active where the task is sent. The shard of ``for_shard()`` and a shard in the keyword arguments take
-  precedence over that shard. The public schema of a node is not a shard, so it is not inherited. See :doc:`tasks`.
+* Only a task that is decorated with ``shared_task_for_active_shard``, or with ``inherit_active_shard=True``, runs in
+  the shard that is active where the task is sent. The shard of ``for_shard()`` and a shard in the keyword arguments
+  take precedence over that shard. The public schema of a node is not a shard, so it is not inherited. See :doc:`tasks`.
 * The plugin resolves the target when the task is sent or when its signature is built, also for ``delay_on_commit()``
   and for the later tasks of a chain. The target is sent in the ``djanquiltdb_target`` message header. A message that is
   not sent through the task, such as a message from ``send_task()``, has no such header, so its keyword arguments need a

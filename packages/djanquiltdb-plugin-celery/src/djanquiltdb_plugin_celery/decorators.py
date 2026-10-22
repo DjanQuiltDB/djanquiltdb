@@ -79,7 +79,7 @@ def _create_quilt_task(func, task_attributes, options):
     # is decorated with bind=True.
     @functools.wraps(func)
     def run_in_target(self, *args, **kwargs):
-        target = self.target_of_message(self.request.headers, kwargs)
+        target = self.target_of_message(self.request.headers, kwargs, args)
 
         if target is None and self.fans_out:
             return self.fan_out_to_every_target(args, kwargs)
@@ -88,7 +88,7 @@ def _create_quilt_task(func, task_attributes, options):
             raise self.missing_target_error(kwargs)
 
         with use_target(target, lock=self.lock_target):
-            function_kwargs = self.kwargs_for_function(kwargs, self.entered_target_value(target))
+            function_kwargs = self.kwargs_for_function(kwargs, self.entered_target_value(target), args)
 
             return func(self, *args, **function_kwargs) if bind else func(*args, **function_kwargs)
 

@@ -52,9 +52,10 @@ while that shard is in maintenance::
     send_invoice.for_shard(shard).delay(invoice_id=12)
     send_invoice.delay(invoice_id=12, tenant_id=3)
 
-A task that is decorated with ``shared_task_for_node`` runs in the public schema of the node that its ``node_name`` identifies.
-A task that is decorated with ``shared_task_for_active_shard`` runs in the shard that is active where the task is sent. A task
-that is decorated with ``shared_task_for_every_shard`` runs once in every active shard when it is sent without a shard::
+A task that is decorated with ``shared_task_for_node`` runs in the public schema of the node that its ``node_name``
+identifies. A task that is decorated with ``shared_task_for_active_shard`` runs in the shard that is active where the
+task is sent. A task that is decorated with ``shared_task_for_every_shard`` runs once in every active shard when it is
+sent without a shard::
 
     from djanquiltdb.decorators.celery import shared_task_for_every_shard
 

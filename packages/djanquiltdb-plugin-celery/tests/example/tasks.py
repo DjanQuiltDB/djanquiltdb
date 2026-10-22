@@ -64,6 +64,16 @@ def record_received_tenant_id(tenant_id=None):
     return tenant_id
 
 
+@shared_task_for_shard
+def record_schema_of_shard_id(shard_id):
+    return [get_active_connection().schema_name, shard_id]
+
+
+@shared_task_for_shard
+def record_schema_of_tenant(tenant_id, label):
+    return [get_active_connection().schema_name, tenant_id, label]
+
+
 @shared_task_for_node(bind=True)
 def record_node(self, **kwargs):
     return describe_task_run(self, kwargs)
