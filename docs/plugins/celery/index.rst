@@ -27,11 +27,12 @@ Things to know
 * The function of a task receives a keyword argument that identifies the target only when the function declares that
   keyword argument by name, and ``**kwargs`` does not receive it. For a task of ``shared_task_for_shard``, that keyword
   argument is ``shard_id`` or the mapping field of the ``MAPPING_MODEL``. For a task of ``shared_task_for_node``, it is
-  ``node_name``. A function that declares ``shard_id`` or ``node_name`` receives the target that the task runs in,
-  however the task is sent. See :doc:`tasks` and :doc:`fan_out`.
+  ``node_name``. A function that declares it can also receive it by position. A function that declares ``shard_id`` or
+  ``node_name`` receives the target that the task runs in, however the task is sent. See :doc:`tasks` and
+  :doc:`fan_out`.
 * ``task.for_shard(shard).delay(...)`` and ``task.delay_for_shard(shard, ...)`` send a task to a shard, and
-  ``for_node()`` and ``delay_for_node()`` to a node. The keyword arguments of such a task cannot identify a target as
-  well. See :doc:`tasks`.
+  ``for_node()`` and ``delay_for_node()`` to a node. The arguments of such a task cannot identify a target as well. See
+  :doc:`tasks`.
 * Sending a task without a target, or building its signature without one, raises ``TaskShardError`` or
   ``TaskNodeError`` before anything is published. Both inherit from ``TaskQuiltError``. See :doc:`tasks`.
 * Only a task that is decorated with ``shared_task_for_active_shard``, or with ``inherit_active_shard=True``, runs in
@@ -39,8 +40,12 @@ Things to know
   take precedence over that shard. The public schema of a node is not a shard, so it is not inherited. See :doc:`tasks`.
 * The plugin resolves the target when the task is sent or when its signature is built, also for ``delay_on_commit()``
   and for the later tasks of a chain. The target is sent in the ``djanquiltdb_target`` message header. A message that is
-  not sent through the task, such as a message from ``send_task()``, has no such header, so its keyword arguments need a
+  not sent through the task, such as a message from ``send_task()``, has no such header, so its arguments need a
   target. See :doc:`tasks`.
+* During a rolling deploy, the workers of one release read the messages that the other release queued. A message that a
+  release before the plugin queued has no target header, and a message whose arguments no longer fit the task fails, as
+  with any Celery task whose parameters change. The plugin accepts that a deploy can lose such a message rather than
+  translate it. See :doc:`tasks`.
 * A task whose shard is in maintenance is retried with an exponential backoff, five times by default, and then fails
   with the ``StateException``. A ``StateException`` that the function raises itself is retried too. See :doc:`tasks`.
 * A running task holds the shared advisory lock of its shard, as a request does. ``move_data_to_shard`` and

@@ -147,8 +147,15 @@ anything is published:
     chain(import_invoices.si(tenant_id=3), send_invoices.si()).delay()  # TaskShardError
 
 A message that is not sent through the task, such as a message from ``app.send_task('myapp.tasks.send_invoice', ...)``,
-has no target header. The worker then reads the target from the keyword arguments of the message, and fails with
+has no target header. The worker then reads the target from the arguments of the message, and fails with
 ``TaskShardError`` or ``TaskNodeError`` when they do not identify one.
+
+During a rolling deploy, the workers of one release read the messages that the other release queued, and the plugin
+does not translate those messages. A message that a release before the plugin queued has no target header, so it fails
+with ``TaskShardError`` or ``TaskNodeError`` on a worker with the plugin, unless its arguments identify the target, for
+example a task that already took ``tenant_id``. A message whose arguments no longer fit the function of the task fails
+on the worker, as with any Celery task whose parameters change. The plugin accepts that a deploy can lose such a
+message: keep the window short, and write tasks that are safe to lose and to run again.
 
 
 Shards in maintenance
