@@ -4,6 +4,7 @@ from unittest import mock, skipIf, skipUnless
 import django.core.checks
 import django.core.checks.registry
 from django.apps import apps
+from django.contrib.sessions.models import Session
 from django.core.checks.registry import CheckRegistry, registry
 from django.core.management import call_command, get_commands, load_command_class
 from django.core.management.base import SystemCheckError
@@ -16,16 +17,24 @@ from djanquiltdb.apps import _patch_checks
 from djanquiltdb.checks import (
     MUTE_SETTING,
     PGTRIGGER_APP_NAME,
+    check_models_have_a_sharding_mode,
+    check_models_on_a_single_node,
     check_pgtrigger_compatibility,
     check_shard_and_mapping_models_are_mirrored,
     check_trigger_writes_stay_in_their_sharding_mode,
     cross_mode_trigger_messages,
     written_tables,
 )
-from djanquiltdb.decorators import override_sharding_setting, public_model
+from djanquiltdb.decorators import (
+    mirrored_model,
+    override_sharding_setting,
+    public_model,
+    sharded_model,
+    single_node_unsharded_model,
+)
 from djanquiltdb.models import BaseShard
 from djanquiltdb.router import _placement_is_node_scoped
-from example.models import CakeType, DefaultUser, Organization, Shard, Type, User
+from example.models import CakeType, DefaultUser, Organization, Shard, Type, Unrelated, User
 
 # Only the dedicated tox environment installs django-pgtrigger and puts it in INSTALLED_APPS. Everywhere else the
 # check must stay silent, which is a case worth asserting in its own right.
@@ -264,11 +273,12 @@ class CrossModeTriggerMessagesTestCase(SimpleTestCase):
         self.assertEqual(message_ids(User, 'UPDATE "example_caketype" SET x = 1;'), [])
         self.assertEqual(message_ids(Type, 'UPDATE "example_type" SET x = 1;'), [])
 
-    def test_models_and_tables_without_a_sharding_mode_are_skipped(self):
+    def test_models_on_a_single_node_and_tables_without_a_model_are_skipped(self):
         """
-        Case: A trigger on DefaultUser, which has no sharding mode, that writes the sharded User, a trigger on the
+        Case: A trigger on DefaultUser, which is on a single node, that writes the sharded User, a trigger on the
               mirrored Type that writes DefaultUser, and one that writes a table that no model has.
-        Expected: No messages, because the check cannot tell where those tables are.
+        Expected: No messages, because the check has no pair of modes for a model on a single node, and cannot tell
+                  where a table without a model is.
         """
         self.assertEqual(message_ids(DefaultUser, 'UPDATE "example_user" SET x = 1;'), [])
         self.assertEqual(message_ids(Type, 'UPDATE "example_defaultuser" SET x = 1;'), [])
@@ -506,6 +516,227 @@ class ShardAndMappingModelsAreMirroredCheckTestCase(SimpleTestCase):
             messages = check_shard_and_mapping_models_are_mirrored([apps.get_app_config('example')])
 
         self.assertEqual(messages, [])
+
+
+def ids_and_objects(messages):
+    return [(message.id, message.obj) for message in messages]
+
+
+class ModelsHaveAShardingModeCheckTestCase(SimpleTestCase):
+    def test_check_is_registered(self):
+        """
+        Case: The app config has been readied, as it is for every test run.
+        Expected: The check is part of Django's check registry.
+        """
+        self.assertIn(check_models_have_a_sharding_mode, registry.get_checks())
+
+    def test_the_models_of_this_suite_pass(self):
+        """
+        Case: The check runs for the models of the test project, which all have a sharding mode, some of them through
+              OVERRIDE_SHARDING_MODE.
+        Expected: No messages.
+        """
+        self.assertEqual(check_models_have_a_sharding_mode(None), [])
+
+    @isolate_apps('example')
+    def test_a_model_without_a_sharding_mode(self):
+        """
+        Case: The check runs for a model without a decorator or an OVERRIDE_SHARDING_MODE entry, and for its proxy.
+        Expected: djanquiltdb.E004 for the model, whose message names it, and none for the proxy, which has no table of
+                  its own.
+        """
+
+        class ModelWithoutShardingMode(models.Model):
+            class Meta:
+                app_label = 'example'
+
+        class ProxyOfModelWithoutShardingMode(ModelWithoutShardingMode):
+            class Meta:
+                app_label = 'example'
+                proxy = True
+
+        with mock.patch.object(
+            apps, 'get_models', return_value=[ModelWithoutShardingMode, ProxyOfModelWithoutShardingMode]
+        ):
+            messages = check_models_have_a_sharding_mode(None)
+
+        self.assertEqual(ids_and_objects(messages), [('djanquiltdb.E004', ModelWithoutShardingMode)])
+        self.assertIn('example.ModelWithoutShardingMode', messages[0].msg)
+
+    @isolate_apps('example')
+    def test_only_the_models_of_the_given_apps_are_checked(self):
+        """
+        Case: The check runs for the djanquiltdb app only, while a model of the example app has no sharding mode.
+        Expected: No messages.
+        """
+
+        class ModelWithoutShardingMode(models.Model):
+            class Meta:
+                app_label = 'example'
+
+        with mock.patch.object(apps, 'get_models', return_value=[ModelWithoutShardingMode]):
+            messages = check_models_have_a_sharding_mode([apps.get_app_config('djanquiltdb')])
+
+        self.assertEqual(messages, [])
+
+
+class ModelsOnASingleNodeCheckTestCase(SimpleTestCase):
+    def test_check_is_registered(self):
+        """
+        Case: The app config has been readied, as it is for every test run.
+        Expected: The check is part of Django's check registry.
+        """
+        self.assertIn(check_models_on_a_single_node, registry.get_checks())
+
+    def test_the_models_of_this_suite(self):
+        """
+        Case: The check runs for the models of the test project, where Unrelated, DefaultUser and the Session model of
+              django.contrib.sessions are on the default node.
+        Expected: djanquiltdb.W004 for each of those three models, and nothing else.
+        """
+        messages = check_models_on_a_single_node(None)
+
+        self.assertCountEqual(
+            ids_and_objects(messages),
+            [
+                ('djanquiltdb.W004', Unrelated),
+                ('djanquiltdb.W004', DefaultUser),
+                ('djanquiltdb.W004', Session),
+            ],
+        )
+        self.assertIn("'default'", messages[0].msg)
+
+    @isolate_apps('example')
+    def test_a_node_that_is_not_in_databases(self):
+        """
+        Case: The check runs for a model on the node 'elsewhere', which DATABASES does not have.
+        Expected: djanquiltdb.W004 and djanquiltdb.E006 for the model.
+        """
+
+        @single_node_unsharded_model(node='elsewhere')
+        class ModelElsewhere(models.Model):
+            class Meta:
+                app_label = 'example'
+
+        with mock.patch.object(apps, 'get_models', return_value=[ModelElsewhere]):
+            messages = check_models_on_a_single_node(None)
+
+        self.assertEqual(
+            ids_and_objects(messages), [('djanquiltdb.W004', ModelElsewhere), ('djanquiltdb.E006', ModelElsewhere)]
+        )
+
+    @isolate_apps('example')
+    def test_relations_to_and_from_a_model_on_a_single_node(self):
+        """
+        Case: The check runs for foreign keys between a model on the default node, a model on the other node, the
+              sharded Organization, the mirrored Type and the public CakeType, and for a many-to-many field from the
+              model on the default node to Organization.
+        Expected: djanquiltdb.E005 for each relation that does not stay on the node of a model on a single node: from
+                  the sharded, mirrored and public models to the model on the default node, from the model on the
+                  default node to Organization, also through the many-to-many field, and between the two nodes. None
+                  for the relations from the model on the default node to Type, CakeType and a model on the same node.
+        """
+
+        @single_node_unsharded_model(node='default')
+        class OnDefault(models.Model):
+            organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='+')
+            type = models.ForeignKey(Type, on_delete=models.CASCADE, related_name='+')
+            cake_type = models.ForeignKey(CakeType, on_delete=models.CASCADE, related_name='+')
+            organizations = models.ManyToManyField(Organization, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        @single_node_unsharded_model(node='default')
+        class AlsoOnDefault(models.Model):
+            on_default = models.ForeignKey(OnDefault, on_delete=models.CASCADE, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        @single_node_unsharded_model(node='other')
+        class OnOther(models.Model):
+            on_default = models.ForeignKey(OnDefault, on_delete=models.CASCADE, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        @sharded_model()
+        class ShardedToDefault(models.Model):
+            on_default = models.ForeignKey(OnDefault, on_delete=models.CASCADE, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        @mirrored_model()
+        class MirroredToDefault(models.Model):
+            on_default = models.ForeignKey(OnDefault, on_delete=models.CASCADE, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        @public_model()
+        class PublicToDefault(models.Model):
+            on_default = models.ForeignKey(OnDefault, on_delete=models.CASCADE, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        through = OnDefault.organizations.through
+        isolated_models = [
+            OnDefault,
+            AlsoOnDefault,
+            OnOther,
+            ShardedToDefault,
+            MirroredToDefault,
+            PublicToDefault,
+            through,
+        ]
+
+        with mock.patch.object(apps, 'get_models', return_value=isolated_models):
+            messages = check_models_on_a_single_node(None)
+
+        errors = [message for message in messages if message.id == 'djanquiltdb.E005']
+
+        self.assertCountEqual(
+            [(message.obj, message.msg.split()[2]) for message in errors],
+            [
+                (OnDefault, 'organization'),
+                (OnOther, 'on_default'),
+                (ShardedToDefault, 'on_default'),
+                (MirroredToDefault, 'on_default'),
+                (PublicToDefault, 'on_default'),
+                (through, 'organization'),
+            ],
+        )
+        self.assertIn(
+            "The field on_default of example.OnOther, a model on the node 'other', refers to example.OnDefault, a model "
+            "on the node 'default'.",
+            [message.msg for message in errors],
+        )
+
+    @isolate_apps('example')
+    def test_a_relation_to_a_model_without_a_sharding_mode_is_left_to_e004(self):
+        """
+        Case: The check runs for a foreign key from a model on the default node to a model without a sharding mode.
+        Expected: No djanquiltdb.E005, because djanquiltdb.E004 reports the model without a sharding mode.
+        """
+
+        class ModelWithoutShardingMode(models.Model):
+            class Meta:
+                app_label = 'example'
+
+        @single_node_unsharded_model(node='default')
+        class OnDefault(models.Model):
+            other = models.ForeignKey(ModelWithoutShardingMode, on_delete=models.CASCADE, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        with mock.patch.object(apps, 'get_models', return_value=[OnDefault, ModelWithoutShardingMode]):
+            messages = check_models_on_a_single_node(None)
+
+        self.assertEqual(ids_and_objects(messages), [('djanquiltdb.W004', OnDefault)])
 
 
 def missing_field_constraint():

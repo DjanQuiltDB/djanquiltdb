@@ -5,7 +5,7 @@ from pathlib import Path
 import dj_database_url
 
 from config.secret import get as get_secret
-from djanquiltdb import ShardingMode
+from djanquiltdb import ShardingMode, single_node_unsharded
 
 # The test project root: the tests/ directory holding manage.py, secrets.json and templates/.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -95,8 +95,13 @@ QUILT_DB = {
         ('contenttypes',): ShardingMode.MIRRORED,
         # django_admin_log holds a FK to the (sharded) user table, so it must live per-schema too.
         ('admin',): ShardingMode.SHARDED,
+        # The test project keeps Django's database session backend, whose table is on the default node.
+        ('sessions',): single_node_unsharded(node='default'),
     },
 }
+
+# The test project has models on a single node on purpose, to test them.
+SILENCED_SYSTEM_CHECKS = ['djanquiltdb.W004']
 
 DATABASE_ROUTERS = ['djanquiltdb.router.DynamicDbRouter']
 

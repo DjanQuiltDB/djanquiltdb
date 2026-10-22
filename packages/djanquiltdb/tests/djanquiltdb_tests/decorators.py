@@ -5,7 +5,7 @@ from django.core.exceptions import ImproperlyConfigured
 from django.db import models
 from django.test import SimpleTestCase
 
-from djanquiltdb import STATES, ShardingMode, State
+from djanquiltdb import PRIMARY_NODE, STATES, ShardingMode, State
 from djanquiltdb import decorators as djanquiltdb_decorators
 from djanquiltdb.decorators import (
     _reset_shard_mapping_models,
@@ -13,6 +13,7 @@ from djanquiltdb.decorators import (
     mirrored_model,
     shard_mapping_model,
     sharded_model,
+    single_node_unsharded_model,
 )
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.utils import create_template_schema
@@ -65,6 +66,42 @@ class MirroredModelDecoratorTestCase(ModelTestCase):
                 abstract = True
 
         self.assertEqual(getattr(TestMirroredModel, '__sharding_mode'), ShardingMode.MIRRORED)
+
+
+class SingleNodeUnshardedModelDecoratorTestCase(ModelTestCase):
+    def test_the_mode_and_the_node_are_set(self):
+        """
+        Case: Decorate a model with @single_node_unsharded_model(node='other'), and another with PRIMARY_NODE.
+        Expected: Both have the mode SINGLE_NODE_UNSHARDED, and the node that the decorator names.
+        """
+
+        @single_node_unsharded_model(node='other')
+        class TestModelOnOther(models.Model):
+            test_model = True
+
+            class Meta:
+                app_label = 'djanquiltdb'
+                abstract = True
+
+        @single_node_unsharded_model(node=PRIMARY_NODE)
+        class TestModelOnThePrimaryNode(models.Model):
+            test_model = True
+
+            class Meta:
+                app_label = 'djanquiltdb'
+                abstract = True
+
+        self.assertEqual(getattr(TestModelOnOther, '__sharding_mode'), ShardingMode.SINGLE_NODE_UNSHARDED)
+        self.assertEqual(getattr(TestModelOnOther, '__single_node'), 'other')
+        self.assertIs(getattr(TestModelOnThePrimaryNode, '__single_node'), PRIMARY_NODE)
+
+    def test_a_node_that_is_not_an_alias(self):
+        """
+        Case: Call @single_node_unsharded_model with a node that is neither a string nor PRIMARY_NODE.
+        Expected: TypeError.
+        """
+        with self.assertRaisesMessage(TypeError, 'node must be the alias of a node or PRIMARY_NODE, not None.'):
+            single_node_unsharded_model(node=None)
 
 
 class MappingModelDecoratorTestCase(ModelTestCase):

@@ -176,6 +176,16 @@ Note that the sharding mode goes in the ``hints`` dictionary. ``RunSQL`` and ``R
 router's ``allow_migrate``, and without it the router cannot tell where the operation belongs and raises a
 ``ProgrammingError``.
 
+For an operation on a table on a single node (see :doc:`/guides/sharding_modes`), name the node in the same form as
+``OVERRIDE_SHARDING_MODE`` does. The operation then runs on the public schema of that node only::
+
+   from djanquiltdb import PRIMARY_NODE, single_node_unsharded
+
+   migrations.RunSQL(
+       'DROP TABLE example_knights CASCADE;',
+       hints={'sharding_mode': single_node_unsharded(node=PRIMARY_NODE)},
+   )
+
 .. _making_an_existing_model_mirrored:
 
 Making an existing model mirrored

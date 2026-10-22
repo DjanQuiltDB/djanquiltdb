@@ -24,7 +24,7 @@ from django.db.transaction import Atomic
 from django.dispatch import receiver
 from django.utils.module_loading import import_string
 
-from djanquiltdb import ShardingMode, State, public_modes
+from djanquiltdb import PRIMARY_NODE, ShardingMode, SingleNodeUnsharded, State, public_modes
 from djanquiltdb.db import DefaultConnectionProxy
 from djanquiltdb.plugins import install_plugin_importer, served_plugin_module
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME, DatabaseWrapper
@@ -775,9 +775,16 @@ def get_model_definition(model):
     return model
 
 
-def get_model_sharding_mode(model):
+def get_model_placement(model):
+    """
+    Returns the sharding mode of a model and the alias of its node as ``get_placement()`` returns them.
+    """
     model_class = get_model_definition(model)
-    return get_sharding_mode(model_class._meta.app_label, model_class._meta.model_name)
+    return get_placement(model_class._meta.app_label, model_class._meta.model_name)
+
+
+def get_model_sharding_mode(model):
+    return get_model_placement(model)[0]
 
 
 class OverrideShardingModeWithLowercaseKeys(dict):
@@ -787,15 +794,29 @@ class OverrideShardingModeWithLowercaseKeys(dict):
     """
 
 
-def get_declared_sharding_mode(model):
+def placement_of_sharding_mode_value(value):
     """
-    Returns the sharding mode that is declared for a model class, or None when nothing declares one.
+    Returns the sharding mode and the node of a value that names a sharding mode: an ``OVERRIDE_SHARDING_MODE`` entry
+    or a ``sharding_mode`` hint of a migration operation. The node is None for every mode but
+    ``SINGLE_NODE_UNSHARDED``, whose value can be a ``SingleNodeUnsharded``.
+    """
+    if isinstance(value, SingleNodeUnsharded):
+        return ShardingMode.SINGLE_NODE_UNSHARDED, value.node
 
-    The mode is resolved in the same way as the router resolves it, but only from the class, so this also works while
-    models are still being defined. An ``OVERRIDE_SHARDING_MODE`` entry takes precedence over the mode decorator, and
-    its keys are compared in lowercase, because before ``AppConfig.ready()`` they have the casing of the settings file.
-    A proxy model gets the mode of its concrete model, and an auto-created model gets the mode of the model that caused
-    its creation.
+    return value, None
+
+
+def get_declared_placement(model):
+    """
+    Returns the sharding mode that is declared for a model class and, for ``SINGLE_NODE_UNSHARDED``, the node that is
+    declared for it, as a ``(mode, node)`` pair. The mode is None when nothing declares one, and the node is None for
+    every other mode. The node is the alias or ``PRIMARY_NODE`` as declared; ``resolve_node_alias()`` resolves it.
+
+    The placement is resolved in the same way as the router resolves it, but only from the class, so this also works
+    while models are still being defined. An ``OVERRIDE_SHARDING_MODE`` entry takes precedence over the mode decorator,
+    and its keys are compared in lowercase, because before ``AppConfig.ready()`` they have the casing of the settings
+    file. A proxy model gets the placement of its concrete model, and an auto-created model gets the placement of the
+    model that caused its creation.
     """
     override_sharding_mode = settings.QUILT_DB.get('OVERRIDE_SHARDING_MODE', {})
 
@@ -808,43 +829,96 @@ def get_declared_sharding_mode(model):
 
     for key in ((opts.app_label, opts.model_name), (opts.app_label,)):
         if key in override_sharding_mode:
-            return override_sharding_mode[key]
+            return placement_of_sharding_mode_value(override_sharding_mode[key])
 
     mode = getattr(model, '__sharding_mode', None)
 
     if mode is None and opts.proxy:
         # A proxy of a third-party model has no marker of its own, and its table is the table of the concrete model.
-        return get_declared_sharding_mode(opts.concrete_model)
+        return get_declared_placement(opts.concrete_model)
 
     if mode is None and opts.auto_created:
-        return get_declared_sharding_mode(opts.auto_created)
+        return get_declared_placement(opts.auto_created)
 
-    return mode
+    # A subclass of a model on a single node inherits the node, also when it is decorated with another mode.
+    return mode, getattr(model, '__single_node', None) if mode is ShardingMode.SINGLE_NODE_UNSHARDED else None
 
 
-def get_sharding_mode(app_label, model_name):
+def get_declared_sharding_mode(model):
+    """
+    Returns the sharding mode that is declared for a model class, or None when nothing declares one. See
+    ``get_declared_placement()`` for how it is resolved.
+    """
+    return get_declared_placement(model)[0]
+
+
+def resolve_node_alias(node):
+    """
+    Returns the alias of ``node``: ``PRIMARY_DB_ALIAS`` for ``PRIMARY_NODE``, and ``node`` itself for an alias.
+    """
+    return get_primary_db_alias() if node is PRIMARY_NODE else node
+
+
+def get_model_single_node_alias(model):
+    """
+    Returns the alias of the node of a model whose sharding mode is ``SINGLE_NODE_UNSHARDED``, or None for a model in
+    any other mode or without one.
+    """
+    node = get_declared_placement(get_model_definition(model))[1]
+    return None if node is None else resolve_node_alias(node)
+
+
+def get_placement(app_label, model_name):
+    """
+    Returns the sharding mode of the model ``app_label.model_name`` and, for ``SINGLE_NODE_UNSHARDED``, the alias of its
+    node, as a ``(mode, node)`` pair. The node is None for every other mode. The mode is None for an operation without a
+    model name that no ``OVERRIDE_SHARDING_MODE`` entry places, and False for a model that declares no mode.
+    """
     override_sharding_mode = settings.QUILT_DB.get('OVERRIDE_SHARDING_MODE', {})
 
     # The override is read before the model is looked up, because the router also asks about migration operations that
     # name no model, and about models that the app registry does not have, such as a model that a later migration
-    # deletes. get_declared_sharding_mode() reads it again for the models that the registry has.
-    if override_sharding_mode:
-        if (app_label, model_name) in override_sharding_mode:
-            # The configuration overrides the sharding_mode for a model in an app
-            return override_sharding_mode[(app_label, model_name)]
-        elif (app_label,) in override_sharding_mode:
-            # The configuration overrides the sharding_mode for all models in an app
-            return override_sharding_mode[(app_label,)]
+    # deletes. get_declared_placement() reads it again for the models that the registry has.
+    for key in ((app_label, model_name), (app_label,)):
+        if key in override_sharding_mode:
+            mode, node = placement_of_sharding_mode_value(override_sharding_mode[key])
+            return mode, None if node is None else resolve_node_alias(node)
 
-    # Explicitly skip the migration model, since that one is both sharded and mirrored, so we can't determine the
-    # sharding mode
+    # The migration model is skipped, because it is both sharded and mirrored, so it has no one sharding mode.
     if not model_name or (app_label, model_name) == ('migrations', 'migration'):
-        return None
+        return None, None
 
-    mode = get_declared_sharding_mode(apps.get_model(app_label, model_name))
+    mode, node = get_declared_placement(apps.get_model(app_label, model_name))
 
     # Callers of this function expect False, and not None, when no mode is declared.
-    return False if mode is None else mode
+    return False if mode is None else mode, None if node is None else resolve_node_alias(node)
+
+
+def relation_with_a_model_on_a_single_node_is_allowed(*, referred_mode, referred_node, referring_mode, referring_node):
+    """
+    Whether a relation is allowed from the model with ``referring_mode`` and ``referring_node`` to the model with
+    ``referred_mode`` and ``referred_node``, when either model is on a single node. Only a model on the same node may
+    refer to a model on a single node, and a model on a single node may refer only to a public or mirrored model, which
+    every node has. Returns None when neither model is on a single node. The router and the system check
+    djanquiltdb.E005 both answer with this function.
+    """
+    single_node = ShardingMode.SINGLE_NODE_UNSHARDED
+
+    if referred_mode is single_node:
+        return referring_mode is single_node and referring_node == referred_node
+
+    if referring_mode is single_node:
+        return referred_mode in public_modes
+
+    return None
+
+
+def get_sharding_mode(app_label, model_name):
+    """
+    Returns the sharding mode of the model ``app_label.model_name``. See ``get_placement()``, which also returns its
+    node.
+    """
+    return get_placement(app_label, model_name)[0]
 
 
 def get_all_sharded_models(include_auto_created=False, include_proxy=False):

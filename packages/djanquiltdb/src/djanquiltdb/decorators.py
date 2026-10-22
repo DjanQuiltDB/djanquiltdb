@@ -8,7 +8,7 @@ from django.core.exceptions import FieldDoesNotExist, ImproperlyConfigured
 from django.db import models
 from django.test import override_settings
 
-from djanquiltdb import STATES, ShardingMode
+from djanquiltdb import STATES, ShardingMode, raise_for_invalid_node
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.plugins import install_plugin_importer
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
@@ -202,6 +202,42 @@ def public_model(allow_copy=True):
     def configure(cls):
         cls.__sharding_mode = ShardingMode.PUBLIC
         cls.__allow_copy = allow_copy
+        return cls
+
+    return configure
+
+
+def single_node_unsharded_model(node):
+    """
+    A decorator that puts a model on one node only: its table is in the public schema of ``node``, and every query of
+    the model goes there, whichever node or shard is active. ``node`` is the alias of a node, or ``PRIMARY_NODE`` for
+    the node that ``PRIMARY_DB_ALIAS`` names.
+
+    This is strongly discouraged. It is a convenience for a project that moves an app without sharding to DjanQuiltDB
+    one model at a time, and it opts the model out of the system check ``djanquiltdb.E004`` at the project's own risk.
+    Each model that uses it gets the warning ``djanquiltdb.W004``, which you can silence through
+    ``SILENCED_SYSTEM_CHECKS``. For a third-party model, use ``single_node_unsharded()`` in ``OVERRIDE_SHARDING_MODE``.
+
+    :Example:
+        .. code-block:: python
+
+            from django.db import models
+            from djanquiltdb import PRIMARY_NODE
+            from djanquiltdb.decorators import single_node_unsharded_model
+
+
+            @single_node_unsharded_model(node=PRIMARY_NODE)
+            class LegacyReport(models.Model):
+                title = models.CharField('title', max_length=100)
+
+                class Meta:
+                    app_label = 'example'
+    """
+    raise_for_invalid_node(node)
+
+    def configure(cls):
+        cls.__sharding_mode = ShardingMode.SINGLE_NODE_UNSHARDED
+        cls.__single_node = node
         return cls
 
     return configure

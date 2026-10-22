@@ -6,7 +6,7 @@ from django.apps import apps
 from django.db import DEFAULT_DB_ALIAS, ProgrammingError, connections, models
 from django.test import SimpleTestCase, override_settings
 
-from djanquiltdb import State
+from djanquiltdb import PRIMARY_NODE, State, single_node_unsharded
 from djanquiltdb.decorators import mirrored_model, override_sharding_setting, public_model, sharded_model
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.router import (
@@ -17,7 +17,14 @@ from djanquiltdb.router import (
     node_scoped_placement,
     set_active_connection,
 )
-from djanquiltdb.utils import ShardingMode, create_schema_on_node, create_template_schema, migrate_schema, use_shard
+from djanquiltdb.utils import (
+    OverrideShardingModeWithLowercaseKeys,
+    ShardingMode,
+    create_schema_on_node,
+    create_template_schema,
+    migrate_schema,
+    use_shard,
+)
 from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
 from example.models import (
     CakeType,
@@ -211,29 +218,20 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         self.assertEqual(self.router.db_for_read(model=DummyNonShardedModel), 'test_node')
 
     @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
-    @mock.patch('djanquiltdb.router.get_model_definition')
-    def test_db_for_read_for_routing_to_primary_db(self, mock_get_model_definition):
+    def test_db_for_read_for_routing_to_primary_db(self):
         """
         Case: Call db_for_read while the given model has routing_to_primary_db of True and False
         Expected: Directly routed to the primary db when set to True, normal flow when set to False.
         """
+        set_active_connection('default')
+
         with self.subTest('route_to_primary_db=True'):
-
-            class DummyModelClass:
-                route_to_primary_db = True
-
-            mock_get_model_definition.return_value = DummyModelClass
-
-            self.assertEqual(self.router.db_for_read(model=OrganizationShard), 'other')
+            with mock.patch.object(OrganizationShard, 'route_to_primary_db', True):
+                self.assertEqual(self.router.db_for_read(model=OrganizationShard), 'other')
 
         with self.subTest('route_to_primary_db=False'):
-
-            class DummyModelClass:
-                route_to_primary_db = False
-
-            mock_get_model_definition.return_value = DummyModelClass
-
-            self.assertEqual(self.router.db_for_read(model=OrganizationShard), 'default')
+            with mock.patch.object(OrganizationShard, 'route_to_primary_db', False):
+                self.assertEqual(self.router.db_for_read(model=OrganizationShard), 'default')
 
     @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
     @mock.patch('djanquiltdb.router.get_model_sharding_mode')
@@ -344,8 +342,9 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         """
         Case: Call a write for various types of models from inside a use_shard context.
         Expected: All writes to happen on the connection of the context, except mirrored models: those are routed to
-                  the primary connection. The mapping model is mirrored, so it is written to the primary connection
-                  whether route_to_primary_db is True or False.
+                  the primary connection, and models on a single node, which are routed to their node. The mapping
+                  model is mirrored, so it is written to the primary connection whether route_to_primary_db is True or
+                  False.
         Note: System test
         """
         create_template_schema('default')
@@ -353,11 +352,11 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             alias='a_shard', node_name='default', schema_name='test_other_schema', state=State.ACTIVE
         )
         with use_shard(self.test_shard):
-            with self.subTest('Non-sharded model'):
+            with self.subTest('Model on a single node'):
                 mock_save_table.reset_mock()
                 obj = DefaultUser()
                 obj.save()
-                self.assert_save_table(mock_save_table, DefaultUser, 'default', 'test_other_schema')
+                self.assert_save_table(mock_save_table, DefaultUser, 'default', None, options=False)
 
             with self.subTest('Sharded model'):
                 mock_save_table.reset_mock()
@@ -401,12 +400,12 @@ class DynamicDbRouterTestCase(ShardingTestCase):
         """
         Case: Call a write for various types of models, outside of a use_shard context.
         Expected: All writes to happen on the default connection -which is what is normally active in
-                  test cases,- except mirrored models: those are routed to the primary connection. The mapping model
-                  is mirrored, so it is written to the primary connection whether route_to_primary_db is True or
-                  False.
+                  test cases,- except mirrored models: those are routed to the primary connection, and models on a
+                  single node, which are routed to their node, the default node here. The mapping model is mirrored,
+                  so it is written to the primary connection whether route_to_primary_db is True or False.
         Note: System test.
         """
-        with self.subTest('Non-sharded model'):
+        with self.subTest('Model on a single node'):
             mock_save_table.reset_mock()
             obj = DefaultUser()
             obj.save()
@@ -462,16 +461,16 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             alias='a_shard', node_name='default', schema_name='test_other_schema', state=State.ACTIVE
         )
 
-        with self.subTest('Non-sharded model'):
-            # In the example app, the Unrelated model is not denoted with a sharding mode.
-            # Not specifically routed. So requires to be called from the correct context
-            with use_shard(node_name='default', schema_name='public'):
+        with self.subTest('Model on a single node'):
+            # In the example app, the Unrelated model is on the default node, and every query of it goes there.
+            with use_shard(node_name='other', schema_name='public'):
                 Unrelated.objects.create(name='disinterested party')
-
-            with use_shard(node_name='default', schema_name='public'):
                 self.assertTrue(Unrelated.objects.filter(name='disinterested party').exists())
-            # Testing this fails on node 'other' will leave the connection in an erroneous state,
-            # and let all subsequent tests fail.
+
+            with use_shard(self.test_shard):
+                self.assertTrue(Unrelated.objects.filter(name='disinterested party').exists())
+
+            self.assertTrue(Unrelated.objects.using('default').filter(name='disinterested party').exists())
 
         with self.subTest('Sharded model'):
             # Only on the shard, the table does exist on public schemas.
@@ -543,23 +542,38 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             ('PUBLIC -> PUBLIC', CakeType, CakeType, True),
             ('PUBLIC -> MIRRORED', CakeType, MirroredUser, True),
             ('PUBLIC -> SHARDED', CakeType, Statement, False),
-            ('PUBLIC -> None', CakeType, DefaultUser, True),
+            ('PUBLIC -> SINGLE NODE', CakeType, DefaultUser, False),
             ('MIRRORED -> PUBLIC', MirroredUser, CakeType, True),
             ('MIRRORED -> MIRRORED', MirroredUser, MirroredUser, True),
             ('MIRRORED -> SHARDED', MirroredUser, Statement, False),
-            ('MIRRORED -> None', MirroredUser, DefaultUser, True),
+            ('MIRRORED -> SINGLE NODE', MirroredUser, DefaultUser, False),
             ('SHARDED -> PUBLIC', Statement, CakeType, True),
             ('SHARDED -> MIRRORED', Statement, MirroredUser, True),
             ('SHARDED -> SHARDED', Statement, Statement, True),
-            ('SHARDED -> None', Statement, DefaultUser, False),
-            ('None -> PUBLIC', DefaultUser, CakeType, True),
-            ('None -> MIRRORED', DefaultUser, MirroredUser, True),
-            ('None -> SHARDED', DefaultUser, Statement, False),
-            ('None -> None', DefaultUser, DefaultUser, None),
+            ('SHARDED -> SINGLE NODE', Statement, DefaultUser, False),
+            ('SINGLE NODE -> PUBLIC', DefaultUser, CakeType, True),
+            ('SINGLE NODE -> MIRRORED', DefaultUser, MirroredUser, True),
+            ('SINGLE NODE -> SHARDED', DefaultUser, Statement, False),
+            ('SINGLE NODE -> SINGLE NODE on the same node', DefaultUser, Unrelated, True),
         ]
         for name, model_from, model_to, result in combinations:
             with self.subTest(name):
                 self.assertEqual(self.router.allow_relation(model_to(), model_from()), result)
+
+    def test_allow_relation_between_models_on_two_nodes_and_without_a_sharding_mode(self):
+        """
+        Case: Call allow_relation from DefaultUser, which is on the default node, to Unrelated while it is on the other
+              node, and between two models of which the router finds no sharding mode.
+        Expected: Not allowed between the two nodes, and no opinion without sharding modes.
+        """
+        with override_sharding_setting(
+            'OVERRIDE_SHARDING_MODE',
+            OverrideShardingModeWithLowercaseKeys({('example', 'unrelated'): single_node_unsharded(node='other')}),
+        ):
+            self.assertFalse(self.router.allow_relation(Unrelated(), DefaultUser()))
+
+        with mock.patch('djanquiltdb.router.get_model_placement', return_value=(False, None)):
+            self.assertIsNone(self.router.allow_relation(Unrelated(), DefaultUser()))
 
     @override_settings(
         QUILT_DB={
@@ -755,6 +769,100 @@ class DynamicDbRouterTestCase(ShardingTestCase):
             )
         )
 
+    def test_allow_migrate_a_model_on_a_single_node(self):
+        """
+        Case: Ask whether Unrelated, which is on the default node, may be migrated on the public schemas and the
+              template schemas of both nodes, and the same while an OVERRIDE_SHARDING_MODE entry puts it on
+              PRIMARY_NODE, with PRIMARY_DB_ALIAS set to the other node.
+        Expected: Only on the public schema of its node: the default node, and then the other node.
+        """
+        aliases = ['default', 'default|template', 'other', 'other|template']
+
+        self.assertEqual(
+            [self.router.allow_migrate(alias, 'example', 'unrelated') for alias in aliases], [True, False, False, False]
+        )
+
+        with override_settings(
+            QUILT_DB={
+                'SHARD_CLASS': 'example.models.Shard',
+                'PRIMARY_DB_ALIAS': 'other',
+                'OVERRIDE_SHARDING_MODE': {('example', 'unrelated'): single_node_unsharded(node=PRIMARY_NODE)},
+            }
+        ):
+            self.assertEqual(
+                [self.router.allow_migrate(alias, 'example', 'unrelated') for alias in aliases],
+                [False, False, True, False],
+            )
+
+    def test_allow_migrate_an_operation_on_a_single_node(self):
+        """
+        Case: Ask whether an operation without a model, hinted SINGLE_NODE_UNSHARDED with the node 'other', may be
+              migrated on the public schemas of both nodes, and ask the same for one without the node hint.
+        Expected: Only on the public schema of the other node, and a ProgrammingError without the node hint.
+        """
+        hints = {'sharding_mode': ShardingMode.SINGLE_NODE_UNSHARDED, 'node': 'other'}
+
+        self.assertFalse(self.router.allow_migrate('default', 'example', model_name=None, **hints))
+        self.assertTrue(self.router.allow_migrate('other', 'example', model_name=None, **hints))
+
+        with self.assertRaisesMessage(ProgrammingError, 'Give it a node hint'):
+            self.router.allow_migrate(
+                'other', 'example', model_name=None, sharding_mode=ShardingMode.SINGLE_NODE_UNSHARDED
+            )
+
+    def test_allow_migrate_an_operation_hinted_with_single_node_unsharded(self):
+        """
+        Case: Ask whether an operation without a model, hinted with single_node_unsharded(node='other'), may be migrated
+              on the public schemas and the template schemas of both nodes, and the same for one hinted with
+              single_node_unsharded(node=PRIMARY_NODE) while PRIMARY_DB_ALIAS is the other node.
+        Expected: Only on the public schema of the other node, in both cases.
+        """
+        aliases = ['default', 'default|template', 'other', 'other|template']
+
+        self.assertEqual(
+            [
+                self.router.allow_migrate(alias, 'example', None, sharding_mode=single_node_unsharded(node='other'))
+                for alias in aliases
+            ],
+            [False, False, True, False],
+        )
+
+        with override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'}):
+            self.assertEqual(
+                [
+                    self.router.allow_migrate(
+                        alias, 'example', None, sharding_mode=single_node_unsharded(node=PRIMARY_NODE)
+                    )
+                    for alias in aliases
+                ],
+                [False, False, True, False],
+            )
+
+    def test_allow_migrate_an_operation_on_a_single_node_for_a_model_that_the_registry_does_not_have(self):
+        """
+        Case: Ask whether an operation hinted SINGLE_NODE_UNSHARDED without a node hint, for a model that the app
+              registry does not have, may be migrated.
+        Expected: False, as for any operation on a model that the registry does not have, and no LookupError.
+        """
+        self.assertFalse(
+            self.router.allow_migrate('default', 'example', 'removed', sharding_mode=ShardingMode.SINGLE_NODE_UNSHARDED)
+        )
+
+    def test_db_for_read_and_write_of_a_model_on_a_single_node(self):
+        """
+        Case: Call db_for_read and db_for_write for Unrelated, which is on the default node, while a shard on the other
+              node is active, and while the public schema of the other node is active.
+        Expected: The default node in each case.
+        """
+        for active_connection in (
+            ShardOptions(node_name='other', schema_name='some_shard'),
+            ShardOptions(node_name='other', schema_name='public'),
+        ):
+            with self.subTest(active_connection=str(active_connection)):
+                set_active_connection(active_connection)
+                self.assertEqual(self.router.db_for_read(Unrelated), 'default')
+                self.assertEqual(self.router.db_for_write(Unrelated), 'default')
+
 
 class NodeScopedPlacementTestCase(SimpleTestCase):
     def setUp(self):
@@ -811,7 +919,7 @@ class NodeScopedPlacementTestCase(SimpleTestCase):
 
     def test_other_sharding_modes_keep_their_answer(self):
         """
-        Case: Ask whether the mirrored Type, the public CakeType and DefaultUser, which has no sharding mode, may be
+        Case: Ask whether the mirrored Type, the public CakeType and DefaultUser, which is on the default node, may be
               migrated on the bare node names 'default' and 'other', outside and inside node_scoped_placement().
         Expected: The same answer inside the block as outside it: Type and CakeType on both nodes, DefaultUser on the
                   default node only.

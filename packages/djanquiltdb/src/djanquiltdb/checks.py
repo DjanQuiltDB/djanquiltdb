@@ -11,7 +11,13 @@ from django.conf import settings
 from django.core import checks
 
 from djanquiltdb import ShardingMode
-from djanquiltdb.utils import get_declared_sharding_mode, get_mapping_class, get_shard_class
+from djanquiltdb.utils import (
+    get_declared_sharding_mode,
+    get_mapping_class,
+    get_model_single_node_alias,
+    get_shard_class,
+    relation_with_a_model_on_a_single_node_is_allowed,
+)
 
 # The QUILT_DB key that silences the pgtrigger compatibility check.
 MUTE_SETTING = 'MUTE_PGTRIGGER_COMPATIBILITY_WARNING'
@@ -248,6 +254,154 @@ def check_trigger_writes_stay_in_their_sharding_mode(app_configs, **kwargs):
         triggers = [(model, trigger) for model, trigger in triggers if model._meta.app_label in app_labels]
 
     return cross_mode_trigger_messages(triggers)
+
+
+def _concrete_models(app_configs, include_auto_created=False):
+    """
+    Returns the models that have a table of their own, so no proxy models, of the apps in ``app_configs``, or of every
+    app when it is None.
+    """
+    app_labels = None if app_configs is None else {app_config.label for app_config in app_configs}
+
+    return [
+        model
+        for model in apps.get_models(include_auto_created=include_auto_created)
+        if not model._meta.proxy and (app_labels is None or model._meta.app_label in app_labels)
+    ]
+
+
+_NO_SHARDING_MODE_HINT = (
+    "Its table is on the node named 'default' only, and its queries go to the node that is active, so they fail while "
+    'another node is active. Decorate the model with @sharded_model(), @mirrored_model() or @public_model(), or give it '
+    "or its app an entry in QUILT_DB['OVERRIDE_SHARDING_MODE']. To keep the model on one node at your own risk, use "
+    '@single_node_unsharded_model(node), or single_node_unsharded(node) in OVERRIDE_SHARDING_MODE.'
+)
+
+_SINGLE_NODE_HINT = (
+    'A model on a single node is strongly discouraged: only a model on the same node can refer to it, it can only refer '
+    'to a model that its node has, and its rows are on one node only. Silence this warning with '
+    "SILENCED_SYSTEM_CHECKS = ['djanquiltdb.W004']."
+)
+
+_RELATION_TO_ANOTHER_NODE_HINT = (
+    'A model on a single node has its table in the public schema of that node only. A model on another node, or in '
+    'another sharding mode, cannot refer to it, and it can only refer to a public model, a mirrored model or a model on '
+    'the same node.'
+)
+
+
+@checks.register(checks.Tags.models)
+def check_models_have_a_sharding_mode(app_configs, **kwargs):
+    """
+    Report each model without a sharding mode. When ``app_configs`` is given, only the models of those apps are
+    checked.
+    """
+    return [
+        checks.Error(
+            'The model {} has no sharding mode.'.format(model._meta.label),
+            hint=_NO_SHARDING_MODE_HINT,
+            obj=model,
+            id='djanquiltdb.E004',
+        )
+        for model in _concrete_models(app_configs)
+        if get_declared_sharding_mode(model) is None
+    ]
+
+
+@checks.register(checks.Tags.models)
+def check_models_on_a_single_node(app_configs, **kwargs):
+    """
+    Warn about each model on a single node, report one whose node is not in ``DATABASES``, and report each relation that
+    goes to or from a model on a single node and does not stay on that node. When ``app_configs`` is given, only the
+    models of those apps, and the relations from them, are checked.
+    """
+    messages = []
+
+    for model in _concrete_models(app_configs):
+        single_node_alias = get_model_single_node_alias(model)
+
+        if single_node_alias is None:
+            continue
+
+        messages.append(
+            checks.Warning(
+                "The model {} is on the single node '{}'.".format(model._meta.label, single_node_alias),
+                hint=_SINGLE_NODE_HINT,
+                obj=model,
+                id='djanquiltdb.W004',
+            )
+        )
+
+        if single_node_alias not in settings.DATABASES:
+            messages.append(
+                checks.Error(
+                    "The model {} is on the node '{}', which is not in DATABASES.".format(
+                        model._meta.label, single_node_alias
+                    ),
+                    obj=model,
+                    id='djanquiltdb.E006',
+                )
+            )
+
+    for model in _concrete_models(app_configs, include_auto_created=True):
+        for field in model._meta.local_fields:
+            if not field.is_relation or field.related_model is None:
+                continue
+
+            message = _relation_across_nodes_message(model, field)
+            if message is not None:
+                messages.append(message)
+
+    return messages
+
+
+def _placement_description(model):
+    """
+    Describes where a model is, for the messages of the relation check: "a sharded model", or "a model on the node
+    'default'".
+    """
+    single_node_alias = get_model_single_node_alias(model)
+
+    if single_node_alias is not None:
+        return "a model on the node '{}'".format(single_node_alias)
+
+    return 'a {} model'.format(_mode_name(get_declared_sharding_mode(model)))
+
+
+def _relation_across_nodes_message(model, field):
+    """
+    Returns the error for a relation from ``model`` through ``field`` that does not stay on the node of a model on a
+    single node, or None when the relation is allowed or when either model has no sharding mode, which E004 reports.
+    """
+    target = field.related_model
+    source_mode = get_declared_sharding_mode(model)
+    target_mode = get_declared_sharding_mode(target)
+
+    if source_mode is None or target_mode is None:
+        return None
+
+    allowed = relation_with_a_model_on_a_single_node_is_allowed(
+        referred_mode=target_mode,
+        referred_node=get_model_single_node_alias(target),
+        referring_mode=source_mode,
+        referring_node=get_model_single_node_alias(model),
+    )
+
+    if allowed is None or allowed:
+        return None
+
+    return checks.Error(
+        'The field {field} of {model}, {source}, refers to {target_model}, {target}.'.format(
+            field=field.name,
+            source=_placement_description(model),
+            model=model._meta.label,
+            target=_placement_description(target),
+            target_model=target._meta.label,
+        ),
+        hint=_RELATION_TO_ANOTHER_NODE_HINT,
+        obj=model,
+        id='djanquiltdb.E005',
+    )
 
 
 _NOT_MIRRORED_HINT = (

@@ -9,7 +9,7 @@ from django.db import connections, models
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import isolate_apps
 
-from djanquiltdb import ShardingMode, State
+from djanquiltdb import PRIMARY_NODE, ShardingMode, State, single_node_unsharded
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import class_method_use_shard, sharded_model
 from djanquiltdb.models import BaseShard
@@ -134,6 +134,40 @@ class ShardingSettingsTestCase(SimpleTestCase):
         ):
             with self.assertRaises(ImproperlyConfigured):
                 self.sharding_app.ready()
+
+    def test_override_shard_mode_single_node_without_a_node(self):
+        """
+        Case: Pass ShardingMode.SINGLE_NODE_UNSHARDED, which names no node, as a value to the dict
+              QUILT_DB["OVERRIDE_SHARDING_MODE"].
+        Expected: ImproperlyConfigured raised, which points at single_node_unsharded().
+        """
+        with override_settings(
+            QUILT_DB={
+                'SHARD_CLASS': 'example.models.Shard',
+                'PRIMARY_DB_ALIAS': 'default',
+                'OVERRIDE_SHARDING_MODE': {
+                    ('app',): ShardingMode.SINGLE_NODE_UNSHARDED,
+                },
+            }
+        ):
+            with self.assertRaisesMessage(ImproperlyConfigured, 'use single_node_unsharded(node) as its value'):
+                self.sharding_app.ready()
+
+    def test_override_shard_mode_single_node(self):
+        """
+        Case: Pass single_node_unsharded(node=PRIMARY_NODE) as a value to the dict QUILT_DB["OVERRIDE_SHARDING_MODE"].
+        Expected: ImproperlyConfigured NOT raised
+        """
+        with override_settings(
+            QUILT_DB={
+                'SHARD_CLASS': 'example.models.Shard',
+                'PRIMARY_DB_ALIAS': 'default',
+                'OVERRIDE_SHARDING_MODE': {
+                    ('app',): single_node_unsharded(node=PRIMARY_NODE),
+                },
+            }
+        ):
+            self.sharding_app.ready()
 
     def test_invalid_override_shard_mode_invalid_key_type(self):
         """

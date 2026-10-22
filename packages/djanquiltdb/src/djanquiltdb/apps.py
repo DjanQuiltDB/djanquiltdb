@@ -7,7 +7,7 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.module_loading import import_string
 
-from djanquiltdb import ShardingMode
+from djanquiltdb import ShardingMode, SingleNodeUnsharded
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import class_method_use_shard, shard_aware_from_db
 from djanquiltdb.options import ShardOptions
@@ -122,7 +122,14 @@ def _validate_public_models():
 
 
 def _validate_override_sharding_mode_entry(key, value):
-    if not (isinstance(key, tuple) and len(key) in (1, 2) and isinstance(value, ShardingMode)):
+    if value is ShardingMode.SINGLE_NODE_UNSHARDED:
+        raise ImproperlyConfigured(
+            'The override sharding mode entry {} needs a node: use single_node_unsharded(node) as its value.'.format(
+                repr(key)
+            )
+        )
+
+    if not (isinstance(key, tuple) and len(key) in (1, 2) and isinstance(value, (ShardingMode, SingleNodeUnsharded))):
         raise ImproperlyConfigured(
             'The override sharding mode entry is improperly configured: {{ {}: {} }}'.format(repr(key), repr(value))
         )

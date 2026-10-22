@@ -24,13 +24,23 @@ in ``INSTALLED_APPS``.
                      the mapping table in the public schema of the node that the router picks, so every node needs a
                      copy of them. Decorate the model with ``@mirrored_model()``, and follow
                      :ref:`making_an_existing_model_mirrored` for a project with more than one node.
+``djanquiltdb.E004`` A model has no sharding mode: no decorator and no ``OVERRIDE_SHARDING_MODE`` entry. Its table is
+                     on the node that is named ``default`` only, and its queries go to the node that is active, so
+                     they fail while another node is active. Give it a mode (see :doc:`/guides/sharding_modes`).
+``djanquiltdb.W004`` A model is on a single node, through ``@single_node_unsharded_model()`` or
+                     ``single_node_unsharded()``, which is strongly discouraged.
+``djanquiltdb.E005`` A foreign key, one-to-one or many-to-many field goes to a model on a single node from a model that
+                     is not on that node, or from a model on a single node to a sharded model or to a model on another
+                     node.
+``djanquiltdb.E006`` A model is on a single node that ``DATABASES`` does not have.
 ==================== ==================================================================================================
 
 See :doc:`/database_objects/triggers` for why the settings of W001 and W002 matter, and for the triggers that E001,
 E002 and W003 report. ``MUTE_PGTRIGGER_COMPATIBILITY_WARNING`` (see :doc:`/reference/settings`) silences W001 and W002.
-E001, E002, E003 and W003 have no setting of their own: ``SILENCED_SYSTEM_CHECKS`` is the only way to silence them.
-``manage.py check <app_label>`` reports E001, E002 and W003 for the triggers on the models of the apps that it names
-only, and E003 for the Shard model and the mapping model when they are models of those apps.
+The other checks have no setting of their own: ``SILENCED_SYSTEM_CHECKS`` is the only way to silence them. If you
+keep models on a single node on purpose, silence W004 that way. ``manage.py check <app_label>`` reports E001, E002
+and W003 for the triggers on the models of the apps that it names only, E003 for the Shard model and the mapping model
+when they are models of those apps, and E004, W004, E005 and E006 for the models of those apps.
 
 Plugins register their own checks, with their own prefix. The celery plugin documents ``djanquiltdb_plugin_celery.E001``
 and ``E002`` on :doc:`its installation page </plugins/celery/installation>`. The pghistory plugin documents

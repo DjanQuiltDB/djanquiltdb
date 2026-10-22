@@ -22,3 +22,58 @@ Special decorator:
   in the decorator. Decorate the mapping model, like the Shard model, with ``@mirrored_model()`` as well.
 
 :ref:`More info <api_decorators>` on decorators and how to use them.
+
+The models of a third-party app get their mode from the ``OVERRIDE_SHARDING_MODE`` setting (see
+:doc:`/reference/settings`), which maps an app, or a model of an app, to a mode::
+
+    QUILT_DB = {
+        ...
+        'OVERRIDE_SHARDING_MODE': {
+            ('auth',): ShardingMode.MIRRORED,
+            ('admin',): ShardingMode.SHARDED,
+        },
+    }
+
+Every model needs a mode. A model without one fails the system check ``djanquiltdb.E004`` (see
+:doc:`/reference/checks`).
+
+
+Models on a single node
+-----------------------
+
+``@single_node_unsharded_model(node)`` puts a model on one node only, and opts it out of ``djanquiltdb.E004``. It is
+strongly discouraged: it is a convenience for a project that moves an app without sharding to DjanQuiltDB one model
+at a time, and you take on the risks below.
+
+* The table of the model is in the public schema of ``node`` only. ``node`` is the alias of a node, or
+  ``PRIMARY_NODE`` (``from djanquiltdb import PRIMARY_NODE``) for the node that ``PRIMARY_DB_ALIAS`` names.
+* Every query of the model goes to that node, whichever node or shard is active.
+* Only a model on the same node can refer to it, and it can only refer to a public model, a mirrored model or a model on
+  the same node. Every other foreign key, one-to-one or many-to-many field to or from it fails the system check
+  ``djanquiltdb.E005``.
+* Each model on a single node gets the warning ``djanquiltdb.W004``. Silence it with
+  ``SILENCED_SYSTEM_CHECKS = ['djanquiltdb.W004']``.
+
+A model of a third-party app gets the same placement from ``single_node_unsharded(node)`` in
+``OVERRIDE_SHARDING_MODE``::
+
+    from djanquiltdb import PRIMARY_NODE, single_node_unsharded
+
+    QUILT_DB = {
+        ...
+        'OVERRIDE_SHARDING_MODE': {
+            ('some_app',): single_node_unsharded(node=PRIMARY_NODE),
+        },
+    }
+
+A model without a mode has its table on the node that is named ``default``, so ``node='default'`` keeps its table where
+it is. Unlike a model without a mode, whose queries go to the active node and
+fail on every other node, a model on a single node is queried on its node from everywhere. ``node=PRIMARY_NODE`` puts
+the table on another node when ``PRIMARY_DB_ALIAS`` does not name ``default``, so move the table there before the
+project uses it.
+
+Sessions belong in a shard. ``SESSION_ENGINE = 'djanquiltdb.sessions'`` stores them in a sharded model of the project
+(see :doc:`/guides/requests`). ``django.contrib.sessions`` usually stays installed for its ``clearsessions`` command, and
+its own ``Session`` model, which that engine does not use, needs a mode too: ``('sessions',): ShardingMode.SHARDED``
+leaves an empty table in each shard. A project that still uses Django's database session backend while it moves to
+DjanQuiltDB can keep that table on one node with ``single_node_unsharded()`` until it switches.

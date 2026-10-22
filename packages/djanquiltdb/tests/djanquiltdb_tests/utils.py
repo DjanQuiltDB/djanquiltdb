@@ -22,8 +22,14 @@ from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext, isolate_apps
 from django.utils.module_loading import import_string
 
+from djanquiltdb import PRIMARY_NODE, single_node_unsharded
 from djanquiltdb.db import connection
-from djanquiltdb.decorators import atomic_write_to_every_node, override_sharding_setting
+from djanquiltdb.decorators import (
+    atomic_write_to_every_node,
+    override_sharding_setting,
+    sharded_model,
+    single_node_unsharded_model,
+)
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import DatabaseWrapper, ShardDatabaseWrapper
 from djanquiltdb.postgresql_backend.utils import LockCursorWrapperMixin
@@ -46,16 +52,21 @@ from djanquiltdb.utils import (
     get_all_public_schema_models,
     get_all_sharded_models,
     get_connection_alias,
+    get_declared_placement,
     get_declared_sharding_mode,
     get_mapping_class,
     get_model_definition,
     get_model_sharding_mode,
+    get_model_single_node_alias,
+    get_placement,
     get_shard_class,
     get_shard_for,
     get_sharding_mode,
     get_template_name,
     migrate_schema,
     move_model_to_schema,
+    relation_with_a_model_on_a_single_node_is_allowed,
+    resolve_node_alias,
     schema_exists,
     shard_lock_key,
     stored_mapping_value,
@@ -90,6 +101,7 @@ from example.models import (
     Suborganization,
     SuperType,
     Type,
+    Unrelated,
     User,
 )
 
@@ -1586,16 +1598,17 @@ class GetModelDefinitionTestCase(SimpleTestCase):
 
 
 class GetModelShardingModeTestCase(SimpleTestCase):
-    @mock.patch('djanquiltdb.utils.get_sharding_mode')
+    @mock.patch('djanquiltdb.utils.get_placement', return_value=(ShardingMode.SHARDED, None))
     @mock.patch('djanquiltdb.utils.get_model_definition', return_value=User)
-    def test(self, mock_get_model_definition, mock_get_sharding_mode):
+    def test(self, mock_get_model_definition, mock_get_placement):
         """
         Case: Call get_model_sharding_mode.
-        Expected: get_model_definition and get_sharding_mode to be called with the correct arguments.
+        Expected: get_model_definition and get_placement to be called with the correct arguments, and the mode that
+                  get_placement returns.
         """
-        get_model_sharding_mode(User)
+        self.assertEqual(get_model_sharding_mode(User), ShardingMode.SHARDED)
         mock_get_model_definition.assert_called_once_with(User)
-        mock_get_sharding_mode.assert_called_once_with('example', 'user')
+        mock_get_placement.assert_called_once_with('example', 'user')
 
 
 class GetShardingModeTestCase(SimpleTestCase):
@@ -1764,6 +1777,146 @@ class GetDeclaredShardingModeTestCase(SimpleTestCase):
         Expected: The mode of the model that declares the many-to-many field.
         """
         self.assertEqual(get_declared_sharding_mode(User.cake.through), ShardingMode.SHARDED)
+
+
+class GetDeclaredPlacementTestCase(SimpleTestCase):
+    def test_the_decorator_declares_the_mode_and_the_node(self):
+        """
+        Case: Call get_declared_placement for Unrelated, which is decorated with
+              @single_node_unsharded_model(node='default'), and for the sharded User.
+        Expected: SINGLE_NODE_UNSHARDED with the node 'default', and SHARDED without a node.
+        """
+        self.assertEqual(get_declared_placement(Unrelated), (ShardingMode.SINGLE_NODE_UNSHARDED, 'default'))
+        self.assertEqual(get_declared_placement(User), (ShardingMode.SHARDED, None))
+
+    def test_an_override_entry_declares_the_mode_and_the_node(self):
+        """
+        Case: Call get_declared_placement and get_sharding_mode for a model of an app whose OVERRIDE_SHARDING_MODE entry
+              is single_node_unsharded(node=PRIMARY_NODE).
+        Expected: SINGLE_NODE_UNSHARDED with PRIMARY_NODE as declared, and SINGLE_NODE_UNSHARDED from get_sharding_mode.
+        """
+        with override_settings(
+            QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example',): single_node_unsharded(node=PRIMARY_NODE)}}
+        ):
+            self.assertEqual(get_declared_placement(User), (ShardingMode.SINGLE_NODE_UNSHARDED, PRIMARY_NODE))
+            self.assertEqual(get_sharding_mode('example', 'user'), ShardingMode.SINGLE_NODE_UNSHARDED)
+
+    def test_a_subclass_in_another_mode_has_no_node(self):
+        """
+        Case: Call get_declared_placement for a sharded subclass of a model on a single node, which inherits the node of
+              its parent.
+        Expected: SHARDED without a node.
+        """
+        with isolate_apps('example'):
+
+            @single_node_unsharded_model(node='default')
+            class OnDefault(models.Model):
+                class Meta:
+                    app_label = 'example'
+
+            @sharded_model()
+            class ShardedChild(OnDefault):
+                class Meta:
+                    app_label = 'example'
+
+        self.assertEqual(get_declared_placement(ShardedChild), (ShardingMode.SHARDED, None))
+
+
+class SingleNodeAliasTestCase(SimpleTestCase):
+    def test_primary_node_resolves_to_the_primary_db_alias(self):
+        """
+        Case: Resolve PRIMARY_NODE and the alias 'default' while PRIMARY_DB_ALIAS is 'other'.
+        Expected: 'other' for PRIMARY_NODE, and 'default' for 'default'.
+        """
+        with override_sharding_setting('PRIMARY_DB_ALIAS', 'other'):
+            self.assertEqual(resolve_node_alias(PRIMARY_NODE), 'other')
+            self.assertEqual(resolve_node_alias('default'), 'default')
+
+    def test_the_alias_of_a_model(self):
+        """
+        Case: Ask for the node alias of Unrelated, of the sharded User, and of a model that the app registry does not
+              have while an OVERRIDE_SHARDING_MODE entry puts it on PRIMARY_NODE, with PRIMARY_DB_ALIAS set to 'other'.
+        Expected: 'default' for Unrelated, None for User, and 'other' for the model without a class.
+        """
+        self.assertEqual(get_model_single_node_alias(Unrelated), 'default')
+        self.assertEqual(get_placement('example', 'unrelated'), (ShardingMode.SINGLE_NODE_UNSHARDED, 'default'))
+        self.assertIsNone(get_model_single_node_alias(User))
+        self.assertEqual(get_placement('example', 'user'), (ShardingMode.SHARDED, None))
+
+        with override_settings(
+            QUILT_DB={
+                'PRIMARY_DB_ALIAS': 'other',
+                'OVERRIDE_SHARDING_MODE': {('example', 'removed'): single_node_unsharded(node=PRIMARY_NODE)},
+            }
+        ):
+            self.assertEqual(get_placement('example', 'removed'), (ShardingMode.SINGLE_NODE_UNSHARDED, 'other'))
+
+    def test_the_placement_of_an_operation_or_a_model_without_a_mode(self):
+        """
+        Case: Ask for the placement of an operation without a model name, and of a model that declares no mode.
+        Expected: None for the operation and False for the model, each without a node, as get_sharding_mode returns.
+        """
+        self.assertEqual(get_placement('example', None), (None, None))
+
+        with isolate_apps('example'):
+
+            class ModelWithoutShardingMode(models.Model):
+                class Meta:
+                    app_label = 'example'
+
+        with mock.patch('djanquiltdb.utils.apps.get_model', return_value=ModelWithoutShardingMode):
+            self.assertEqual(get_placement('example', 'modelwithoutshardingmode'), (False, None))
+
+    def test_the_value_of_an_override_entry(self):
+        """
+        Case: Compare and show two single_node_unsharded() values.
+        Expected: Equal when they name the same node, and shown as the call that makes them.
+        """
+        self.assertEqual(single_node_unsharded(node='default'), single_node_unsharded(node='default'))
+        self.assertNotEqual(single_node_unsharded(node='default'), single_node_unsharded(node=PRIMARY_NODE))
+        self.assertEqual(repr(single_node_unsharded(node='other')), "single_node_unsharded(node='other')")
+
+    def test_an_override_entry_with_a_node_that_is_not_an_alias(self):
+        """
+        Case: Call single_node_unsharded() with a list of aliases, which is neither a string nor PRIMARY_NODE.
+        Expected: TypeError, as @single_node_unsharded_model() raises for the same node.
+        """
+        with self.assertRaisesMessage(TypeError, "node must be the alias of a node or PRIMARY_NODE, not ['default']."):
+            single_node_unsharded(node=['default'])
+
+    def test_relations_with_a_model_on_a_single_node(self):
+        """
+        Case: Ask whether a relation is allowed for each pair of the mode and the node of the model that is referred to
+              and of the model that refers to it, where at least one of them is on a single node, and for a pair
+              without one. False stands for a model without a sharding mode.
+        Expected: Only a model on the same node may refer to a model on a single node, and a model on a single node may
+                  refer only to a public or mirrored model. None when neither model is on a single node.
+        """
+        single_node = ShardingMode.SINGLE_NODE_UNSHARDED
+        combinations = [
+            ('referred to on the same node', (single_node, 'default'), (single_node, 'default'), True),
+            ('referred to from another node', (single_node, 'default'), (single_node, 'other'), False),
+            ('referred to by a sharded model', (single_node, 'default'), (ShardingMode.SHARDED, None), False),
+            ('referred to by a mirrored model', (single_node, 'default'), (ShardingMode.MIRRORED, None), False),
+            ('referred to by a model without a mode', (single_node, 'default'), (False, None), False),
+            ('referring to a public model', (ShardingMode.PUBLIC, None), (single_node, 'default'), True),
+            ('referring to a mirrored model', (ShardingMode.MIRRORED, None), (single_node, 'default'), True),
+            ('referring to a sharded model', (ShardingMode.SHARDED, None), (single_node, 'default'), False),
+            ('referring to a model without a mode', (False, None), (single_node, 'default'), False),
+            ('neither on a single node', (ShardingMode.MIRRORED, None), (ShardingMode.SHARDED, None), None),
+        ]
+
+        for name, (referred_mode, referred_node), (referring_mode, referring_node), allowed in combinations:
+            with self.subTest(name):
+                self.assertIs(
+                    relation_with_a_model_on_a_single_node_is_allowed(
+                        referred_mode=referred_mode,
+                        referred_node=referred_node,
+                        referring_mode=referring_mode,
+                        referring_node=referring_node,
+                    ),
+                    allowed,
+                )
 
 
 class GetAllShardedModels(ShardingTestCase):

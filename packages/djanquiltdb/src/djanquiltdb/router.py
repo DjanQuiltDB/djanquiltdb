@@ -8,7 +8,17 @@ from django.db import ProgrammingError
 from djanquiltdb import ShardingMode, public_modes
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import get_model_definition, get_model_sharding_mode, get_primary_db_alias, get_sharding_mode
+from djanquiltdb.utils import (
+    get_model_definition,
+    get_model_placement,
+    get_model_sharding_mode,
+    get_model_single_node_alias,
+    get_placement,
+    get_primary_db_alias,
+    placement_of_sharding_mode_value,
+    relation_with_a_model_on_a_single_node_is_allowed,
+    resolve_node_alias,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +71,19 @@ class DynamicDbRouter:
 
     def db_for_read(self, model, **hints):
         """
-        Returns the primary connection for a model that has ``route_to_primary_db`` set. For any other model, returns
-        the first of: the database of the ``instance`` hint, the ``_shard_options`` hint, and the active connection,
-        which ``use_shard`` usually sets.
+        Returns the public schema of its node for a model on a single node, and the primary connection for a model that
+        has ``route_to_primary_db`` set. For any other model, returns the first of: the database of the ``instance``
+        hint, the ``_shard_options`` hint, and the active connection, which ``use_shard`` usually sets.
         """
-        if getattr(get_model_definition(model), 'route_to_primary_db', None):
+        model_definition = get_model_definition(model)
+        # The placement is resolved on every call. That costs about 1% of a query round trip, and in return nothing has
+        # to be cleared when the settings or the sharding mode of a model change, as they do in tests.
+        single_node_alias = get_model_single_node_alias(model_definition)
+
+        if single_node_alias is not None:
+            return single_node_alias
+
+        if getattr(model_definition, 'route_to_primary_db', None):
             return get_primary_db_alias()
         shard_options = hints.get('_shard_options')
         instance_options = hints.get('instance') is not None and hints['instance']._state.db
@@ -88,14 +106,24 @@ class DynamicDbRouter:
         """
         Allow a relation between two models placed the same way, between two that both live in a public schema, and
         from a sharded model to a public or mirrored one. Not the other way around: a public row cannot point into
-        one shard's schema.
+        one shard's schema. ``obj1`` is the object that is referred to, and ``obj2`` the object that refers to it.
+
+        A model on a single node may refer to a public or mirrored model, which every node has, and to a model on the
+        same node. Only a model on the same node may refer to it.
         """
-        obj1_mode = get_model_sharding_mode(obj1)
-        obj2_mode = get_model_sharding_mode(obj2)
+        obj1_mode, obj1_node = get_model_placement(obj1)
+        obj2_mode, obj2_node = get_model_placement(obj2)
 
         # We have no opinion if neither of the models have sharding mode set.
         if not obj1_mode and not obj2_mode:
             return None
+
+        allowed_with_a_model_on_a_single_node = relation_with_a_model_on_a_single_node_is_allowed(
+            referred_mode=obj1_mode, referred_node=obj1_node, referring_mode=obj2_mode, referring_node=obj2_node
+        )
+
+        if allowed_with_a_model_on_a_single_node is not None:
+            return allowed_with_a_model_on_a_single_node
 
         # All is good if they both have a sharding mode set.
         if obj1_mode == obj2_mode:
@@ -133,9 +161,16 @@ class DynamicDbRouter:
         if model and getattr(model, 'test_model', False):
             return False
 
-        # sharding_mode can be set as hints (on run_pyton/run_sql for example).
+        # sharding_mode can be set as hints (on run_pyton/run_sql for example), also as single_node_unsharded(node).
         try:
-            sharding_mode = hints.get('sharding_mode') or get_sharding_mode(app_label, model_name)
+            if hints.get('sharding_mode'):
+                sharding_mode, node = placement_of_sharding_mode_value(hints['sharding_mode'])
+            else:
+                sharding_mode, node = get_placement(app_label, model_name)
+
+            if sharding_mode is ShardingMode.SINGLE_NODE_UNSHARDED and node is None:
+                # An operation without a model names its node in the 'node' hint, as it names its mode.
+                node = hints['node'] if 'node' in hints else get_placement(app_label, model_name)[1]
         except LookupError:
             # Model does not exist anymore, probably because it's removed in another migration. Ignore it now.
             # Note that there is a separation between state_operations and database_operations.
@@ -166,6 +201,13 @@ class DynamicDbRouter:
         elif sharding_mode in public_modes:
             # Mirrored models belong to public schemas and no where else.
             return schema_name == PUBLIC_SCHEMA_NAME
+        elif sharding_mode is ShardingMode.SINGLE_NODE_UNSHARDED:
+            if node is None:
+                raise ProgrammingError(
+                    'Cannot determine the node of this operation on a single node '
+                    f'(app {app_label}{f", model {model_name}" if model_name else ""}). Give it a node hint.'
+                )
+            return node_name == resolve_node_alias(node) and schema_name == PUBLIC_SCHEMA_NAME
         else:
             # Non-sharded models only belong to the default database.
             return node_name == 'default' and schema_name == PUBLIC_SCHEMA_NAME

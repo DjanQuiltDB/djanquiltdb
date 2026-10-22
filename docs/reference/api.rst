@@ -18,6 +18,11 @@ Sharding modes
     :members:
     :undoc-members:
 
+.. autodata:: PRIMARY_NODE
+    :no-value:
+
+.. autofunction:: single_node_unsharded
+
 
 .. _api_decorators:
 

@@ -89,8 +89,8 @@ Then declare a shard model of your own and name it in the ``QUILT_DB`` setting::
         'SHARD_CLASS': 'myapp.models.Shard',
     }
 
-Models are placed with the decorators in ``djanquiltdb.decorators``; an undecorated model stays on the default node's
-public schema. ``manage.py migrate`` is shard-aware, and applies each migration wherever its models live.
+Models are placed with the decorators in ``djanquiltdb.decorators``, and a model without one fails the system checks.
+``manage.py migrate`` is shard-aware, and applies each migration wherever its models live.
 
 To run Celery tasks in a shard, or once in every shard or on every node, install the extra::
 
