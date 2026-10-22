@@ -46,7 +46,8 @@ Plugins register their own checks, with their own prefix. The celery plugin docu
 and ``E002`` on :doc:`its installation page </plugins/celery/installation>`. The pghistory plugin documents
 ``djanquiltdb_plugin_pghistory.W001`` to ``W005``, ``E002`` and ``E004`` on :doc:`its installation page
 </plugins/pghistory/installation>`, and ``E001``, ``E003`` and ``E004`` on :doc:`its tracking page
-</plugins/pghistory/tracking>`.
+</plugins/pghistory/tracking>`. The postgres-objects plugin documents ``djanquiltdb_plugin_postgres_objects.E001`` and
+``W001`` on :doc:`its installation page </plugins/postgres-objects/installation>`.
 
 
 Checks that depend on the database

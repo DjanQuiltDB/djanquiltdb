@@ -59,6 +59,9 @@ POSTGRES_OBJECTS = {
     'VIEWS_MODULE_PATH': 'db_views',
 }
 
+# The example app declares a function and a view without a placement decorator, to test the default placement.
+SILENCED_SYSTEM_CHECKS = ['djanquiltdb_plugin_postgres_objects.E001']
+
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 USE_TZ = True

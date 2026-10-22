@@ -139,8 +139,7 @@ the operations for it. See :ref:`postgres_objects_extra` for installing it and
 ``@sharded_view()``, ``@public_view()`` and ``@mirrored_view()`` say which schemas the view belongs in, matching the
 model decorators. They work by putting a sharding mode in the declaration's ``router_hints``, which is the same hint
 channel a hand-written ``RunSQL`` uses, so the placement rules above hold unchanged and there is no second mechanism.
-A declaration left unannotated is public, so one written for a single-database project keeps working once that project
-is sharded.
+A declaration without a decorator is public, but fails the system check ``djanquiltdb_plugin_postgres_objects.E001``.
 
 Placement is identical for the public and mirrored modes, since a view holds no rows of its own to distinguish them by.
 What separates them is how a *materialized* view is refreshed from code: a mirrored one is refreshed on every node in

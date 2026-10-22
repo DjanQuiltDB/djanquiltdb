@@ -1,7 +1,12 @@
-from djanquiltdb import ShardingMode
+from djanquiltdb import ShardingMode, raise_for_invalid_node
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.router import get_active_connection
-from djanquiltdb.utils import get_all_databases, transaction_for_every_node, use_shard
+from djanquiltdb.utils import (
+    get_all_databases,
+    resolve_node_alias,
+    transaction_for_every_node,
+    use_shard,
+)
 
 
 def _annotate_refresh(cls, sharding_mode):
@@ -21,7 +26,8 @@ def _annotate_refresh(cls, sharding_mode):
     """
 
     def db_for_refresh(declaration):
-        return get_active_connection()
+        node = declaration.router_hints.get('node')
+        return get_active_connection() if node is None else resolve_node_alias(node)
 
     cls.db_for_refresh = classmethod(db_for_refresh)
 
@@ -50,15 +56,17 @@ def _annotate_refresh(cls, sharding_mode):
     cls.refresh = classmethod(refresh)
 
 
-def _annotate_object(cls, sharding_mode):
+def _annotate_object(cls, sharding_mode, node=None):
     """
-    Mark a declared database object as belonging to a sharding mode.
+    Mark a declared database object as belonging to a sharding mode, and for ``SINGLE_NODE_UNSHARDED`` to a node.
 
     django-postgres-objects hands ``router_hints`` to ``allow_migrate`` for every operation on the object, so putting
     the sharding mode there routes it exactly the way a model of that mode is routed. It knows nothing about sharding
     itself; this is the whole of the seam between the two libraries.
     """
-    cls.router_hints = {'sharding_mode': sharding_mode}
+    cls.router_hints = (
+        {'sharding_mode': sharding_mode} if node is None else {'sharding_mode': sharding_mode, 'node': node}
+    )
 
     if hasattr(cls, 'db_for_refresh'):
         _annotate_refresh(cls, sharding_mode)
@@ -169,6 +177,40 @@ def sharded_function():
     return configure
 
 
+def single_node_unsharded_function(node):
+    """
+    A decorator that puts a declared Postgres function on one node only: in the public schema of ``node``, which is the
+    alias of a node, or ``PRIMARY_NODE`` for the node that ``PRIMARY_DB_ALIAS`` names.
+
+    This is strongly discouraged, like ``@single_node_unsharded_model()`` for a model. It opts the function out of the
+    system check ``djanquiltdb_plugin_postgres_objects.E001`` at the project's own risk, and the function gets the
+    warning ``djanquiltdb_plugin_postgres_objects.W001``, which you can silence through ``SILENCED_SYSTEM_CHECKS``.
+
+    :Example:
+        .. code-block:: python
+
+            from djanquiltdb import PRIMARY_NODE
+            from djanquiltdb.decorators import single_node_unsharded_function
+            from postgres_objects import Function
+
+
+            @single_node_unsharded_function(node=PRIMARY_NODE)
+            class LegacyTotal(Function):
+                returns = 'BIGINT'
+                body = '''
+                    BEGIN
+                        RETURN (SELECT COUNT(*) FROM legacy_report);
+                    END;
+                '''
+    """
+    raise_for_invalid_node(node)
+
+    def configure(cls):
+        return _annotate_object(cls, ShardingMode.SINGLE_NODE_UNSHARDED, node=node)
+
+    return configure
+
+
 def mirrored_view():
     """
     A decorator for marking a declared Postgres view as being mirrored across the various nodes.
@@ -246,5 +288,34 @@ def sharded_view():
 
     def configure(cls):
         return _annotate_object(cls, ShardingMode.SHARDED)
+
+    return configure
+
+
+def single_node_unsharded_view(node):
+    """
+    A decorator that puts a declared Postgres view on one node only: in the public schema of ``node``, which is the
+    alias of a node, or ``PRIMARY_NODE`` for the node that ``PRIMARY_DB_ALIAS`` names. A materialized view is refreshed
+    on that node.
+
+    This is strongly discouraged, like ``@single_node_unsharded_model()`` for a model. It opts the view out of the
+    system check ``djanquiltdb_plugin_postgres_objects.E001`` at the project's own risk, and the view gets the warning
+    ``djanquiltdb_plugin_postgres_objects.W001``, which you can silence through ``SILENCED_SYSTEM_CHECKS``.
+
+    :Example:
+        .. code-block:: python
+
+            from djanquiltdb.decorators import single_node_unsharded_view
+            from postgres_objects import View
+
+
+            @single_node_unsharded_view(node='default')
+            class LegacyReportTitles(View):
+                sql = 'SELECT id, title FROM legacy_report'
+    """
+    raise_for_invalid_node(node)
+
+    def configure(cls):
+        return _annotate_object(cls, ShardingMode.SINGLE_NODE_UNSHARDED, node=node)
 
     return configure

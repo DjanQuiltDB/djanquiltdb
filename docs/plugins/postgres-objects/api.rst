@@ -20,6 +20,8 @@ Functions
 
 .. autofunction:: sharded_function
 
+.. autofunction:: single_node_unsharded_function
+
 Views
 -----
 
@@ -28,6 +30,8 @@ Views
 .. autofunction:: mirrored_view
 
 .. autofunction:: sharded_view
+
+.. autofunction:: single_node_unsharded_view
 
 
 The plugin object
