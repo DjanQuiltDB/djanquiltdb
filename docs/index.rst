@@ -18,6 +18,7 @@ Release |version|.
     :caption: Guides
 
     guides/sharding_modes
+    guides/mapping_model
     guides/queries
     guides/requests
     guides/forms

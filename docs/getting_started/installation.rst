@@ -130,7 +130,7 @@ Creating models
 
 The sharding application requires you to create a custom ``Shard`` model, which inherits from the base model. Decorate
 it with ``@mirrored_model()``, so that every node has the shard registry, and do the same for a mapping model (see
-:doc:`/reference/settings`).
+:doc:`/guides/mapping_model`).
 
 
 ``myapp/models.py`` ::

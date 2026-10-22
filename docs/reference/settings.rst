@@ -50,6 +50,7 @@ the wanted shard from mapping table automatically.
         # do things on my shard
 
 Decorate the mapping model with ``@mirrored_model()``, like the Shard model, so that every node has the mapping table.
+:doc:`/guides/mapping_model` explains what the mapping model is for, and the fields that it needs.
 
 
 NEW_SHARD_NODE
