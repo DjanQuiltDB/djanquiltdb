@@ -6,7 +6,7 @@ from django.test import override_settings
 from djanquiltdb.router import get_active_connection
 
 from config.celery import app
-from djanquiltdb_plugin_celery.decorators import task_for_shard
+from djanquiltdb_plugin_celery.decorators import shared_task_for_shard
 from djanquiltdb_plugin_celery.tasks import QuiltTask, quilt_task_based_on
 from example.task_bases import RECORDED_CALLS, ProjectQuiltTask, RecordingCallTask
 from plugin_tests.base import PluginTestCase
@@ -19,11 +19,11 @@ def schema_of_the_active_connection(**kwargs):
 
 def task_named(name, **options):
     """
-    Returns a task of schema_of_the_active_connection, decorated with task_for_shard under the given name. The task is
-    read through its proxy, so that the app of the tests registers it before this function returns: an app registers a
-    task with the task class that the app has at that moment.
+    Returns a task of schema_of_the_active_connection, decorated with shared_task_for_shard under the given name. The
+    task is read through its proxy, so that the app of the tests registers it before this function returns: an app
+    registers a task with the task class that the app has at that moment.
     """
-    task = task_for_shard(name=f'plugin_tests.task_base.{name}', **options)(schema_of_the_active_connection)
+    task = shared_task_for_shard(name=f'plugin_tests.task_base.{name}', **options)(schema_of_the_active_connection)
     task._get_current_object()
     return task
 

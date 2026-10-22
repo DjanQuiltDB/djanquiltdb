@@ -198,7 +198,7 @@ def use_target(target, lock=None):
 def describe_missing_shard(task_name, kwargs):
     """
     Returns the message for a task that runs in a shard and has no shard. When the keyword arguments of the task have a
-    ``node_name``, the message says that a task that runs on a node is decorated with ``task_for_node``.
+    ``node_name``, the message says to decorate a task that runs on a node with ``shared_task_for_node``.
     """
     names = accepted_shard_kwargs()
 
@@ -215,7 +215,7 @@ def describe_missing_shard(task_name, kwargs):
     ).format(task=task_name, asked=asked, repeated=repeated, header=TARGET_HEADER_NAME)
 
     if kwargs.get(NODE_NAME_KWARG) is not None:
-        message += ' {} identifies a node, and a task that runs on a node is decorated with task_for_node.'.format(
+        message += ' {} identifies a node. Decorate a task that runs on a node with shared_task_for_node.'.format(
             NODE_NAME_KWARG
         )
 
@@ -225,7 +225,7 @@ def describe_missing_shard(task_name, kwargs):
 def describe_missing_node(task_name, kwargs):
     """
     Returns the message for a task that runs on a node and has no node. When the keyword arguments of the task identify
-    a shard, the message says that a task that runs in a shard is decorated with ``task_for_shard``.
+    a shard, the message says to decorate a task that runs in a shard with ``shared_task_for_shard``.
     """
     message = (
         '{task} has no node to run on. Pass the keyword argument {kwarg}. A message that is not sent through the task, '
@@ -234,7 +234,7 @@ def describe_missing_node(task_name, kwargs):
     given = _given_shard_kwargs(kwargs)
 
     if given:
-        message += ' {} identifies a shard, and a task that runs in a shard is decorated with task_for_shard.'.format(
+        message += ' {} identifies a shard. Decorate a task that runs in a shard with shared_task_for_shard.'.format(
             given[0]
         )
 

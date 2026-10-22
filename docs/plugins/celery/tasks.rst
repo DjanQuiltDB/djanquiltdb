@@ -2,14 +2,14 @@
 Running tasks in a shard or on a node
 =====================================
 
-The plugin's decorators turn a function into a Celery task that runs in one shard, with ``task_for_shard``, or in the
-public schema of one node, with ``task_for_node``. That shard or schema is the *target* of the task.
+The plugin's decorators turn a function into a Celery task that runs in one shard, with ``shared_task_for_shard``, or in the
+public schema of one node, with ``shared_task_for_node``. That shard or schema is the *target* of the task.
 
 
 Sending a task to a shard
 -------------------------
 
-``task_for_shard`` runs a task in a shard. ``for_shard()`` takes the shard separately from the arguments of the task: a
+``shared_task_for_shard`` runs a task in a shard. ``for_shard()`` takes the shard separately from the arguments of the task: a
 shard, its primary key, or a mapping value that is passed as the keyword argument for a mapping value. It returns an
 object with the methods of a task that send it: ``delay()``, ``apply_async()``, ``delay_on_commit()``,
 ``apply_async_on_commit()``, ``s()``, ``si()`` and ``signature()``. Each of these methods takes the same arguments as
@@ -17,10 +17,10 @@ the method of the task.
 
 .. code-block:: python
 
-    from djanquiltdb.decorators.celery import task_for_shard
+    from djanquiltdb.decorators.celery import shared_task_for_shard
 
 
-    @task_for_shard
+    @shared_task_for_shard
     def send_invoice(invoice_id):
         Invoice.objects.get(pk=invoice_id).send()
 
@@ -51,11 +51,11 @@ The keyword arguments of the task can identify the shard too:
     send_invoice.delay(invoice_id=12, tenant_id=3)
 
 A keyword argument whose value is None does not identify a shard. ``node_name`` is an ordinary keyword argument for a
-task of ``task_for_shard``, and does not identify its target.
+task of ``shared_task_for_shard``, and does not identify its target.
 
 Sending the task without a shard, or with two shards, raises ``TaskShardError`` at the call, before anything is
 published. A task that is sent through ``for_shard()`` and has a shard in its keyword arguments as well has two shards.
-When the keyword arguments have a ``node_name``, the message of the error points at ``task_for_node``. The decorator
+When the keyword arguments have a ``node_name``, the message of the error points at ``shared_task_for_node``. The decorator
 takes the options of ``celery.shared_task()``, such as ``name``, ``queue`` and ``bind``. A function that is decorated
 with ``bind=True`` receives the task as its first argument, as with Celery's own decorator.
 
@@ -80,7 +80,7 @@ its parameter:
 
 .. code-block:: python
 
-    @task_for_shard
+    @shared_task_for_shard
     def rebuild_search_index(shard_id):
         SearchIndex.rebuild(shard_id)
 
@@ -91,17 +91,17 @@ its parameter:
 Sending a task to a node
 ------------------------
 
-``task_for_node`` runs a task in the public schema of a node: the node that ``for_node()`` is given, or the node that
+``shared_task_for_node`` runs a task in the public schema of a node: the node that ``for_node()`` is given, or the node that
 the ``node_name`` keyword argument identifies. ``delay_for_node()``, ``apply_async_for_node()``,
 ``delay_on_commit_for_node()`` and ``apply_async_on_commit_for_node()`` take the name of the node as their first
 argument:
 
 .. code-block:: python
 
-    from djanquiltdb.decorators.celery import task_for_node
+    from djanquiltdb.decorators.celery import shared_task_for_node
 
 
-    @task_for_node
+    @shared_task_for_node
     def refresh_exchange_rates():
         ExchangeRate.objects.refresh()
 
@@ -112,10 +112,10 @@ argument:
 
 The function receives ``node_name`` only when it declares it by name, and then also when the task is sent through
 ``for_node()``. Sending the task without a node raises ``TaskNodeError``. When the keyword arguments identify a shard,
-the message of the error points at ``task_for_shard``. ``shard_id`` and the keyword argument for a mapping value are
-ordinary keyword arguments for a task of ``task_for_node``. The decorator takes the options of
-``celery.shared_task()``, as ``task_for_shard`` does, but no ``lock``, because the public schema of a node has none.
-``for_shard()`` on a task of ``task_for_node``, and ``for_node()`` on a task that runs in a shard, raise ``TypeError``.
+the message of the error points at ``shared_task_for_shard``. ``shard_id`` and the keyword argument for a mapping value are
+ordinary keyword arguments for a task of ``shared_task_for_node``. The decorator takes the options of
+``celery.shared_task()``, as ``shared_task_for_shard`` does, but no ``lock``, because the public schema of a node has none.
+``for_shard()`` on a task of ``shared_task_for_node``, and ``for_node()`` on a task that runs in a shard, raise ``TypeError``.
 
 ``TaskShardError`` and ``TaskNodeError`` both inherit from ``TaskQuiltError``, so ``except TaskQuiltError`` catches a
 task without a target of either kind. All three are imported from ``djanquiltdb.utils.celery``.
@@ -156,7 +156,7 @@ defaults:
 
 .. code-block:: python
 
-    @task_for_shard(max_retries=20, retry_backoff=10, retry_backoff_max=600)
+    @shared_task_for_shard(max_retries=20, retry_backoff=10, retry_backoff_max=600)
     def rebuild_search_index():
         ...
 
@@ -178,12 +178,12 @@ task holds the shared advisory lock of the shard, and of the mapping value, whil
 ``move_shard_to_node`` take the exclusive lock before they put the shard in maintenance, so these commands wait for the
 tasks that run in the shard. A task that starts while one of these commands holds the exclusive lock waits for that
 lock. Once the task holds the shared lock, the shard is read again. When the shard is in maintenance at that point, or
-has moved, ``StateException`` is raised, and the task is retried. A task of ``task_for_node`` holds no lock, because a
+has moved, ``StateException`` is raised, and the task is retried. A task of ``shared_task_for_node`` holds no lock, because a
 public schema has none. ``lock=False`` turns the lock off for a task that has to run while these commands run:
 
 .. code-block:: python
 
-    @task_for_shard(lock=False)
+    @shared_task_for_shard(lock=False)
     def record_page_view(page_id):
         ...
 
@@ -191,16 +191,16 @@ public schema has none. ``lock=False`` turns the lock off for a task that has to
 Inheriting the active shard
 ---------------------------
 
-A task of ``task_for_active_shard`` that is sent without a shard runs in the shard that is active where the task is
+A task of ``shared_task_for_active_shard`` that is sent without a shard runs in the shard that is active where the task is
 sent. The active shard is the shard of ``use_shard()``, of ``use_shard_for()`` or of a request that the DjanQuiltDB
-middleware wraps. ``task_for_shard(inherit_active_shard=True)`` does the same.
+middleware wraps. ``shared_task_for_shard(inherit_active_shard=True)`` does the same.
 
 .. code-block:: python
 
-    from djanquiltdb.decorators.celery import task_for_active_shard
+    from djanquiltdb.decorators.celery import shared_task_for_active_shard
 
 
-    @task_for_active_shard
+    @shared_task_for_active_shard
     def recount_invoices():
         Invoice.objects.recount()
 

@@ -7,7 +7,7 @@ from django.test import SimpleTestCase
 from djanquiltdb import base, decorators, utils
 from djanquiltdb.base.celery import QuiltTask
 from djanquiltdb.decorators import celery
-from djanquiltdb.decorators.celery import task_for_shard
+from djanquiltdb.decorators.celery import shared_task_for_shard
 from djanquiltdb.plugins import load_plugins
 from djanquiltdb.utils.celery import fan_out
 
@@ -52,10 +52,10 @@ class PluginDiscoveryTestCase(SimpleTestCase):
 
     def test_a_decorator_can_be_imported_from_inside_the_namespace(self):
         """
-        Case: task_for_shard is imported from djanquiltdb.decorators.celery.
+        Case: shared_task_for_shard is imported from djanquiltdb.decorators.celery.
         Expected: It is the plugin's own decorator.
         """
-        self.assertIs(task_for_shard, djanquiltdb_plugin_celery.task_for_shard)
+        self.assertIs(shared_task_for_shard, djanquiltdb_plugin_celery.shared_task_for_shard)
 
     def test_the_helpers_are_served_from_the_core_utils_module(self):
         """
@@ -89,8 +89,8 @@ class PluginDiscoveryTestCase(SimpleTestCase):
 
     def test_the_decorators_are_not_attributes_of_the_core_decorators_module(self):
         """
-        Case: task_for_shard is read directly from djanquiltdb.decorators, without the plugin's namespace.
+        Case: shared_task_for_shard is read directly from djanquiltdb.decorators, without the plugin's namespace.
         Expected: AttributeError, because the plugin sets SERVE_UNQUALIFIED = False.
         """
         with self.assertRaises(AttributeError):
-            decorators.task_for_shard
+            decorators.shared_task_for_shard

@@ -1,7 +1,7 @@
 """
 The task decorators of the plugin. DjanQuiltDB serves this module as ``djanquiltdb.decorators.celery``. Because
 ``SERVE_UNQUALIFIED`` is False, DjanQuiltDB does not also serve these decorators as attributes of
-``djanquiltdb.decorators``, so that a call site names the plugin, as in ``@celery.task_for_shard``.
+``djanquiltdb.decorators``, so that a call site names the plugin, as in ``@celery.shared_task_for_shard``.
 """
 
 import annotationlib
@@ -145,7 +145,7 @@ def _task_decorator_or_task(task_attributes, func, options):
     return decorate if func is None else decorate(func)
 
 
-def task_for_shard(func=None, *, inherit_active_shard=False, lock=None, **options):
+def shared_task_for_shard(func=None, *, inherit_active_shard=False, lock=None, **options):
     """
     Turns a function into a Celery task that runs in a shard: the shard that ``for_shard()`` is given, else the shard
     that its keyword arguments identify. That shard is the target of the task. ``shard_id`` identifies a shard by its
@@ -155,8 +155,9 @@ def task_for_shard(func=None, *, inherit_active_shard=False, lock=None, **option
     The function receives ``shard_id`` and the keyword argument for a mapping value only when it declares them by name,
     and ``**kwargs`` does not receive them. A function that declares ``shard_id`` receives the primary key of the shard
     that the task runs in, also when the task is sent without ``shard_id``. ``node_name`` is an ordinary keyword
-    argument for the function: a task that runs on a node is decorated with :func:`task_for_node`. The arguments of the
-    task are checked against the function when the task is sent, unless the task is decorated with ``typing=False``.
+    argument for the function. For a task that runs on a node, use :func:`shared_task_for_node`. The
+    arguments of the task are checked against the function when the task is sent, unless the task is decorated with
+    ``typing=False``.
 
     Sending the task without a shard raises TaskShardError, unless the task inherits the active shard and a shard is
     active where the task is sent. Sending the task with two shards raises TaskShardError too. While the shard is in
@@ -164,7 +165,7 @@ def task_for_shard(func=None, *, inherit_active_shard=False, lock=None, **option
     StateException.
 
     :param inherit_active_shard: When True, a task that is sent without a shard in its keyword arguments runs in the
-        shard that is active where it is sent, as :func:`task_for_active_shard` does.
+        shard that is active where it is sent, as :func:`shared_task_for_active_shard` does.
     :param lock: Passed on to ``use_shard()`` as ``lock``. By default, ``use_shard()`` locks the shard while the task
         runs.
     :param options: The options of ``celery.shared_task()``. ``max_retries``, ``retry_backoff``, ``retry_backoff_max``
@@ -176,10 +177,10 @@ def task_for_shard(func=None, *, inherit_active_shard=False, lock=None, **option
     :Example:
         .. code-block:: python
 
-            from djanquiltdb.decorators.celery import task_for_shard
+            from djanquiltdb.decorators.celery import shared_task_for_shard
 
 
-            @task_for_shard
+            @shared_task_for_shard
             def send_invoice(invoice_id):
                 Invoice.objects.get(pk=invoice_id).send()
 
@@ -193,22 +194,22 @@ def task_for_shard(func=None, *, inherit_active_shard=False, lock=None, **option
     return _task_decorator_or_task(task_attributes, func, options)
 
 
-def task_for_node(func=None, **options):
+def shared_task_for_node(func=None, **options):
     """
     Turns a function into a Celery task that runs in the public schema of a node: the node that ``for_node()`` is given,
     else the node that its ``node_name`` keyword argument identifies. That schema is the target of the task. The
     function receives ``node_name`` only when it declares it by name, and then also when the task is sent without
     ``node_name``. ``shard_id`` and the keyword argument for a mapping value are ordinary keyword arguments for the
     function. Sending the task without a node raises TaskNodeError. The public schema of a node has no lock, so the task
-    takes no ``lock``. ``options`` work as they do for :func:`task_for_shard`.
+    takes no ``lock``. ``options`` work as they do for :func:`shared_task_for_shard`.
 
     :Example:
         .. code-block:: python
 
-            from djanquiltdb.decorators.celery import task_for_node
+            from djanquiltdb.decorators.celery import shared_task_for_node
 
 
-            @task_for_node
+            @shared_task_for_node
             def refresh_exchange_rates():
                 ExchangeRate.objects.refresh()
 
@@ -219,9 +220,9 @@ def task_for_node(func=None, **options):
     return _task_decorator_or_task({'runs_in': 'node'}, func, options)
 
 
-def task_for_active_shard(func=None, **options):
+def shared_task_for_active_shard(func=None, **options):
     """
-    :func:`task_for_shard` for a task that runs in the shard that is active where the task is sent: inside
+    :func:`shared_task_for_shard` for a task that runs in the shard that is active where the task is sent: inside
     ``use_shard()``, ``use_shard_for()`` or a request that the DjanQuiltDB middleware wraps. The shard is resolved when
     the task is sent, and is sent in the message header. The shard of ``for_shard()`` and a shard in the keyword
     arguments take precedence over the active shard. Sending the task without a shard while no shard is active, or while
@@ -230,10 +231,10 @@ def task_for_active_shard(func=None, **options):
     :Example:
         .. code-block:: python
 
-            from djanquiltdb.decorators.celery import task_for_active_shard
+            from djanquiltdb.decorators.celery import shared_task_for_active_shard
 
 
-            @task_for_active_shard
+            @shared_task_for_active_shard
             def recount_invoices():
                 Invoice.objects.recount()
 
@@ -242,21 +243,21 @@ def task_for_active_shard(func=None, **options):
                 recount_invoices.delay()  # runs in shard
                 recount_invoices.delay_for_shard(other_shard)  # runs in other_shard
     """
-    return task_for_shard(func, inherit_active_shard=True, **options)
+    return shared_task_for_shard(func, inherit_active_shard=True, **options)
 
 
-def task_for_every_shard(func=None, *, queue=None, spread=None, include_maintenance=False, lock=None, **options):
+def shared_task_for_every_shard(func=None, *, queue=None, spread=None, include_maintenance=False, lock=None, **options):
     """
-    :func:`task_for_shard` for a task that runs once in every active shard when it is sent without a shard. The message
-    that is sent without a shard starts a fan-out where it runs: the task sends itself once for each active shard, with
-    the ``shard_id`` of the shard added to the keyword arguments. So a periodic task in the beat schedule needs only the
-    name of the task. A task that is sent with a shard, in ``for_shard()`` or in its keyword arguments, runs in that
-    shard only. The task does not inherit the active shard, so that it also runs in every active shard when it is sent
-    inside ``use_shard()``.
+    :func:`shared_task_for_shard` for a task that runs once in every active shard when it is sent without a shard. The
+    message that is sent without a shard starts a fan-out where it runs: the task sends itself once for each active
+    shard, with the ``shard_id`` of the shard added to the keyword arguments. So a periodic task in the beat schedule
+    needs only the name of the task. A task that is sent with a shard, in ``for_shard()`` or in its keyword arguments,
+    runs in that shard only. The task does not inherit the active shard, so that it also runs in every active shard when
+    it is sent inside ``use_shard()``.
 
-    The function receives ``shard_id`` only when it declares it by name, as for :func:`task_for_shard`. A function that
-    declares ``shard_id`` can declare it without a default, because the check of the arguments of a message counts
-    ``shard_id`` as given. The parameters after ``shard_id`` are passed by keyword, as ``shard_id`` is.
+    The function receives ``shard_id`` only when it declares it by name, as for :func:`shared_task_for_shard`. A
+    function that declares ``shard_id`` can declare it without a default, because the check of the arguments of a
+    message counts ``shard_id`` as given. The parameters after ``shard_id`` are passed by keyword, as ``shard_id`` is.
 
     :param queue: The name of the queue of each task that the fan-out sends. Defaults to
         ``QUILT_CELERY['FANOUT_QUEUE']``, else the routing of the Celery app, whose ``task_routes`` can route each task
@@ -270,10 +271,10 @@ def task_for_every_shard(func=None, *, queue=None, spread=None, include_maintena
     :Example:
         .. code-block:: python
 
-            from djanquiltdb.decorators.celery import task_for_every_shard
+            from djanquiltdb.decorators.celery import shared_task_for_every_shard
 
 
-            @task_for_every_shard(queue='fanout', spread=(0, 300))
+            @shared_task_for_every_shard(queue='fanout', spread=(0, 300))
             def clean_up_drafts():
                 Draft.objects.filter(updated_at__lt=a_month_ago()).delete()
 
@@ -292,23 +293,23 @@ def task_for_every_shard(func=None, *, queue=None, spread=None, include_maintena
     return _task_decorator_or_task(task_attributes, func, options)
 
 
-def task_for_every_node(func=None, *, queue=None, spread=None, **options):
+def shared_task_for_every_node(func=None, *, queue=None, spread=None, **options):
     """
-    :func:`task_for_node` for a task that runs once in the public schema of every node when it is sent without a
+    :func:`shared_task_for_node` for a task that runs once in the public schema of every node when it is sent without a
     ``node_name``. The message that is sent without a ``node_name`` starts a fan-out where it runs: the task sends
     itself once for each node in ``DATABASES``, with the ``node_name`` of the node added to the keyword arguments. A
     task that is sent with a node, in ``for_node()`` or in its keyword arguments, runs on that node only. The function
     receives ``node_name`` only when it declares it by name. A function that declares ``node_name`` can declare it
     without a default, and the parameters after ``node_name`` are passed by keyword. ``queue`` and ``spread`` work as
-    they do for :func:`task_for_every_shard`.
+    they do for :func:`shared_task_for_every_shard`.
 
     :Example:
         .. code-block:: python
 
-            from djanquiltdb.decorators.celery import task_for_every_node
+            from djanquiltdb.decorators.celery import shared_task_for_every_node
 
 
-            @task_for_every_node
+            @shared_task_for_every_node
             def refresh_exchange_rates():
                 ExchangeRate.objects.refresh()
     """
@@ -322,4 +323,10 @@ def task_for_every_node(func=None, *, queue=None, spread=None, **options):
     return _task_decorator_or_task(task_attributes, func, options)
 
 
-__all__ = ['task_for_active_shard', 'task_for_every_node', 'task_for_every_shard', 'task_for_node', 'task_for_shard']
+__all__ = [
+    'shared_task_for_active_shard',
+    'shared_task_for_every_node',
+    'shared_task_for_every_shard',
+    'shared_task_for_node',
+    'shared_task_for_shard',
+]

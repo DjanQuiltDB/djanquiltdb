@@ -182,8 +182,8 @@ class QuiltTask(DjangoTask):
         Returns a signature of this task with the target header of its message, so that the target is resolved where the
         signature is built. The worker sends a later task of a chain, the body of a chord and a link callback, and the
         shard of the sender is not active in the worker. A signature without a target raises TaskShardError or
-        TaskNodeError, as sending the task does, unless the task is decorated with ``task_for_every_shard`` or
-        ``task_for_every_node``.
+        TaskNodeError, as sending the task does, unless the task is decorated with ``shared_task_for_every_shard`` or
+        ``shared_task_for_every_node``.
         """
         signature = super().signature(args, *starargs, **starkwargs)
 

@@ -1,10 +1,10 @@
 from celery import shared_task
 from djanquiltdb.decorators.celery import (
-    task_for_active_shard,
-    task_for_every_node,
-    task_for_every_shard,
-    task_for_node,
-    task_for_shard,
+    shared_task_for_active_shard,
+    shared_task_for_every_node,
+    shared_task_for_every_shard,
+    shared_task_for_node,
+    shared_task_for_shard,
 )
 from djanquiltdb.router import get_active_connection
 
@@ -29,77 +29,77 @@ def describe_task_run(task, kwargs):
     }
 
 
-@task_for_shard(bind=True)
+@shared_task_for_shard(bind=True)
 def record_target(self, **kwargs):
     return describe_task_run(self, kwargs)
 
 
-@task_for_shard(bind=True, max_retries=1, retry_backoff=2)
+@shared_task_for_shard(bind=True, max_retries=1, retry_backoff=2)
 def record_target_with_one_retry(self, **kwargs):
     return describe_task_run(self, kwargs)
 
 
-@task_for_shard(bind=True, lock=False)
+@shared_task_for_shard(bind=True, lock=False)
 def record_target_without_lock(self, **kwargs):
     return describe_task_run(self, kwargs)
 
 
-@task_for_shard
+@shared_task_for_shard
 def create_widget(name, **kwargs):
     return Widget.objects.create(name=name).pk
 
 
-@task_for_shard
+@shared_task_for_shard
 def record_schema_and_shard(shard=None):
     return {'schema_name': get_active_connection().schema_name, 'shard': shard}
 
 
-@task_for_active_shard
+@shared_task_for_active_shard
 def record_received_shard_id(shard_id):
     return shard_id
 
 
-@task_for_shard
+@shared_task_for_shard
 def record_received_tenant_id(tenant_id=None):
     return tenant_id
 
 
-@task_for_node(bind=True)
+@shared_task_for_node(bind=True)
 def record_node(self, **kwargs):
     return describe_task_run(self, kwargs)
 
 
-@task_for_node
+@shared_task_for_node
 def record_received_node_name(node_name):
     return node_name
 
 
-@task_for_active_shard(bind=True)
+@shared_task_for_active_shard(bind=True)
 def record_inherited_target(self, **kwargs):
     return describe_task_run(self, kwargs)
 
 
-@task_for_shard(bind=True, inherit_active_shard=True)
+@shared_task_for_shard(bind=True, inherit_active_shard=True)
 def record_target_that_inherits(self, **kwargs):
     return describe_task_run(self, kwargs)
 
 
-@task_for_active_shard
+@shared_task_for_active_shard
 def create_widget_in_active_shard(name, **kwargs):
     return Widget.objects.create(name=name).pk
 
 
-@task_for_every_shard(bind=True)
+@shared_task_for_every_shard(bind=True)
 def record_every_shard(self, **kwargs):
     return describe_task_run(self, kwargs)
 
 
-@task_for_every_shard(bind=True, queue='fanout', spread=(1, 2), include_maintenance=True)
+@shared_task_for_every_shard(bind=True, queue='fanout', spread=(1, 2), include_maintenance=True)
 def record_every_shard_on_the_fanout_queue(self, **kwargs):
     return describe_task_run(self, kwargs)
 
 
-@task_for_every_shard
+@shared_task_for_every_shard
 def record_shard_id(shard_id):
     active_connection = get_active_connection()
 
@@ -110,22 +110,22 @@ def record_shard_id(shard_id):
     }
 
 
-@task_for_every_shard
+@shared_task_for_every_shard
 def record_shard_id_and_days(shard_id, days):
     return {'received': shard_id, 'days': days}
 
 
-@task_for_every_shard
+@shared_task_for_every_shard
 def record_schema_of_every_shard():
     return get_active_connection().schema_name
 
 
-@task_for_every_node(bind=True)
+@shared_task_for_every_node(bind=True)
 def record_every_node(self, **kwargs):
     return describe_task_run(self, kwargs)
 
 
-@task_for_every_node
+@shared_task_for_every_node
 def record_node_name(node_name, **kwargs):
     active_connection = get_active_connection()
 
@@ -138,7 +138,7 @@ def record_node_name(node_name, **kwargs):
 
 # A chord needs the results of the tasks in its header, so aggregate_per_shard() stores them even for a task that is
 # decorated with ignore_result=True.
-@task_for_shard(ignore_result=True)
+@shared_task_for_shard(ignore_result=True)
 def count_widgets(**kwargs):
     return Widget.objects.count()
 

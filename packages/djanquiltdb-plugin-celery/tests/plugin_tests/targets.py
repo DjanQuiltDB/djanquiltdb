@@ -193,14 +193,14 @@ class MissingTargetMessageTestCase(SimpleTestCase):
         """
         Case: describe_missing_shard() is called for a task whose keyword arguments identify nothing.
         Expected: The message includes the task, every keyword argument that can identify a shard, and the header, and
-                  does not mention task_for_node.
+                  does not mention shared_task_for_node.
         """
         message = describe_missing_shard('example.tasks.record_target', {'name': 'x'})
 
         self.assertIn('example.tasks.record_target has no shard', message)
         self.assertIn('shard_id or tenant_id', message)
         self.assertIn(TARGET_HEADER_NAME, message)
-        self.assertNotIn('task_for_node', message)
+        self.assertNotIn('shared_task_for_node', message)
 
     @override_sharding_setting('MAPPING_MODEL')
     def test_without_a_mapping_model_the_message_for_a_missing_shard_names_shard_id_only(self):
@@ -212,39 +212,39 @@ class MissingTargetMessageTestCase(SimpleTestCase):
 
         self.assertIn('Pass the keyword argument shard_id,', message)
 
-    def test_the_message_for_a_missing_shard_points_a_node_name_at_task_for_node(self):
+    def test_the_message_for_a_missing_shard_points_a_node_name_at_shared_task_for_node(self):
         """
         Case: describe_missing_shard() is called for a task whose keyword arguments have a node_name.
-        Expected: The message says that node_name identifies a node, and that a task that runs on a node is decorated
-                  with task_for_node.
+        Expected: The message says that node_name identifies a node, and to decorate a task that runs on a node with
+                  shared_task_for_node.
         """
         message = describe_missing_shard('example.tasks.record_target', {'node_name': 'other'})
 
         self.assertIn('node_name identifies a node', message)
-        self.assertIn('decorated with task_for_node', message)
+        self.assertIn('Decorate a task that runs on a node with shared_task_for_node', message)
 
     def test_the_message_for_a_missing_node_names_the_task_and_node_name(self):
         """
         Case: describe_missing_node() is called for a task whose keyword arguments identify nothing.
-        Expected: The message includes the task, node_name and the header, and does not mention task_for_shard.
+        Expected: The message includes the task, node_name and the header, and does not mention shared_task_for_shard.
         """
         message = describe_missing_node('example.tasks.record_node', {})
 
         self.assertIn('example.tasks.record_node has no node', message)
         self.assertIn('node_name', message)
         self.assertIn(TARGET_HEADER_NAME, message)
-        self.assertNotIn('task_for_shard', message)
+        self.assertNotIn('shared_task_for_shard', message)
 
-    def test_the_message_for_a_missing_node_points_a_shard_at_task_for_shard(self):
+    def test_the_message_for_a_missing_node_points_a_shard_at_shared_task_for_shard(self):
         """
         Case: describe_missing_node() is called for a task whose keyword arguments have a tenant_id.
-        Expected: The message says that tenant_id identifies a shard, and that a task that runs in a shard is decorated
-                  with task_for_shard.
+        Expected: The message says that tenant_id identifies a shard, and to decorate a task that runs in a shard with
+                  shared_task_for_shard.
         """
         message = describe_missing_node('example.tasks.record_node', {'tenant_id': 2})
 
         self.assertIn('tenant_id identifies a shard', message)
-        self.assertIn('decorated with task_for_shard', message)
+        self.assertIn('Decorate a task that runs in a shard with shared_task_for_shard', message)
 
 
 class MappingKwargCacheTestCase(SimpleTestCase):

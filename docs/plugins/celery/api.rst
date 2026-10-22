@@ -8,8 +8,8 @@ exceptions and the name of the target header from ``djanquiltdb.utils.celery``. 
 ``djanquiltdb.decorators.celery``, and not as ``djanquiltdb.decorators``, so that a call site names the plugin. Both
 ways of importing are supported::
 
-    from djanquiltdb.decorators import celery            # the namespace, for @celery.task_for_shard
-    from djanquiltdb.decorators.celery import task_for_shard  # the decorator, imported by name
+    from djanquiltdb.decorators import celery            # the namespace, for @celery.shared_task_for_shard
+    from djanquiltdb.decorators.celery import shared_task_for_shard  # the decorator, imported by name
     from djanquiltdb.base.celery import QuiltTask
     from djanquiltdb.utils.celery import TaskQuiltError
 
@@ -23,15 +23,17 @@ Task decorators
 
 .. currentmodule:: djanquiltdb.decorators.celery
 
-.. autofunction:: task_for_shard
+The decorators wrap ``celery.shared_task()``, which their names say.
 
-.. autofunction:: task_for_node
+.. autofunction:: shared_task_for_shard
 
-.. autofunction:: task_for_active_shard
+.. autofunction:: shared_task_for_node
 
-.. autofunction:: task_for_every_shard
+.. autofunction:: shared_task_for_active_shard
 
-.. autofunction:: task_for_every_node
+.. autofunction:: shared_task_for_every_shard
+
+.. autofunction:: shared_task_for_every_node
 
 
 Fan-out helpers

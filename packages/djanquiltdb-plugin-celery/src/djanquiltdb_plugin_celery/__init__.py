@@ -9,11 +9,11 @@ from types import SimpleNamespace
 from djanquiltdb_plugin_celery import base, decorators, utils
 from djanquiltdb_plugin_celery.base import QuiltTask, TaskSenderForTarget
 from djanquiltdb_plugin_celery.decorators import (
-    task_for_active_shard,
-    task_for_every_node,
-    task_for_every_shard,
-    task_for_node,
-    task_for_shard,
+    shared_task_for_active_shard,
+    shared_task_for_every_node,
+    shared_task_for_every_shard,
+    shared_task_for_node,
+    shared_task_for_shard,
 )
 from djanquiltdb_plugin_celery.utils import (
     TARGET_HEADER_NAME,
@@ -55,9 +55,9 @@ __all__ = [
     'per_node_signatures',
     'per_shard_signatures',
     'plugin',
-    'task_for_active_shard',
-    'task_for_every_node',
-    'task_for_every_shard',
-    'task_for_node',
-    'task_for_shard',
+    'shared_task_for_active_shard',
+    'shared_task_for_every_node',
+    'shared_task_for_every_shard',
+    'shared_task_for_node',
+    'shared_task_for_shard',
 ]

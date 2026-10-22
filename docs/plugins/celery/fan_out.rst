@@ -5,18 +5,18 @@ Running tasks in every shard or every node
 Every shard
 -----------
 
-``task_for_every_shard`` runs a task once in every active shard when the task is sent without a shard. The message
+``shared_task_for_every_shard`` runs a task once in every active shard when the task is sent without a shard. The message
 without a shard starts the *fan-out* on the worker: the task sends itself once for each active shard, with the
 ``shard_id`` of the shard added to its keyword arguments, and returns the ids of the tasks that it sends. A task that is
 sent with a shard, through ``for_shard()`` or in its keyword arguments, runs in that shard only, as a task of
-``task_for_shard`` does.
+``shared_task_for_shard`` does.
 
 .. code-block:: python
 
-    from djanquiltdb.decorators.celery import task_for_every_shard
+    from djanquiltdb.decorators.celery import shared_task_for_every_shard
 
 
-    @task_for_every_shard(queue='fanout', spread=(0, 300))
+    @shared_task_for_every_shard(queue='fanout', spread=(0, 300))
     def clean_up_drafts():
         Draft.objects.filter(updated_at__lt=a_month_ago()).delete()
 
@@ -24,7 +24,7 @@ sent with a shard, through ``for_shard()`` or in its keyword arguments, runs in 
     clean_up_drafts.delay()  # runs once in every active shard
     clean_up_drafts.delay_for_shard(3)  # runs in shard 3 only
 
-The function receives ``shard_id`` only when it declares it by name, as for ``task_for_shard``. A function that declares
+The function receives ``shard_id`` only when it declares it by name, as for ``shared_task_for_shard``. A function that declares
 ``shard_id`` can declare it without a default, because the check of the arguments of a message counts ``shard_id`` as
 given. Each task that the fan-out sends has ``shard_id`` in its keyword arguments, so the parameters after ``shard_id``
 are passed by keyword too. For ``def purge_drafts(shard_id, days)``, ``purge_drafts.delay(days=30)`` starts a fan-out,
@@ -42,7 +42,7 @@ A periodic task in the beat schedule needs only the name of the task, because th
         },
     }
 
-The decorator takes these arguments besides those of ``task_for_shard``:
+The decorator takes these arguments besides those of ``shared_task_for_shard``:
 
 ``queue``
     The name of the queue of each task that the fan-out sends. Defaults to ``QUILT_CELERY['FANOUT_QUEUE']``. When
@@ -66,19 +66,19 @@ The decorator takes these arguments besides those of ``task_for_shard``:
 Every node
 ----------
 
-``task_for_every_node`` runs a task once on every node, in the public schema of the node, when the task is sent without
+``shared_task_for_every_node`` runs a task once on every node, in the public schema of the node, when the task is sent without
 a ``node_name``. The fan-out sends the task once for each node in ``DATABASES``, with the ``node_name`` of the node
 added to its keyword arguments. The function receives ``node_name`` only when it declares it by name, and can declare
 it without a default too. A task that is sent with a node, through ``for_node()`` or in its keyword arguments, runs on
-that node only, as a task of ``task_for_node`` does. ``queue`` and ``spread`` work as they do for
-``task_for_every_shard``.
+that node only, as a task of ``shared_task_for_node`` does. ``queue`` and ``spread`` work as they do for
+``shared_task_for_every_shard``.
 
 .. code-block:: python
 
-    from djanquiltdb.decorators.celery import task_for_every_node
+    from djanquiltdb.decorators.celery import shared_task_for_every_node
 
 
-    @task_for_every_node
+    @shared_task_for_every_node
     def refresh_exchange_rates():
         ExchangeRate.objects.refresh()
 
@@ -87,8 +87,8 @@ Fanning out by hand
 -------------------
 
 The helpers in ``djanquiltdb.utils.celery`` send a task of the plugin to the shards or nodes that they are given. The
-helpers for shards take a task that runs in a shard, and the helpers for nodes take a task of ``task_for_node`` or
-``task_for_every_node``. A task of the other kind raises ``TypeError``:
+helpers for shards take a task that runs in a shard, and the helpers for nodes take a task of ``shared_task_for_node`` or
+``shared_task_for_every_node``. A task of the other kind raises ``TypeError``:
 
 .. code-block:: python
 
@@ -137,11 +137,11 @@ of these tasks, in the order of the shards. ``aggregate_per_shard()`` does this 
 .. code-block:: python
 
     from celery import shared_task
-    from djanquiltdb.decorators.celery import task_for_shard
+    from djanquiltdb.decorators.celery import shared_task_for_shard
     from djanquiltdb.utils.celery import aggregate_per_shard
 
 
-    @task_for_shard
+    @shared_task_for_shard
     def count_invoices():
         return Invoice.objects.count()
 

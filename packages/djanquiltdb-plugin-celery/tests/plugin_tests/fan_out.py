@@ -4,7 +4,7 @@ from django.test import SimpleTestCase, override_settings
 from djanquiltdb.utils import use_shard
 
 from config.celery import app
-from djanquiltdb_plugin_celery.decorators import task_for_every_node, task_for_every_shard
+from djanquiltdb_plugin_celery.decorators import shared_task_for_every_node, shared_task_for_every_shard
 from djanquiltdb_plugin_celery.targets import TaskShardError
 from djanquiltdb_plugin_celery.utils import (
     aggregate_per_shard,
@@ -42,9 +42,9 @@ class FanOutTestCase(PluginTestCase):
     fan-out sends can be read by its id.
     """
 
-    def test_task_for_every_shard_runs_once_in_every_active_shard(self):
+    def test_shared_task_for_every_shard_runs_once_in_every_active_shard(self):
         """
-        Case: record_every_shard, decorated with task_for_every_shard, is sent without a target.
+        Case: record_every_shard, decorated with shared_task_for_every_shard, is sent without a target.
         Expected: It sends one task for first and one for remote, with the shard_id of each, and none for maintained,
                   which is in maintenance. It returns the ids of those tasks. The function, which does not declare
                   shard_id, does not receive it.
@@ -60,7 +60,7 @@ class FanOutTestCase(PluginTestCase):
         )
         self.assertEqual([result['kwargs'] for result in results], [{}, {}])
 
-    def test_task_for_every_shard_passes_on_its_arguments(self):
+    def test_shared_task_for_every_shard_passes_on_its_arguments(self):
         """
         Case: record_every_shard is sent without a target, with the keyword argument colour='blue'.
         Expected: Each task that it sends receives colour='blue'.
@@ -69,16 +69,16 @@ class FanOutTestCase(PluginTestCase):
 
         self.assertEqual([result['kwargs']['colour'] for result in results], ['blue', 'blue'])
 
-    def test_task_for_every_shard_with_a_target_runs_in_that_shard_only(self):
+    def test_shared_task_for_every_shard_with_a_target_runs_in_that_shard_only(self):
         """
         Case: record_every_shard is sent with the shard_id of remote.
-        Expected: It runs in remote, as a task that is decorated with task_for_shard does, and sends nothing.
+        Expected: It runs in remote, as a task that is decorated with shared_task_for_shard does, and sends nothing.
         """
         result = record_every_shard.delay(shard_id=self.remote.id).get()
 
         self.assertEqual(node_and_schema_of(result), ('other', 'remote_schema'))
 
-    def test_task_for_every_shard_does_not_inherit_the_active_shard(self):
+    def test_shared_task_for_every_shard_does_not_inherit_the_active_shard(self):
         """
         Case: record_every_shard is sent without a target inside use_shard() for first.
         Expected: It runs once in every active shard.
@@ -88,9 +88,9 @@ class FanOutTestCase(PluginTestCase):
 
         self.assertEqual(len(results), 2)
 
-    def test_task_for_every_node_runs_once_on_every_node(self):
+    def test_shared_task_for_every_node_runs_once_on_every_node(self):
         """
-        Case: record_every_node, decorated with task_for_every_node, is sent without a target.
+        Case: record_every_node, decorated with shared_task_for_every_node, is sent without a target.
         Expected: It sends one task for each node, with the node_name of each, which runs in the public schema of that
                   node. The function, which does not declare node_name, does not receive it.
         """
@@ -103,16 +103,16 @@ class FanOutTestCase(PluginTestCase):
 
     def test_a_fan_out_task_whose_function_takes_no_arguments_runs_in_every_shard(self):
         """
-        Case: record_schema_of_every_shard, decorated with task_for_every_shard, whose function takes no arguments, is
-              sent without a target.
+        Case: record_schema_of_every_shard, decorated with shared_task_for_every_shard, whose function takes no
+              arguments, is sent without a target.
         Expected: The fan-out sends one task for first and one for remote, which each run in their shard.
         """
         self.assertEqual(results_of(record_schema_of_every_shard.delay().get()), ['first_schema', 'remote_schema'])
 
     def test_a_fan_out_task_whose_function_takes_shard_id_is_sent_without_it(self):
         """
-        Case: record_shard_id, decorated with task_for_every_shard, whose function takes shard_id without a default, is
-              sent without a target.
+        Case: record_shard_id, decorated with shared_task_for_every_shard, whose function takes shard_id without a
+              default, is sent without a target.
         Expected: The check of the arguments accepts the message, and the fan-out sends one task for first and one for
                   remote, which each receive the shard_id of their shard.
         """
@@ -128,8 +128,8 @@ class FanOutTestCase(PluginTestCase):
 
     def test_a_fan_out_task_whose_function_takes_node_name_is_sent_without_it(self):
         """
-        Case: record_node_name, decorated with task_for_every_node, whose function takes node_name without a default and
-              **kwargs, is sent without a target.
+        Case: record_node_name, decorated with shared_task_for_every_node, whose function takes node_name without a
+              default and **kwargs, is sent without a target.
         Expected: The check of the arguments accepts the message, and the fan-out sends one task for each node, which
                   each receive the name of their node.
         """
@@ -163,17 +163,17 @@ class FanOutTestCase(PluginTestCase):
 
         self.assertEqual(results, [{'received': self.first.id, 'days': 30}, {'received': self.remote.id, 'days': 30}])
 
-    def test_task_for_every_node_with_a_node_name_runs_on_that_node_only(self):
+    def test_shared_task_for_every_node_with_a_node_name_runs_on_that_node_only(self):
         """
         Case: record_every_node is sent with node_name='other'.
-        Expected: It runs in the public schema of the other node, as a task that is decorated with task_for_node does,
-                  and sends nothing.
+        Expected: It runs in the public schema of the other node, as a task that is decorated with shared_task_for_node
+                  does, and sends nothing.
         """
         result = record_every_node.delay(node_name='other').get()
 
         self.assertEqual(node_and_schema_of(result), ('other', 'public'))
 
-    def test_task_for_every_node_with_a_shard_id_still_runs_on_every_node(self):
+    def test_shared_task_for_every_node_with_a_shard_id_still_runs_on_every_node(self):
         """
         Case: record_every_node is sent with the shard_id of first.
         Expected: It runs once on every node, and each task receives the shard_id unchanged, because a shard_id does not
@@ -189,7 +189,7 @@ class FanOutTestCase(PluginTestCase):
     def test_the_shard_helpers_refuse_a_node_task(self):
         """
         Case: fan_out(), per_shard_signatures() and aggregate_per_shard() are called for record_node, which is decorated
-              with task_for_node.
+              with shared_task_for_node.
         Expected: TypeError for each, whose message points at fan_out_to_nodes(), before anything is sent.
         """
         helpers = {
@@ -206,7 +206,7 @@ class FanOutTestCase(PluginTestCase):
     def test_the_node_helpers_refuse_a_shard_task(self):
         """
         Case: fan_out_to_nodes() and per_node_signatures() are called for record_target, which is decorated with
-              task_for_shard.
+              shared_task_for_shard.
         Expected: TypeError for each, whose message points at fan_out(), before anything is sent.
         """
         for helper in (fan_out_to_nodes, per_node_signatures):
@@ -417,11 +417,12 @@ class FanOutOptionsTestCase(PluginTestCase):
 class FanOutDecorationTestCase(SimpleTestCase):
     def test_a_decorator_refuses_a_spread_whose_first_bound_is_above_its_second(self):
         """
-        Case: A function is decorated with task_for_every_shard, and with task_for_every_node, with spread=(300, 0).
+        Case: A function is decorated with shared_task_for_every_shard, and with shared_task_for_every_node, with
+              spread=(300, 0).
         Expected: ValueError at decoration, whose message includes the function and the spread, so that no fan-out fails
                   later in a worker.
         """
-        for decorator in (task_for_every_shard, task_for_every_node):
+        for decorator in (shared_task_for_every_shard, shared_task_for_every_node):
             with self.subTest(decorator=decorator.__name__):
                 with self.assertRaisesMessage(ValueError, 'clean_up_drafts is (300, 0)'):
 
@@ -431,23 +432,23 @@ class FanOutDecorationTestCase(SimpleTestCase):
 
     def test_a_decorator_refuses_a_negative_spread(self):
         """
-        Case: A function is decorated with task_for_every_shard with spread=-5.
+        Case: A function is decorated with shared_task_for_every_shard with spread=-5.
         Expected: ValueError at decoration, whose message includes the function and the spread.
         """
         with self.assertRaisesMessage(ValueError, 'clean_up_drafts is -5'):
 
-            @task_for_every_shard(spread=-5)
+            @shared_task_for_every_shard(spread=-5)
             def clean_up_drafts(**kwargs):
                 pass  # pragma: no cover
 
     def test_a_decorator_refuses_a_queue_that_is_not_a_name(self):
         """
-        Case: A function is decorated with task_for_every_shard, and with task_for_every_node, with a queue that is a
-              function.
+        Case: A function is decorated with shared_task_for_every_shard, and with shared_task_for_every_node, with a
+              queue that is a function.
         Expected: ValueError at decoration, whose message includes the function and says that the queue accepts a
                   string or None.
         """
-        for decorator in (task_for_every_shard, task_for_every_node):
+        for decorator in (shared_task_for_every_shard, shared_task_for_every_node):
             with self.subTest(decorator=decorator.__name__):
                 with self.assertRaisesMessage(ValueError, 'clean_up_drafts is <function'):
 
