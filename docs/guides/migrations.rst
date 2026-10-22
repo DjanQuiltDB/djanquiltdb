@@ -175,3 +175,47 @@ If you want to remove a model, use ``migrations.SeparateDatabaseAndState`` to re
 Note that the sharding mode goes in the ``hints`` dictionary. ``RunSQL`` and ``RunPython`` pass it straight to the
 router's ``allow_migrate``, and without it the router cannot tell where the operation belongs and raises a
 ``ProgrammingError``.
+
+.. _making_an_existing_model_mirrored:
+
+Making an existing model mirrored
+---------------------------------
+
+The router migrates a model without a sharding decorator on the default node only. The other nodes record its
+migrations as applied, but have no table for it. Decorating that model with ``@mirrored_model()`` later does not create
+the table on the other nodes, because ``migrate`` finds nothing left to apply there. If your project has one node, it
+has the table already, and only needs the decorator.
+
+If your project has more than one node, and its Shard model or mapping model is not mirrored yet, upgrade in these
+steps:
+
+#. Decorate the model with ``@mirrored_model()``.
+#. Add a migration to the app of the model, with a ``CreateMissingMirroredTable`` operation for the model. It creates
+   the table on each node that does not have it, and leaves the table on the default node as it is:
+
+   .. code-block:: python
+
+      from django.db import migrations
+
+      from djanquiltdb.operations import CreateMissingMirroredTable
+
+
+      class Migration(migrations.Migration):
+
+          dependencies = [
+              ('example', '0007_previous_migration'),
+          ]
+
+          operations = [
+              CreateMissingMirroredTable('Shard'),
+              CreateMissingMirroredTable('OrganizationShard'),
+          ]
+
+   List the Shard model before the mapping model, because the foreign key of the mapping model refers to the shard
+   registry.
+#. Run ``migrate``.
+#. Add the new tables to the replication that keeps the mirrored tables the same on every node, and copy their rows
+   from the default node, because the new tables start empty (see :doc:`/getting_started/overview`).
+
+A mirrored model is written on the primary node only. A mapping model that sets ``route_to_primary_db`` to False was
+written on the active node until then, and is written on the primary node from then on.

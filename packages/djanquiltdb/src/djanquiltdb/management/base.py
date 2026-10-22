@@ -5,13 +5,21 @@ from django.core.management import CommandError
 from django.db import DEFAULT_DB_ALIAS, connections
 
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import get_all_databases, get_primary_db_alias, get_shard_class, get_template_name, use_shard
+from djanquiltdb.utils import (
+    get_all_databases,
+    get_primary_db_alias,
+    get_shard_class,
+    get_template_name,
+    table_exists,
+    use_shard,
+)
 
 
 def shard_table_exists(node_name=DEFAULT_DB_ALIAS):
-    connection_ = connections[node_name]
-    all_tables = connection_.get_all_table_headers(schema_name=PUBLIC_SCHEMA_NAME)
-    return get_shard_class()._meta.db_table in all_tables
+    """
+    Whether the public schema of the node has the table of the Shard model.
+    """
+    return table_exists(connections[node_name], get_shard_class()._meta.db_table)
 
 
 def get_shards_by_node(node_names):

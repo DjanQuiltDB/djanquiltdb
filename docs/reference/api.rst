@@ -76,6 +76,14 @@ Utilities
    :members: use_shard, use_shard_for, for_each_shard, create_schema_on_node, create_template_schema, migrate_schema
 
 
+Migration operations
+====================
+
+.. currentmodule:: djanquiltdb.operations
+
+.. autoclass:: CreateMissingMirroredTable
+
+
 Transactions
 ============
 

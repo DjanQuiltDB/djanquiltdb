@@ -593,6 +593,14 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
         connections[node_name].clone_schema(get_template_name(), schema_name)
 
 
+def table_exists(connection, db_table):
+    """
+    Whether the schema of ``connection`` has a table named ``db_table``.
+    """
+    with connection.cursor() as cursor:
+        return db_table in connection.introspection.table_names(cursor)
+
+
 def delete_schema(schema_name, node_name, is_template=False):
     _node_exists(node_name)
     connections[node_name].delete_schema(schema_name, is_template=is_template)
