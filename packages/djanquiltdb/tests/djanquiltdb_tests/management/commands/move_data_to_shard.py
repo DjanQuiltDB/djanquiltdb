@@ -13,7 +13,9 @@ from django.test import override_settings
 
 from djanquiltdb.collector import SimpleCollector
 from djanquiltdb.db import connection
+from djanquiltdb.decorators import override_sharding_setting
 from djanquiltdb.management.commands.move_data_to_shard import Command as MoveCommand
+from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.utils import State, create_template_schema, use_shard
 from djanquiltdb_tests import (
     ShardingTestCase,
@@ -1569,3 +1571,28 @@ class MoveDataToShardTestCase(ShardingTestCase):
         mock_collector.side_effect = FakeCollector
         collector = self.command.get_data_collector(objects=[self.user_1])
         self.assertEqual(collector.data, {User: {self.user_1}})
+
+
+class GetShardTestCase(ShardingTestCase):
+    def test_the_shard_is_read_on_the_primary_node(self):
+        """
+        Case: PRIMARY_DB_ALIAS is the other node, whose shard registry has a shard that the shard registry of the
+              default node, which is active, does not have. Look up the shard by its alias.
+        Expected: The command returns the shard, because it reads the shard registry of the primary node, where it
+                  saves the shard.
+        """
+        with use_shard(node_name='other', schema_name=PUBLIC_SCHEMA_NAME) as env:
+            env.connection.cursor().execute(
+                'INSERT INTO "{}" (id, alias, schema_name, node_name, state) VALUES (%s, %s, %s, %s, %s)'.format(
+                    Shard._meta.db_table
+                ),
+                [9001, 'on_the_primary', 'on_the_primary_schema', 'other', State.ACTIVE],
+            )
+
+        with (
+            override_sharding_setting('PRIMARY_DB_ALIAS', 'other'),
+            use_shard(node_name='default', schema_name=PUBLIC_SCHEMA_NAME),
+        ):
+            shard = MoveCommand.get_shard('on_the_primary')
+
+        self.assertEqual(shard.id, 9001)

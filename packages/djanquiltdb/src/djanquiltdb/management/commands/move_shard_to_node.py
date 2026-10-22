@@ -18,6 +18,7 @@ from djanquiltdb.utils import (
     get_all_sharded_models,
     get_mapping_class,
     get_model_sharding_mode,
+    get_primary_db_alias,
     get_shard_class,
     mapping_lock_key,
     shard_lock_key,
@@ -132,7 +133,9 @@ class Command(BaseCommand):
         """
         Get shard based on alias.
         """
-        shard = get_shard_class().objects.filter(alias=alias).first()
+        # The shard registry is mirrored, so the command saves the shard on the primary node. The command reads it there
+        # too, so that it starts from the row that it saves.
+        shard = get_shard_class().objects.using(get_primary_db_alias()).filter(alias=alias).first()
         if not shard:
             raise CommandError("No shard could be found with alias '{}'".format(alias))
         return shard

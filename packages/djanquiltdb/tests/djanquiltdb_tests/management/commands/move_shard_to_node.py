@@ -13,9 +13,10 @@ from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext, isolate_apps
 
 from djanquiltdb import STATES
+from djanquiltdb.decorators import override_sharding_setting
 from djanquiltdb.management.commands.move_shard_to_node import Command as MoveCommand
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.postgresql_backend.base import DatabaseWrapper
+from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME, DatabaseWrapper
 from djanquiltdb.postgresql_backend.utils import LockCursorWrapperMixin
 from djanquiltdb.utils import (
     State,
@@ -1942,3 +1943,28 @@ class ClearGeneratedPrimaryKeyTestCase(SimpleTestCase):
         MoveCommand.clear_generated_primary_key(flavour)
 
         self.assertEqual(flavour.id, flavour_id)
+
+
+class GetSourceShardTestCase(ShardingTestCase):
+    def test_the_shard_is_read_on_the_primary_node(self):
+        """
+        Case: PRIMARY_DB_ALIAS is the other node, whose shard registry has a shard that the shard registry of the
+              default node, which is active, does not have. Look up the source shard by its alias.
+        Expected: The command returns the shard, because it reads the shard registry of the primary node, where it
+                  saves the shard.
+        """
+        with use_shard(node_name='other', schema_name=PUBLIC_SCHEMA_NAME) as env:
+            env.connection.cursor().execute(
+                'INSERT INTO "{}" (id, alias, schema_name, node_name, state) VALUES (%s, %s, %s, %s, %s)'.format(
+                    Shard._meta.db_table
+                ),
+                [9001, 'on_the_primary', 'on_the_primary_schema', 'other', State.ACTIVE],
+            )
+
+        with (
+            override_sharding_setting('PRIMARY_DB_ALIAS', 'other'),
+            use_shard(node_name='default', schema_name=PUBLIC_SCHEMA_NAME),
+        ):
+            shard = MoveCommand().get_source_shard('on_the_primary')
+
+        self.assertEqual(shard.id, 9001)

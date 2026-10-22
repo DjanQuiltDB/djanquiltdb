@@ -2225,6 +2225,22 @@ class ForEachShardTestCase(ShardingTestCase):
         for_each_shard(self.repeatable_function, as_id=True)
         self.assertEqual(self.shards, [self.shard1.id])
 
+    def test_for_each_shard_inside_a_shard_without_the_public_schema(self):
+        """
+        Case: Call self.repeatable_function for every shard, inside a shard that is entered without the public schema.
+        Expected: Function is called for every shard in the shard registry.
+        """
+        create_template_schema('default')
+        entered_shard = Shard.objects.create(
+            alias='entered_shard', schema_name='test_entered_schema', node_name='default', state=State.ACTIVE
+        )
+
+        self.shards = []
+        with use_shard(entered_shard, include_public=False):
+            for_each_shard(self.repeatable_function)
+
+        self.assertCountEqual(self.shards, [self.shard1, entered_shard])
+
 
 @mock.patch('djanquiltdb.utils.get_all_databases', return_value=['default', 'other'])
 class ForEachNodeTestCase(SimpleTestCase):

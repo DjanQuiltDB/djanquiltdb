@@ -6,7 +6,13 @@ from django.http import HttpResponse
 from django.utils.deprecation import MiddlewareMixin
 from django.utils.module_loading import import_string
 
-from djanquiltdb.utils import StateException, get_shard_class, use_shard, use_shard_for
+from djanquiltdb.utils import (
+    StateException,
+    get_shard_class,
+    public_schema_alias_for_reading,
+    use_shard,
+    use_shard_for,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -114,7 +120,8 @@ class BaseUseShardMiddleware(_BaseShardMiddleware):
             return self.process_exception(request, exception)
 
     def _enable_shard(self, request, shard_id):
-        shard = get_shard_class().objects.get(id=shard_id)
+        shard_class = get_shard_class()
+        shard = shard_class.objects.using(public_schema_alias_for_reading(shard_class)).get(id=shard_id)
         shard_context_manager = self.set_shard_context_manager(request, use_shard(shard))
         shard_context_manager.enable()
 

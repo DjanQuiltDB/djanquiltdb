@@ -7,9 +7,11 @@ from django.test import SimpleTestCase, override_settings
 
 import djanquiltdb.contrib.quilt_admin as quilt_admin_pkg
 from djanquiltdb.contrib.quilt_admin.context_processors import admin_shard_context
-from djanquiltdb.utils import State, use_shard
+from djanquiltdb.decorators import override_sharding_setting
+from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
+from djanquiltdb.utils import State, create_template_schema, use_shard
 from djanquiltdb_tests import ShardingTestCase
-from example.models import Shard
+from example.models import OrganizationShard, Shard
 
 
 def _make_anonymous_request():
@@ -43,24 +45,46 @@ class ShardSwitcherSelectorBindingTestCase(ShardingTestCase):
         self.assertTrue(fake_selector.retrieve_override_value.called)
 
 
-class ShardSwitcherPrimaryAliasTestCase(ShardingTestCase):
-    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'PRIMARY_DB_ALIAS': 'other'})
-    def test_switcher_reads_from_the_primary_alias(self):
+class ShardSwitcherRegistryTestCase(ShardingTestCase):
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
+    def test_switcher_reads_the_shard_registry_where_the_router_reads_the_shard_model(self):
         """
-        Case: PRIMARY_DB_ALIAS points at a non-default node.
-        Expected: The switcher lists the shards from the shard registry on that node, not from the default node.
+        Case: The shard registry of the other node, which is active, has a shard that the registry of the default node
+              does not have.
+        Expected: The switcher lists the shard of the other node, because it reads the shard registry where the router
+                  reads the Shard model, which is the active node.
         """
-        with use_shard(node_name='other', schema_name='public') as env:
+        with use_shard(node_name='other', schema_name=PUBLIC_SCHEMA_NAME) as env:
             env.connection.cursor().execute(
                 'INSERT INTO "{}" (id, alias, schema_name, node_name, state) VALUES (%s, %s, %s, %s, %s)'.format(
                     Shard._meta.db_table
                 ),
-                [1, 'failover', 'failover_schema', 'other', State.ACTIVE],
+                [1, 'on_the_other_node', 'on_the_other_node_schema', 'other', State.ACTIVE],
             )
 
-        context = admin_shard_context(_make_admin_request())
+            context = admin_shard_context(_make_admin_request())
 
-        self.assertEqual([shard.alias for shard in context['available_shards']], ['failover'])
+        self.assertEqual([shard.alias for shard in context['available_shards']], ['on_the_other_node'])
+
+    def test_switcher_reads_the_mapping_table_where_the_router_reads_the_mapping_model(self):
+        """
+        Case: PRIMARY_DB_ALIAS is the other node, the mapping model sets route_to_primary_db to False, and the mapping
+              table of the default node, which is active, has a row.
+        Expected: The switcher lists the row of the default node, because it reads the mapping table where the router
+                  reads the mapping model.
+        """
+        create_template_schema('default')
+        shard = Shard.objects.create(alias='awake', schema_name='awake_schema', node_name='default', state=State.ACTIVE)
+        OrganizationShard.objects.create(organization_id=1, shard=shard)
+
+        with (
+            override_sharding_setting('PRIMARY_DB_ALIAS', 'other'),
+            mock.patch.object(OrganizationShard, 'route_to_primary_db', False),
+            use_shard(node_name='default', schema_name=PUBLIC_SCHEMA_NAME),
+        ):
+            context = admin_shard_context(_make_admin_request())
+
+        self.assertEqual([mapping.organization_id for mapping in context['available_shards']], [1])
 
 
 class ShardSwitcherErrorHandlingTestCase(ShardingTestCase):

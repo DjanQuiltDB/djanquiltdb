@@ -9,7 +9,7 @@ from django.views.generic import TemplateView, View
 
 from djanquiltdb.db import connection
 from djanquiltdb.middleware import BaseUseShardForMiddleware, BaseUseShardMiddleware, ExceptionMiddlewareMixin
-from djanquiltdb.utils import State, StateException, create_template_schema
+from djanquiltdb.utils import State, StateException, create_template_schema, use_shard
 from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
 from example.models import Shard
 
@@ -575,3 +575,30 @@ class BaseUseShardForMiddlewareTestCase(ShardingTestCase):
 
         self.assertFalse(mock_process_exception.called)
         self.assertTrue(mock_use_shard_for_context_manager.return_value.disable.called)
+
+
+class UseShardMiddlewareRegistryTestCase(ShardingTestCase):
+    def setUp(self):
+        super().setUp()
+
+        create_template_schema('default')
+        self.entered_shard = Shard.objects.create(
+            alias='entered_shard', schema_name='test_entered_schema', node_name='default', state=State.ACTIVE
+        )
+        self.request_shard = Shard.objects.create(
+            alias='request_shard', schema_name='test_request_schema', node_name='default', state=State.ACTIVE
+        )
+
+    def test_process_request_inside_a_shard_without_the_public_schema(self):
+        """
+        Case: Process a request for a shard while another shard is entered without the public schema.
+        Expected: The middleware reads the shard from the shard registry, and enters it.
+        """
+        request = RequestFactory().get('/')
+        middleware = UseShardMiddleware(lambda request: None)
+
+        with mock.patch.object(UseShardMiddleware, 'get_shard_id', return_value=self.request_shard.id):
+            with use_shard(self.entered_shard, include_public=False):
+                middleware.process_request(request)
+                self.assertEqual(connection.schema_name, 'test_request_schema')
+                middleware.process_response(request, HttpResponse())

@@ -60,8 +60,9 @@ def get_databases_and_schema_from_options(options):
                 'You cannot check whether a shard exists because the public schema does not contain the shard table.'
             )
 
+        shards = get_shard_class().objects.using(get_primary_db_alias())
         for database_ in databases:
-            if not get_shard_class().objects.filter(schema_name=schema_name, node_name=database_).exists():
+            if not shards.filter(schema_name=schema_name, node_name=database_).exists():
                 raise CommandError('Shard {}|{} does not exist.'.format(database_, schema_name))
 
     return databases, schema_name

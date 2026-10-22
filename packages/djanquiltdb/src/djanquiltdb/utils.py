@@ -716,7 +716,9 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
             for_each_shard(sharded_function, kwargs={'prefix': 'shard-'}, as_id=True)
 
     """
-    for shard in get_shard_class().objects.all():
+    shard_class = get_shard_class()
+
+    for shard in shard_class.objects.using(public_schema_alias_for_reading(shard_class)):
         if as_id:
             func(*args, shard_id=shard.id, **(kwargs or {}))
         else:
