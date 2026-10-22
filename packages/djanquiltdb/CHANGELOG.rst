@@ -1,3 +1,37 @@
+v 4.4.0 (2026-10-22)
+--------------------
+Added:
+ * Celery tasks that run in a shard, installed through the ``djanquiltdb[celery]`` extra.
+
+Altered:
+ * Fixed the session store still using cached ``QUILT_SESSIONS`` values even after settings changed.
+ * Fixed repeated unnecessary re-imports of the shard class, the mapping model and the database creation class.
+ * Fixed a mapping value of 0 being ignored by ``ShardOptions.use()`` and by the advisory lock of ``use_shard_for()``.
+ * Fixed ``use_shard()`` and ``use_shard_for()`` entering a shard that ``move_shard_to_node`` or ``move_data_to_shard``
+   put in maintenance or moved during the wait for the lock of the shard.
+ * Fixed ``use_shard_for()`` with a model instance locking the mapping value under the display string of the instance.
+ * Fixed ``move_shard_to_node`` locking each mapping under the primary key of the row in the mapping table.
+ * Fixed ``ShardOptions.use()`` raising ``ProgrammingError`` inside ``use_shard(include_public=False)``.
+ * Fixed ``get_shard_for()`` and ``ShardOptions.from_shard(check_active_mapping_values=True)`` raising
+   ``ProgrammingError`` for a mapping model with ``route_to_primary_db`` set to False.
+ * Fixed a function decorated with ``use_shard()`` leaving the lock of the shard held and the shard active when the
+   function calls itself, or when two threads call it at once. Entering a ``use_shard()`` that is entered already
+   now raises ``RuntimeError``.
+ * Fixed ``request.user`` raising ``ValueError`` on every read with ``ShardIdAdminOverrideMiddleware``, while the quilt
+   admin has a different shard selected than the user's.
+ * Fixed the ``StateException`` message of ``get_shard_for()`` and ``use_shard_for()`` for a shard that is not active
+   showing the state of the mapping instead of the shard.
+ * Entering and leaving a shard no longer sets the ``search_path`` to take or release its advisory locks, to save
+   queries. Trade-off: entering a shard whose schema does not exist no longer raises when the shard is entered; the
+   first query in the shard raises ``IntegrityError`` instead.
+ * ``use_shard()`` takes no new locks when an entered ``use_shard()`` already holds the locks of the same shard for the
+   session.
+ * ``ShardOptions.use()`` no longer does a fresh shard lookup when an entered ``use_shard()`` already holds the locks of
+   the same shard for the session.
+ * Sharded model methods and ``use_shard()`` no longer build connections that they do not use.
+ * Test coverage for profiling how often ``migrate`` renders the model states when
+   ``QUILT_DB['SHARED_TEST_MIGRATION_STATES']`` is True. No change in behavior.
+
 v 4.3.0 (2026-10-19)
 --------------------
 Added:

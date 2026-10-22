@@ -39,11 +39,12 @@ classifiers = [
 ]
 dependencies = [
     "django>=6.0,<7.0",
-    # 4.3 serves a plugin's utils module as djanquiltdb.utils.<name>.
-    "djanquiltdb>=4.3,<5.0",
-    # 5.6 is the first release that supports Python 3.14. The task base subclasses celery.contrib.django.task.DjangoTask
-    # and relies on Celery passing custom message headers on to task.request.headers, so a new major version has to be
-    # checked before the upper bound is raised.
+    # 4.4 enters a shard id or a mapping value of 0, and reads the shard again once use_shard holds its lock, so that a
+    # task that is retried during a move does not enter the shard where it was before the move.
+    "djanquiltdb>=4.4,<5.0",
+    # 5.6 is the first release that supports Python 3.14. QuiltTask, the task class of the plugin, subclasses
+    # celery.contrib.django.task.DjangoTask and relies on Celery passing custom message headers on to
+    # task.request.headers, so a new major version has to be checked before the upper bound is raised.
     "celery>=5.6,<6.0",
 ]
 

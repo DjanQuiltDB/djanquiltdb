@@ -18,6 +18,7 @@ Plugin release |celery-version|.
     tasks
     fan_out
     api
+    changelog
 
 
 Things to know
