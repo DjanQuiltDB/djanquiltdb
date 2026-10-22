@@ -4,7 +4,8 @@ API reference
 
 Once the plugin is installed, its API is served from inside ``djanquiltdb`` itself, so that a project never has to
 import from the distribution package: the tracking functions from ``djanquiltdb.decorators.pghistory``, next to the
-model decorators, and the event bases, ``create_event_model()`` and the queryset from ``djanquiltdb.models.pghistory``.
+model decorators, the event bases, ``create_event_model()`` and the queryset from ``djanquiltdb.models.pghistory``, and
+the mixin that the migrations of event models name from ``djanquiltdb.base.pghistory``.
 
 Both namespaces support importing the plugin's module and importing a single name from it, and neither way is
 preferred::
@@ -12,11 +13,11 @@ preferred::
     from djanquiltdb.decorators import pghistory        # the namespace, for @pghistory.track()
     from djanquiltdb.decorators.pghistory import track   # the function, imported by name
 
-Everything below except ``EventQueryCompiler`` can also be imported from ``djanquiltdb_plugin_pghistory``, the
-distribution package, which resolves its exports lazily, like the namespaces above. A type checker or an IDE cannot
-follow either of them, so point it at the modules that define the names: ``djanquiltdb_plugin_pghistory.core`` for the
-tracking functions and ``create_event_model()``, ``.sharded``, ``.mirrored`` and ``.public`` for the event bases, and
-``.querysets`` for the queryset.
+The tracking functions, the event bases, ``create_event_model()`` and the queryset can also be imported from
+``djanquiltdb_plugin_pghistory``, the distribution package, which resolves its exports lazily, like the namespaces
+above. A type checker or an IDE cannot follow either of them, so point it at the modules that define the names:
+``djanquiltdb_plugin_pghistory.core`` for the tracking functions and ``create_event_model()``, ``.sharded``,
+``.mirrored`` and ``.public`` for the event bases, and ``.querysets`` for the queryset.
 
 
 Tracking
@@ -69,12 +70,16 @@ Querysets
 
 .. autoclass:: EventQuerySet
 
-The compiler that the queryset uses is internal, and is only documented here because a custom queryset has to keep using
-it, by inheriting from ``EventQuerySet``:
+The queryset compiles its queries with a compiler of the plugin, which is internal. To keep using it, a custom queryset
+has to inherit from ``EventQuerySet``.
 
-.. currentmodule:: djanquiltdb_plugin_pghistory.querysets
 
-.. autoclass:: EventQueryCompiler
+Base classes
+============
+
+.. currentmodule:: djanquiltdb.base.pghistory
+
+.. autoclass:: ShardRoutedRevert
 
 
 The plugin object

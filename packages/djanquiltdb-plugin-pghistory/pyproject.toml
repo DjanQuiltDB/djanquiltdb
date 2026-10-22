@@ -37,9 +37,10 @@ classifiers = [
 ]
 dependencies = [
     "django>=6.0,<7.0",
-    # 4.3 ignores the triggers while move_data_to_shard and purge_shard_data copy and delete rows, so no events are
-    # recorded for those rows.
-    "djanquiltdb>=4.3,<5.0",
+    # 4.5 serves ShardRoutedRevert as djanquiltdb.base.pghistory, where migrations import it from. 4.3 ignored the
+    # triggers while move_data_to_shard and purge_shard_data copy and delete rows, so no events are recorded for those
+    # rows.
+    "djanquiltdb>=4.5,<5.0",
     # The event bases use internals of pghistory.config and pghistory.models, so a new major version has to be checked
     # before the upper bound is raised. Releases before 3.9.2 replace a tracker's `condition=None` with the class
     # default, and ignore `level=` on every RowEvent tracker.
