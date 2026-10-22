@@ -178,8 +178,12 @@ group. See :doc:`/plugins/celery/index`, :doc:`/plugins/pghistory/index`, :doc:`
 :doc:`/plugins/postgres-objects/index` for the plugins in this repository.
 
 A plugin's API is served from inside ``djanquiltdb``, under the name that the plugin registers, so that name is part of
-the plugin's public API. ``djanquiltdb.decorators``, ``djanquiltdb.models`` and ``djanquiltdb.utils`` each serve the
-plugin module that has the same name:
+the plugin's public API. ``djanquiltdb.base``, ``djanquiltdb.decorators``, ``djanquiltdb.models`` and
+``djanquiltdb.utils`` each serve the plugin module that has the same name:
+
+``djanquiltdb.base.<name>``
+    The plugin's ``base`` module: classes that a project subclasses or refers to, such as the base class of a plugin's
+    tasks.
 
 ``djanquiltdb.decorators.<name>``
     The plugin's ``decorators`` module, so its decorators are imported from the same place as the model decorators.
@@ -188,8 +192,9 @@ plugin module that has the same name:
     The plugin's ``models`` module: base classes, querysets, and the like.
 
 ``djanquiltdb.utils.<name>``
-    The plugin's ``utils`` module: functions, such as helpers that run in every shard. A plugin cannot be served there
-    under a name that ``djanquiltdb.utils`` defines itself, such as ``use_shard``, because that name is found first.
+    The plugin's ``utils`` module: functions, such as helpers that run in every shard, and the exceptions and constants
+    that a project uses with them. A plugin cannot be served there under a name that ``djanquiltdb.utils`` defines
+    itself, such as ``use_shard``, because that name is found first.
 
 A plugin is only served under the modules that it has. Every namespace supports importing the plugin's module and
 importing a single name from it, and both ways are supported::
@@ -202,10 +207,16 @@ imported. No namespace is a package on disk: the names are resolved when they ar
 only imported when something uses it. A type checker cannot follow these names, so for a type checker, import the names
 from the modules in the plugin's distribution package that define them.
 
+The API of a served module is its ``__all__``. Because the served module is the plugin's own module, the names that it
+imports for its own use can be read from it as well, as from any Python module, but they are not part of its API and
+can change in any release.
+
 By default, the decorators of a plugin are also served directly from ``djanquiltdb.decorators``, next to the model
-decorators, which suits a placement decorator such as ``@public_function()``. A plugin that keeps its own namespace sets
-``SERVE_UNQUALIFIED = False`` in its decorators module. ``djanquiltdb.models`` and ``djanquiltdb.utils`` have no such
-setting, because they only serve a plugin under the plugin's name.
+decorators, which suits a placement decorator such as ``@public_function()``. A decorators module that defines
+``__all__`` serves only those names there, so a name that one plugin imports does not resolve there for every plugin. A
+plugin that keeps its own namespace sets ``SERVE_UNQUALIFIED = False`` in its decorators module. ``djanquiltdb.base``,
+``djanquiltdb.models`` and ``djanquiltdb.utils`` have no such setting, because they only serve a plugin under the
+plugin's name.
 
 When two installed distributions register the same name, DjanQuiltDB raises ``ImproperlyConfigured`` when the app
 registry is ready, so the project does not start, and every time that name is looked up. Other names are served as

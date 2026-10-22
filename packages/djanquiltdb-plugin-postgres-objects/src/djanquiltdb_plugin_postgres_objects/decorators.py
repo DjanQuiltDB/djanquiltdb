@@ -319,3 +319,15 @@ def single_node_unsharded_view(node):
         return _annotate_object(cls, ShardingMode.SINGLE_NODE_UNSHARDED, node=node)
 
     return configure
+
+
+__all__ = [
+    'mirrored_function',
+    'mirrored_view',
+    'public_function',
+    'public_view',
+    'sharded_function',
+    'sharded_view',
+    'single_node_unsharded_function',
+    'single_node_unsharded_view',
+]

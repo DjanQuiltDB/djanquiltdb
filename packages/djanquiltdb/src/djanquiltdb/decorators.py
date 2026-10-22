@@ -502,7 +502,9 @@ class override_sharding_setting(override_settings):
 def __getattr__(name):
     """
     Serves the decorators module of a plugin under the plugin's registered name, and serves the decorators of every
-    plugin directly, unless the plugin sets ``SERVE_UNQUALIFIED = False``.
+    plugin directly, unless the plugin sets ``SERVE_UNQUALIFIED = False``. A decorators module that defines ``__all__``
+    serves only those names directly, so the names it imports for its own use, which every module has as attributes, do
+    not resolve here across plugins.
     """
     from djanquiltdb.plugins import load_plugins, served_plugin_module
 
@@ -517,6 +519,8 @@ def __getattr__(name):
     for plugin in load_plugins():
         decorators = getattr(plugin, 'decorators', None)
         if decorators is None or not getattr(decorators, 'SERVE_UNQUALIFIED', True):
+            continue
+        if name not in getattr(decorators, '__all__', (name,)):
             continue
         if hasattr(decorators, name):
             return getattr(decorators, name)
