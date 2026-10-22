@@ -133,10 +133,11 @@ class use_shard(object):
     Once it holds the lock of the shard, a use_shard that is not inside an entered use_shard of the same shard reads the
     shard again, in one query, and raises StateException when ``move_shard_to_node`` or ``move_data_to_shard`` changed
     the shard after the shard that use_shard is given was read. ``use_shard_for()``, and a use_shard that is given a
-    mapping value, read the mapping value and its shard again instead. A use_shard inside an entered use_shard of the
-    same shard runs no statements when the entered use_shard holds the locks of the shard for the session, which it
-    does outside a transaction. Inside a transaction the locks last until the transaction ends, so a use_shard inside
-    an entered use_shard of the same shard takes its own locks and reads the shard again.
+    mapping value, read the mapping value and its shard again instead. A use_shard of a shard whose locks this
+    connection already holds for a use_shard that checked the shard runs no statements: outside a transaction while
+    that use_shard is entered, because it holds the locks for the session until it is left, and inside a transaction
+    until the transaction ends, or until a rollback to a savepoint that was set before the locks were taken, because
+    PostgreSQL holds transaction-scoped locks until then.
 
     use_shard does not check that the schema of the shard exists when it is entered. The first query in a shard whose
     schema does not exist raises IntegrityError.
@@ -340,13 +341,14 @@ class use_shard(object):
 
         # Third: Take the advisory locks of the shard and of the mapping value (if there is one), and check the shard
         # again once this context holds the locks. Locks that are held for the session are added to the lock counts of
-        # the node connection. When other entered use_shard contexts hold all of these locks for the session, this
-        # context takes no locks and does not check the shard: those contexts hold the locks until after this context is
-        # left, so the move commands cannot change the shard in the meantime. A context for a node and a schema without
-        # a shard id or a mapping value has no locks to take, so it takes none and builds no connection.
+        # the node connection, and locks that are held for the transaction are recorded on it. When the node connection
+        # already holds all of these locks for a use_shard that checked the shard, this context takes no locks and does
+        # not check the shard: the locks are held until after this context is left, or until the transaction ends, so
+        # the move commands cannot have changed the shard since it was checked. A context for a node and a schema
+        # without a shard id or a mapping value has no locks to take, so it takes none and builds no connection.
         lock_keys = self.options.lock_keys if self.options.lock else []
 
-        if lock_keys and not self._node_connection.entered_use_shards_hold_session_locks(lock_keys):
+        if lock_keys and not self._node_connection.entered_use_shards_hold_locks(lock_keys):
             self.acquire_lock()
 
             if self.options.shard_id is not None:
@@ -358,7 +360,9 @@ class use_shard(object):
 
             self._holds_its_own_locks = True
 
-            if not self._locks_are_xact:
+            if self._locks_are_xact:
+                self._node_connection.record_transaction_locks(lock_keys)
+            else:
                 self._counted_session_lock_keys = lock_keys
                 self._node_connection.session_locks_of_entered_use_shards.update(self._counted_session_lock_keys)
 

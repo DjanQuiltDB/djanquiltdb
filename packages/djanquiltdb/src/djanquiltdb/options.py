@@ -144,17 +144,18 @@ class ShardOptions:
         have a mapping value, ``use_shard()`` of the shard when they have a shard id, and ``use_shard()`` of the node
         and schema in all other cases.
 
-        When use_shard contexts that are entered and not left yet hold all the advisory locks of these options for the
-        session, use() returns a ``use_shard()`` of these options. That use_shard does not look up the shard, check its
-        state or take locks, so that, for example, a sharded model method that runs while another shard is active runs
-        no statements. The entered contexts check the state when they enter the shard, unless ``active_only_schemas`` is
-        False, and their locks keep the move commands from changing the shard until the contexts are left. Options
-        without a node name look up the shard in every case.
+        When the node connection holds all the advisory locks of these options for use_shard contexts that checked the
+        shard, for the session while they are entered or for the transaction until it ends, use() returns a
+        ``use_shard()`` of these options. That use_shard does not look up the shard, check its state or take locks, so
+        that, for example, a sharded model method that runs while another shard is active runs no statements. The
+        contexts that took the locks checked the state when they entered the shard, unless ``active_only_schemas`` was
+        False, and the locks keep the move commands from changing the shard while they are held. Options without a node
+        name look up the shard in every case.
         """
         if (
             self.lock
             and self.node_name is not None
-            and connections[self.node_name].entered_use_shards_hold_session_locks(self.lock_keys)
+            and connections[self.node_name].entered_use_shards_hold_locks(self.lock_keys)
         ):
             return use_shard(**dict(self.options))
 

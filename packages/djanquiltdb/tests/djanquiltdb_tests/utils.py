@@ -1084,26 +1084,157 @@ class UseShardInsideEnteredUseShardTestCase(ShardingTransactionTestCase):
 
             self.assertTrue(self.lock_is_free('mapping_2'))
 
-    def test_inner_use_shard_takes_its_own_lock_inside_a_transaction(self):
+    def assert_takes_its_lock_and_reads_the_shard(self, captured):
         """
-        Case: Enter use_shard for a shard while a use_shard for that shard is entered inside a transaction.
-        Expected: The inner use_shard takes its own transaction-scoped lock, because the outer use_shard holds only a
-                  transaction-scoped lock, and a commit inside the outer use_shard releases that lock. The inner
-                  use_shard then reads the shard again, as a use_shard does once it holds the lock.
+        Asserts that the captured statements take the transaction-scoped lock of the shard, and read the shard again.
         """
         key = LockCursorWrapperMixin.get_int_from_key('shard_{}'.format(self.shard.id))
+        statements = [query['sql'] for query in captured.captured_queries]
 
+        self.assertEqual(statements[0], 'SELECT pg_advisory_xact_lock_shared({});'.format(key))
+        self.assertTrue(any('"example_shard"' in statement for statement in statements[1:]))
+
+    def test_inner_use_shard_runs_no_statements_inside_a_transaction(self):
+        """
+        Case: Enter and leave use_shard for a shard while a use_shard for that shard is entered inside a transaction.
+        Expected: No statements run, because the outer use_shard holds the transaction-scoped lock of the shard until
+                  the transaction ends, and checked the shard once it held the lock.
+        """
         with transaction.atomic():
             with use_shard(self.shard):
                 with CaptureQueriesContext(connections['default']) as captured:
                     with use_shard(self.shard):
                         pass
 
-        statements = [query['sql'] for query in captured.captured_queries]
+        self.assertEqual(captured.captured_queries, [])
 
-        self.assertEqual(statements[0], 'SELECT pg_advisory_xact_lock_shared({});'.format(key))
-        self.assertEqual([statement for statement in statements if 'pg_advisory' in statement], [statements[0]])
-        self.assertTrue(any('"example_shard"' in statement for statement in statements[1:]))
+    def test_a_later_use_shard_in_the_transaction_runs_no_statements(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard, then enter and leave use_shard for that shard
+              again.
+        Expected: The shard is still locked after the first use_shard is left, and the second use_shard runs no
+                  statements, because PostgreSQL holds a transaction-scoped lock until the transaction ends.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard):
+                pass
+
+            self.assertFalse(self.lock_is_free('shard_{}'.format(self.shard.id)))
+
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_a_rollback_to_a_savepoint_set_before_the_lock_releases_it(self):
+        """
+        Case: Inside a transaction, set a savepoint, enter and leave use_shard for a shard, roll back to the savepoint,
+              and enter use_shard for that shard again.
+        Expected: The rollback releases the lock of the shard, and the second use_shard takes the lock again and reads
+                  the shard again.
+        """
+        with transaction.atomic():
+            savepoint = transaction.savepoint()
+
+            with use_shard(self.shard):
+                pass
+
+            transaction.savepoint_rollback(savepoint)
+
+            self.assertTrue(self.lock_is_free('shard_{}'.format(self.shard.id)))
+
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard):
+                    pass
+
+        self.assert_takes_its_lock_and_reads_the_shard(captured)
+
+    def test_a_rollback_to_a_savepoint_set_after_the_lock_keeps_it(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard, set a savepoint, roll back to it, and enter
+              use_shard for that shard again.
+        Expected: The shard is still locked after the rollback, and the second use_shard runs no statements.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard):
+                pass
+
+            savepoint = transaction.savepoint()
+            transaction.savepoint_rollback(savepoint)
+
+            self.assertFalse(self.lock_is_free('shard_{}'.format(self.shard.id)))
+
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_a_released_savepoint_hands_its_lock_to_the_transaction(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard inside a nested atomic block, which releases
+              its savepoint, then roll back to a savepoint set after it, and enter use_shard for that shard again.
+        Expected: The shard is still locked, and the second use_shard runs no statements, because the released savepoint
+                  handed the lock to the transaction, which a later rollback does not release.
+        """
+        with transaction.atomic():
+            with transaction.atomic():
+                with use_shard(self.shard):
+                    pass
+
+            savepoint = transaction.savepoint()
+            transaction.savepoint_rollback(savepoint)
+
+            self.assertFalse(self.lock_is_free('shard_{}'.format(self.shard.id)))
+
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_the_end_of_the_transaction_forgets_its_locks(self):
+        """
+        Case: Enter and leave use_shard for a shard inside a transaction, and enter use_shard for that shard after the
+              transaction committed.
+        Expected: The connection holds no transaction-scoped locks and no savepoints after the commit, and the second
+                  use_shard takes the lock of the shard for the session.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard):
+                pass
+
+        self.assertEqual(connections['default'].transaction_locks_of_entered_use_shards, {})
+        self.assertEqual(connections['default'].open_savepoint_ids, [])
+
+        with use_shard(self.shard):
+            session_locks = connections['default'].session_locks_of_entered_use_shards
+
+            self.assertEqual(session_locks['shard_{}'.format(self.shard.id)], 1)
+
+    def test_a_commit_while_a_use_shard_is_entered_releases_its_lock(self):
+        """
+        Case: Start a transaction, enter use_shard for a shard, commit the transaction while the use_shard is entered,
+              and enter use_shard for that shard inside a new transaction.
+        Expected: The inner use_shard takes the lock again and reads the shard again, because the commit released the
+                  transaction-scoped lock of the outer use_shard.
+        """
+        outer_transaction = transaction.atomic()
+        outer_transaction.__enter__()
+        outer_use_shard = use_shard(self.shard)
+        outer_use_shard.__enter__()
+        outer_transaction.__exit__(None, None, None)
+
+        try:
+            with transaction.atomic():
+                with CaptureQueriesContext(connections['default']) as captured:
+                    with use_shard(self.shard):
+                        pass
+        finally:
+            outer_use_shard.__exit__(None, None, None)
+
+        self.assert_takes_its_lock_and_reads_the_shard(captured)
 
     def test_closing_the_connection_forgets_the_held_locks(self):
         """

@@ -1132,6 +1132,18 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # in this counter and takes no locks of its own.
         self.session_locks_of_entered_use_shards = Counter()
 
+        # For each advisory lock key that a use_shard took for the transaction of this connection, and checked its shard
+        # under, the number of savepoints that were open when it took the key. PostgreSQL holds such a lock until the
+        # transaction ends, or until a rollback to a savepoint that was set before the lock was taken, also after the
+        # use_shard is left. So a use_shard that is entered later in the transaction finds its locks here, and takes no
+        # locks of its own: the shard cannot have moved since the lock was taken and the shard was checked.
+        self.transaction_locks_of_entered_use_shards = {}
+
+        # The savepoints of the transaction of this connection that are set and not released or rolled back past yet,
+        # in the order in which they were set. Django keeps savepoint_ids for atomic() only, and this list also has the
+        # savepoints of transaction.savepoint().
+        self.open_savepoint_ids = []
+
         self.schema_name = PUBLIC_SCHEMA_NAME
         self.include_public_schema = True
 
@@ -1147,20 +1159,45 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # Closing the connection ends the session and releases the advisory locks of the session, so the lock counts
         # start at zero.
         self.session_locks_of_entered_use_shards = Counter()
+        self.forget_transaction_locks()
         super().close()
 
-    def entered_use_shards_hold_session_locks(self, lock_keys):
+    def entered_use_shards_hold_locks(self, lock_keys):
         """
-        Whether use_shard contexts that are entered and not left yet hold every one of ``lock_keys`` for the session of
-        this connection. Returns False when ``lock_keys`` is empty.
+        Whether this connection holds every one of ``lock_keys`` for a use_shard that checked its shard under them: for
+        the session, while the use_shard contexts that took them are entered, or for the transaction, until it ends.
+        Returns False when ``lock_keys`` is empty.
         """
-        return bool(lock_keys) and all(self.session_locks_of_entered_use_shards[key] for key in lock_keys)
+        return bool(lock_keys) and all(
+            self.session_locks_of_entered_use_shards[key] or key in self.transaction_locks_of_entered_use_shards
+            for key in lock_keys
+        )
+
+    def record_transaction_locks(self, lock_keys):
+        """
+        Records that a use_shard took ``lock_keys`` for the transaction of this connection, and checked its shard under
+        them, so that a use_shard that is entered later in the transaction takes no locks of its own.
+        """
+        for key in lock_keys:
+            self.transaction_locks_of_entered_use_shards.setdefault(key, len(self.open_savepoint_ids))
+
+    def forget_transaction_locks(self):
+        """
+        Forgets every transaction-scoped lock and open savepoint, because the transaction ended.
+        """
+        self.transaction_locks_of_entered_use_shards = {}
+        self.open_savepoint_ids = []
 
     def rollback(self):
         try:
             super().rollback()
         finally:
             self.current_search_paths = None
+            self.forget_transaction_locks()
+
+    def _savepoint(self, sid):
+        super()._savepoint(sid)
+        self.open_savepoint_ids.append(sid)
 
     def _savepoint_rollback(self, sid):
         # A rollback to a savepoint undoes a SET search_path that ran after the savepoint was set. _cursor() sets the
@@ -1171,6 +1208,36 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             super()._savepoint_rollback(sid)
         finally:
             self.current_search_paths = None
+            self._forget_transaction_locks_after(sid)
+
+    def _forget_transaction_locks_after(self, sid):
+        """
+        Forgets the transaction-scoped locks that were taken after the savepoint ``sid`` was set, which a rollback to
+        that savepoint releases, and the savepoints that were set after it, which the rollback destroys. The savepoint
+        itself stays open. For a savepoint that this connection did not see being set, every lock is forgotten, so that
+        the next use_shard takes its locks again rather than relying on a lock that may be gone.
+        """
+        if sid not in self.open_savepoint_ids:
+            self.transaction_locks_of_entered_use_shards = {}
+            return
+
+        index = self.open_savepoint_ids.index(sid)
+        self.open_savepoint_ids = self.open_savepoint_ids[: index + 1]
+        self.transaction_locks_of_entered_use_shards = {
+            key: depth for key, depth in self.transaction_locks_of_entered_use_shards.items() if depth <= index
+        }
+
+    def _savepoint_commit(self, sid):
+        super()._savepoint_commit(sid)
+
+        # Releasing a savepoint also releases the savepoints that were set after it, and hands the locks that were taken
+        # after it to the enclosing savepoint or transaction, which holds them until it ends.
+        if sid in self.open_savepoint_ids:
+            index = self.open_savepoint_ids.index(sid)
+            self.open_savepoint_ids = self.open_savepoint_ids[:index]
+            self.transaction_locks_of_entered_use_shards = {
+                key: min(depth, index) for key, depth in self.transaction_locks_of_entered_use_shards.items()
+            }
 
     def commit(self):
         # With current_search_paths set to None, the next _cursor() call sets the search_path again. This is needed for
@@ -1180,6 +1247,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             super().commit()
         finally:
             self.current_search_paths = None
+            self.forget_transaction_locks()
 
     def get_schema(self):
         return self.schema_name
@@ -1861,7 +1929,8 @@ class ShardDatabaseWrapper(DatabaseWrapper):
     it wraps (from now on called the main connection), so that switching to another schema does not make a new
     connection to the database. Each field in _PROXY_FIELDS is a MainConnectionField, which reads and sets the field on
     the main connection. These are the fields that the constructor of Django's BaseDatabaseWrapper sets, except for
-    `alias`, plus `current_search_paths` and `session_locks_of_entered_use_shards`.
+    `alias`, plus `current_search_paths`, `session_locks_of_entered_use_shards`,
+    `transaction_locks_of_entered_use_shards` and `open_savepoint_ids`.
 
     Note that this class should not be used for connections to the public schema. You can use the main connection for
     that one.
@@ -1885,6 +1954,8 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         '_thread_ident',
         'current_search_paths',
         'session_locks_of_entered_use_shards',
+        'transaction_locks_of_entered_use_shards',
+        'open_savepoint_ids',
         'run_on_commit',
         'run_commit_hooks_on_set_autocommit_on',
         'rollback_exc',
