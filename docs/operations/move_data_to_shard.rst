@@ -21,7 +21,7 @@ Command usage
 
 Root-object
 -----------
-With a 'root-object' we mean the top-level object of a data structure. This can be a User, an Organization, a Server,
+With a 'root-object' we mean the top-level object of a data structure. This can be a User, a Tenant, a Server,
 whatever tops your data structure. You often want to move this root object and all data that hangs beneath this over to
 another shard. That is exactly what this command does.
 
@@ -131,7 +131,7 @@ To solve this, you can easily extend the command and override the function it ca
             """
             Create a new shard to receive the data.
             """
-            return Shard.objects.create(alias='new Shard', node_name=get_new_shard_node(), organization=root_object)
+            return Shard.objects.create(alias='new Shard', node_name=get_new_shard_node(), tenant=root_object)
 
 
 Options
@@ -141,7 +141,7 @@ Most options the command recognizes are mandatory. For example:
 .. code-block:: console
 
     manage.py move_data_to_shard --source-shard-alias earth --target-shard-alias mars \
-        --model-name example.organization --root-object-id 1
+        --model-name example.tenant --root-object-id 1
 
 ``--source-shard-alias``
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -154,7 +154,7 @@ The ``--target-shard-alias`` argument must be the name of the shard that will re
 ``--model-name``
 ~~~~~~~~~~~~~~~~
 The ``--model-name`` argument must contain the app name and the model name of the model the ``root_object`` belongs to,
-separated by a dot, e.g. ``--model-name example.Organization``.
+separated by a dot, e.g. ``--model-name example.Tenant``.
 
 ``--root-object-id``
 ~~~~~~~~~~~~~~~~~~~~

@@ -54,7 +54,7 @@ The optional ``QUILT_CELERY`` setting is a dict whose keys override these defaul
 
     QUILT_CELERY = {
         # The keyword argument that identifies a shard by its mapping value, other than shard_id and node_name. None
-        # means the mapping field of the MAPPING_MODEL, such as tenant_id.
+        # means the mapping field of the MAPPING_MODEL, such as tenant_slug.
         'MAPPING_KWARG': None,
         # Celery's max_retries, retry_backoff, retry_backoff_max and retry_jitter options for a task whose shard is in
         # maintenance. These defaults retry after 5, 10, 20, 40 and 60 seconds.

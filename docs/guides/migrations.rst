@@ -218,7 +218,7 @@ steps:
 
           operations = [
               CreateMissingMirroredTable('Shard'),
-              CreateMissingMirroredTable('OrganizationShard'),
+              CreateMissingMirroredTable('TenantShard'),
           ]
 
    List the Shard model before the mapping model, because the foreign key of the mapping model refers to the shard

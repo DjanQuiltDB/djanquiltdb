@@ -50,7 +50,7 @@ while that shard is in maintenance::
 
 
     send_invoice.for_shard(shard).delay(invoice_id=12)
-    send_invoice.delay(invoice_id=12, tenant_id=3)
+    send_invoice.delay(invoice_id=12, tenant_slug='acme')
 
 A task that is decorated with ``shared_task_for_node`` runs in the public schema of the node that its ``node_name``
 identifies. A task that is decorated with ``shared_task_for_active_shard`` runs in the shard that is active where the

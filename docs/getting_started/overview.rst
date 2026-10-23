@@ -88,12 +88,13 @@ mapping table.
    :alt: Mapping table
    :align: center
 
-This table is essentially a lookup table to know which tenant lives on which shard. This table is created by the
-library user, but has certain formatting rules. It must have a relation to the Shard model, and a field on which we
-map our top-level object. ``user_id`` is an example. With this model we can ask for our shard for user '1', etc.
+This table is essentially a lookup table to know which tenant lives on which shard, so that several tenants can share
+one. This table is created by the library user, but has certain formatting rules. It must have a relation to the Shard
+model, and a field on which we map our top-level object, such as the slug of a tenant. With this model we can ask for
+the shard of tenant 'acme', etc. See :doc:`/guides/mapping_model`.
 
-.. note:: A detail here: this mapping field is not a relation/foreign-key. Just an integer field containing unique
-  values. As to why: see :ref:`the-complication` for details.
+.. note:: A detail here: this mapping field is not a relation/foreign-key to the top-level object. Just a field
+  containing unique values. As to why: see :ref:`the-complication` for details.
 
 Shared data and schema selection
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

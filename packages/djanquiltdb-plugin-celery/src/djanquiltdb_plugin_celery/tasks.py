@@ -96,7 +96,7 @@ class QuiltTask(DjangoTask):
         """
         Returns the shard or node that the arguments identify, as ``runs_in`` says, or None: a keyword argument that
         identifies the target, or a positional argument for a parameter of the function that does, such as the
-        ``tenant_id`` of ``send_invoice(tenant_id, invoice_id)``.
+        ``tenant_slug`` of ``send_invoice(tenant_slug, invoice_id)``.
         """
         target_kwargs = self.target_kwargs()
         positional_targets = {
@@ -263,7 +263,7 @@ class QuiltTask(DjangoTask):
         """
         Returns a :class:`TaskSenderForTarget` that sends this task to a shard: ``shard``, which is a shard or its
         primary key, or the shard of the mapping value that is passed by the keyword argument for a mapping value, such
-        as ``tenant_id``. The shard takes precedence over the shard that is active where the task is sent. Raises
+        as ``tenant_slug``. The shard takes precedence over the shard that is active where the task is sent. Raises
         TaskShardError when the method receives no shard or two shards, and TypeError for a task that runs on a node,
         for an instance of another model, and for another keyword argument.
 
@@ -271,7 +271,7 @@ class QuiltTask(DjangoTask):
             .. code-block:: python
 
                 send_invoice.for_shard(shard).delay(invoice_id=12)
-                send_invoice.for_shard(tenant_id=3).apply_async(kwargs={'invoice_id': 12}, countdown=60)
+                send_invoice.for_shard(tenant_slug='acme').apply_async(kwargs={'invoice_id': 12}, countdown=60)
         """
         if self.runs_in == 'node':
             raise TypeError(

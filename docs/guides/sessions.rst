@@ -18,8 +18,8 @@ mirrored.
 How a session finds its shard
 -----------------------------
 
-Each session has a shard selector: the mapping value of the shard that the session is in, such as the id of the
-organization of its user. The backend puts the selector in the session key. A session key is the text
+Each session has a shard selector: the mapping value of the tenant whose shard the session is in, such as the slug of
+the tenant. The backend puts the selector in the session key. A session key is the text
 ``S<selector>K<random part>``, signed with Django's signing module and the salt ``djanquiltdb.sessions``, so the backend
 reads the selector from the cookie alone, before any shard is active, and nobody can change the selector without
 breaking the signature. The signature expires after ``SESSION_COOKIE_AGE``, as the cookie does.
@@ -65,11 +65,13 @@ the ``SESSION_ENGINE``::
 
     QUILT_SESSIONS = {
         'SESSION_MODEL': 'myapp.models.QuiltSession',
+        # The tenants are mapped by slug. See the format of the shard selector below.
+        'SHARD_SELECTOR_REGEX': '[-a-z0-9]+',
     }
 
     QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
-        'MAPPING_MODEL': 'myapp.models.OrganizationShard',
+        'MAPPING_MODEL': 'myapp.models.TenantShard',
         'OVERRIDE_SHARDING_MODE': {
             ...
             ('sessions',): ShardingMode.SHARDED,
@@ -106,12 +108,12 @@ A new session has no selector until you give it one. Set it when the user logs i
 
 
     def login_view(request):
-        organization_id = ...  # For example from a field of the login form.
+        tenant_slug = ...  # For example from a field of the login form, or from the subdomain.
 
-        with use_shard_for(organization_id):
+        with use_shard_for(tenant_slug):
             user = authenticate(request, username=..., password=...)
             if user is not None:
-                request.session.shard_selector = organization_id
+                request.session.shard_selector = tenant_slug
                 login(request, user)
         ...
 
@@ -120,8 +122,8 @@ be set first.
 
 ``shard_selector`` is an attribute of the session, not an item in it: ``request.session['shard_selector']`` is an
 ordinary session value, which the backend does not read. Setting the attribute raises ``ImproperlyConfigured`` when the
-value does not match ``SHARD_SELECTOR_REGEX``. The selector that the backend reads back from a session key is text, such
-as ``'42'``.
+value does not match ``SHARD_SELECTOR_REGEX``. The selector that the backend reads back from a session key is text, also
+when the mapping values are numbers: ``42`` comes back as ``'42'``.
 
 The backend reads and writes each session in the shard of its selector, so it cannot save a session that has none: the
 save raises the ``DoesNotExist`` of the mapping model. Do not write to the session of a visitor before the selector is
@@ -133,13 +135,16 @@ The format of the shard selector
 --------------------------------
 
 The selector has to match ``SHARD_SELECTOR_REGEX`` in ``QUILT_SESSIONS``, which is ``'[0-9]+'`` by default: the values
-of a mapping field that holds integer ids. Change it when the mapping values are something else. For UUIDs, for
-example::
+of a mapping field that holds integer ids. Change it when the mapping values are something else. For the slugs of
+tenants, for example::
 
     QUILT_SESSIONS = {
         'SESSION_MODEL': 'myapp.models.QuiltSession',
-        'SHARD_SELECTOR_REGEX': '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+        'SHARD_SELECTOR_REGEX': '[-a-z0-9]+',
     }
+
+That regular expression matches lowercase slugs. A mapping field whose slugs can have uppercase letters needs one that
+matches those, and then another delimiter than ``K`` too.
 
 ``SESSION_KEY_DELIMITER`` separates the selector from the random part of a session key, and is ``'K'`` by default. The
 backend has to tell where the selector ends, so the regular expression must not match the delimiter, or a selector

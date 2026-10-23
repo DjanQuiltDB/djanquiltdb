@@ -30,15 +30,15 @@ the wanted shard from mapping table automatically.
     # settings
     QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
-        'MAPPING_MODEL': 'myapp.models.MyMappingModel',
+        'MAPPING_MODEL': 'myapp.models.TenantShard',
     }
 
     # myapp.models
     @mirrored_model()
-    @shard_mapping_model(mapping_field='organization_id')
-    class OrganizationShard(models.Model):
-        shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
-        organization_id = models.PositiveSmallIntegerField(db_index=True)
+    @shard_mapping_model(mapping_field='tenant_slug')
+    class TenantShard(models.Model):
+        shard = models.ForeignKey('myapp.Shard', on_delete=models.CASCADE)
+        tenant_slug = models.SlugField(unique=True)
         state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
         objects = MappingQuerySet.as_manager()
@@ -46,8 +46,8 @@ the wanted shard from mapping table automatically.
     # myapp.views
     from djanquiltdb.utils import use_shard_for
 
-    with use_shard_for(user.organization_id):
-        # do things on my shard
+    with use_shard_for('acme'):
+        ...  # Queries of sharded models run in the shard of the tenant acme.
 
 Decorate the mapping model with ``@mirrored_model()``, like the Shard model, so that every node has the mapping table.
 :doc:`/guides/mapping_model` explains what the mapping model is for, and the fields that it needs.

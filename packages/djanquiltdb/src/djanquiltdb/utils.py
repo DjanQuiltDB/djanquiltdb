@@ -429,7 +429,7 @@ def get_shard_for(target_value, active_only=True, field=None):
             # settings
             QUILT_DB = {
                 'SHARD_CLASS': 'myapp.models.Shard',
-                'MAPPING_MODEL': 'myapp.models.MyMappingModel',
+                'MAPPING_MODEL': 'myapp.models.TenantShard',
             }
 
             # myapp.models
@@ -445,12 +445,12 @@ def get_shard_for(target_value, active_only=True, field=None):
 
 
             @mirrored_model()
-            @shard_mapping_model(mapping_field='organization_id')
-            class OrganizationShard(models.Model):
-                shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
-                organization_id = models.PositiveSmallIntegerField(db_index=True)
+            @shard_mapping_model(mapping_field='tenant_slug')
+            class TenantShard(models.Model):
+                shard = models.ForeignKey('myapp.Shard', on_delete=models.CASCADE)
+                tenant_slug = models.SlugField(unique=True)
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
-                slug = models.SlugField(unique=True)
+                tenant_uuid = models.UUIDField(unique=True)
 
                 objects = MappingQuerySet.as_manager()
 
@@ -461,9 +461,9 @@ def get_shard_for(target_value, active_only=True, field=None):
             # myapp.views
             from djanquiltdb.utils import get_shard_for
 
-            print(get_shard_for(user.organization.id))  # <class 'myapp.models.Shard'>
-            print(get_shard_for(user.organization.id, active_only=True))  # StateException if state is not active
-            print(get_shard_for(user.organization.id, field='slug'))  # <class 'myapp.models.Shard'>
+            print(get_shard_for('acme'))  # <class 'myapp.models.Shard'>
+            print(get_shard_for('acme', active_only=True))  # StateException if state is not active
+            print(get_shard_for(tenant.uuid, field='tenant_uuid'))  # <class 'myapp.models.Shard'>
 
     """
     mapping_model = get_mapping_class()
@@ -514,7 +514,7 @@ class use_shard_for(use_shard):
             # Settings
             QUILT_DB = {
                 'SHARD_CLASS': 'myapp.models.Shard',
-                'MAPPING_MODEL': 'myapp.models.MyMappingModel',
+                'MAPPING_MODEL': 'myapp.models.TenantShard',
             }
 
             # myapp.models
@@ -530,10 +530,10 @@ class use_shard_for(use_shard):
 
 
             @mirrored_model()
-            @shard_mapping_model(mapping_field='organization_id')
-            class OrganizationShard(models.Model):
-                shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
-                organization_id = models.PositiveSmallIntegerField(db_index=True)
+            @shard_mapping_model(mapping_field='tenant_slug')
+            class TenantShard(models.Model):
+                shard = models.ForeignKey('myapp.Shard', on_delete=models.CASCADE)
+                tenant_slug = models.SlugField(unique=True)
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
                 objects = MappingQuerySet.as_manager()
@@ -545,8 +545,8 @@ class use_shard_for(use_shard):
             # myapp.views
             from djanquiltdb.utils import use_shard_for
 
-            with use_shard_for(user.organization.id):
-                ...  # Do things on my shard
+            with use_shard_for('acme'):
+                ...  # Do things on the shard of the tenant acme
 
     """
 

@@ -26,7 +26,7 @@ the method of the task.
 
 
     send_invoice.for_shard(shard).delay(invoice_id=12)
-    send_invoice.for_shard(tenant_id=3).apply_async(kwargs={'invoice_id': 12}, countdown=60)
+    send_invoice.for_shard(tenant_slug='acme').apply_async(kwargs={'invoice_id': 12}, countdown=60)
 
 ``delay_for_shard()``, ``apply_async_for_shard()``, ``delay_on_commit_for_shard()`` and
 ``apply_async_on_commit_for_shard()`` do the same in one call. They take a shard or its primary key as their first
@@ -40,22 +40,22 @@ argument, and the arguments of the method without ``_for_shard`` after it:
 The keyword arguments of the task can identify the shard too:
 
 * ``shard_id`` identifies a shard by its primary key.
-* The mapping field of the ``MAPPING_MODEL``, such as ``tenant_id``, identifies a shard by its mapping value. A
-  mapping value, such as the id of a tenant, is a value of that field, and the ``MAPPING_MODEL`` maps it to a
+* The mapping field of the ``MAPPING_MODEL``, such as ``tenant_slug``, identifies a shard by its mapping value. A
+  mapping value, such as the slug of a tenant, is a value of that field, and the ``MAPPING_MODEL`` maps it to a
   shard. The task enters that shard with ``use_shard_for()``, which also checks the state of the mapping. In a project
   that has a ``MAPPING_MODEL``, ``QUILT_CELERY['MAPPING_KWARG']`` can be set to another keyword argument for the mapping
   value.
 
 .. code-block:: python
 
-    send_invoice.delay(invoice_id=12, tenant_id=3)
+    send_invoice.delay(invoice_id=12, tenant_slug='acme')
 
 A keyword argument whose value is None does not identify a shard. ``node_name`` is an ordinary keyword argument for a
 task of ``shared_task_for_shard``, and does not identify its target.
 
 A function that declares ``shard_id`` or the keyword argument for a mapping value can also receive it by position, as
-any argument of a function can be passed, so ``send_invoice_of_tenant(tenant_id, invoice_id)`` is sent as
-``send_invoice_of_tenant.delay(3, 12)``. A task that runs once in every shard is the exception: its fan-out sends
+any argument of a function can be passed, so ``send_invoice_of_tenant(tenant_slug, invoice_id)`` is sent as
+``send_invoice_of_tenant.delay('acme', 12)``. A task that runs once in every shard is the exception: its fan-out sends
 ``shard_id`` by keyword, so a positional argument is never its target.
 
 Sending the task without a shard, or with two shards, raises ``TaskShardError`` at the call, before anything is
@@ -64,7 +64,7 @@ keyword arguments have a ``node_name``, the message of the error points at ``sha
 the options of ``celery.shared_task()``, such as ``name``, ``queue`` and ``bind``. A function that is decorated with
 ``bind=True`` receives the task as its first argument, as with Celery's own decorator.
 
-Calling the task as a function, as ``send_invoice(invoice_id=12, tenant_id=3)``, runs the function in the shard of
+Calling the task as a function, as ``send_invoice(invoice_id=12, tenant_slug='acme')``, runs the function in the shard of
 its keyword arguments too, without sending a message.
 
 
@@ -73,8 +73,8 @@ What the function receives
 
 The function receives a keyword argument that identifies the target only when the function declares that keyword
 argument by name. ``**kwargs`` does not receive it. So ``send_invoice(invoice_id)`` above takes no ``shard_id`` and no
-``tenant_id``. When the task is sent, its arguments are checked against the function in the form in which the function
-receives them, so ``send_invoice.delay(invoice_id=12, tenant_id=3)`` passes the check, and
+``tenant_slug``. When the task is sent, its arguments are checked against the function in the form in which the function
+receives them, so ``send_invoice.delay(invoice_id=12, tenant_slug='acme')`` passes the check, and
 ``send_invoice.delay(12, 13)`` raises ``TypeError``. A task that is decorated with ``typing=False`` is sent without this
 check, as with Celery's own decorator.
 
@@ -143,8 +143,8 @@ anything is published:
 
 .. code-block:: python
 
-    chain(import_invoices.si(tenant_id=3), send_invoices.si(tenant_id=3)).delay()  # both run in the shard
-    chain(import_invoices.si(tenant_id=3), send_invoices.si()).delay()  # TaskShardError
+    chain(import_invoices.si(tenant_slug='acme'), send_invoices.si(tenant_slug='acme')).delay()  # both run in the shard
+    chain(import_invoices.si(tenant_slug='acme'), send_invoices.si()).delay()  # TaskShardError
 
 A message that is not sent through the task, such as a message from ``app.send_task('myapp.tasks.send_invoice', ...)``,
 has no target header. The worker then reads the target from the arguments of the message, and fails with
@@ -153,7 +153,7 @@ has no target header. The worker then reads the target from the arguments of the
 During a rolling deploy, the workers of one release read the messages that the other release queued, and the plugin
 does not translate those messages. A message that a release before the plugin queued has no target header, so it fails
 with ``TaskShardError`` or ``TaskNodeError`` on a worker with the plugin, unless its arguments identify the target, for
-example a task that already took ``tenant_id``. A message whose arguments no longer fit the function of the task fails
+example a task that already took ``tenant_slug``. A message whose arguments no longer fit the function of the task fails
 on the worker, as with any Celery task whose parameters change. The plugin accepts that a deploy can lose such a
 message: keep the window short, and write tasks that are safe to lose and to run again.
 

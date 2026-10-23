@@ -113,7 +113,7 @@ Here's an example JSON fixture file that loads data into multiple schemas:
 
     [
       {
-        "model": "example.Organization",
+        "model": "example.Tenant",
         "pk": 1,
         "fields": {
           "name": "The Empire"
@@ -126,12 +126,12 @@ Here's an example JSON fixture file that loads data into multiple schemas:
         "fields": {
           "name": "Sheev Palpatine",
           "email": "s.palpatine@sith.sw",
-          "organization": 1
+          "tenant": 1
         },
         "_schema": "empire_schema"
       },
       {
-        "model": "example.Organization",
+        "model": "example.Tenant",
         "pk": 2,
         "fields": {
           "name": "The Rebel Alliance"
@@ -144,7 +144,7 @@ Here's an example JSON fixture file that loads data into multiple schemas:
         "fields": {
           "name": "Mon Mothma",
           "email": "m.mothma@alliance.sw",
-          "organization": 2
+          "tenant": 2
         },
         "_schema": "alliance_schema"
       },
@@ -159,7 +159,7 @@ Here's an example JSON fixture file that loads data into multiple schemas:
 
 In this example:
 
-* The first two entries (Organization and User) are loaded into the ``empire_schema`` shard
+* The first two entries (Tenant and User) are loaded into the ``empire_schema`` shard
 * The next two entries are loaded into the ``alliance_schema`` shard
 * The last entry (Type) has no ``_schema`` property, so it's loaded into the default schema
 
@@ -170,7 +170,7 @@ The same fixture can be written in YAML format:
 
 .. code-block:: yaml
 
-    - model: example.Organization
+    - model: example.Tenant
       pk: 1
       fields:
         name: The Empire
@@ -180,9 +180,9 @@ The same fixture can be written in YAML format:
       fields:
         name: Sheev Palpatine
         email: s.palpatine@sith.sw
-        organization: 1
+        tenant: 1
       _schema: empire_schema
-    - model: example.Organization
+    - model: example.Tenant
       pk: 2
       fields:
         name: The Rebel Alliance
@@ -192,7 +192,7 @@ The same fixture can be written in YAML format:
       fields:
         name: Mon Mothma
         email: m.mothma@alliance.sw
-        organization: 2
+        tenant: 2
       _schema: alliance_schema
     - model: example.Type
       pk: 1

@@ -149,7 +149,7 @@ def shared_task_for_shard(func=None, *, inherit_active_shard=False, lock=None, *
     """
     Turns a function into a Celery task that runs in a shard: the shard that ``for_shard()`` is given, else the shard
     that its keyword arguments identify. That shard is the target of the task. ``shard_id`` identifies a shard by its
-    primary key. The mapping field of the ``MAPPING_MODEL``, such as ``tenant_id``, identifies a shard by its
+    primary key. The mapping field of the ``MAPPING_MODEL``, such as ``tenant_slug``, identifies a shard by its
     mapping value, and ``QUILT_CELERY['MAPPING_KWARG']`` can set another keyword argument for the mapping value.
 
     The function receives ``shard_id`` and the keyword argument for a mapping value only when it declares them by name,
@@ -187,7 +187,7 @@ def shared_task_for_shard(func=None, *, inherit_active_shard=False, lock=None, *
 
             send_invoice.for_shard(shard).delay(invoice_id=12)
             send_invoice.delay_for_shard(shard, invoice_id=12)  # the same
-            send_invoice.delay(invoice_id=12, tenant_id=3)
+            send_invoice.delay(invoice_id=12, tenant_slug='acme')
     """
     task_attributes = {'runs_in': 'shard', 'lock_target': lock, 'inherit_active_shard': inherit_active_shard}
 

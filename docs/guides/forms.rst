@@ -19,7 +19,7 @@ When using a model form, you can inherit from ``djanquiltdb.forms.ModelForm`` in
     class UserForm(ModelForm):
         class Meta:
             model = User
-            fields = ['organization', 'type']
+            fields = ['tenant', 'type']
 
 
 You can also use the ``djanquiltdb.forms.ModelFormMetaClass`` metaclass if you don't use the default Django model form.
@@ -39,4 +39,4 @@ For example, when using floppyforms:
     class UserForm(FloppyModelForm):
         class Meta:
             model = User
-            fields = ['organization', 'type']
+            fields = ['tenant', 'type']

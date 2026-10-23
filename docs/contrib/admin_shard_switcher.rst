@@ -16,7 +16,7 @@ allowing administrators to easily switch between shards while browsing the admin
     from django.db import OperationalError
 
     from djanquiltdb.utils import StateException, use_shard_for
-    from myapp.models import OrganizationShard
+    from myapp.models import TenantShard
 
     class CustomAdminAuthenticationForm(AuthenticationForm):
         shard_identifying_field = ...
@@ -31,7 +31,7 @@ allowing administrators to easily switch between shards while browsing the admin
 
                     with use_shard_for(shard_selector):
                         return super().clean()
-            except (OrganizationShard.DoesNotExist, StateException, OperationalError):
+            except (TenantShard.DoesNotExist, StateException, OperationalError):
                 raise ValidationError(self.error_messages['invalid_login'], code='invalid_login')
 
     admin.site.login_form = CustomAdminAuthenticationForm
@@ -97,7 +97,7 @@ session and will be used by your shard middleware for subsequent requests.
 The dropdown shows:
 
 - Shard alias
-- Node name and schema name (e.g., ``default|org_1_schema``)
+- Node name and schema name (e.g., ``default|shard_1_schema``)
 - Current selection is highlighted
 
 Selecting no shard clears the shard selection and returns to the default behavior.

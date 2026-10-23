@@ -283,12 +283,12 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
 
 
             @mirrored_model()
-            @shard_mapping_model(mapping_field='organization_id')
-            class ShardMapping(models.Model):
-                # List every organization in this model, so you can easily request in which shard they live.
+            @shard_mapping_model(mapping_field='tenant_slug')
+            class TenantShard(models.Model):
+                # List every tenant in this model, so you can easily request in which shard they live.
                 shard = models.ForeignKey('Shard', verbose_name='shard', on_delete=models.CASCADE)
-                organization_name = models.CharField('organization name', max_length=100)
-                organization_id = models.PositiveIntegerField(_('organization id'))
+                tenant_name = models.CharField('tenant name', max_length=100)
+                tenant_slug = models.SlugField(_('tenant slug'), unique=True)
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
                 objects = MappingQuerySet.as_manager()
@@ -298,7 +298,7 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
 
 
             @sharded_model()
-            class Organization(models.Model):
+            class Tenant(models.Model):
                 name = models.CharField('name', max_length=100)
                 created_at = models.DateTimeField(_('created at'), null=True, blank=True, default=timezone.now)
 
@@ -406,7 +406,7 @@ def sharded_model():
 
 
             @sharded_model()
-            class Organization(models.Model):
+            class Tenant(models.Model):
                 name = models.CharField('name', max_length=100)
                 created_at = models.DateTimeField(_('created at'), null=True, blank=True, default=timezone.now)
 
