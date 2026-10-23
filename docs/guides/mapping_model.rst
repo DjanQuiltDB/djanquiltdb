@@ -21,10 +21,10 @@ Why a mapping model
 * **Each tenant has a state.** A move puts the row of the tenant in maintenance while it runs, and the other tenants of
   both shards keep working.
 
-The mapping model is optional. A project without one enters shards by the shard itself or by its id, with
-``use_shard()``. That suits a project with one tenant per shard that names the shard after the tenant, or a project
-that keeps the shard id where it needs it. The session backend ``djanquiltdb.sessions`` finds the shard of a session
-through the mapping model, so a project without one handles its sessions itself (see :doc:`/guides/sessions`).
+The mapping model is optional, but strongly recommended for convenience. A project without one enters shards by the
+shard itself or by its id, with ``use_shard()``, which can suit a project with one tenant per shard that names the shard
+after the tenant. A mapping model is required when using the session backend ``djanquiltdb.sessions``, because that
+finds the shard of a session through it (see :doc:`/guides/sessions`).
 
 
 Defining the mapping model

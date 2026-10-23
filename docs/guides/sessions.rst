@@ -4,8 +4,9 @@
 Sessions
 ========
 
-DjanQuiltDB comes with a session backend, ``djanquiltdb.sessions``, that keeps each session in the shard of its user. We
-strongly recommend it to every project that has logins.
+If your sharded project uses sessions, use DjanQuiltDB's session backend, ``djanquiltdb.sessions``, which keeps each
+session in the shard of its tenant. :doc:`/getting_started/installation` includes its settings; this guide describes
+them in full.
 
 Django's session backends that use the database keep every session in one table. In a sharded project, the session is
 what tells the project which shard a request belongs to, so the session is read before any shard is active. A session
@@ -163,8 +164,8 @@ Expired sessions
 ----------------
 
 Django's ``clearsessions`` command works with this backend: it walks every ``ACTIVE`` shard and deletes the expired
-sessions in it. Shards that are in maintenance, because they are being moved or purged, are skipped, and their expired
-sessions are deleted on the next run.
+sessions in it. Shards that are in maintenance, because they are being moved, are skipped, and their expired sessions
+are deleted on the next run.
 
 
 Moving data

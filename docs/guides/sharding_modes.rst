@@ -35,7 +35,7 @@ models that a new Django project has in ``INSTALLED_APPS``::
         'OVERRIDE_SHARDING_MODE': {
             ('auth',): ShardingMode.MIRRORED,
             ('contenttypes',): ShardingMode.MIRRORED,
-            ('admin',): ShardingMode.SHARDED,
+            ('admin', 'logentry'): ShardingMode.SHARDED,
             # Unused with the djanquiltdb.sessions backend, see the Sessions guide.
             ('sessions',): ShardingMode.SHARDED,
         },
@@ -43,7 +43,8 @@ models that a new Django project has in ``INSTALLED_APPS``::
 
 The permissions of ``auth`` refer to the content types, so both are mirrored. The admin log is sharded, so each shard
 keeps the log of the changes made in it, and its foreign key to the user also works when the project has a sharded user
-model. :ref:`session_backend_setup` explains the mode of ``sessions``.
+model. :ref:`session_backend_setup` explains the mode of ``sessions``. These are the settings of
+:doc:`/getting_started/installation`.
 
 Every model needs a mode. A model without one fails the system check ``djanquiltdb.E004`` (see
 :doc:`/reference/checks`).
