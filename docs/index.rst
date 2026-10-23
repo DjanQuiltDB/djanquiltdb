@@ -21,6 +21,7 @@ Release |version|.
     guides/mapping_model
     guides/queries
     guides/requests
+    guides/sessions
     guides/forms
     guides/migrations
     guides/fixtures

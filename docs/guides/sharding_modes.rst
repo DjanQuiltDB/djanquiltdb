@@ -25,15 +25,25 @@ Special decorator:
 :ref:`More info <api_decorators>` on decorators and how to use them.
 
 The models of a third-party app get their mode from the ``OVERRIDE_SHARDING_MODE`` setting (see
-:doc:`/reference/settings`), which maps an app, or a model of an app, to a mode::
+:doc:`/reference/settings`), which maps an app, or a model of an app, to a mode. These are the modes for the apps with
+models that a new Django project has in ``INSTALLED_APPS``::
+
+    from djanquiltdb import ShardingMode
 
     QUILT_DB = {
         ...
         'OVERRIDE_SHARDING_MODE': {
             ('auth',): ShardingMode.MIRRORED,
+            ('contenttypes',): ShardingMode.MIRRORED,
             ('admin',): ShardingMode.SHARDED,
+            # Unused with the djanquiltdb.sessions backend, see the Sessions guide.
+            ('sessions',): ShardingMode.SHARDED,
         },
     }
+
+The permissions of ``auth`` refer to the content types, so both are mirrored. The admin log is sharded, so each shard
+keeps the log of the changes made in it, and its foreign key to the user also works when the project has a sharded user
+model. :ref:`session_backend_setup` explains the mode of ``sessions``.
 
 Every model needs a mode. A model without one fails the system check ``djanquiltdb.E004`` (see
 :doc:`/reference/checks`).
@@ -73,8 +83,6 @@ fail on every other node, a model on a single node is queried on its node from e
 the table on another node when ``PRIMARY_DB_ALIAS`` does not name ``default``, so move the table there before the
 project uses it.
 
-Sessions belong in a shard. ``SESSION_ENGINE = 'djanquiltdb.sessions'`` stores them in a sharded model of the project
-(see :doc:`/guides/requests`). ``django.contrib.sessions`` usually stays installed for its ``clearsessions`` command, and
-its own ``Session`` model, which that engine does not use, needs a mode too: ``('sessions',): ShardingMode.SHARDED``
-leaves an empty table in each shard. A project that still uses Django's database session backend while it moves to
-DjanQuiltDB can keep that table on one node with ``single_node_unsharded()`` until it switches.
+A project that still uses Django's database session backend while it moves to DjanQuiltDB can keep the table of that
+backend on one node with ``('sessions',): single_node_unsharded(node=...)`` until it switches to the
+``djanquiltdb.sessions`` backend (see :doc:`/guides/sessions`).

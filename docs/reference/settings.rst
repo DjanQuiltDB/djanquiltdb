@@ -75,8 +75,9 @@ connection error. Without them, the middleware returns a plain 503 response. See
 
 SESSION_SHARD_SELECTOR_KEY
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
-The session key that ``UseShardMiddleware`` and ``UseShardForMiddleware`` read the shard selector from. Defaults to
-``shard_selector``, which is the key that the ``djanquiltdb.sessions`` backend uses. See :ref:`session_backend`.
+The attribute of the session that ``UseShardMiddleware`` and ``UseShardForMiddleware`` read the shard selector from.
+Defaults to ``shard_selector``, which is the attribute that the ``djanquiltdb.sessions`` backend provides. See
+:doc:`/guides/sessions`.
 
 OVERRIDE_SHARDING_MODE
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -244,12 +245,12 @@ So set ``djanquiltdb.router.DynamicDbRouter`` in ``DATABASE_ROUTERS`` in the set
 QUILT_SESSIONS
 --------------
 
-The settings of the ``djanquiltdb.sessions`` session backend. See :ref:`session_backend` for how to set it up.
+The settings of the ``djanquiltdb.sessions`` session backend. See :doc:`/guides/sessions` for how to set it up.
 
 ``SESSION_MODEL``
-    Required. The dotted path of the project's session model, a subclass of ``BaseQuiltSession``.
+    Required. The dotted path of the project's session model, a sharded subclass of ``BaseQuiltSession``.
 ``SHARD_SELECTOR_REGEX``
-    The regular expression that a shard selector value has to match. Defaults to ``'[0-9]+'``.
+    The regular expression that a shard selector, a mapping value, has to match. Defaults to ``'[0-9]+'``.
 ``SESSION_KEY_DELIMITER``
     The text that separates the shard selector from the rest of a session key. Defaults to ``'K'``, and must be text
     that ``SHARD_SELECTOR_REGEX`` does not match.

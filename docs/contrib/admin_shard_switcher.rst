@@ -25,7 +25,7 @@ allowing administrators to easily switch between shards while browsing the admin
             shard_selector = ...
 
             try:
-                # Assuming you're using djanquiltdb.sessions backend
+                # Assuming you're using the djanquiltdb.sessions backend, see the Sessions guide
                 if self.request is not None:
                     self.request.session.shard_selector = shard_selector
 
@@ -103,7 +103,7 @@ The dropdown shows:
 Selecting no shard clears the shard selection and returns to the default behavior.
 
 If you are not using a default ``UseShardMiddleware``/``UseShardForMiddleware`` or have a non-standard session backend
-(i.e. not ``djanquiltdb.sessions``), it might be necessary to customize the ``AdminOverrideMiddleware``, the setting
+(i.e. not ``djanquiltdb.sessions``, see :doc:`/guides/sessions`), it might be necessary to customize the ``AdminOverrideMiddleware``, the setting
 ``OVERRIDE_SHARD_SELECTOR_KEY`` under ``QUILT_ADMIN``, or define a custom ``SHARD_SELECTOR`` class that subclasses
 ``djanquiltdb.contrib.quilt_admin.shard_selector.BaseAdminShardSelector``. If this is required, refer to the code for
 more details and reference implementations.

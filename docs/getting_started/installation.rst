@@ -176,5 +176,49 @@ the right node, and set ``SHARD_CLASS`` in ``QUILT_DB`` to the shard model that 
     }
 
 These are the settings that every project needs. A project that has mirrored models also has to set
-``PRIMARY_DB_ALIAS``. :doc:`/reference/settings` describes all of the settings, and :doc:`/guides/requests` describes
-the middleware that selects a shard for each request.
+``PRIMARY_DB_ALIAS``. :doc:`/reference/settings` describes all of the settings, :doc:`/guides/requests` describes
+the middleware that selects a shard for each request, and :doc:`/guides/sessions` describes the session backend below.
+
+
+Sessions
+--------
+
+We strongly recommend that a project with logins replaces Django's session backend with ``djanquiltdb.sessions``, which
+keeps each session in the shard of its user. Django's database backends keep the sessions of every shard in one table,
+and DjanQuiltDB refuses Django's ``cached_db`` backend at startup when the user model is sharded or mirrored.
+
+The backend stores sessions in a sharded model of the project, a subclass of ``BaseQuiltSession``. Add it next to the
+``Shard`` model, and run ``python manage.py makemigrations`` again::
+
+    from djanquiltdb.decorators import sharded_model
+    from djanquiltdb.models import BaseQuiltSession
+
+
+    @sharded_model()
+    class QuiltSession(BaseQuiltSession):
+        class Meta:
+            app_label = 'myapp'
+
+Then make it the session backend. It finds the shard of a session through the mapping model (see
+:doc:`/guides/mapping_model`), so the project needs one. Keep ``django.contrib.sessions`` installed for its
+``clearsessions`` command, and give its unused ``Session`` model a mode::
+
+    from djanquiltdb import ShardingMode
+
+    SESSION_ENGINE = 'djanquiltdb.sessions'
+
+    QUILT_SESSIONS = {
+        'SESSION_MODEL': 'myapp.models.QuiltSession',
+    }
+
+    QUILT_DB = {
+        'SHARD_CLASS': 'myapp.models.Shard',
+        'MAPPING_MODEL': 'myapp.models.OrganizationShard',
+        'OVERRIDE_SHARDING_MODE': {
+            ...
+            ('sessions',): ShardingMode.SHARDED,
+        },
+    }
+
+The login flow has to give each session its shard selector before the user logs in. :doc:`/guides/sessions` describes
+how, and the format of the selector, the middleware that reads it, and expired sessions.

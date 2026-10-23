@@ -120,58 +120,11 @@ fashion as the ``BaseUseShardMiddleware``. The only difference is that you now h
             return request.session.get('mapping_value')
 
 
-.. _session_backend:
+Reading the shard selector from the session
+-------------------------------------------
 
-Storing the shard selector in the session
------------------------------------------
-
-If you want to store the value on the session, you can also use ``djanquiltdb.middleware.UseShardMiddleware`` or
-``djanquiltdb.middleware.UseShardForMiddleware`` directly; these assume the shard selector value is stored on the
-session with the key defined in the ``SESSION_SHARD_SELECTOR_KEY`` setting. The default is ``shard_selector``, which is
-compatible with the standard ``djanquiltdb.sessions`` backend. To configure this session backend, you need to make
-the following changes (assuming here that the session storage is under an app called ``users``):
-
-.. code-block:: python
-
-    # settings.py
-    SESSION_ENGINE = 'djanquiltdb.sessions'
-
-    QUILT_SESSIONS = {
-        # Required: Configure the session model
-        'SESSION_MODEL': 'users.models.QuiltSession',
-        # Optional: Regex pattern for validating shard selector values
-        'SHARD_SELECTOR_REGEX': '[0-9]+',
-        # Optional: Delimiter used in session keys to separate shard selector from session key (default: 'K')
-        'SESSION_KEY_DELIMITER': 'K',
-    }
-
-    # Optional: Customize the session key used by middleware to store shard selector (default: 'shard_selector')
-    QUILT_DB = {
-        'SHARD_CLASS': 'myapp.models.Shard',
-        'SESSION_SHARD_SELECTOR_KEY': 'shard_selector',  # Optional, defaults to 'shard_selector'
-    }
-
-    MIDDLEWARE = [
-        (...)
-        'django.contrib.sessions.middleware.SessionMiddleware',
-        'djanquiltdb.middleware.UseShardForMiddleware',
-        (...)
-    ]
-
-    # users/models.py
-    from djanquiltdb.models import BaseQuiltSession
-
-    @sharded_model()
-    class QuiltSession(BaseQuiltSession):
-        class Meta:
-            app_label = 'users'
-
-You would only need to change the ``SHARD_SELECTOR_REGEX`` if the primary key of your shard or mapping value is not a
-number. For example, if your shard selectors are UUIDs, you might use:
-``'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}'``. If your regular expression supports string values
-that may include ``K``, you also have to adjust the ``SESSION_KEY_DELIMITER`` to make sure it is a value that can't be
-matched by the regular expression.
-
-Django's ``clearsessions`` management command works with this backend: it walks every ``ACTIVE`` shard and deletes the
-expired sessions it holds. Shards that are in maintenance (mid-move, being purged) are skipped and picked up on the
-next run.
+``djanquiltdb.middleware.UseShardForMiddleware`` implements ``get_mapping_value()`` for you: it reads the shard selector
+from the ``shard_selector`` attribute of the session, which the ``djanquiltdb.sessions`` session backend provides.
+``djanquiltdb.middleware.UseShardMiddleware`` reads the same attribute as the id of a shard. ``SESSION_SHARD_SELECTOR_KEY``
+in ``QUILT_DB`` names another attribute. :doc:`/guides/sessions` describes the backend,
+and how the login flow sets the selector.
