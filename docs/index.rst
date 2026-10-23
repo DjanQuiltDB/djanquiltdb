@@ -18,9 +18,11 @@ Release |version|.
     :caption: Guides
 
     guides/sharding_modes
+    guides/shard_model
     guides/mapping_model
     guides/template_schema
     guides/queries
+    guides/transactions
     guides/requests
     guides/sessions
     guides/forms

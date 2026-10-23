@@ -94,7 +94,8 @@ Transactions
 
 .. currentmodule:: djanquiltdb.transaction
 
-Django's ``atomic`` binds to one connection; these resolve the connection the active shard is on first.
+Django's ``atomic`` binds to one connection; these resolve the connection the active shard is on first. See
+:doc:`/guides/transactions` for when each applies.
 
 .. autofunction:: atomic
 

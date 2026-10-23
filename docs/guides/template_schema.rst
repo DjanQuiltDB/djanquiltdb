@@ -11,7 +11,8 @@ What it is for
 --------------
 
 Creating a shard is a copy, not a run of the migrations. ``Shard.objects.create(...)`` clones the template schema of
-the node of the shard into a new schema, so a new shard does not replay the migration history of the project.
+the node of the shard into a new schema (see :doc:`/guides/shard_model`), so a new shard does not replay the migration
+history of the project.
 
 ``migrate`` keeps the template schemas up to date: it applies each migration to the public schema and to the template
 schema of every node first, and to the shards after that (see :doc:`/guides/migrations`). A shard created after a

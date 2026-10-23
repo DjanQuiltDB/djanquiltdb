@@ -173,7 +173,7 @@ be kept in sync by this method, so you can only do this if you are not relying o
 mechanisms.
 
 In case you want to handle this data writing yourself, refer to ``@transaction_for_every_node`` and
-``@atomic_write_to_every_node`` decorators as a starting point.
+``@atomic_write_to_every_node`` decorators as a starting point (see :doc:`/guides/transactions`).
 
 New shards
 ~~~~~~~~~~
