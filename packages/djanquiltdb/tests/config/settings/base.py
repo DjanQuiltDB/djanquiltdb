@@ -90,6 +90,9 @@ QUILT_DB = {
     'PRIMARY_DB_ALIAS': 'default',
     'NEW_SHARD_NODE': 'other',
     'SHARED_TEST_MIGRATION_STATES': True,
+    # The tests create the template schemas they need themselves, and many of them test migrate and schema cloning on a
+    # node without one, so the test databases are built without template schemas.
+    'AUTO_CREATE_TEMPLATE_SCHEMA': False,
     'OVERRIDE_SHARDING_MODE': {
         ('auth',): ShardingMode.MIRRORED,
         ('contenttypes',): ShardingMode.MIRRORED,

@@ -1892,6 +1892,116 @@ class SyncDbTestCase(MigrationTestCase):
             mock_signal.assert_called_once_with(verbosity, interactive, 'default', plan=mock.ANY)
 
 
+@override_settings(MIGRATION_MODULES={'migration_tests': 'migration_tests.test_migrations'})
+class AutoCreateTemplateSchemaTestCase(MigrationTestCase):
+    def setUp(self):
+        super().setUp()
+        connections['other'].delete_schema(get_template_name(), is_template=True)
+
+    def assertTemplateSchemaMigrated(self, node_name):
+        with use_shard(node_name=node_name, schema_name=get_template_name()) as env:
+            self.assertIn(('migration_tests', '0003_third'), MigrationRecorder(env.connection).applied_migrations())
+
+    def migrate(self, auto_create_template_schema, **options):
+        # The test project turns AUTO_CREATE_TEMPLATE_SCHEMA off, so each test names the value it migrates with.
+        with override_settings(
+            QUILT_DB={**settings.QUILT_DB, 'AUTO_CREATE_TEMPLATE_SCHEMA': auto_create_template_schema}
+        ):
+            call_command('migrate', verbosity=0, interactive=False, **options)
+
+    def test_migrate_creates_a_missing_template_schema(self):
+        """
+        Case: The other node has no template schema, and migrate runs with AUTO_CREATE_TEMPLATE_SCHEMA True, its
+              default.
+        Expected: migrate creates the template schema of the other node, and applies every migration to it, as it does
+                  to the template schema of the default node.
+        """
+        self.migrate(auto_create_template_schema=True)
+
+        self.assertTrue(schema_exists('other', get_template_name()))
+        self.assertTemplateSchemaMigrated('other')
+        self.assertTemplateSchemaMigrated('default')
+
+    def test_migrate_migrates_a_template_schema_that_it_creates_while_the_other_schemas_are_up_to_date(self):
+        """
+        Case: Every schema is migrated, the other node has no template schema, and migrate runs with
+              AUTO_CREATE_TEMPLATE_SCHEMA True.
+        Expected: migrate creates the template schema of the other node and applies every migration to it, although no
+                  other schema needs a migration.
+        """
+        self.migrate(auto_create_template_schema=False)
+
+        self.migrate(auto_create_template_schema=True)
+
+        self.assertTemplateSchemaMigrated('other')
+
+    def test_migrate_leaves_a_missing_template_schema_missing_when_the_setting_is_false(self):
+        """
+        Case: The other node has no template schema, and migrate runs with AUTO_CREATE_TEMPLATE_SCHEMA set to False.
+        Expected: The other node still has no template schema. The template schema of the default node is migrated.
+        """
+        self.migrate(auto_create_template_schema=False)
+
+        self.assertFalse(schema_exists('other', get_template_name()))
+        self.assertTemplateSchemaMigrated('default')
+
+    def test_migrate_creates_the_template_schema_of_each_node_that_it_migrates_once(self):
+        """
+        Case: migrate runs with AUTO_CREATE_TEMPLATE_SCHEMA True, once for every node and once with --database other.
+        Expected: create_template_schema() is called once for each node that migrate migrates, without migrating the
+                  schema: for every node, and then for the other node only.
+        """
+        with mock.patch(
+            'djanquiltdb.management.commands.migrate.create_template_schema'
+        ) as create_template_schema_mock:
+            self.migrate(auto_create_template_schema=True)
+
+        self.assertCountEqual(
+            create_template_schema_mock.call_args_list,
+            [mock.call(node_name=node_name, migrate=False) for node_name in get_all_databases()],
+        )
+
+        with mock.patch(
+            'djanquiltdb.management.commands.migrate.create_template_schema'
+        ) as create_template_schema_mock:
+            self.migrate(auto_create_template_schema=True, database='other')
+
+        self.assertEqual(create_template_schema_mock.call_args_list, [mock.call(node_name='other', migrate=False)])
+
+    def test_migrate_of_one_node_leaves_the_template_schema_of_another_node_missing(self):
+        """
+        Case: The other node has no template schema, and migrate runs for the default node only, with
+              AUTO_CREATE_TEMPLATE_SCHEMA True.
+        Expected: The other node has no template schema, because migrate does not migrate the other node, and a new
+                  shard on that node is cloned from its template schema. The template schema of the default node is
+                  migrated.
+        """
+        self.migrate(auto_create_template_schema=True, database='default')
+
+        self.assertFalse(schema_exists('other', get_template_name()))
+        self.assertTemplateSchemaMigrated('default')
+
+    def test_migrate_of_another_schema_leaves_the_template_schema_missing(self):
+        """
+        Case: The other node has no template schema, and migrate runs for the public schema of the other node only,
+              with AUTO_CREATE_TEMPLATE_SCHEMA True.
+        Expected: The other node has no template schema, because migrate does not migrate the template schema there.
+        """
+        self.migrate(auto_create_template_schema=True, database='other', schema_name='public')
+
+        self.assertFalse(schema_exists('other', get_template_name()))
+
+    def test_migrate_of_the_template_schema_creates_it(self):
+        """
+        Case: The other node has no template schema, and migrate runs for the template schema of the other node only,
+              with AUTO_CREATE_TEMPLATE_SCHEMA True.
+        Expected: migrate creates the template schema of the other node, and applies every migration to it.
+        """
+        self.migrate(auto_create_template_schema=True, database='other', schema_name=get_template_name())
+
+        self.assertTemplateSchemaMigrated('other')
+
+
 class StagesMigrationTestCase(ShardingTestCase):
     def test_no_shard_table(self):
         """

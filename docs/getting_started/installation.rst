@@ -28,29 +28,8 @@ Add ``djanquiltdb`` to your ``INSTALLED_APPS`` in ``settings.py``::
         ...
     )
 
-You will need to have a template schema on every node, which only has to be created once. For production purposes you
-really only need to run it once at initialization, and once whenever a new node is added, but for local development and
-testing purposes there can be a reason to run it more frequently. How you choose to set this up is considered up to
-personal preference, but an example implementation you can use to ensure that it is always present, including in test
-scenarios given default runners, is the following::
-
-   from django.db.models.signals import pre_migrate
-
-   from djanquiltdb.utils import create_template_schema, for_each_node
-
-   def create_template_schema_before_migrations(sender, **kwargs):
-       if sender.name != '<app in which you register this signal>':
-           # emit_pre_migrate_signal runs once per app; we only need it once total.
-           # Simply only run it for this app.
-           return
-
-       def _create_template_schema(node_name):
-           create_template_schema(node_name=node_name, migrate=False)
-
-       for_each_node(_create_template_schema)
-
-   # In the ready() method of the AppConfig of that app:
-   pre_migrate.connect(create_template_schema_before_migrations)
+Every node needs a template schema, which new shards are cloned from. ``migrate`` creates it on every node that has none
+(see :doc:`/guides/template_schema`).
 
 
 Optional extras

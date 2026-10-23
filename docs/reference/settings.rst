@@ -178,14 +178,28 @@ a ``default`` node. Even if the router will always route to the primary assigned
 TEMPLATE_NAME
 ~~~~~~~~~~~~~
 
-The name of the template schema each new shard is cloned from. It defaults to ``template`` and rarely needs
-changing; set it when that name collides with an existing schema in your database.
+The name of the template schema each new shard is cloned from (see :doc:`/guides/template_schema`). It defaults to
+``template`` and rarely needs changing; set it when that name collides with an existing schema in your database.
 
 .. code-block:: python
 
   QUILT_DB = {
       'SHARD_CLASS': 'myapp.models.Shard',
       'TEMPLATE_NAME': 'shard_template',
+  }
+
+AUTO_CREATE_TEMPLATE_SCHEMA
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Whether ``migrate`` creates the template schema of every node that it migrates and that has none, before it applies any
+migration. It defaults to ``True``. Set it to ``False`` for a project that creates its template schemas itself. See
+:doc:`/guides/template_schema`.
+
+.. code-block:: python
+
+  QUILT_DB = {
+      'SHARD_CLASS': 'myapp.models.Shard',
+      'AUTO_CREATE_TEMPLATE_SCHEMA': False,
   }
 
 DATABASE_CREATION_CLASS

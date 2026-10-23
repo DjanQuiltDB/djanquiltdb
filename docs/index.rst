@@ -19,6 +19,7 @@ Release |version|.
 
     guides/sharding_modes
     guides/mapping_model
+    guides/template_schema
     guides/queries
     guides/requests
     guides/sessions
