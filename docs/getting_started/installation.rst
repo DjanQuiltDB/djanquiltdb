@@ -5,6 +5,11 @@ Installation
 These steps set up a Django project with DjanQuiltDB, in this order: install the package, configure the project, write
 the models that the configuration names, and migrate. Each step links to the guide that covers it in full.
 
+.. warning::
+
+    DjanQuiltDB is not async-safe. If your project has async views, async middleware or Channels consumers, read
+    :doc:`/guides/async` first.
+
 .. _`install`:
 
 Installing djanquiltdb

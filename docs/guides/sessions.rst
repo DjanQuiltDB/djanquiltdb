@@ -36,6 +36,9 @@ cookie.
 The backend extends Django's ``cached_db`` backend, and reads sessions through the cache as that backend does. A session
 key is unique across shards, because it holds the selector, so the cache needs no changes.
 
+The async methods of the session, such as ``aget()`` and ``aflush()``, raise ``NotImplementedError``: Django's backend
+reads and writes the database in them without the sync methods that enter the shard (see :doc:`/guides/async`).
+
 
 .. _session_backend_setup:
 

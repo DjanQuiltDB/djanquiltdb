@@ -12,7 +12,7 @@ from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.module_loading import import_string
 
-from djanquiltdb.utils import State, for_each_shard, use_shard, use_shard_for
+from djanquiltdb.utils import NOT_ASYNC_SAFE, State, for_each_shard, use_shard, use_shard_for
 
 
 @functools.cache
@@ -168,6 +168,28 @@ class SessionStore(BaseSessionStore):
             return
         with shard_context:
             super().delete(session_key)
+
+    # Django's async session methods read and write the database directly instead of through the sync ones above, so
+    # they would run outside the shard of the session. These are the methods that every other async method reaches.
+
+    async def aload(self):
+        raise NotImplementedError('SessionStore.aload(): ' + NOT_ASYNC_SAFE)
+
+    async def aexists(self, session_key):
+        raise NotImplementedError('SessionStore.aexists(): ' + NOT_ASYNC_SAFE)
+
+    async def acreate(self):
+        raise NotImplementedError('SessionStore.acreate(): ' + NOT_ASYNC_SAFE)
+
+    async def asave(self, must_create=False):
+        raise NotImplementedError('SessionStore.asave(): ' + NOT_ASYNC_SAFE)
+
+    async def adelete(self, session_key=None):
+        raise NotImplementedError('SessionStore.adelete(): ' + NOT_ASYNC_SAFE)
+
+    @classmethod
+    async def aclear_expired(cls):
+        raise NotImplementedError('SessionStore.aclear_expired(): ' + NOT_ASYNC_SAFE)
 
     @classmethod
     def clear_expired(cls):

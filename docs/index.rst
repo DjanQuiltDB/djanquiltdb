@@ -25,6 +25,7 @@ Release |version|.
     guides/transactions
     guides/requests
     guides/sessions
+    guides/async
     guides/forms
     guides/migrations
     guides/fixtures

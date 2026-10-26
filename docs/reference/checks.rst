@@ -33,6 +33,13 @@ in ``INSTALLED_APPS``.
                      is not on that node, or from a model on a single node to a sharded model or to a model on another
                      node.
 ``djanquiltdb.E006`` A model is on a single node that ``DATABASES`` does not have.
+``djanquiltdb.E007`` A view of the URL configuration is async: an ``async def``, or a class-based view whose handlers
+                     are async. DjanQuiltDB is not async-safe (see :doc:`/guides/async`).
+``djanquiltdb.E008`` A middleware in ``MIDDLEWARE`` is async-only. A middleware that is also sync capable is not
+                     reported: Django runs its hooks in the worker thread of the request. A middleware that does not
+                     import is not checked: Django reports it when it loads the request handler.
+``djanquiltdb.E009`` ``ASGI_APPLICATION`` is set, as Channels and Daphne have it. The consumers of the application run
+                     on the event loop.
 ==================== ==================================================================================================
 
 See :doc:`/database_objects/triggers` for why the settings of W001 and W002 matter, and for the triggers that E001,
@@ -40,7 +47,12 @@ E002 and W003 report. ``MUTE_PGTRIGGER_COMPATIBILITY_WARNING`` (see :doc:`/refer
 The other checks have no setting of their own: ``SILENCED_SYSTEM_CHECKS`` is the only way to silence them. If you
 keep models on a single node on purpose, silence W004 that way. ``manage.py check <app_label>`` reports E001, E002
 and W003 for the triggers on the models of the apps that it names only, E003 for the Shard model and the mapping model
-when they are models of those apps, and E004, W004, E005 and E006 for the models of those apps.
+when they are models of those apps, and E004, W004, E005 and E006 for the models of those apps. It reports E007, E008 and
+E009 for the whole project.
+
+E007, E008 and E009 report async code, which DjanQuiltDB does not support. They do not mean that the code is wrong: async
+code that enters shards only inside ``sync_to_async`` or ``database_sync_to_async`` is safe. Once your async code does
+so, acknowledge each of them through ``SILENCED_SYSTEM_CHECKS``; :doc:`/guides/async` describes what is safe.
 
 Plugins register their own checks, with their own prefix. The celery plugin documents ``djanquiltdb_plugin_celery.E001``
 and ``E002`` on :doc:`its installation page </plugins/celery/installation>`. The pghistory plugin documents

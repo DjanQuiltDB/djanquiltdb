@@ -4,11 +4,15 @@ Checks DjanQuiltDB registers with Django's system check framework.
 They are registered from ``DjanQuiltDBConfig.ready()``, so they only run when the app is installed.
 """
 
+import functools
+import inspect
 import re
 
 from django.apps import apps
 from django.conf import settings
 from django.core import checks
+from django.urls import URLResolver, get_resolver
+from django.utils.module_loading import import_string
 
 from djanquiltdb import ShardingMode
 from djanquiltdb.utils import (
@@ -441,3 +445,112 @@ def check_shard_and_mapping_models_are_mirrored(app_configs, **kwargs):
             )
 
     return errors
+
+
+_NOT_ASYNC_SAFE_HINT = (
+    'DjanQuiltDB is not async-safe: it keeps the active shard per thread, and async code runs its queries in another '
+    'thread than the one it entered the shard in. {} Enter shards only inside sync_to_async or database_sync_to_async, '
+    'and once the async code of the project does so, acknowledge this error with SILENCED_SYSTEM_CHECKS = '
+    '[\'{}\']. The "Async code" guide of the DjanQuiltDB documentation describes what is safe.'
+)
+
+
+def _url_patterns_with_routes(patterns, prefix=''):
+    """
+    Yields each URLPattern below ``patterns``, with the route that leads to it, through every include().
+    """
+    for pattern in patterns:
+        route = prefix + str(pattern.pattern)
+        if isinstance(pattern, URLResolver):
+            yield from _url_patterns_with_routes(pattern.url_patterns, route)
+        else:
+            yield pattern, route
+
+
+def _dotted_path(view):
+    """
+    Returns the dotted path of a view: of the class of a class-based view, or of the function that functools.partial()
+    wraps, which inspect.iscoroutinefunction() sees through too. A view without a qualified name, such as an instance
+    of a class, is named by its repr.
+    """
+    view = getattr(view, 'view_class', view)
+
+    while isinstance(view, functools.partial):
+        view = view.func
+
+    if not hasattr(view, '__qualname__'):
+        return repr(view)
+
+    return '{}.{}'.format(view.__module__, view.__qualname__)
+
+
+@checks.register(checks.Tags.urls)
+def check_views_are_sync(app_configs, **kwargs):
+    """
+    Report each async view of the URL configuration: an async function, or a class-based view whose handlers are async,
+    which Django marks as a coroutine function too. A project without ROOT_URLCONF has no views, and passes.
+    """
+    if not getattr(settings, 'ROOT_URLCONF', None):
+        return []
+
+    return [
+        checks.Error(
+            "The view {} at '{}' is async.".format(_dotted_path(pattern.callback), route),
+            hint=_NOT_ASYNC_SAFE_HINT.format('An async view runs on the event loop.', 'djanquiltdb.E007'),
+            obj=pattern,
+            id='djanquiltdb.E007',
+        )
+        for pattern, route in _url_patterns_with_routes(get_resolver().url_patterns)
+        if inspect.iscoroutinefunction(pattern.callback)
+    ]
+
+
+def _middleware_that_imports():
+    """
+    Yields the dotted path and the imported middleware of each entry of MIDDLEWARE that imports. Django reports an entry
+    that does not import when it loads the request handler, and a process that does not serve requests, such as one
+    that runs migrate, may not have the packages of every middleware installed, so such an entry is left out.
+    """
+    for middleware_path in settings.MIDDLEWARE:
+        try:
+            yield middleware_path, import_string(middleware_path)
+        except ImportError:
+            continue
+
+
+@checks.register(checks.Tags.compatibility)
+def check_middleware_is_sync_capable(app_configs, **kwargs):
+    """
+    Report each middleware in MIDDLEWARE that is async-only. Django runs the hooks of a middleware that is sync capable
+    in the sync thread of the request, also under ASGI, so those are left alone.
+    """
+    return [
+        checks.Error(
+            'The middleware {} is async-only.'.format(middleware_path),
+            hint=_NOT_ASYNC_SAFE_HINT.format('An async-only middleware runs on the event loop.', 'djanquiltdb.E008'),
+            id='djanquiltdb.E008',
+        )
+        for middleware_path, middleware in _middleware_that_imports()
+        if not getattr(middleware, 'sync_capable', True)
+    ]
+
+
+@checks.register(checks.Tags.compatibility)
+def check_no_asgi_application(app_configs, **kwargs):
+    """
+    Report an ASGI_APPLICATION setting, through which Channels and Daphne serve consumers that run on the event loop.
+    """
+    asgi_application = getattr(settings, 'ASGI_APPLICATION', None)
+    if not asgi_application:
+        return []
+
+    return [
+        checks.Error(
+            'ASGI_APPLICATION is set to {}.'.format(asgi_application),
+            hint=_NOT_ASYNC_SAFE_HINT.format(
+                'The consumers of an ASGI application, such as those of Channels, run on the event loop.',
+                'djanquiltdb.E009',
+            ),
+            id='djanquiltdb.E009',
+        )
+    ]

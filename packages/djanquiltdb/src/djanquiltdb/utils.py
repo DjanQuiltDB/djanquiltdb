@@ -1,5 +1,6 @@
 import contextlib
 import copy
+import inspect
 import logging
 from collections import defaultdict
 from functools import cache, wraps
@@ -22,6 +23,7 @@ from django.db.models.signals import (
 )
 from django.db.transaction import Atomic
 from django.dispatch import receiver
+from django.utils.asyncio import async_unsafe
 from django.utils.module_loading import import_string
 
 from djanquiltdb import PRIMARY_NODE, ShardingMode, SingleNodeUnsharded, State, public_modes
@@ -37,6 +39,13 @@ __path__ = []
 install_plugin_importer()
 
 logger = logging.getLogger(__name__)
+
+# The end of the message with which DjanQuiltDB refuses async code.
+NOT_ASYNC_SAFE = (
+    'DjanQuiltDB is not async-safe, because it keeps the active shard per thread. Enter the shard in sync code that '
+    'runs through sync_to_async or database_sync_to_async; the "Async code" guide of the documentation describes what '
+    'is safe.'
+)
 
 
 class StateException(Exception):
@@ -232,6 +241,12 @@ class use_shard(object):
         self.disable()
 
     def __call__(self, querying_func):
+        if inspect.iscoroutinefunction(querying_func):
+            # The sync wrapper below would leave the shard once it has created the coroutine, before its body runs.
+            raise NotImplementedError(
+                'use_shard cannot decorate the async function {}: {}'.format(querying_func.__qualname__, NOT_ASYNC_SAFE)
+            )
+
         @wraps(querying_func)
         def inner(*args, **kwargs):
             # Each call enters a copy of this context, so that a call inside another call of the function, and a call
@@ -319,6 +334,7 @@ class use_shard(object):
                 shard.state,
             )
 
+    @async_unsafe('use_shard cannot be entered on the event loop: ' + NOT_ASYNC_SAFE)
     def enable(self):
         from djanquiltdb.router import get_active_connection, set_active_connection  # Prevent cyclic imports
 
@@ -720,6 +736,11 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
             for_each_shard(sharded_function, kwargs={'prefix': 'shard-'}, as_id=True)
 
     """
+    if inspect.iscoroutinefunction(func):
+        raise NotImplementedError(
+            'for_each_shard cannot call the async function {}: {}'.format(func.__qualname__, NOT_ASYNC_SAFE)
+        )
+
     shard_class = get_shard_class()
 
     for shard in shard_class.objects.using(public_schema_alias_for_reading(shard_class)):
@@ -1021,6 +1042,11 @@ def for_each_node(func, args=(), kwargs=None):
             for_each_node(sharded_function, kwargs={'prefix': 'node-'})  # {'default': 'node-default'}
 
     """
+    if inspect.iscoroutinefunction(func):
+        raise NotImplementedError(
+            'for_each_node cannot call the async function {}: {}'.format(func.__qualname__, NOT_ASYNC_SAFE)
+        )
+
     return_values = {}
     for node_name in get_all_databases():
         return_values[node_name] = func(*args, node_name=node_name, **(kwargs or {}))

@@ -275,6 +275,40 @@ class SessionStoreShardSelectorSignatureTestCase(SimpleTestCase):
         self.assertIsNone(store.session_key)
 
 
+@override_settings(
+    QUILT_DB={
+        'SHARD_CLASS': 'example.models.Shard',
+        'MAPPING_MODEL': 'example.models.OrganizationShard',
+    },
+    QUILT_SESSIONS={
+        'SESSION_MODEL': 'example.models.QuiltSession',
+    },
+)
+class SessionStoreAsyncTestCase(SimpleTestCase):
+    """The async methods of SessionStore refuse, since they would read and write the session outside its shard."""
+
+    async def test_async_methods_raise_not_implemented_error(self):
+        """
+        Case: Call each async method of SessionStore that reaches the database, and aget() and aflush(), which reach
+              them through Django's SessionBase.
+        Expected: NotImplementedError from each, instead of a query outside the shard of the session.
+        """
+        calls = {
+            'aload': lambda store: store.aload(),
+            'aexists': lambda store: store.aexists(store.session_key),
+            'acreate': lambda store: store.acreate(),
+            'asave': lambda store: store.asave(),
+            'adelete': lambda store: store.adelete(),
+            'aclear_expired': lambda store: SessionStore.aclear_expired(),
+            'aget': lambda store: store.aget('test_key'),
+            'aflush': lambda store: store.aflush(),
+        }
+
+        for name, call in calls.items():
+            with self.assertRaises(NotImplementedError, msg=name):
+                await call(SessionStore(session_key='x' * 32))
+
+
 def sign_session_key(value):
     """
     Signs ``value`` as SessionStore signs the session keys it makes.

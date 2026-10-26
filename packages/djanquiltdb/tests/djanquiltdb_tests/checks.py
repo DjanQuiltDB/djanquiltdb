@@ -4,6 +4,7 @@ from unittest import mock, skipIf, skipUnless
 import django.core.checks
 import django.core.checks.registry
 from django.apps import apps
+from django.conf import settings
 from django.contrib.sessions.models import Session
 from django.core.checks.registry import CheckRegistry, registry
 from django.core.management import call_command, get_commands, load_command_class
@@ -11,17 +12,22 @@ from django.core.management.base import SystemCheckError
 from django.db import models, router
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import isolate_apps, override_system_checks
+from django.utils.decorators import async_only_middleware
+from django.utils.deprecation import MiddlewareMixin
 
 from djanquiltdb import STATES, State
 from djanquiltdb.apps import _patch_checks
 from djanquiltdb.checks import (
     MUTE_SETTING,
     PGTRIGGER_APP_NAME,
+    check_middleware_is_sync_capable,
     check_models_have_a_sharding_mode,
     check_models_on_a_single_node,
+    check_no_asgi_application,
     check_pgtrigger_compatibility,
     check_shard_and_mapping_models_are_mirrored,
     check_trigger_writes_stay_in_their_sharding_mode,
+    check_views_are_sync,
     cross_mode_trigger_messages,
     written_tables,
 )
@@ -875,3 +881,208 @@ class NodeScopedPlacementInChecksTestCase(SimpleTestCase):
 
         self.assertEqual(len(missing_field_messages(messages, CakeType)), 1)
         self.assertEqual(len(missing_field_messages(direct_messages, CakeType)), 1)
+
+
+class AsyncViewsCheckTestCase(SimpleTestCase):
+    def test_check_is_registered(self):
+        """
+        Case: The app config has been readied, as it is for every test run.
+        Expected: The check is part of Django's check registry.
+        """
+        self.assertIn(check_views_are_sync, registry.get_checks())
+
+    def test_the_views_of_this_suite_pass(self):
+        """
+        Case: The check runs for the URL configuration of the test project, whose views are all sync.
+        Expected: No messages.
+        """
+        self.assertEqual(check_views_are_sync(None), [])
+
+    def test_a_project_without_a_url_configuration_passes(self):
+        """
+        Case: The check runs for a project whose settings have no ROOT_URLCONF, such as a project that only runs Celery
+              workers.
+        Expected: No messages, because the project has no views.
+        """
+        with self.settings():
+            del settings.ROOT_URLCONF
+
+            self.assertEqual(check_views_are_sync(None), [])
+
+    @override_settings(ROOT_URLCONF='djanquiltdb_tests.test_urlconfs.async_urlconf')
+    def test_async_views(self):
+        """
+        Case: The check runs for a URL configuration with a sync and an async function view, a sync and an async
+              class-based view, and a sync and an async function view behind an include().
+        Expected: djanquiltdb.E007 for each async view, and none for the sync views. Each message names the view and its
+                  route.
+        """
+        messages = check_views_are_sync(None)
+
+        self.assertEqual([message.id for message in messages], ['djanquiltdb.E007'] * 3)
+        self.assertIn('async_urlconf.async_function_view', messages[0].msg)
+        self.assertIn("'async-function/'", messages[0].msg)
+        self.assertIn('async_urlconf.AsyncClassView', messages[1].msg)
+        self.assertIn("'async-class/'", messages[1].msg)
+        self.assertIn('async_urlconf.async_function_view', messages[2].msg)
+        self.assertIn("'included/async/'", messages[2].msg)
+
+    @override_settings(ROOT_URLCONF='djanquiltdb_tests.test_urlconfs.partial_urlconf')
+    def test_an_async_view_wrapped_in_a_partial(self):
+        """
+        Case: The check runs for a URL configuration with an async function view that functools.partial() wraps, and a
+              view that is an instance of a class, which inspect.markcoroutinefunction() marks as async, and which has
+              no __qualname__.
+        Expected: djanquiltdb.E007 for both views. The message of the partial names the function that it wraps, and the
+                  message of the instance its repr.
+        """
+        messages = check_views_are_sync(None)
+
+        self.assertEqual([message.id for message in messages], ['djanquiltdb.E007'] * 2)
+        self.assertIn('async_urlconf.async_function_view', messages[0].msg)
+        self.assertIn("'partial/'", messages[0].msg)
+        self.assertIn('<async view instance>', messages[1].msg)
+        self.assertIn("'instance/'", messages[1].msg)
+
+    @override_settings(ROOT_URLCONF='djanquiltdb_tests.test_urlconfs.async_urlconf')
+    def test_silenced_system_checks_silence_it(self):
+        """
+        Case: The URL configuration has async views, SILENCED_SYSTEM_CHECKS lists djanquiltdb.E007, and `manage.py
+              check` runs.
+        Expected: The command succeeds, because Django's own setting is how a project acknowledges the error.
+        """
+        with override_settings(SILENCED_SYSTEM_CHECKS=['djanquiltdb.E007']):
+            call_command('check', tags=['urls'], stdout=StringIO(), stderr=StringIO())
+
+    @override_settings(ROOT_URLCONF='djanquiltdb_tests.test_urlconfs.async_urlconf')
+    def test_the_check_command_stops_at_the_error(self):
+        """
+        Case: The URL configuration has async views, and `manage.py check` runs.
+        Expected: The command fails with djanquiltdb.E007, as every command that runs the checks would.
+        """
+        with self.assertRaisesMessage(SystemCheckError, 'djanquiltdb.E007'):
+            call_command('check', tags=['urls'], stdout=StringIO(), stderr=StringIO())
+
+
+class SyncOnlyMiddleware:
+    sync_capable = True
+    async_capable = False
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        return self.get_response(request)
+
+
+class SyncAndAsyncMiddleware(MiddlewareMixin):
+    pass
+
+
+class AsyncOnlyMiddleware:
+    sync_capable = False
+    async_capable = True
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    async def __call__(self, request):
+        return await self.get_response(request)
+
+
+@async_only_middleware
+def async_only_middleware_factory(get_response):
+    async def middleware(request):
+        return await get_response(request)
+
+    return middleware
+
+
+class AsyncOnlyMiddlewareCheckTestCase(SimpleTestCase):
+    def test_check_is_registered(self):
+        """
+        Case: The app config has been readied, as it is for every test run.
+        Expected: The check is part of Django's check registry.
+        """
+        self.assertIn(check_middleware_is_sync_capable, registry.get_checks())
+
+    def test_the_middleware_of_this_suite_passes(self):
+        """
+        Case: The check runs for the MIDDLEWARE of the test project, which is all sync capable.
+        Expected: No messages.
+        """
+        self.assertEqual(check_middleware_is_sync_capable(None), [])
+
+    @override_settings(
+        MIDDLEWARE=[
+            'djanquiltdb_tests.checks.SyncOnlyMiddleware',
+            'djanquiltdb_tests.checks.SyncAndAsyncMiddleware',
+            'djanquiltdb_tests.checks.AsyncOnlyMiddleware',
+            'djanquiltdb_tests.checks.async_only_middleware_factory',
+        ]
+    )
+    def test_async_only_middleware(self):
+        """
+        Case: The check runs for a MIDDLEWARE with a sync-only middleware, a MiddlewareMixin middleware, an async-only
+              middleware class and a middleware factory marked with Django's @async_only_middleware.
+        Expected: djanquiltdb.E008 for the two async-only middlewares, whose messages name them, and none for the other
+                  two, whose hooks Django runs in the sync thread of the request.
+        """
+        messages = check_middleware_is_sync_capable(None)
+
+        self.assertEqual([message.id for message in messages], ['djanquiltdb.E008'] * 2)
+        self.assertIn('djanquiltdb_tests.checks.AsyncOnlyMiddleware', messages[0].msg)
+        self.assertIn('djanquiltdb_tests.checks.async_only_middleware_factory', messages[1].msg)
+
+    @override_settings(
+        MIDDLEWARE=[
+            'middleware_package_that_is_not_installed.Middleware',
+            'djanquiltdb_tests.checks.AsyncOnlyMiddleware',
+        ]
+    )
+    def test_a_middleware_that_does_not_import_is_left_to_django(self):
+        """
+        Case: The check runs for a MIDDLEWARE with a middleware whose package is not installed, as in a process that
+              runs migrate without the packages of the web server, and an async-only middleware.
+        Expected: djanquiltdb.E008 for the async-only middleware only, and no ImportError, because Django reports a
+                  middleware that does not import when it loads the request handler.
+        """
+        messages = check_middleware_is_sync_capable(None)
+
+        self.assertEqual([message.id for message in messages], ['djanquiltdb.E008'])
+        self.assertIn('djanquiltdb_tests.checks.AsyncOnlyMiddleware', messages[0].msg)
+
+
+class AsgiApplicationCheckTestCase(SimpleTestCase):
+    def test_check_is_registered(self):
+        """
+        Case: The app config has been readied, as it is for every test run.
+        Expected: The check is part of Django's check registry.
+        """
+        self.assertIn(check_no_asgi_application, registry.get_checks())
+
+    def test_the_settings_of_this_suite_pass(self):
+        """
+        Case: The check runs for the settings of the test project, which have no ASGI_APPLICATION.
+        Expected: No messages.
+        """
+        self.assertEqual(check_no_asgi_application(None), [])
+
+    @override_settings(ASGI_APPLICATION='config.asgi.application')
+    def test_an_asgi_application(self):
+        """
+        Case: The check runs while ASGI_APPLICATION is set, as Channels and Daphne have it set.
+        Expected: djanquiltdb.E009, whose message names the application.
+        """
+        messages = check_no_asgi_application(None)
+
+        self.assertEqual([message.id for message in messages], ['djanquiltdb.E009'])
+        self.assertIn('config.asgi.application', messages[0].msg)
+
+    @override_settings(ASGI_APPLICATION='config.asgi.application', SILENCED_SYSTEM_CHECKS=['djanquiltdb.E009'])
+    def test_silenced_system_checks_silence_it(self):
+        """
+        Case: ASGI_APPLICATION is set, SILENCED_SYSTEM_CHECKS lists djanquiltdb.E009, and `manage.py check` runs.
+        Expected: The command succeeds, because Django's own setting is how a project acknowledges the error.
+        """
+        call_command('check', tags=['compatibility'], stdout=StringIO(), stderr=StringIO())

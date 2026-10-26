@@ -3,9 +3,10 @@ import re
 import threading
 from unittest import mock
 
+from asgiref.sync import sync_to_async
 from django.apps import apps
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, SynchronousOnlyOperation
 from django.db import ProgrammingError, connections, models, transaction
 from django.db.models.signals import (
     post_delete,
@@ -2525,6 +2526,18 @@ class ForEachShardTestCase(ShardingTestCase):
 
         self.assertCountEqual(self.shards, [self.shard1, entered_shard])
 
+    def test_for_each_shard_with_a_coroutine_function(self):
+        """
+        Case: Call for_each_shard with an async function.
+        Expected: NotImplementedError, instead of calling the function for every shard without awaiting what it returns.
+        """
+
+        async def coroutine_function(shard=None):
+            pass
+
+        with self.assertRaises(NotImplementedError):
+            for_each_shard(coroutine_function)
+
 
 @mock.patch('djanquiltdb.utils.get_all_databases', return_value=['default', 'other'])
 class ForEachNodeTestCase(SimpleTestCase):
@@ -2549,6 +2562,64 @@ class ForEachNodeTestCase(SimpleTestCase):
         self.assertEqual(result, {'default': ('default', {'org_id': 1}), 'other': ('other', {'org_id': 1})})
 
         self.assertTrue(mock_get_all_databases.called)
+
+    def test_for_each_node_with_a_coroutine_function(self, mock_get_all_databases):
+        """
+        Case: Call for_each_node with an async function.
+        Expected: NotImplementedError, instead of returning a coroutine for every node that nothing awaits.
+        """
+
+        async def coroutine_function(node_name=None):
+            return node_name
+
+        with self.assertRaises(NotImplementedError):
+            for_each_node(coroutine_function)
+
+
+class UseShardInAsyncCodeTestCase(ShardingTestCase):
+    """DjanQuiltDB is not async-safe, so a shard is entered in sync code only, also from async code."""
+
+    def setUp(self):
+        super().setUp()
+
+        create_template_schema('default')
+        self.shard = Shard.objects.create(
+            alias='test_shard', schema_name='test_schema', node_name='default', state=State.ACTIVE
+        )
+
+    async def test_entering_a_shard_on_the_event_loop(self):
+        """
+        Case: Enter use_shard in async code, on the thread of the event loop.
+        Expected: SynchronousOnlyOperation that says DjanQuiltDB is not async-safe, because the async ORM runs its
+                  queries in another thread, which would not see the shard.
+        """
+        with self.assertRaisesMessage(SynchronousOnlyOperation, 'DjanQuiltDB is not async-safe'):
+            with use_shard(self.shard):
+                pass
+
+    async def test_entering_a_shard_inside_sync_to_async(self):
+        """
+        Case: Enter use_shard in a sync function that async code runs through sync_to_async.
+        Expected: The function runs in the shard.
+        """
+
+        def schema_name_inside_the_shard():
+            with use_shard(self.shard):
+                return connection.schema_name
+
+        self.assertEqual(await sync_to_async(schema_name_inside_the_shard)(), 'test_schema')
+
+    def test_decorating_a_coroutine_function(self):
+        """
+        Case: Decorate an async function with use_shard.
+        Expected: NotImplementedError when the function is decorated, instead of a function that leaves the shard before
+                  its body runs.
+        """
+        with self.assertRaises(NotImplementedError):
+
+            @use_shard(self.shard)
+            async def coroutine_function():
+                pass
 
 
 class WriteToEveryNodeSystemTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):
