@@ -1,6 +1,8 @@
+from types import SimpleNamespace
 from unittest import mock
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import OperationalError
 from django.http import HttpResponse
 from django.test import SimpleTestCase, override_settings
@@ -9,9 +11,12 @@ from django.views.generic import TemplateView, View
 
 from djanquiltdb.db import connection
 from djanquiltdb.middleware import BaseUseShardForMiddleware, BaseUseShardMiddleware, ExceptionMiddlewareMixin
+from djanquiltdb.middleware import UseShardForMiddleware as SessionUseShardForMiddleware
+from djanquiltdb.middleware import UseShardMiddleware as SessionUseShardMiddleware
+from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.utils import State, StateException, create_template_schema, use_shard
 from djanquiltdb_tests import ShardingTestCase, ShardingTransactionTestCase
-from example.models import Shard
+from example.models import OrganizationShard, Shard
 
 
 class StateExceptionTestView(View):
@@ -602,3 +607,59 @@ class UseShardMiddlewareRegistryTestCase(ShardingTestCase):
                 middleware.process_request(request)
                 self.assertEqual(connection.schema_name, 'test_request_schema')
                 middleware.process_response(request, HttpResponse())
+
+
+class SessionMiddlewareUnknownSelectorTestCase(ShardingTestCase):
+    """The middlewares that read the shard selector of the session leave a request with an unknown one unsharded."""
+
+    def request_with_shard_selector(self, shard_selector):
+        request = RequestFactory().get('/')
+        request.session = SimpleNamespace(shard_selector=shard_selector)
+        return request
+
+    def test_use_shard_for_middleware_with_a_selector_the_mapping_table_does_not_have(self):
+        """
+        Case: UseShardForMiddleware processes a request whose session has a shard selector that is not in the mapping
+              table, as the session of a tenant whose mapping was deleted.
+        Expected: No exception, and the request goes on without a shard and without a mapping value.
+        """
+        self.assertFalse(OrganizationShard.objects.filter(organization_id=999).exists())
+        request = self.request_with_shard_selector(999)
+        middleware = SessionUseShardForMiddleware(lambda request: None)
+
+        self.assertIsNone(middleware.process_request(request))
+
+        self.assertIsNone(middleware.get_shard_context_manager(request))
+        self.assertIsNone(request._mapping_value)
+        self.assertEqual(connection.schema_name, PUBLIC_SCHEMA_NAME)
+
+    def test_use_shard_middleware_with_a_selector_the_shard_registry_does_not_have(self):
+        """
+        Case: UseShardMiddleware processes a request whose session has a shard selector that is not the id of a shard in
+              the shard registry, as the session of a shard that was deleted.
+        Expected: No exception, and the request goes on without a shard.
+        """
+        self.assertFalse(Shard.objects.filter(id=999).exists())
+        request = self.request_with_shard_selector(999)
+        middleware = SessionUseShardMiddleware(lambda request: None)
+
+        self.assertIsNone(middleware.process_request(request))
+
+        self.assertIsNone(middleware.get_shard_context_manager(request))
+        self.assertIsNone(request._shard_id)
+        self.assertEqual(connection.schema_name, PUBLIC_SCHEMA_NAME)
+
+    def test_use_shard_for_middleware_without_a_mapping_model(self):
+        """
+        Case: UseShardForMiddleware processes a request whose session has a shard selector, while QUILT_DB has no
+              MAPPING_MODEL.
+        Expected: The ImproperlyConfigured that use_shard_for raises without a MAPPING_MODEL, and no AttributeError.
+        """
+        request = self.request_with_shard_selector(999)
+        middleware = SessionUseShardForMiddleware(lambda request: None)
+
+        with (
+            override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'}),
+            self.assertRaisesMessage(ImproperlyConfigured, 'MAPPING_MODEL'),
+        ):
+            middleware.process_request(request)

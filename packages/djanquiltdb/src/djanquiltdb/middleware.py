@@ -1,6 +1,7 @@
 import logging
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import OperationalError
 from django.http import HttpResponse
 from django.utils.deprecation import MiddlewareMixin
@@ -198,6 +199,13 @@ class UseShardMiddleware(BaseUseShardMiddleware, ExceptionMiddlewareMixin):
         """The shard id the session carries, under the key ``SESSION_SHARD_SELECTOR_KEY`` names."""
         return getattr(request.session, settings.QUILT_DB.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector'))
 
+    def _enable_shard(self, request, shard_id):
+        try:
+            super()._enable_shard(request, shard_id)
+        except ObjectDoesNotExist:
+            # A session of a shard that the registry no longer has: the request goes on without a shard.
+            request._shard_id = None
+
 
 class UseShardForMiddleware(BaseUseShardForMiddleware, ExceptionMiddlewareMixin):
     """
@@ -207,3 +215,11 @@ class UseShardForMiddleware(BaseUseShardForMiddleware, ExceptionMiddlewareMixin)
     def get_mapping_value(self, request):
         """The mapping value the session carries, under the key ``SESSION_SHARD_SELECTOR_KEY`` names."""
         return getattr(request.session, settings.QUILT_DB.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector'))
+
+    def _enable_shard_for(self, request, target_value):
+        try:
+            super()._enable_shard_for(request, target_value)
+        except ObjectDoesNotExist:
+            # A session of a mapping value that the mapping table no longer has: the request goes on without a shard,
+            # and djanquiltdb.sessions reads the session as empty.
+            request._mapping_value = None

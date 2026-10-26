@@ -27,6 +27,12 @@ breaking the signature. The signature expires after ``SESSION_COOKIE_AGE``, as t
 The backend enters ``use_shard_for(selector)`` for every read and write of a session. The selector is a mapping value,
 not the id of a shard, so the backend needs a mapping model (see :doc:`/guides/mapping_model`).
 
+A session key that the backend cannot use reads as a new, empty session, as Django's database backend reads a key that
+it does not find: a key whose signature is wrong or has expired, a key that holds no selector that matches
+``SHARD_SELECTOR_REGEX``, such as the keys made before that setting or ``SESSION_KEY_DELIMITER`` changed, and a key
+whose selector the mapping table no longer has. The visitor is anonymous, and Django's ``SessionMiddleware`` deletes the
+cookie.
+
 The backend extends Django's ``cached_db`` backend, and reads sessions through the cache as that backend does. A session
 key is unique across shards, because it holds the selector, so the cache needs no changes.
 
@@ -157,7 +163,8 @@ Selecting the shard of a request
 
 ``djanquiltdb.middleware.UseShardForMiddleware`` enters the shard of the selector of the session of each request (see
 :ref:`use_shard_middleware`). It reads the attribute of the session that ``SESSION_SHARD_SELECTOR_KEY`` in ``QUILT_DB``
-names, which is ``shard_selector`` by default. A session without a selector leaves the request without a shard.
+names, which is ``shard_selector`` by default. A session without a selector leaves the request without a shard, and so
+does a session whose selector the mapping table no longer has.
 
 The admin shard switcher lets staff enter another shard than the one of their session (see
 :doc:`/contrib/admin_shard_switcher`).
