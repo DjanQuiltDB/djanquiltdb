@@ -1195,17 +1195,21 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             self.current_search_paths = None
             self.forget_transaction_locks()
 
+    # The savepoint statements do not depend on the search_path, so they run on a cursor that does not set it and takes
+    # no advisory locks. A cursor of _cursor() checks that the schema exists first, and that check fails in a
+    # transaction that an error aborted.
     def _savepoint(self, sid):
-        super()._savepoint(sid)
+        with self._get_cursor(skip_lock=True) as cursor:
+            cursor.execute(self.ops.savepoint_create_sql(sid))
         self.open_savepoint_ids.append(sid)
 
     def _savepoint_rollback(self, sid):
-        # A rollback to a savepoint undoes a SET search_path that ran after the savepoint was set. _cursor() sets the
-        # search_path of this connection before the rollback runs, but that SET fails when an error aborted the
-        # transaction, so the search_path of the session can differ from current_search_paths afterwards. With
-        # current_search_paths set to None, the next _cursor() call sets the search_path again.
+        # A rollback to a savepoint undoes a SET search_path that ran after the savepoint was set, so the search_path of
+        # the session can differ from current_search_paths afterwards. With current_search_paths set to None, the next
+        # _cursor() call sets the search_path again.
         try:
-            super()._savepoint_rollback(sid)
+            with self._get_cursor(skip_lock=True) as cursor:
+                cursor.execute(self.ops.savepoint_rollback_sql(sid))
         finally:
             self.current_search_paths = None
             self._forget_transaction_locks_after(sid)
@@ -1228,7 +1232,8 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         }
 
     def _savepoint_commit(self, sid):
-        super()._savepoint_commit(sid)
+        with self._get_cursor(skip_lock=True) as cursor:
+            cursor.execute(self.ops.savepoint_commit_sql(sid))
 
         # Releasing a savepoint also releases the savepoints that were set after it, and hands the locks that were taken
         # after it to the enclosing savepoint or transaction, which holds them until it ends.
