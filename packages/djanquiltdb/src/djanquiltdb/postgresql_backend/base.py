@@ -1128,16 +1128,20 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self.current_search_paths = [PUBLIC_SCHEMA_NAME]
 
         # For each advisory lock key, the number of use_shard contexts that are entered and not left yet and that hold
-        # the key for the session of this connection. A use_shard that is entered inside these contexts finds its locks
-        # in this counter and takes no locks of its own.
+        # the key for the session of this connection, and the number of those contexts that also checked that their
+        # shard is active. A use_shard that is entered inside these contexts finds its locks in these counters and takes
+        # no locks of its own.
         self.session_locks_of_entered_use_shards = Counter()
+        self.session_locks_of_entered_use_shards_that_checked_the_state = Counter()
 
-        # For each advisory lock key that a use_shard took for the transaction of this connection, and checked its shard
-        # under, the number of savepoints that were open when it took the key. PostgreSQL holds such a lock until the
-        # transaction ends, or until a rollback to a savepoint that was set before the lock was taken, also after the
-        # use_shard is left. So a use_shard that is entered later in the transaction finds its locks here, and takes no
-        # locks of its own: the shard cannot have moved since the lock was taken and the shard was checked.
+        # For each advisory lock key that a use_shard took for the transaction of this connection before it checked its
+        # shard, the number of savepoints that were open when it took the key, and the keys among them that a use_shard
+        # also checked that its shard is active under. PostgreSQL holds such a lock until the transaction ends, or until
+        # a rollback to a savepoint that was set before the lock was taken, also after the use_shard is left. So a
+        # use_shard that is entered later in the transaction finds its locks here, and takes no locks of its own: the
+        # shard cannot have moved since the lock was taken and the shard was checked.
         self.transaction_locks_of_entered_use_shards = {}
+        self.transaction_locks_of_entered_use_shards_that_checked_the_state = set()
 
         # The savepoints of the transaction of this connection that are set and not released or rolled back past yet,
         # in the order in which they were set. Django keeps savepoint_ids for atomic() only, and this list also has the
@@ -1159,33 +1163,48 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # Closing the connection ends the session and releases the advisory locks of the session, so the lock counts
         # start at zero.
         self.session_locks_of_entered_use_shards = Counter()
+        self.session_locks_of_entered_use_shards_that_checked_the_state = Counter()
         self.forget_transaction_locks()
         super().close()
 
-    def entered_use_shards_hold_locks(self, lock_keys):
+    def entered_use_shards_hold_locks(self, lock_keys, *, only_if_the_state_was_checked):
         """
-        Whether this connection holds every one of ``lock_keys`` for a use_shard that checked its shard under them: for
-        the session, while the use_shard contexts that took them are entered, or for the transaction, until it ends.
-        Returns False when ``lock_keys`` is empty.
-        """
-        return bool(lock_keys) and all(
-            self.session_locks_of_entered_use_shards[key] or key in self.transaction_locks_of_entered_use_shards
-            for key in lock_keys
-        )
+        Whether this connection holds every one of ``lock_keys`` for a use_shard that took them before it checked its
+        shard: for the session, while the use_shard contexts that took them are entered, or for the transaction, until
+        it ends. When ``only_if_the_state_was_checked`` is True, only the locks of a use_shard that also checked that
+        its shard is active count. Returns False when ``lock_keys`` is empty.
 
-    def record_transaction_locks(self, lock_keys):
+        The move commands take the exclusive lock of a shard before they change the shard, so these locks keep the move
+        commands from changing it. Code that saves the state of a shard without the exclusive lock does not wait for
+        these locks, and a use_shard that relies on them does not see that change.
         """
-        Records that a use_shard took ``lock_keys`` for the transaction of this connection, and checked its shard under
-        them, so that a use_shard that is entered later in the transaction takes no locks of its own.
+        if only_if_the_state_was_checked:
+            session_locks = self.session_locks_of_entered_use_shards_that_checked_the_state
+            transaction_locks = self.transaction_locks_of_entered_use_shards_that_checked_the_state
+        else:
+            session_locks = self.session_locks_of_entered_use_shards
+            transaction_locks = self.transaction_locks_of_entered_use_shards
+
+        return bool(lock_keys) and all(session_locks[key] or key in transaction_locks for key in lock_keys)
+
+    def record_transaction_locks(self, lock_keys, *, with_a_check_of_the_state):
+        """
+        Records that a use_shard took ``lock_keys`` for the transaction of this connection and then checked its shard,
+        and, when ``with_a_check_of_the_state`` is True, that it also checked that its shard is active. A use_shard that
+        is entered later in the transaction then takes no locks of its own.
         """
         for key in lock_keys:
             self.transaction_locks_of_entered_use_shards.setdefault(key, len(self.open_savepoint_ids))
+
+        if with_a_check_of_the_state:
+            self.transaction_locks_of_entered_use_shards_that_checked_the_state.update(lock_keys)
 
     def forget_transaction_locks(self):
         """
         Forgets every transaction-scoped lock and open savepoint, because the transaction ended.
         """
         self.transaction_locks_of_entered_use_shards = {}
+        self.transaction_locks_of_entered_use_shards_that_checked_the_state = set()
         self.open_savepoint_ids = []
 
     def rollback(self):
@@ -1223,6 +1242,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         """
         if sid not in self.open_savepoint_ids:
             self.transaction_locks_of_entered_use_shards = {}
+            self.transaction_locks_of_entered_use_shards_that_checked_the_state = set()
             return
 
         index = self.open_savepoint_ids.index(sid)
@@ -1230,6 +1250,10 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         self.transaction_locks_of_entered_use_shards = {
             key: depth for key, depth in self.transaction_locks_of_entered_use_shards.items() if depth <= index
         }
+        # A key that is kept is held by a lock that was taken before its shard was checked, so the check stays valid.
+        self.transaction_locks_of_entered_use_shards_that_checked_the_state &= set(
+            self.transaction_locks_of_entered_use_shards
+        )
 
     def _savepoint_commit(self, sid):
         with self._get_cursor(skip_lock=True) as cursor:
@@ -1934,8 +1958,8 @@ class ShardDatabaseWrapper(DatabaseWrapper):
     it wraps (from now on called the main connection), so that switching to another schema does not make a new
     connection to the database. Each field in _PROXY_FIELDS is a MainConnectionField, which reads and sets the field on
     the main connection. These are the fields that the constructor of Django's BaseDatabaseWrapper sets, except for
-    `alias`, plus `current_search_paths`, `session_locks_of_entered_use_shards`,
-    `transaction_locks_of_entered_use_shards` and `open_savepoint_ids`.
+    `alias`, plus `current_search_paths`, the lock counts and records of the entered use_shard contexts, and
+    `open_savepoint_ids`.
 
     Note that this class should not be used for connections to the public schema. You can use the main connection for
     that one.
@@ -1959,7 +1983,9 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         '_thread_ident',
         'current_search_paths',
         'session_locks_of_entered_use_shards',
+        'session_locks_of_entered_use_shards_that_checked_the_state',
         'transaction_locks_of_entered_use_shards',
+        'transaction_locks_of_entered_use_shards_that_checked_the_state',
         'open_savepoint_ids',
         'run_on_commit',
         'run_commit_hooks_on_set_autocommit_on',

@@ -1569,8 +1569,8 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
     def test_expected_proxy_fields(self):
         """
         Case: Check whether the ShardDatabaseWrapper._PROXY_FIELDS are the same as the fields defined in
-              BaseDatabaseWrapper's init fields, including current_search_paths, session_locks_of_entered_use_shards,
-              transaction_locks_of_entered_use_shards and open_savepoint_ids, but excluding:
+              BaseDatabaseWrapper's init fields, including current_search_paths, the lock counts and records of the
+              entered use_shard contexts and open_savepoint_ids, but excluding:
                 * alias
                 * client
                 * creation
@@ -1610,7 +1610,9 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
 
         proxy_fields.append('current_search_paths')
         proxy_fields.append('session_locks_of_entered_use_shards')
+        proxy_fields.append('session_locks_of_entered_use_shards_that_checked_the_state')
         proxy_fields.append('transaction_locks_of_entered_use_shards')
+        proxy_fields.append('transaction_locks_of_entered_use_shards_that_checked_the_state')
         proxy_fields.append('open_savepoint_ids')
 
         shard_options = ShardOptions(node_name='default', schema_name=self.shard.schema_name)

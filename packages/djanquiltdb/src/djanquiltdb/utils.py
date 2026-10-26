@@ -143,10 +143,11 @@ class use_shard(object):
     shard again, in one query, and raises StateException when ``move_shard_to_node`` or ``move_data_to_shard`` changed
     the shard after the shard that use_shard is given was read. ``use_shard_for()``, and a use_shard that is given a
     mapping value, read the mapping value and its shard again instead. A use_shard of a shard whose locks this
-    connection already holds for a use_shard that checked the shard runs no statements: outside a transaction while
-    that use_shard is entered, because it holds the locks for the session until it is left, and inside a transaction
-    until the transaction ends, or until a rollback to a savepoint that was set before the locks were taken, because
-    PostgreSQL holds transaction-scoped locks until then.
+    connection already holds for a use_shard that checked the shard runs no statements: outside a transaction while that
+    use_shard is entered, because it holds the locks for the session until it is left, and inside a transaction until
+    the transaction ends, or until a rollback to a savepoint that was set before the locks were taken, because
+    PostgreSQL holds transaction-scoped locks until then. A use_shard with ``active_only_schemas`` False does not check
+    the state, so a later use_shard of the shard that does check it takes the locks and reads the shard itself.
 
     use_shard does not check that the schema of the shard exists when it is entered. The first query in a shard whose
     schema does not exist raises IntegrityError.
@@ -210,8 +211,9 @@ class use_shard(object):
         self._enabled = False
         self._locks_are_xact = False
         # The lock keys that this context adds to the lock counts of the node connection, and removes from those counts
-        # when it is left.
+        # when it is left, and whether it also adds them to the counts of the contexts that checked the state.
         self._counted_session_lock_keys = []
+        self._counted_session_lock_keys_checked_the_state = False
         # Whether this context took the locks of the shard itself, so that it releases them when it is left. A context
         # whose locks are held by other entered use_shard contexts takes no locks of its own, and neither does a
         # context that has no lock keys.
@@ -357,14 +359,20 @@ class use_shard(object):
 
         # Third: Take the advisory locks of the shard and of the mapping value (if there is one), and check the shard
         # again once this context holds the locks. Locks that are held for the session are added to the lock counts of
-        # the node connection, and locks that are held for the transaction are recorded on it. When the node connection
-        # already holds all of these locks for a use_shard that checked the shard, this context takes no locks and does
-        # not check the shard: the locks are held until after this context is left, or until the transaction ends, so
-        # the move commands cannot have changed the shard since it was checked. A context for a node and a schema
-        # without a shard id or a mapping value has no locks to take, so it takes none and builds no connection.
+        # the node connection, and locks that are held for the transaction are recorded on it, with whether this context
+        # checked that the shard is active. When the node connection already holds all of these locks for a use_shard
+        # that checked the shard, this context takes no locks and does not check the shard: the locks are held until
+        # after this context is left, or until the transaction ends, so the move commands cannot have changed the shard
+        # since it was checked. A context that checks that the shard is active relies only on the locks of a use_shard
+        # that checked that too, so inside a use_shard with active_only_schemas False, it takes the locks and reads the
+        # shard itself. A context for a node and a schema without a shard id or a mapping value has no locks to take, so
+        # it takes none and builds no connection.
         lock_keys = self.options.lock_keys if self.options.lock else []
+        checks_that_the_shard_is_active = self._kwargs.get('active_only_schemas', True)
 
-        if lock_keys and not self._node_connection.entered_use_shards_hold_locks(lock_keys):
+        if lock_keys and not self._node_connection.entered_use_shards_hold_locks(
+            lock_keys, only_if_the_state_was_checked=checks_that_the_shard_is_active
+        ):
             self.acquire_lock()
 
             if self.options.shard_id is not None:
@@ -377,10 +385,16 @@ class use_shard(object):
             self._holds_its_own_locks = True
 
             if self._locks_are_xact:
-                self._node_connection.record_transaction_locks(lock_keys)
+                self._node_connection.record_transaction_locks(
+                    lock_keys, with_a_check_of_the_state=checks_that_the_shard_is_active
+                )
             else:
                 self._counted_session_lock_keys = lock_keys
-                self._node_connection.session_locks_of_entered_use_shards.update(self._counted_session_lock_keys)
+                self._counted_session_lock_keys_checked_the_state = checks_that_the_shard_is_active
+                self._node_connection.session_locks_of_entered_use_shards.update(lock_keys)
+
+                if checks_that_the_shard_is_active:
+                    self._node_connection.session_locks_of_entered_use_shards_that_checked_the_state.update(lock_keys)
 
         # Fourth: Set the new active schema
         set_active_connection(self.options)
@@ -402,7 +416,16 @@ class use_shard(object):
                 held_lock_keys = self._node_connection.session_locks_of_entered_use_shards
                 held_lock_keys.subtract(self._counted_session_lock_keys)
                 self._node_connection.session_locks_of_entered_use_shards = +held_lock_keys
+
+                if self._counted_session_lock_keys_checked_the_state:
+                    checked_lock_keys = self._node_connection.session_locks_of_entered_use_shards_that_checked_the_state
+                    checked_lock_keys.subtract(self._counted_session_lock_keys)
+                    self._node_connection.session_locks_of_entered_use_shards_that_checked_the_state = (
+                        +checked_lock_keys
+                    )
+
                 self._counted_session_lock_keys = []
+                self._counted_session_lock_keys_checked_the_state = False
 
             self.release_lock()
 

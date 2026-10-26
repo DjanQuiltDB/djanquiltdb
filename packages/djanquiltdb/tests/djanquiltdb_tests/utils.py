@@ -1128,6 +1128,85 @@ class UseShardInsideEnteredUseShardTestCase(ShardingTransactionTestCase):
 
         self.assertEqual(captured.captured_queries, [])
 
+    def test_inner_use_shard_checks_the_state_inside_a_use_shard_that_does_not(self):
+        """
+        Case: The registry has the shard in maintenance. Enter use_shard for the shard with active_only_schemas False,
+              and inside it, enter use_shard for the shard as it was read while it was active.
+        Expected: The inner use_shard raises StateException, because the outer use_shard did not check that the shard
+                  is active, so the inner use_shard takes the locks and reads the shard itself.
+        """
+        Shard.objects.filter(pk=self.shard.pk).update(state=State.MAINTENANCE)
+        # The flush at the end of the test reads the shards, and refuses a shard in maintenance.
+        self.addCleanup(Shard.objects.filter(pk=self.shard.pk).update, state=State.ACTIVE)
+
+        with use_shard(self.shard, active_only_schemas=False):
+            with self.assertRaises(StateException):
+                with use_shard(self.shard):
+                    pass
+
+    def test_inner_use_shard_that_does_not_check_the_state_runs_no_statements_inside_one_that_does_not_either(self):
+        """
+        Case: Enter use_shard for a shard with active_only_schemas False, and inside it, enter and leave use_shard for
+              the shard with active_only_schemas False.
+        Expected: The inner use_shard runs no statements, because it does not check the state, and the outer use_shard
+                  checked under the same locks that the shard is on its node and in its schema.
+        """
+        with use_shard(self.shard, active_only_schemas=False):
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard, active_only_schemas=False):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_a_later_use_shard_that_does_not_check_the_state_runs_no_statements_after_one_that_does_not_either(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard with active_only_schemas False, then enter and
+              leave use_shard for the shard with active_only_schemas False again.
+        Expected: The second use_shard runs no statements, because it does not check the state, and the first use_shard
+                  holds the transaction-scoped locks of the shard until the transaction ends.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard, active_only_schemas=False):
+                pass
+
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard, active_only_schemas=False):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_the_options_of_a_use_shard_that_does_not_check_the_state_enter_without_statements_inside_it(self):
+        """
+        Case: Inside use_shard for a shard with active_only_schemas False, enter the context that use() of the options
+              of that use_shard returns, as a sharded model method does.
+        Expected: No statements run, because the options do not check the state either.
+        """
+        with use_shard(self.shard, active_only_schemas=False) as env:
+            with CaptureQueriesContext(connections['default']) as captured:
+                with env.options.use():
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_a_later_use_shard_in_the_transaction_checks_the_state_after_a_use_shard_that_does_not(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard with active_only_schemas False, put the shard
+              in maintenance in the registry, and enter use_shard for the shard as it was read while it was active.
+        Expected: The second use_shard raises StateException, because the first use_shard did not check that the shard
+                  is active, so the second use_shard takes the locks and reads the shard itself.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard, active_only_schemas=False):
+                pass
+
+            Shard.objects.filter(pk=self.shard.pk).update(state=State.MAINTENANCE)
+            # The flush at the end of the test reads the shards, and refuses a shard in maintenance.
+            self.addCleanup(Shard.objects.filter(pk=self.shard.pk).update, state=State.ACTIVE)
+
+            with self.assertRaises(StateException):
+                with use_shard(self.shard):
+                    pass
+
     def test_a_rollback_to_a_savepoint_set_before_the_lock_releases_it(self):
         """
         Case: Inside a transaction, set a savepoint, enter and leave use_shard for a shard, roll back to the savepoint,
