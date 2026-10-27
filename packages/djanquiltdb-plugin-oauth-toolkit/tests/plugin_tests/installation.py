@@ -6,7 +6,7 @@ import djanquiltdb.base.oauth_toolkit as base_namespace
 import djanquiltdb.utils.oauth_toolkit as utils_namespace
 from django.test import SimpleTestCase
 from django.utils.module_loading import import_string
-from djanquiltdb import base, utils
+from djanquiltdb import base, middleware, utils
 from djanquiltdb.base.oauth_toolkit import ShardSelectorClientIdGenerator
 from djanquiltdb.plugins import load_plugins
 from djanquiltdb.utils.oauth_toolkit import generate_access_token
@@ -66,6 +66,18 @@ class PluginDiscoveryTestCase(SimpleTestCase):
         for name in djanquiltdb_plugin_oauth_toolkit.base.__all__:
             with self.subTest(name=name):
                 self.assertIs(getattr(base_namespace, name), getattr(djanquiltdb_plugin_oauth_toolkit, name))
+
+    def test_the_middleware_is_served_from_the_core_middleware_module(self):
+        """
+        Case: djanquiltdb.middleware.oauth_toolkit is read as an attribute of djanquiltdb.middleware, and the middleware
+              class is loaded by the path that a MIDDLEWARE entry names.
+        Expected: The plugin's middleware module, and its middleware class.
+        """
+        self.assertIs(middleware.oauth_toolkit, djanquiltdb_plugin_oauth_toolkit.middleware)
+        self.assertIs(
+            import_string('djanquiltdb.middleware.oauth_toolkit.OAuthToolkitUseShardForMiddleware'),
+            djanquiltdb_plugin_oauth_toolkit.OAuthToolkitUseShardForMiddleware,
+        )
 
     def test_the_oauth2_provider_settings_load_the_generators_of_the_plugin(self):
         """

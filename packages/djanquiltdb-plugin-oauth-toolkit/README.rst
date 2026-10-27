@@ -47,6 +47,17 @@ shard of the tenant. For the tenant whose mapping value is ``acme``, they look l
         'REFRESH_TOKEN_GENERATOR': 'djanquiltdb.utils.oauth_toolkit.generate_refresh_token',
     }
 
+Its middleware reads the shard selector back from the client id or the token of each request, and enters that shard
+before django-oauth-toolkit looks up the client id or the token. Put it in place of ``UseShardForMiddleware``, after
+``SessionMiddleware`` and before the toolkit's ``OAuth2TokenMiddleware``::
+
+    MIDDLEWARE = [
+        'django.contrib.sessions.middleware.SessionMiddleware',
+        'djanquiltdb.middleware.oauth_toolkit.OAuthToolkitUseShardForMiddleware',
+        'django.contrib.auth.middleware.AuthenticationMiddleware',
+        'oauth2_provider.middleware.OAuth2TokenMiddleware',
+    ]
+
 Install it through DjanQuiltDB's extra::
 
     pip install djanquiltdb[oauth-toolkit]

@@ -1,13 +1,15 @@
 """
 This package exports the public API of the plugin, and defines the plugin object that DjanQuiltDB finds through the
 ``djanquiltdb.plugins`` entry-point group. DjanQuiltDB serves the client id generator as
-``djanquiltdb.base.oauth_toolkit`` and the helpers as ``djanquiltdb.utils.oauth_toolkit``.
+``djanquiltdb.base.oauth_toolkit``, the middleware as ``djanquiltdb.middleware.oauth_toolkit`` and the helpers as
+``djanquiltdb.utils.oauth_toolkit``.
 """
 
 from types import SimpleNamespace
 
-from djanquiltdb_plugin_oauth_toolkit import base, utils
+from djanquiltdb_plugin_oauth_toolkit import base, middleware, utils
 from djanquiltdb_plugin_oauth_toolkit.base import ShardSelectorClientIdGenerator
+from djanquiltdb_plugin_oauth_toolkit.middleware import OAuthToolkitUseShardForMiddleware
 from djanquiltdb_plugin_oauth_toolkit.utils import (
     ShardSelectorError,
     active_shard_selector,
@@ -39,9 +41,10 @@ def install():
     )
 
 
-plugin = SimpleNamespace(base=base, utils=utils, install=install)
+plugin = SimpleNamespace(base=base, middleware=middleware, utils=utils, install=install)
 
 __all__ = [
+    'OAuthToolkitUseShardForMiddleware',
     'ShardSelectorClientIdGenerator',
     'ShardSelectorError',
     'active_shard_selector',

@@ -40,7 +40,9 @@ dependencies = [
     "django>=6.0,<7.0",
     # 4.5 serves a plugin's base module as djanquiltdb.base.<name>.
     "djanquiltdb>=4.5,<5.0",
-    # 3.4 looks up a refresh token by a checksum of the whole token, as it looks up an access token.
+    # 3.4 looks up a refresh token by a checksum of the whole token, as it looks up an access token. The middleware
+    # reads client ids and tokens from the places where the toolkit reads them, and it is keyed on the URL names of the
+    # toolkit, so a new major version has to be checked before the upper bound is raised.
     "django-oauth-toolkit>=3.4,<4.0",
 ]
 
