@@ -663,3 +663,96 @@ class SessionMiddlewareUnknownSelectorTestCase(ShardingTestCase):
             self.assertRaisesMessage(ImproperlyConfigured, 'MAPPING_MODEL'),
         ):
             middleware.process_request(request)
+
+
+class SubclassOfTheBaseMiddlewareUnknownShardTestCase(ShardingTestCase):
+    """
+    A middleware of the project that subclasses BaseUseShardMiddleware or BaseUseShardForMiddleware, and names a shard
+    or a mapping value that no longer exists, gets the response of a shard that cannot be entered.
+    """
+
+    def quilt_db_settings(self, state_exception_view=None):
+        quilt_db = {key: value for key, value in settings.QUILT_DB.items() if key != 'STATE_EXCEPTION_VIEW'}
+
+        if state_exception_view:
+            quilt_db['STATE_EXCEPTION_VIEW'] = state_exception_view
+
+        return quilt_db
+
+    def assert_request_is_left_unsharded(self, middleware, request):
+        self.assertIsNone(middleware.get_shard_context_manager(request))
+        self.assertEqual(connection.schema_name, PUBLIC_SCHEMA_NAME)
+
+    def test_a_shard_id_that_the_shard_registry_does_not_have(self):
+        """
+        Case: A subclass of BaseUseShardMiddleware processes a request whose shard id is not in the shard registry, as
+              for a shard that was deleted, and QUILT_DB has no STATE_EXCEPTION_VIEW.
+        Expected: A response with status 503, as for a shard that is not active, and no shard is entered.
+        """
+        self.assertFalse(Shard.objects.filter(id=999).exists())
+        request = RequestFactory().get('/')
+        middleware = UseShardMiddleware(lambda request: None)
+
+        with (
+            mock.patch.object(UseShardMiddleware, 'get_shard_id', return_value=999),
+            override_settings(QUILT_DB=self.quilt_db_settings()),
+        ):
+            response = middleware.process_request(request)
+
+        self.assertEqual(response.status_code, 503)
+        self.assert_request_is_left_unsharded(middleware, request)
+
+    def test_a_shard_id_that_the_shard_registry_does_not_have_with_a_state_exception_view(self):
+        """
+        Case: A subclass of BaseUseShardMiddleware processes a request whose shard id is not in the shard registry, and
+              QUILT_DB has a STATE_EXCEPTION_VIEW.
+        Expected: The response of the STATE_EXCEPTION_VIEW, and no shard is entered.
+        """
+        request = RequestFactory().get('/')
+        middleware = UseShardMiddleware(lambda request: None)
+
+        with (
+            mock.patch.object(UseShardMiddleware, 'get_shard_id', return_value=999),
+            override_settings(QUILT_DB=self.quilt_db_settings('djanquiltdb_tests.middleware.StateExceptionTestView')),
+        ):
+            response = middleware.process_request(request)
+
+        self.assertContains(response, 'Test state exception view')
+        self.assert_request_is_left_unsharded(middleware, request)
+
+    def test_a_mapping_value_that_the_mapping_table_does_not_have(self):
+        """
+        Case: A subclass of BaseUseShardForMiddleware processes a request whose mapping value is not in the mapping
+              table, as for a tenant whose mapping was deleted, and QUILT_DB has no STATE_EXCEPTION_VIEW.
+        Expected: A response with status 503, as for a shard that is not active, and no shard is entered.
+        """
+        self.assertFalse(OrganizationShard.objects.filter(organization_id=999).exists())
+        request = RequestFactory().get('/')
+        middleware = UseShardForMiddleware(lambda request: None)
+
+        with (
+            mock.patch.object(UseShardForMiddleware, 'get_mapping_value', return_value=999),
+            override_settings(QUILT_DB=self.quilt_db_settings()),
+        ):
+            response = middleware.process_request(request)
+
+        self.assertEqual(response.status_code, 503)
+        self.assert_request_is_left_unsharded(middleware, request)
+
+    def test_a_mapping_value_that_the_mapping_table_does_not_have_with_a_state_exception_view(self):
+        """
+        Case: A subclass of BaseUseShardForMiddleware processes a request whose mapping value is not in the mapping
+              table, and QUILT_DB has a STATE_EXCEPTION_VIEW.
+        Expected: The response of the STATE_EXCEPTION_VIEW, and no shard is entered.
+        """
+        request = RequestFactory().get('/')
+        middleware = UseShardForMiddleware(lambda request: None)
+
+        with (
+            mock.patch.object(UseShardForMiddleware, 'get_mapping_value', return_value=999),
+            override_settings(QUILT_DB=self.quilt_db_settings('djanquiltdb_tests.middleware.StateExceptionTestView')),
+        ):
+            response = middleware.process_request(request)
+
+        self.assertContains(response, 'Test state exception view')
+        self.assert_request_is_left_unsharded(middleware, request)

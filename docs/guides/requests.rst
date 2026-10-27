@@ -55,7 +55,9 @@ views.
 How the middleware determines which shard to use is up to you however. To use the ``BaseUseShardMiddleware`` you have
 to extend it and implement its ``get_shard_id()`` method yourself.
 
-Don't forget you can assign your own view as error page like in :ref:`exception_middleware`.
+Don't forget you can assign your own view as error page like in :ref:`exception_middleware`. A request whose shard id
+the shard registry no longer has gets the same response as a request for a shard that is not active, and so does a
+request whose mapping value the mapping table no longer has.
 
 .. code-block:: python
 

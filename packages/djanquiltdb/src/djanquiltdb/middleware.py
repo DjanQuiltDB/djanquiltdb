@@ -116,7 +116,16 @@ class BaseUseShardMiddleware(_BaseShardMiddleware):
         try:
             request._shard_id = self.get_shard_id(request)
             if request._shard_id:
-                self._enable_shard(request, request._shard_id)
+                try:
+                    self._enable_shard(request, request._shard_id)
+                except ObjectDoesNotExist:
+                    # A shard that no longer exists cannot be entered, as a shard that is not active cannot. The
+                    # exception becomes a StateException here, and not in process_exception(), because
+                    # process_exception() also gets the exceptions of the view, where an ObjectDoesNotExist is not
+                    # about the shard of the request.
+                    raise StateException(
+                        'The shard registry has no shard with the id {}.'.format(request._shard_id), state=None
+                    ) from None
         except (StateException, OperationalError) as exception:
             return self.process_exception(request, exception)
 
@@ -145,7 +154,13 @@ class BaseUseShardForMiddleware(_BaseShardMiddleware):
         try:
             request._mapping_value = self.get_mapping_value(request)
             if request._mapping_value:
-                self._enable_shard_for(request, request._mapping_value)
+                try:
+                    self._enable_shard_for(request, request._mapping_value)
+                except ObjectDoesNotExist:
+                    # As in BaseUseShardMiddleware.process_request().
+                    raise StateException(
+                        'The mapping table has no mapping value {}.'.format(request._mapping_value), state=None
+                    ) from None
         except (StateException, OperationalError) as exception:
             return self.process_exception(request, exception)
 
@@ -172,7 +187,8 @@ class BaseUseShardMiddleware(MiddlewareMixin, BaseUseShardMiddleware):  # nosec
     Wraps each request in ``use_shard``, so views need not know the project is sharded.
 
     Abstract: subclass it and implement :meth:`get_shard_id`. The shard is released again when the response is
-    returned, and an unreachable one is handled as :class:`ExceptionMiddlewareMixin` describes.
+    returned. A shard that is unreachable, not active or no longer in the shard registry is handled as
+    :class:`ExceptionMiddlewareMixin` describes.
     """
 
     pass
@@ -182,7 +198,7 @@ class BaseUseShardMiddleware(MiddlewareMixin, BaseUseShardMiddleware):  # nosec
 class BaseUseShardForMiddleware(MiddlewareMixin, BaseUseShardForMiddleware):  # nosec
     """
     :class:`BaseUseShardMiddleware` for a project with a mapping model: the request names a mapping value rather
-    than a shard.
+    than a shard. A mapping value that is no longer in the mapping table is handled as a shard that is not active.
 
     Abstract: subclass it and implement :meth:`get_mapping_value`.
     """
@@ -203,7 +219,9 @@ class UseShardMiddleware(BaseUseShardMiddleware, ExceptionMiddlewareMixin):
         try:
             super()._enable_shard(request, shard_id)
         except ObjectDoesNotExist:
-            # A session of a shard that the registry no longer has: the request goes on without a shard.
+            # A session of a shard that the registry no longer has: the request goes on without a shard. The shard
+            # comes from the session of a logged-in user, and that user has no shard to be in any more, so the request
+            # is served as for a visitor without a shard, instead of with the response of a shard that is not active.
             request._shard_id = None
 
 
@@ -221,5 +239,6 @@ class UseShardForMiddleware(BaseUseShardForMiddleware, ExceptionMiddlewareMixin)
             super()._enable_shard_for(request, target_value)
         except ObjectDoesNotExist:
             # A session of a mapping value that the mapping table no longer has: the request goes on without a shard,
-            # and djanquiltdb.sessions reads the session as empty.
+            # and djanquiltdb.sessions reads the session as empty, so the user is logged out, instead of getting the
+            # response of a shard that is not active.
             request._mapping_value = None
