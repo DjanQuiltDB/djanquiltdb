@@ -3,7 +3,7 @@ API reference
 =============
 
 Once the plugin is installed, its API is served from inside ``djanquiltdb`` itself: the task decorators from
-``djanquiltdb.decorators.celery``, the task classes from ``djanquiltdb.base.celery``, and the fan-out helpers, the
+``djanquiltdb.decorators.celery``, the task classes and the Celery app class from ``djanquiltdb.base.celery``, and the fan-out helpers, the
 exceptions and the name of the target header from ``djanquiltdb.utils.celery``. The decorators are served only as
 ``djanquiltdb.decorators.celery``, and not as ``djanquiltdb.decorators``, so that a call site names the plugin. Both
 ways of importing are supported::
@@ -23,7 +23,8 @@ Task decorators
 
 .. currentmodule:: djanquiltdb.decorators.celery
 
-The decorators wrap ``celery.shared_task()``, which their names say.
+The decorators wrap ``celery.shared_task()``, which their names say. The ``task_for_*`` methods of
+:class:`~djanquiltdb.base.celery.QuiltCelery` create a task of one Celery app instead, see :ref:`celery-app-classes`.
 
 .. autofunction:: shared_task_for_shard
 
@@ -73,9 +74,9 @@ The task class
 
 .. currentmodule:: djanquiltdb.base.celery
 
-The decorators create their tasks with this class as the base, combined with the task class of the Celery app, see
-:doc:`installation`. A task class of your own that is passed as ``base``, or that ``QUILT_CELERY['TASK_BASE']`` names,
-has to inherit from this class.
+The decorators and the methods of ``QuiltCelery`` create their tasks with this class as the base, combined with the task
+class of the Celery app, see :doc:`installation`. A task class of your own that is passed as ``base``, or that
+``QUILT_CELERY['TASK_BASE']`` names, has to inherit from this class.
 
 .. autoclass:: QuiltTask
     :members: for_shard, for_node, delay_for_shard, apply_async_for_shard, delay_on_commit_for_shard,
@@ -83,3 +84,14 @@ has to inherit from this class.
         apply_async_on_commit_for_node
 
 .. autoclass:: TaskSenderForTarget
+
+
+.. _celery-app-classes:
+
+The Celery app class
+====================
+
+.. currentmodule:: djanquiltdb.base.celery
+
+.. autoclass:: QuiltCelery
+    :members: task_for_shard, task_for_node, task_for_active_shard, task_for_every_shard, task_for_every_node

@@ -8,6 +8,7 @@ from djanquiltdb.decorators.celery import (
 )
 from djanquiltdb.router import get_active_connection
 
+from config.celery import app
 from djanquiltdb_plugin_celery.targets import TARGET_HEADER_NAME
 from example.models import Widget
 
@@ -156,3 +157,28 @@ def count_widgets(**kwargs):
 @shared_task
 def collect_counts(counts):
     return counts
+
+
+@app.task_for_shard(bind=True)
+def record_target_of_the_app(self, **kwargs):
+    return describe_task_run(self, kwargs)
+
+
+@app.task_for_node(bind=True)
+def record_node_of_the_app(self, **kwargs):
+    return describe_task_run(self, kwargs)
+
+
+@app.task_for_active_shard(bind=True)
+def record_inherited_target_of_the_app(self, **kwargs):
+    return describe_task_run(self, kwargs)
+
+
+@app.task_for_every_shard(bind=True)
+def record_every_shard_of_the_app(self, **kwargs):
+    return describe_task_run(self, kwargs)
+
+
+@app.task_for_every_node(bind=True)
+def record_every_node_of_the_app(self, **kwargs):
+    return describe_task_run(self, kwargs)

@@ -52,6 +52,18 @@ while that shard is in maintenance::
     send_invoice.for_shard(shard).delay(invoice_id=12)
     send_invoice.delay(invoice_id=12, tenant_slug='acme')
 
+The ``shared_task_for_*`` decorators create a shared task, as ``celery.shared_task()`` does. The ``task_for_*`` methods
+of a ``QuiltCelery`` app create a task of that app, as ``app.task()`` does::
+
+    from djanquiltdb.base.celery import QuiltCelery
+
+    app = QuiltCelery('myproject')
+
+
+    @app.task_for_shard
+    def send_reminder(invoice_id):
+        Invoice.objects.get(pk=invoice_id).send_reminder()
+
 A task that is decorated with ``shared_task_for_node`` runs in the public schema of the node that its ``node_name``
 identifies. A task that is decorated with ``shared_task_for_active_shard`` runs in the shard that is active where the
 task is sent. A task that is decorated with ``shared_task_for_every_shard`` runs once in every active shard when it is

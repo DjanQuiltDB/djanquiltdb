@@ -7,7 +7,7 @@ task classes as ``djanquiltdb.base.celery``, and the helpers, exceptions and con
 from types import SimpleNamespace
 
 from djanquiltdb_plugin_celery import base, decorators, utils
-from djanquiltdb_plugin_celery.base import QuiltTask, TaskSenderForTarget
+from djanquiltdb_plugin_celery.base import QuiltCelery, QuiltTask, TaskSenderForTarget
 from djanquiltdb_plugin_celery.decorators import (
     shared_task_for_active_shard,
     shared_task_for_every_node,
@@ -42,6 +42,7 @@ plugin = SimpleNamespace(base=base, decorators=decorators, utils=utils, install=
 
 __all__ = [
     'TARGET_HEADER_NAME',
+    'QuiltCelery',
     'QuiltTask',
     'TaskNodeError',
     'TaskQuiltError',

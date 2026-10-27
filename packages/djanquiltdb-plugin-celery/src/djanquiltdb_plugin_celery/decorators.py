@@ -10,7 +10,7 @@ import inspect
 
 from celery import _state as celery_state
 from celery import shared_task
-from celery.local import Proxy
+from celery.local import PromiseProxy, Proxy
 from djanquiltdb.utils import StateException
 
 from djanquiltdb_plugin_celery.settings import ensure_valid_queue, ensure_valid_spread, quilt_celery_setting
@@ -55,10 +55,11 @@ def _signature_of_function(func, bind):
     return signature.replace(parameters=parameters[1:] if bind else parameters)
 
 
-def _create_quilt_task(func, task_attributes, options):
+def _create_quilt_task(func, task_attributes, options, app):
     """
-    Returns the task of ``func``, with ``task_attributes`` as attributes of its QuiltTask class and ``options`` as
-    the options of ``celery.shared_task()``.
+    Returns the task of ``func``, with ``task_attributes`` as attributes of its QuiltTask class. When ``app`` is None,
+    the task is shared, and ``options`` are the options of ``celery.shared_task()``. Otherwise the task is a task of
+    ``app``, and ``options`` are the options of ``app.task()``.
     """
     ensure_valid_spread(task_attributes.get('fanout_spread'), func.__qualname__)
     ensure_valid_queue(task_attributes.get('fanout_queue'), func.__qualname__)
@@ -100,10 +101,28 @@ def _create_quilt_task(func, task_attributes, options):
     task_attributes = {**task_attributes, 'function_signature': _signature_of_function(func, bind)}
     task_options = {'bind': True, **task_attributes, **_retry_options(options)}
 
-    if base is not None:
+    if app is None and base is not None:
         return shared_task(base=base, **task_options)(run_in_target)
 
-    return _shared_task_based_on_each_app(run_in_target, task_options)
+    if app is None:
+        return _shared_task_based_on_each_app(run_in_target, task_options)
+
+    if base is not None:
+        return app.task(base=base, **task_options)(run_in_target)
+
+    return _app_task_based_on_each_app(app, run_in_target, task_options)
+
+
+def _registration_with_the_base_of_each_app(fun, options):
+    """
+    Returns the function that registers the task of ``fun`` in an app, with ``options`` and with the base class that
+    task_base_of_app() returns for that app.
+    """
+
+    def register_in(app):
+        return app._task_from_fun(fun, base=task_base_of_app(app), **options)
+
+    return register_in
 
 
 def _shared_task_based_on_each_app(fun, options):
@@ -113,9 +132,7 @@ def _shared_task_based_on_each_app(fun, options):
     ``celery.shared_task()`` with that one change, and uses the same hooks of Celery. The base is resolved for each app,
     and not from the current app, because a tasks module can be imported before the Celery app of the project exists.
     """
-
-    def register_in(app):
-        return app._task_from_fun(fun, base=task_base_of_app(app), **options)
+    register_in = _registration_with_the_base_of_each_app(fun, options)
 
     # An app that is finalized later registers the task when it is finalized, and an app that is finalized already
     # registers it now.
@@ -133,16 +150,88 @@ def _shared_task_based_on_each_app(fun, options):
     return Proxy(task_of_the_current_app)
 
 
-def _task_decorator_or_task(task_attributes, func, options):
+def _app_task_based_on_each_app(app, fun, options):
+    """
+    Returns the task of ``fun`` as ``app.task(**options)`` returns it, except that each app that registers the task
+    gives it the base class that task_base_of_app() returns for that app. The body is the body of ``app.task()`` with
+    that one change, and uses the same hooks of Celery. Celery's ``app.task()`` returns a shared task instead in a
+    worker process that is started with execv, as on Windows, which Celery 5 does not support, so this body has no such
+    branch.
+    """
+    options = dict(options)
+    shared = options.pop('shared', True)
+    lazy = options.pop('lazy', True)
+    task_filter = options.pop('filter', None)
+    register_in = _registration_with_the_base_of_each_app(fun, options)
+
+    # As for app.task(), an app that is finalized later also registers a shared task when it is finalized.
+    if shared:
+        celery_state.connect_on_app_finalize(register_in)
+
+    if not lazy or app.finalized:
+        task = register_in(app)
+    else:
+        # The app registers the task when the proxy is first used, or when the app is finalized.
+        task = PromiseProxy(register_in, (app,), __doc__=fun.__doc__)
+        app._pending.append(task)
+
+    return task_filter(task) if task_filter else task
+
+
+def _refuse_app_option(options):
+    """
+    Raises TypeError when ``options`` has an ``app``. Celery would make it an attribute of the task class, in place of
+    the app that registers the task.
+    """
+    if 'app' in options:
+        raise TypeError(
+            'The decorators of the celery plugin take no app. To create a task of one Celery app, use the task_for_* '
+            'methods of a QuiltCelery app, as with app.task(). For a task that every Celery app shares, use the '
+            'shared_task_for_* decorators.'
+        )
+
+
+def task_decorator_or_task(task_attributes, func, options, app=None):
     """
     Returns the task of ``func``, or, when ``func`` is None, the decorator that returns the task, so that each decorator
-    works with and without arguments.
+    works with and without arguments. The task is a task of ``app``, or a shared task when ``app`` is None.
     """
+    _refuse_app_option(options)
 
     def decorate(func):
-        return _create_quilt_task(func, task_attributes, options)
+        return _create_quilt_task(func, task_attributes, options, app)
 
     return decorate if func is None else decorate(func)
+
+
+def attributes_of_shard_task(inherit_active_shard, lock):
+    """
+    Returns the attributes of the QuiltTask class of a task that runs in a shard.
+    """
+    return {'runs_in': 'shard', 'lock_target': lock, 'inherit_active_shard': inherit_active_shard}
+
+
+def attributes_of_every_shard_task(queue, spread, include_maintenance, lock):
+    """
+    Returns the attributes of the QuiltTask class of a task that runs once in every active shard when it is sent without
+    a shard.
+    """
+    return {
+        'runs_in': 'shard',
+        'lock_target': lock,
+        'fans_out': True,
+        'fanout_queue': queue,
+        'fanout_spread': spread,
+        'fanout_include_maintenance': include_maintenance,
+    }
+
+
+def attributes_of_every_node_task(queue, spread):
+    """
+    Returns the attributes of the QuiltTask class of a task that runs once in the public schema of every node when it is
+    sent without a node.
+    """
+    return {'runs_in': 'node', 'fans_out': True, 'fanout_queue': queue, 'fanout_spread': spread}
 
 
 def shared_task_for_shard(func=None, *, inherit_active_shard=False, lock=None, **options):
@@ -172,7 +261,8 @@ def shared_task_for_shard(func=None, *, inherit_active_shard=False, lock=None, *
         and ``retry_jitter`` default to the QUILT_CELERY settings, and StateException is added to the exceptions of
         ``autoretry_for``. ``base`` defaults to the class that ``QUILT_CELERY['TASK_BASE']`` names, else to
         :class:`~djanquiltdb.base.celery.QuiltTask` combined with the task class of the Celery app, and a ``base``
-        that does not inherit from QuiltTask raises TypeError.
+        that does not inherit from QuiltTask raises TypeError. ``app`` raises TypeError, because the task is shared. To
+        create a task of one Celery app, use :meth:`~djanquiltdb.base.celery.QuiltCelery.task_for_shard`.
 
     :Example:
         .. code-block:: python
@@ -189,9 +279,7 @@ def shared_task_for_shard(func=None, *, inherit_active_shard=False, lock=None, *
             send_invoice.delay_for_shard(shard, invoice_id=12)  # the same
             send_invoice.delay(invoice_id=12, tenant_slug='acme')
     """
-    task_attributes = {'runs_in': 'shard', 'lock_target': lock, 'inherit_active_shard': inherit_active_shard}
-
-    return _task_decorator_or_task(task_attributes, func, options)
+    return task_decorator_or_task(attributes_of_shard_task(inherit_active_shard, lock), func, options)
 
 
 def shared_task_for_node(func=None, **options):
@@ -217,7 +305,7 @@ def shared_task_for_node(func=None, **options):
             refresh_exchange_rates.for_node('other').delay()
             refresh_exchange_rates.delay(node_name='other')  # the same
     """
-    return _task_decorator_or_task({'runs_in': 'node'}, func, options)
+    return task_decorator_or_task({'runs_in': 'node'}, func, options)
 
 
 def shared_task_for_active_shard(func=None, **options):
@@ -281,16 +369,9 @@ def shared_task_for_every_shard(func=None, *, queue=None, spread=None, include_m
 
             clean_up_drafts.delay()  # runs once in every active shard
     """
-    task_attributes = {
-        'runs_in': 'shard',
-        'lock_target': lock,
-        'fans_out': True,
-        'fanout_queue': queue,
-        'fanout_spread': spread,
-        'fanout_include_maintenance': include_maintenance,
-    }
+    task_attributes = attributes_of_every_shard_task(queue, spread, include_maintenance, lock)
 
-    return _task_decorator_or_task(task_attributes, func, options)
+    return task_decorator_or_task(task_attributes, func, options)
 
 
 def shared_task_for_every_node(func=None, *, queue=None, spread=None, **options):
@@ -313,14 +394,7 @@ def shared_task_for_every_node(func=None, *, queue=None, spread=None, **options)
             def refresh_exchange_rates():
                 ExchangeRate.objects.refresh()
     """
-    task_attributes = {
-        'runs_in': 'node',
-        'fans_out': True,
-        'fanout_queue': queue,
-        'fanout_spread': spread,
-    }
-
-    return _task_decorator_or_task(task_attributes, func, options)
+    return task_decorator_or_task(attributes_of_every_node_task(queue, spread), func, options)
 
 
 __all__ = [

@@ -15,6 +15,7 @@ from example.tasks import (
     record_inherited_target,
     record_node,
     record_target,
+    record_target_of_the_app,
 )
 from plugin_tests.base import PluginTestCase
 from plugin_tests.tasks import node_and_schema_of
@@ -61,6 +62,17 @@ class WorkerTestCase(PluginTestCase):
         self.assertEqual(node_and_schema_of(remote_result), ('other', 'remote_schema'))
         self.assertEqual(node_and_schema_of(first_result), ('default', 'first_schema'))
         self.assertEqual(remote_result['kwargs'], {})
+
+    def test_the_worker_runs_a_task_of_the_app_in_its_shard(self):
+        """
+        Case: record_target_of_the_app, which the task_for_shard method of the test app creates, is published with
+              for_shard(remote).delay().
+        Expected: The worker runs it in the schema of remote.
+        """
+        result = record_target_of_the_app.for_shard(self.remote).delay().get(timeout=RESULT_TIMEOUT)
+
+        self.assertEqual(node_and_schema_of(result), ('other', 'remote_schema'))
+        self.assertEqual(result['header'], {'shard_id': self.remote.id})
 
     def test_the_worker_runs_a_node_task_in_the_public_schema_of_its_node(self):
         """

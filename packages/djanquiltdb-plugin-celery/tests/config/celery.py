@@ -1,5 +1,5 @@
-from celery import Celery
+from djanquiltdb.base.celery import QuiltCelery
 
-app = Celery('config')
+app = QuiltCelery('config')
 app.config_from_object('django.conf:settings', namespace='CELERY')
 app.autodiscover_tasks()

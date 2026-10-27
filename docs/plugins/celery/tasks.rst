@@ -6,6 +6,53 @@ The plugin's decorators turn a function into a Celery task that runs in one shar
 the public schema of one node, with ``shared_task_for_node``. That shard or schema is the *target* of the task.
 
 
+Shared tasks and tasks of one Celery app
+----------------------------------------
+
+Celery creates a task in two ways: ``celery.shared_task()`` creates a shared task, and ``app.task()`` creates a task of
+the app ``app``. Celery's documentation describes both in `How do I import the task decorator?
+<https://docs.celeryq.dev/en/stable/userguide/tasks.html#how-do-i-import-the-task-decorator>`__ and `Using the
+@shared_task decorator
+<https://docs.celeryq.dev/en/stable/django/first-steps-with-django.html#using-the-shared-task-decorator>`__, and the
+options of ``app.task()`` in its `API reference
+<https://docs.celeryq.dev/en/stable/reference/celery.html#celery.Celery.task>`__. The plugin follows both. The ``shared_task_for_*`` decorators create a shared task, and the
+``task_for_*`` methods of a :class:`~djanquiltdb.base.celery.QuiltCelery` app create a task of that app, see
+:doc:`installation`. The target of the task works the same for both:
+
+.. code-block:: python
+
+    from djanquiltdb.decorators.celery import shared_task_for_shard
+    from myproject.celery import app
+
+
+    @shared_task_for_shard
+    def send_invoice(invoice_id):
+        Invoice.objects.get(pk=invoice_id).send()
+
+
+    @app.task_for_shard
+    def send_reminder(invoice_id):
+        Invoice.objects.get(pk=invoice_id).send_reminder()
+
+The two differ in the Celery app that a task belongs to:
+
+* A shared task belongs to the app that is current each time the task is used, so ``delay()`` publishes it through the
+  current app. A task of one app always belongs to that app, and is published through it, whichever app is current.
+* A shared task is registered at once in every app that is finalized already, and in every app that is finalized
+  later. A task of one app is registered in its app when that app is finalized, or at once with ``lazy=False``. With
+  ``shared=True``, the default, every app that is finalized later registers it too. With ``shared=False``, no other
+  app registers it. An app other than its own that is finalized already does not register it in either case.
+* Each app that registers the task gives it the task class of that app, for both kinds of task.
+
+The methods take the options of ``app.task()``, so also ``shared``, ``lazy`` and ``filter``, and the decorators take the
+options of ``celery.shared_task()``. Neither takes ``app``: passing ``app`` to a decorator or a method raises
+``TypeError``.
+
+In a project with one Celery app, which is current from the start, the two kinds of task behave the same. The
+difference matters in a project with more than one Celery app, in code that sends a task while another app is current,
+and for a task that only its own app may register.
+
+
 Sending a task to a shard
 -------------------------
 

@@ -1,6 +1,7 @@
 from unittest import mock
 
 from celery import Celery
+from celery.contrib.django.task import DjangoTask
 from celery.contrib.testing.worker import start_worker
 from django.test import override_settings
 from djanquiltdb.router import get_active_connection
@@ -8,7 +9,7 @@ from djanquiltdb.router import get_active_connection
 from config.celery import app
 from djanquiltdb_plugin_celery.decorators import shared_task_for_shard
 from djanquiltdb_plugin_celery.tasks import QuiltTask, quilt_task_based_on
-from example.task_bases import RECORDED_CALLS, ProjectQuiltTask, RecordingCallTask
+from example.task_bases import RECORDED_CALLS, PlainRecordingCallTask, ProjectQuiltTask, RecordingCallTask
 from plugin_tests.base import PluginTestCase
 from plugin_tests.worker import RESULT_TIMEOUT
 
@@ -62,6 +63,35 @@ class TaskBaseTestCase(PluginTestCase):
         self.assertIsInstance(task, RecordingCallTask)
         self.assertEqual(result, 'first_schema')
         self.assertEqual(RECORDED_CALLS, ['plugin_tests.task_base.in_a_recording_app'])
+
+    def test_a_task_of_an_app_whose_task_class_is_celery_task_is_a_django_task(self):
+        """
+        Case: The task class of the app is Celery's own Task, and not DjangoTask. A task is decorated without a base.
+        Expected: The base of the task class is QuiltTask, so the task is a DjangoTask and can be sent on commit.
+        """
+        with mock.patch.object(app, 'task_cls', 'celery.app.task:Task'):
+            task = task_named('in_an_app_of_celery_task')
+
+        self.assertEqual(task.__class__.__bases__, (QuiltTask,))
+        self.assertIsInstance(task, DjangoTask)
+        self.assertTrue(callable(task.delay_on_commit_for_shard))
+
+    def test_a_task_of_an_app_whose_task_class_is_not_a_django_task_is_a_django_task_and_runs_its_call(self):
+        """
+        Case: The task class of the app is PlainRecordingCallTask, which inherits from Celery's Task and not from
+              DjangoTask, and records each run in its __call__. A task is decorated without a base, and sent for first.
+        Expected: The task is a DjangoTask and a PlainRecordingCallTask, runs in first, and PlainRecordingCallTask
+                  records its run.
+        """
+        with mock.patch.object(app, 'task_cls', PlainRecordingCallTask):
+            task = task_named('in_a_plain_recording_app')
+
+        result = task.delay(shard_id=self.first.id).get()
+
+        self.assertIsInstance(task, DjangoTask)
+        self.assertIsInstance(task, PlainRecordingCallTask)
+        self.assertEqual(result, 'first_schema')
+        self.assertEqual(RECORDED_CALLS, ['plugin_tests.task_base.in_a_plain_recording_app'])
 
     def test_the_tasks_of_one_app_share_their_base(self):
         """

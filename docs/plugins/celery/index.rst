@@ -24,6 +24,9 @@ Plugin release |celery-version|.
 Things to know
 --------------
 
+* The ``shared_task_for_*`` decorators create a shared task, as ``celery.shared_task()`` does, which belongs to the app
+  that is current. The ``task_for_*`` methods of a ``QuiltCelery`` app create a task of that app, as ``app.task()``
+  does. See :doc:`tasks`.
 * The function of a task receives a keyword argument that identifies the target only when the function declares that
   keyword argument by name, and ``**kwargs`` does not receive it. For a task of ``shared_task_for_shard``, that keyword
   argument is ``shard_id`` or the mapping field of the ``MAPPING_MODEL``. For a task of ``shared_task_for_node``, it is

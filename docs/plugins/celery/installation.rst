@@ -9,19 +9,26 @@ Install through DjanQuiltDB's extra::
 The plugin itself needs no setup: DjanQuiltDB finds the plugin through its entry point once the plugin is installed. The
 project sets up Celery as `Celery's documentation for Django
 <https://docs.celeryq.dev/en/stable/django/first-steps-with-django.html>`_ describes. The Celery app reads the
-``CELERY_`` settings and discovers the ``tasks`` modules of the installed apps:
+``CELERY_`` settings and discovers the ``tasks`` modules of the installed apps. The app is a
+:class:`~djanquiltdb.base.celery.QuiltCelery`, a subclass of ``Celery``, so that its ``task_for_*`` methods can create
+a task of that app:
 
 .. code-block:: python
 
     # myproject/celery.py
-    from celery import Celery
+    from djanquiltdb.base.celery import QuiltCelery
 
-    app = Celery('myproject')
+    app = QuiltCelery('myproject')
     app.config_from_object('django.conf:settings', namespace='CELERY')
     app.autodiscover_tasks()
 
-The plugin's decorators create shared tasks, so these tasks belong to that app, like any task that ``shared_task``
-creates.
+The plugin creates a task in the two ways that Celery does. The ``shared_task_for_*`` decorators create a shared task,
+as ``celery.shared_task()`` does, and work with any Celery app, also a plain ``Celery`` app. The ``task_for_*`` methods
+of a ``QuiltCelery`` app create a task of that app, as ``app.task()`` does. :doc:`tasks` describes how the two differ.
+
+A ``QuiltCelery`` app has Celery's ``DjangoTask`` as its task class, as a plain ``Celery`` app in a Django project has,
+unless the arguments of the app or a class of the app set a task class of their own. Celery's Django fixup gives
+``DjangoTask`` only to a plain ``Celery`` app, and ``QuiltCelery`` gives it to its own apps.
 
 A task of the plugin also inherits from the task class of the app, which Celery's ``task_cls`` sets, so that a task
 class of the project, for example one that records a context around each run, applies to the tasks of the plugin as
@@ -30,13 +37,13 @@ well:
 .. code-block:: python
 
     # myproject/celery.py
-    app = Celery('myproject', task_cls='myproject.tasks:ContextTask')
+    app = QuiltCelery('myproject', task_cls='myproject.tasks:ContextTask')
 
-The decorators combine :class:`~djanquiltdb.base.celery.QuiltTask` with that class, with the methods of ``QuiltTask``
-first, because they send and enter the target of the task. An app without a ``task_cls`` of its own has Celery's
-``DjangoTask``, which ``QuiltTask`` already inherits from. Each app combines ``QuiltTask`` with its own task class when
-it registers the task, as ``shared_task`` gives each app a copy of its tasks, so a ``tasks`` module that is imported
-before the Celery app of the project is created gets the task class of that app as well.
+The plugin combines :class:`~djanquiltdb.base.celery.QuiltTask` with that class, with the methods of ``QuiltTask``
+first, because they send and enter the target of the task. ``QuiltTask`` inherits from ``DjangoTask``, so a task of the
+plugin is a ``DjangoTask`` also when the task class of the app is not. Each app combines ``QuiltTask`` with its own task
+class when it registers the task, for a shared task and for a task of one app alike, so a ``tasks`` module that is
+imported before the Celery app of the project is created gets the task class of that app as well.
 ``QUILT_CELERY['TASK_BASE']``, below, names a base class for every task of the plugin instead, and the ``base`` of a
 decorator takes precedence over both.
 
