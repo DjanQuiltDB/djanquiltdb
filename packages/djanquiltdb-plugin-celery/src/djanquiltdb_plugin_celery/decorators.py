@@ -9,13 +9,12 @@ import functools
 import inspect
 
 from celery import _state as celery_state
-from celery import shared_task
 from celery.local import PromiseProxy, Proxy
 from djanquiltdb.utils import StateException
 
 from djanquiltdb_plugin_celery.settings import ensure_valid_queue, ensure_valid_spread, quilt_celery_setting
 from djanquiltdb_plugin_celery.targets import use_target
-from djanquiltdb_plugin_celery.tasks import QuiltTask, task_base_of_app, task_base_of_the_setting
+from djanquiltdb_plugin_celery.tasks import QuiltTask, task_base_of_app
 
 SERVE_UNQUALIFIED = False
 
@@ -66,7 +65,7 @@ def _create_quilt_task(func, task_attributes, options, app):
 
     options = dict(options)
     bind = options.pop('bind', False)
-    base = options.pop('base', None) or task_base_of_the_setting()
+    base = options.pop('base', None)
 
     if base is not None and not (isinstance(base, type) and issubclass(base, QuiltTask)):
         raise TypeError(
@@ -101,38 +100,35 @@ def _create_quilt_task(func, task_attributes, options, app):
     task_attributes = {**task_attributes, 'function_signature': _signature_of_function(func, bind)}
     task_options = {'bind': True, **task_attributes, **_retry_options(options)}
 
-    if app is None and base is not None:
-        return shared_task(base=base, **task_options)(run_in_target)
-
     if app is None:
-        return _shared_task_based_on_each_app(run_in_target, task_options)
+        return _shared_task_based_on_each_app(run_in_target, task_options, base)
 
-    if base is not None:
-        return app.task(base=base, **task_options)(run_in_target)
-
-    return _app_task_based_on_each_app(app, run_in_target, task_options)
+    return _app_task_based_on_each_app(app, run_in_target, task_options, base)
 
 
-def _registration_with_the_base_of_each_app(fun, options):
+def _registration_with_the_base_of_each_app(fun, options, base):
     """
-    Returns the function that registers the task of ``fun`` in an app, with ``options`` and with the base class that
-    task_base_of_app() returns for that app.
+    Returns the function that registers the task of ``fun`` in an app, with ``options`` and with ``base``, or, when
+    ``base`` is None, with the base class that task_base_of_app() returns for that app.
     """
 
     def register_in(app):
-        return app._task_from_fun(fun, base=task_base_of_app(app), **options)
+        return app._task_from_fun(fun, base=base or task_base_of_app(app), **options)
 
     return register_in
 
 
-def _shared_task_based_on_each_app(fun, options):
+def _shared_task_based_on_each_app(fun, options, base):
     """
-    Returns the task of ``fun`` as ``celery.shared_task(**options)`` returns it, except that each app that registers the
-    task gives it the base class that task_base_of_app() returns for that app. The body is the body of
-    ``celery.shared_task()`` with that one change, and uses the same hooks of Celery. The base is resolved for each app,
-    and not from the current app, because a tasks module can be imported before the Celery app of the project exists.
+    Returns the task of ``fun`` as ``celery.shared_task(base=base, **options)`` returns it, except that without a
+    ``base``, each app that registers the task gives it the base class that task_base_of_app() returns for that app.
+    The body is the body of ``celery.shared_task()`` with that one change, and uses the same hooks of Celery. The base
+    is resolved for each app, and not from the current app, because a tasks module can be imported before the Celery
+    app of the project exists. The plugin leaves the ``task_cls`` of the apps as it is: a QuiltTask as the ``task_cls``
+    of an app makes every other task of that app a QuiltTask, which is not sent without a target, and a shared task has
+    to work with any Celery app.
     """
-    register_in = _registration_with_the_base_of_each_app(fun, options)
+    register_in = _registration_with_the_base_of_each_app(fun, options, base)
 
     # An app that is finalized later registers the task when it is finalized, and an app that is finalized already
     # registers it now.
@@ -150,19 +146,19 @@ def _shared_task_based_on_each_app(fun, options):
     return Proxy(task_of_the_current_app)
 
 
-def _app_task_based_on_each_app(app, fun, options):
+def _app_task_based_on_each_app(app, fun, options, base):
     """
-    Returns the task of ``fun`` as ``app.task(**options)`` returns it, except that each app that registers the task
-    gives it the base class that task_base_of_app() returns for that app. The body is the body of ``app.task()`` with
-    that one change, and uses the same hooks of Celery. Celery's ``app.task()`` returns a shared task instead in a
-    worker process that is started with execv, as on Windows, which Celery 5 does not support, so this body has no such
-    branch.
+    Returns the task of ``fun`` as ``app.task(base=base, **options)`` returns it, except that without a ``base``, each
+    app that registers the task gives it the base class that task_base_of_app() returns for that app. The body is the
+    body of ``app.task()`` with that one change, and uses the same hooks of Celery, for the reasons that
+    _shared_task_based_on_each_app() gives. Celery's ``app.task()`` returns a shared task instead in a worker process
+    that is started with execv, as on Windows, which Celery 5 does not support, so this body has no such branch.
     """
     options = dict(options)
     shared = options.pop('shared', True)
     lazy = options.pop('lazy', True)
     task_filter = options.pop('filter', None)
-    register_in = _registration_with_the_base_of_each_app(fun, options)
+    register_in = _registration_with_the_base_of_each_app(fun, options, base)
 
     # As for app.task(), an app that is finalized later also registers a shared task when it is finalized.
     if shared:

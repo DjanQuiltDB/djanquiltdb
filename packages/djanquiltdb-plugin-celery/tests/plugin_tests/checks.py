@@ -6,6 +6,7 @@ from django.test import SimpleTestCase, override_settings
 from djanquiltdb.decorators import override_sharding_setting
 
 from djanquiltdb_plugin_celery.checks import check_quilt_celery_setting
+from djanquiltdb_plugin_celery.tasks import import_task_base
 
 
 def message_ids(messages):
@@ -114,6 +115,24 @@ class QuiltCelerySettingCheckTestCase(SimpleTestCase):
                 self.assertEqual(message_ids(messages), ['djanquiltdb_plugin_celery.E002'])
                 self.assertIn("QUILT_CELERY['TASK_BASE']", messages[0].msg)
                 self.assertIn(reason, messages[0].msg)
+
+    def test_the_check_reports_a_task_base_with_the_error_that_the_registration_raises(self):
+        """
+        Case: QUILT_CELERY['TASK_BASE'] is set to example.task_bases.Missing, which does not import, and to
+              celery.Task, which does not inherit from QuiltTask. The check runs, and import_task_base() imports the
+              task base as an app does when it registers a task.
+        Expected: The message of djanquiltdb_plugin_celery.E002 includes the message of the error that
+                  import_task_base() raises, so the check and the registration accept the same task bases.
+        """
+        for task_base in ['example.task_bases.Missing', 'celery.Task']:
+            with self.subTest(task_base=task_base), self.settings(QUILT_CELERY={'TASK_BASE': task_base}):
+                with self.assertRaises((ImportError, TypeError)) as raised:
+                    import_task_base(task_base)
+
+                messages = check_quilt_celery_setting(None)
+
+                self.assertEqual(message_ids(messages), ['djanquiltdb_plugin_celery.E002'])
+                self.assertIn(str(raised.exception), messages[0].msg)
 
     def test_a_spread_is_an_integer_or_a_pair_of_integers_that_are_not_negative_and_ascending(self):
         """

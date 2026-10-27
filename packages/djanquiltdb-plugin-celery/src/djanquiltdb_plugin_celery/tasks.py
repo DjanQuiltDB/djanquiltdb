@@ -468,27 +468,42 @@ def quilt_task_based_on(app_task_class):
     return type(QuiltTask.__name__, (QuiltTask, app_task_class), {'__module__': QuiltTask.__module__})
 
 
-def task_base_of_the_setting():
+def import_task_base(task_base):
     """
-    Returns the class that ``QUILT_CELERY['TASK_BASE']`` names, or None when the setting names none. Like the retry
-    settings, the setting is read when a task is decorated.
+    Imports the class that ``task_base``, the dotted path of ``QUILT_CELERY['TASK_BASE']``, names, and returns it.
+    Raises ImportError when the path does not import, and TypeError when the class does not inherit from QuiltTask. An
+    app calls it when it registers a task, and the system check calls it to report the setting with the same error.
     """
-    task_base = quilt_celery_setting('TASK_BASE')
+    task_base_class = import_string(task_base)
 
-    return None if task_base is None else import_string(task_base)
+    if not (isinstance(task_base_class, type) and issubclass(task_base_class, QuiltTask)):
+        raise TypeError(
+            "QUILT_CELERY['TASK_BASE'] is {!r}, which does not inherit from QuiltTask. The tasks of the celery "
+            'plugin need the methods of QuiltTask to send and to enter their targets.'.format(task_base)
+        )
+
+    return task_base_class
 
 
 def task_base_of_app(app):
     """
-    Returns the base class of a task in the Celery app ``app``, when neither the decorator of the task nor
-    ``QUILT_CELERY['TASK_BASE']`` gives one: QuiltTask combined with the task class of the app, which Celery's
+    Returns the base class of a task in the Celery app ``app``, when the decorator of the task gives none: the class
+    that ``QUILT_CELERY['TASK_BASE']`` names, else QuiltTask combined with the task class of the app, which Celery's
     ``task_cls`` sets. Celery's Django fixup makes ``DjangoTask`` the task class of an app without a ``task_cls`` of its
     own, and QuiltTask already inherits from it, so such an app gets QuiltTask itself. A task class of the app that
     already inherits from QuiltTask is returned as it is.
 
-    It is called when the app registers the task, so a task that is decorated before the app exists gets the task class
-    of the app as well.
+    It is called when the app registers the task, which is when Celery reads the ``task_cls`` of an app too. So a task
+    that is decorated before the app exists gets the task class of the app as well, and a ``TASK_BASE`` that does not
+    import raises ImportError there, and not when a tasks module is imported, so that the system check can report it.
     """
+    task_base = quilt_celery_setting('TASK_BASE')
+
+    if task_base is not None:
+        return import_task_base(task_base)
+
+    # The task_cls of an app is a setting of Celery, so it is imported as Celery imports it, which also accepts the
+    # "module:Class" form. TASK_BASE is a setting of DjanQuiltDB, whose dotted paths Django imports.
     app_task_class = symbol_by_name(app.task_cls)
 
     if issubclass(app_task_class, QuiltTask):

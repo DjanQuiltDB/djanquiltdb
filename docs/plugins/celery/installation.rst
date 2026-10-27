@@ -79,9 +79,9 @@ The optional ``QUILT_CELERY`` setting is a dict whose keys override these defaul
         'TASK_BASE': None,
     }
 
-The arguments of each decorator take precedence over these settings. The retry settings and ``TASK_BASE`` are read when
-a task is decorated, and the other settings when a task is sent. The task class of the Celery app is read when the app
-registers the task.
+The arguments of each decorator take precedence over these settings. The retry settings are read when a task is
+decorated, and the other settings when a task is sent. ``TASK_BASE`` and the task class of the Celery app are read when
+the app registers the task, as Celery reads the task class, so a ``TASK_BASE`` that does not import fails there.
 
 The plugin's system checks report a ``QUILT_CELERY`` key that the plugin does not read
 (``djanquiltdb_plugin_celery.E001``). They also report a value that a key does not accept, a ``MAPPING_KWARG`` that is

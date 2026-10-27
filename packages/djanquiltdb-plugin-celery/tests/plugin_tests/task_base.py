@@ -7,6 +7,7 @@ from django.test import override_settings
 from djanquiltdb.router import get_active_connection
 
 from config.celery import app
+from djanquiltdb_plugin_celery.celery_app import QuiltCelery
 from djanquiltdb_plugin_celery.decorators import shared_task_for_shard
 from djanquiltdb_plugin_celery.tasks import QuiltTask, quilt_task_based_on
 from example.task_bases import RECORDED_CALLS, PlainRecordingCallTask, ProjectQuiltTask, RecordingCallTask
@@ -164,10 +165,46 @@ class TaskBaseTestCase(PluginTestCase):
     def test_a_setting_that_names_a_class_that_does_not_inherit_from_quilt_task_is_refused(self):
         """
         Case: QUILT_CELERY['TASK_BASE'] names celery.Task, and a task is decorated without a base.
-        Expected: TypeError at the decoration, as for a base of the decorator that does not inherit from QuiltTask.
+        Expected: TypeError when the app registers the task, as for a base of the decorator that does not inherit from
+                  QuiltTask.
         """
         with self.assertRaisesMessage(TypeError, 'QuiltTask'):
             task_named('with_a_plain_setting')
+
+    def test_a_setting_that_does_not_import_fails_when_the_app_registers_the_task(self):
+        """
+        Case: QUILT_CELERY['TASK_BASE'] names example.task_bases.Missing, which does not import. A task of an app that
+              is not finalized yet is decorated without a base, and then the app is finalized.
+        Expected: The decoration raises nothing, so that a tasks module imports and the system check can report the
+                  setting. The finalization, which registers the task, raises ImportError, as Celery raises when the
+                  task_cls of an app does not import.
+        """
+        later_app = QuiltCelery('later_app', set_as_current=False)
+
+        with override_settings(QUILT_CELERY={'TASK_BASE': 'example.task_bases.Missing'}):
+            later_app.task_for_shard(name='plugin_tests.task_base.with_a_missing_setting', shared=False)(
+                schema_of_the_active_connection
+            )
+
+            with self.assertRaises(ImportError):
+                later_app.finalize()
+
+    def test_the_setting_is_read_when_the_app_registers_the_task(self):
+        """
+        Case: A task of an app that is not finalized yet is decorated without a base while QUILT_CELERY has no
+              TASK_BASE. Then TASK_BASE is set to ProjectQuiltTask, and the app is finalized.
+        Expected: The base of the task class is ProjectQuiltTask, because the app reads the setting when it registers
+                  the task.
+        """
+        later_app = QuiltCelery('later_app', set_as_current=False)
+        task = later_app.task_for_shard(name='plugin_tests.task_base.read_at_registration', shared=False)(
+            schema_of_the_active_connection
+        )
+
+        with override_settings(QUILT_CELERY={'TASK_BASE': 'example.task_bases.ProjectQuiltTask'}):
+            later_app.finalize()
+
+        self.assertEqual(task.__class__.__bases__, (ProjectQuiltTask,))
 
 
 @override_settings(CELERY_TASK_ALWAYS_EAGER=False)

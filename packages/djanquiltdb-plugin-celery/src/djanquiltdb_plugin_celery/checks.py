@@ -1,6 +1,5 @@
 from django.conf import settings
 from django.core import checks
-from django.utils.module_loading import import_string
 from djanquiltdb.utils import get_mapping_class
 
 from djanquiltdb_plugin_celery.settings import (
@@ -10,7 +9,7 @@ from djanquiltdb_plugin_celery.settings import (
     is_spread,
 )
 from djanquiltdb_plugin_celery.targets import NODE_NAME_KWARG, SHARD_ID_KWARG
-from djanquiltdb_plugin_celery.tasks import QuiltTask
+from djanquiltdb_plugin_celery.tasks import import_task_base
 
 #: For each key of QUILT_CELERY: a function that returns whether a value of the key is valid, and how a message
 #: describes the valid values. A boolean is an instance of int, so the keys that accept an integer and not a boolean
@@ -36,16 +35,15 @@ def check_task_base(task_base):
     subclass of QuiltTask, or None.
     """
     try:
-        task_class = import_string(task_base)
+        import_task_base(task_base)
     except ImportError as error:
         return checks.Error(
             "QUILT_CELERY['TASK_BASE'] is {!r}, which does not import: {}".format(task_base, error),
             id='djanquiltdb_plugin_celery.E002',
         )
-
-    if not (isinstance(task_class, type) and issubclass(task_class, QuiltTask)):
+    except TypeError as error:
         return checks.Error(
-            "QUILT_CELERY['TASK_BASE'] is {!r}, which does not inherit from QuiltTask.".format(task_base),
+            str(error),
             hint='Name a subclass of djanquiltdb.base.celery.QuiltTask, or remove the key.',
             id='djanquiltdb_plugin_celery.E002',
         )
