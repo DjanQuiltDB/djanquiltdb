@@ -77,6 +77,16 @@ maps tenants onto shards by slug, so ``SHARD_SELECTOR_REGEX`` matches slugs::
         },
     }
 
+List the plugin in ``INSTALLED_APPS`` before ``oauth2_provider``, so that its ``cleartokens`` command, which clears the
+expired tokens of every active shard, replaces the toolkit's::
+
+    INSTALLED_APPS = [
+        ...
+        'djanquiltdb_plugin_oauth_toolkit',
+        'oauth2_provider',
+        ...
+    ]
+
 Full documentation is at https://djanquiltdb.readthedocs.io/en/latest/plugins/oauth-toolkit/index.html.
 
 Development

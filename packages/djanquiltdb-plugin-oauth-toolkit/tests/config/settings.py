@@ -21,6 +21,8 @@ INSTALLED_APPS = (
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'djanquiltdb',
+    # Before oauth2_provider, so that the cleartokens command of the plugin replaces the toolkit's.
+    'djanquiltdb_plugin_oauth_toolkit',
     'oauth2_provider',
     'example',
 )

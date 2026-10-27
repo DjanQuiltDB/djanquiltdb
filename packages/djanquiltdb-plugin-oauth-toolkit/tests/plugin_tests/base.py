@@ -56,6 +56,7 @@ class PluginTestCase(ShardingTransactionTestCase):
         'django.contrib.auth',
         'django.contrib.contenttypes',
         'djanquiltdb',
+        'djanquiltdb_plugin_oauth_toolkit',
         'oauth2_provider',
         'example',
     ]
