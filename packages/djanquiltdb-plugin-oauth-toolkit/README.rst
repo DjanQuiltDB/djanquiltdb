@@ -48,8 +48,8 @@ shard of the tenant. For the tenant whose mapping value is ``acme``, they look l
     }
 
 Its middleware reads the mapping value back from the client id or the token of each request, and enters the shard of
-its tenant before django-oauth-toolkit looks up the client id or the token. Put it in place of ``UseShardForMiddleware``, after
-``SessionMiddleware`` and before the toolkit's ``OAuth2TokenMiddleware``::
+its tenant before django-oauth-toolkit looks up the client id or the token. Put it in place of
+``UseShardForMiddleware``, after ``SessionMiddleware`` and before the toolkit's ``OAuth2TokenMiddleware``::
 
     MIDDLEWARE = [
         'django.contrib.sessions.middleware.SessionMiddleware',
@@ -104,5 +104,5 @@ Requirements
 * Python 3.14
 * Django 6.0 or 6.1
 * PostgreSQL 17 or 18
-* djanquiltdb 4.5.0 or newer 4.x
+* djanquiltdb 4.6.0 or newer 4.x
 * django-oauth-toolkit 3.4 or newer 3.x

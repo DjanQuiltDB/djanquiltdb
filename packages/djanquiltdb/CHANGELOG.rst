@@ -1,3 +1,18 @@
+v 4.6.0 (2026-11-03)
+--------------------
+Added:
+ * Shard-aware compatibility layer for django-oauth-toolkit, installed through the ``djanquiltdb[oauth-toolkit]`` extra.
+ * Plugin API serving extended to ``djanquiltdb.middleware.<name>``.
+ * ``djanquiltdb.natural_keys`` and associated helper ``make_the_primary_key_the_natural_key()`` which gives a model of
+   a third-party app its primary key as the natural key that a public model needs, without a migration.
+
+Altered:
+ * ``QUILT_SESSIONS['SHARD_SELECTOR_REGEX']`` is deprecated in favor of ``QUILT_DB['SHARD_SELECTOR_REGEX']``.
+ * Documentation now recommends ``ShardingMode.PUBLIC`` for ``django.contrib.sessions`` in place of
+   ``ShardingMode.SHARDED`` to limit schema footprint.
+ * Fixed ``flush`` stopping at the first shard that it cannot flush. It now flushes the other schemas and names the
+   failed shards in its error, also for a shard in maintenance, which used to raise ``StateException``.
+
 v 4.5.0 (2026-10-27)
 --------------------
 Added:
