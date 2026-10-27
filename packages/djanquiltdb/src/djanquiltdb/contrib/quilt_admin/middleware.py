@@ -1,3 +1,4 @@
+from django.core.exceptions import ObjectDoesNotExist
 from django.http import HttpResponse
 from django.urls import Resolver404, resolve
 
@@ -42,6 +43,15 @@ def _is_logout_request(request):
     except Resolver404:
         # Fallback to path check if URL resolution fails
         return request.path.endswith('/logout/') or '/logout' in request.path
+
+
+def _go_on_without_the_override(request):
+    """
+    Lets a request whose session override names a shard or a mapping value that no longer exists go on as a request
+    without an override, so that the override can be cleared through the shard switcher.
+    """
+    if isinstance(request.user, (CrossShardUserProxy, CrossShardMappingUserProxy)):
+        request.user = request.user._user
 
 
 def _check_maintenance_status(request, shard_id=None, mapping_value=None):
@@ -130,7 +140,12 @@ class BaseAdminOverrideUseShardMiddleware(BaseUseShardMiddleware):
     def _enable_shard(self, request, shard_id):
         # Allow access to maintenance shards for the admin (but read-only)
         shard_class = get_shard_class()
-        shard = shard_class.objects.using(public_schema_alias_for_reading(shard_class)).get(id=shard_id)
+        try:
+            shard = shard_class.objects.using(public_schema_alias_for_reading(shard_class)).get(id=shard_id)
+        except ObjectDoesNotExist:
+            request._shard_id = None
+            _go_on_without_the_override(request)
+            return
         shard_context_manager = self.set_shard_context_manager(request, use_shard(shard, active_only_schemas=False))
         shard_context_manager.enable()
 
@@ -173,10 +188,13 @@ class BaseAdminOverrideUseShardForMiddleware(BaseUseShardForMiddleware):
 
     def _enable_shard_for(self, request, target_value):
         # Allow access to maintenance shards for the admin (but read-only)
-        shard_context_manager = self.set_shard_context_manager(
-            request, use_shard_for(target_value, active_only_schemas=False)
-        )
-        shard_context_manager.enable()
+        try:
+            shard_context_manager = use_shard_for(target_value, active_only_schemas=False)
+        except ObjectDoesNotExist:
+            request._mapping_value = None
+            _go_on_without_the_override(request)
+            return
+        self.set_shard_context_manager(request, shard_context_manager).enable()
 
 
 class ShardIdAdminOverrideMiddleware(BaseAdminOverrideUseShardMiddleware):

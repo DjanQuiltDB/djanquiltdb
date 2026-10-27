@@ -4,7 +4,12 @@ from django.db import DatabaseError
 from django.http import HttpResponse
 from django.test.client import RequestFactory
 
-from djanquiltdb.contrib.quilt_admin.middleware import ShardIdAdminOverrideMiddleware, _check_maintenance_status
+from djanquiltdb.contrib.quilt_admin.middleware import (
+    MappingValueAdminOverrideMiddleware,
+    ShardIdAdminOverrideMiddleware,
+    _check_maintenance_status,
+)
+from djanquiltdb.contrib.quilt_admin.shard_selector import AdminShardSelector
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import override_sharding_setting
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
@@ -120,3 +125,48 @@ class AdminOverrideUseShardMiddlewareTestCase(ShardingTestCase):
             middleware._enable_shard(request, self.override_shard.id)
             self.assertEqual(connection.schema_name, 'test_override_schema')
             middleware.process_response(request, HttpResponse())
+
+
+class AdminOverrideThatNoLongerExistsTestCase(ShardingTestCase):
+    """The admin override middlewares treat an override that points nowhere as no override."""
+
+    def admin_request_with_override(self, override_value):
+        request = RequestFactory().get('/admin/')
+        session = {AdminShardSelector.override_shard_selector_key: override_value}
+        request.session = mock.Mock(get=session.get, shard_selector=None)
+        request.user = mock.sentinel.user
+        return request
+
+    def test_shard_id_override_of_a_shard_that_the_registry_does_not_have(self):
+        """
+        Case: ShardIdAdminOverrideMiddleware processes an admin request whose session overrides the shard with the id
+              of a shard that the shard registry does not have, as the override of a shard that was deleted.
+        Expected: No exception, and the request goes on as without an override: no shard is entered, and request.user
+                  is the user itself, so that the override can be cleared through the shard switcher.
+        """
+        self.assertFalse(Shard.objects.filter(id=999).exists())
+        request = self.admin_request_with_override(999)
+        middleware = ShardIdAdminOverrideMiddleware(lambda request: None)
+
+        self.assertIsNone(middleware.process_request(request))
+
+        self.assertIsNone(middleware.get_shard_context_manager(request))
+        self.assertIs(request.user, mock.sentinel.user)
+        self.assertEqual(connection.schema_name, PUBLIC_SCHEMA_NAME)
+
+    def test_mapping_value_override_that_the_mapping_table_does_not_have(self):
+        """
+        Case: MappingValueAdminOverrideMiddleware processes an admin request whose session overrides the shard with a
+              mapping value that the mapping table does not have, as the override of a mapping that was deleted.
+        Expected: No exception, and the request goes on as without an override: no shard is entered, and request.user
+                  is the user itself, so that the override can be cleared through the shard switcher.
+        """
+        self.assertFalse(OrganizationShard.objects.filter(organization_id=999).exists())
+        request = self.admin_request_with_override(999)
+        middleware = MappingValueAdminOverrideMiddleware(lambda request: None)
+
+        self.assertIsNone(middleware.process_request(request))
+
+        self.assertIsNone(middleware.get_shard_context_manager(request))
+        self.assertIs(request.user, mock.sentinel.user)
+        self.assertEqual(connection.schema_name, PUBLIC_SCHEMA_NAME)
