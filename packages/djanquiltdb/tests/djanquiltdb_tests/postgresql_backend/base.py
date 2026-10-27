@@ -1611,6 +1611,7 @@ class ShardDatabaseWrapperTestCase(ShardingTransactionTestCase):
         proxy_fields.append('current_search_paths')
         proxy_fields.append('session_locks_of_entered_use_shards')
         proxy_fields.append('session_locks_of_entered_use_shards_that_checked_the_state')
+        proxy_fields.append('session_lock_keys_whose_check_is_stale')
         proxy_fields.append('transaction_locks_of_entered_use_shards')
         proxy_fields.append('transaction_locks_of_entered_use_shards_that_checked_the_state')
         proxy_fields.append('open_savepoint_ids')

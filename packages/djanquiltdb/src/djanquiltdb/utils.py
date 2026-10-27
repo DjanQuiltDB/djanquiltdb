@@ -147,7 +147,8 @@ class use_shard(object):
     use_shard is entered, because it holds the locks for the session until it is left, and inside a transaction until
     the transaction ends, or until a rollback to a savepoint that was set before the locks were taken, because
     PostgreSQL holds transaction-scoped locks until then. A use_shard with ``active_only_schemas`` False does not check
-    the state, so a later use_shard of the shard that does check it takes the locks and reads the shard itself.
+    the state, so a later use_shard of the shard that does check it takes the locks and reads the shard itself. So does
+    a use_shard after this connection took the exclusive lock of the shard, as a move command on this connection does.
 
     use_shard does not check that the schema of the shard exists when it is entered. The first query in a shard whose
     schema does not exist raises IntegrityError.
@@ -416,6 +417,8 @@ class use_shard(object):
                 held_lock_keys = self._node_connection.session_locks_of_entered_use_shards
                 held_lock_keys.subtract(self._counted_session_lock_keys)
                 self._node_connection.session_locks_of_entered_use_shards = +held_lock_keys
+                # Once no entered context that holds a key is left, no check of the key is stale.
+                self._node_connection.session_lock_keys_whose_check_is_stale.intersection_update(+held_lock_keys)
 
                 if self._counted_session_lock_keys_checked_the_state:
                     checked_lock_keys = self._node_connection.session_locks_of_entered_use_shards_that_checked_the_state

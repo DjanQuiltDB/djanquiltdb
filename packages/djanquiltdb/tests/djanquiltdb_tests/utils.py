@@ -1207,6 +1207,161 @@ class UseShardInsideEnteredUseShardTestCase(ShardingTransactionTestCase):
                 with use_shard(self.shard):
                     pass
 
+    def put_the_shard_in_maintenance_under_the_exclusive_lock_of_this_session(self, take_the_lock):
+        """
+        Takes the exclusive lock of the shard with ``take_the_lock(connection, key)`` on the connection of this session,
+        as the move commands take it, puts the shard in maintenance in the registry, and releases the lock. PostgreSQL
+        gives a session the exclusive lock of a key also while that session holds the shared lock of the key.
+        """
+        key = 'shard_{}'.format(self.shard.id)
+        take_the_lock(connections['default'], key)
+        Shard.objects.filter(pk=self.shard.pk).update(state=State.MAINTENANCE)
+        # The flush at the end of the test reads the shards, and refuses a shard in maintenance.
+        self.addCleanup(Shard.objects.filter(pk=self.shard.pk).update, state=State.ACTIVE)
+        connections['default'].release_advisory_lock(key=key, shared=False)
+
+    def test_a_later_use_shard_in_the_transaction_checks_the_state_after_an_exclusive_lock_of_this_session(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard, then take the exclusive lock of the shard on
+              the same session and put the shard in maintenance, as a move command in the same transaction does, and
+              enter use_shard for the shard as it was read while it was active.
+        Expected: The second use_shard raises StateException, because the exclusive lock ends the validity of the check
+                  of the first use_shard, so the second use_shard takes the locks and reads the shard itself.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard):
+                pass
+
+            self.put_the_shard_in_maintenance_under_the_exclusive_lock_of_this_session(
+                lambda connection, key: connection.acquire_advisory_lock(key=key, shared=False)
+            )
+
+            with self.assertRaises(StateException):
+                with use_shard(self.shard):
+                    pass
+
+    def test_inner_use_shard_checks_the_state_after_an_exclusive_lock_of_this_session(self):
+        """
+        Case: Enter use_shard for a shard, then take the exclusive lock of the shard on the same session and put the
+              shard in maintenance, as a move command inside the use_shard does, and inside the use_shard, enter
+              use_shard for the shard as it was read while it was active.
+        Expected: The inner use_shard raises StateException, because the exclusive lock ends the validity of the check
+                  of the outer use_shard, so the inner use_shard takes the locks and reads the shard itself.
+        """
+        with use_shard(self.shard):
+            self.put_the_shard_in_maintenance_under_the_exclusive_lock_of_this_session(
+                lambda connection, key: connection.acquire_advisory_lock_for_each_key([key], shared=False)
+            )
+
+            with self.assertRaises(StateException):
+                with use_shard(self.shard):
+                    pass
+
+    def move_the_shard_to_another_schema_under_the_exclusive_lock_of_this_session(self):
+        """
+        Takes the exclusive lock of the shard on the connection of this session, as the move commands take it, gives
+        the shard another schema in the registry, and releases the lock. ``self.shard`` keeps the schema that it was
+        read with.
+        """
+        key = 'shard_{}'.format(self.shard.id)
+        connections['default'].acquire_advisory_lock(key=key, shared=False)
+        Shard.objects.filter(pk=self.shard.pk).update(schema_name='test_moved_schema')
+        # The flush at the end of the test reads the shards from the registry.
+        self.addCleanup(Shard.objects.filter(pk=self.shard.pk).update, schema_name=self.shard.schema_name)
+        connections['default'].release_advisory_lock(key=key, shared=False)
+
+    def test_inner_use_shard_that_does_not_check_the_state_reads_a_shard_moved_in_this_session(self):
+        """
+        Case: Enter use_shard for a shard with active_only_schemas False, then take the exclusive lock of the shard on
+              the same session and give the shard another schema, as a move command inside the use_shard does, and
+              inside the use_shard, enter use_shard with active_only_schemas False for the shard as it was read before
+              the move.
+        Expected: The inner use_shard raises StateException, because the exclusive lock ends the validity of the read of
+                  the outer use_shard, so the inner use_shard takes the locks and reads the shard itself.
+        """
+        with use_shard(self.shard, active_only_schemas=False):
+            self.move_the_shard_to_another_schema_under_the_exclusive_lock_of_this_session()
+
+            with self.assertRaisesMessage(StateException, 'test_moved_schema'):
+                with use_shard(self.shard, active_only_schemas=False):
+                    pass
+
+    def test_use_shard_that_does_not_check_the_state_inside_one_that_does_reads_a_shard_moved_in_this_session(self):
+        """
+        Case: Enter use_shard for a shard, then take the exclusive lock of the shard on the same session and give the
+              shard another schema, as a move command inside the use_shard does, and inside the use_shard, enter
+              use_shard with active_only_schemas False for the shard as it was read before the move.
+        Expected: The inner use_shard raises StateException, because the exclusive lock ends the validity of the read of
+                  the outer use_shard, so the inner use_shard takes the locks and reads the shard itself.
+        """
+        with use_shard(self.shard):
+            self.move_the_shard_to_another_schema_under_the_exclusive_lock_of_this_session()
+
+            with self.assertRaisesMessage(StateException, 'test_moved_schema'):
+                with use_shard(self.shard, active_only_schemas=False):
+                    pass
+
+    def test_a_later_use_shard_that_does_not_check_the_state_reads_a_shard_moved_in_this_session(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard with active_only_schemas False, then take the
+              exclusive lock of the shard on the same session and give the shard another schema, as a move command in
+              the same transaction does, and enter use_shard with active_only_schemas False for the shard as it was
+              read before the move.
+        Expected: The second use_shard raises StateException, because the exclusive lock ends the validity of the read
+                  of the first use_shard, so the second use_shard takes the locks and reads the shard itself.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard, active_only_schemas=False):
+                pass
+
+            self.move_the_shard_to_another_schema_under_the_exclusive_lock_of_this_session()
+
+            with self.assertRaisesMessage(StateException, 'test_moved_schema'):
+                with use_shard(self.shard, active_only_schemas=False):
+                    pass
+
+    def test_inner_use_shard_that_does_not_check_the_state_runs_no_statements_in_a_later_use_shard(self):
+        """
+        Case: Enter use_shard for a shard with active_only_schemas False, take and release the exclusive lock of the
+              shard on the same session, and leave the use_shard. Then enter use_shard for the shard with
+              active_only_schemas False, and inside it, enter and leave such a use_shard again.
+        Expected: The inner use_shard of the second pair runs no statements, because its outer use_shard read the shard
+                  after the exclusive lock was released.
+        """
+        key = 'shard_{}'.format(self.shard.id)
+
+        with use_shard(self.shard, active_only_schemas=False):
+            connections['default'].acquire_advisory_lock(key=key, shared=False)
+            connections['default'].release_advisory_lock(key=key, shared=False)
+
+        with use_shard(self.shard, active_only_schemas=False):
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard, active_only_schemas=False):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_a_use_shard_after_the_one_that_an_exclusive_lock_of_this_session_was_taken_in_runs_no_statements(self):
+        """
+        Case: Enter use_shard for a shard, take and release the exclusive lock of the shard on the same session, and
+              leave the use_shard. Then enter use_shard for the shard, and inside it, enter and leave use_shard for the
+              shard again.
+        Expected: The inner use_shard of the second pair runs no statements, because its outer use_shard checked the
+                  shard after the exclusive lock was released.
+        """
+        key = 'shard_{}'.format(self.shard.id)
+
+        with use_shard(self.shard):
+            connections['default'].acquire_advisory_lock(key=key, shared=False)
+            connections['default'].release_advisory_lock(key=key, shared=False)
+
+        with use_shard(self.shard):
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
     def test_a_rollback_to_a_savepoint_set_before_the_lock_releases_it(self):
         """
         Case: Inside a transaction, set a savepoint, enter and leave use_shard for a shard, roll back to the savepoint,

@@ -1133,6 +1133,10 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # no locks of its own.
         self.session_locks_of_entered_use_shards = Counter()
         self.session_locks_of_entered_use_shards_that_checked_the_state = Counter()
+        # The keys among those that this session took the exclusive lock of while the use_shard contexts that hold them
+        # were entered. A move command can have changed the shard under that lock, so a use_shard that is entered inside
+        # those contexts does not rely on their read of the shard, until the last of them is left.
+        self.session_lock_keys_whose_check_is_stale = set()
 
         # For each advisory lock key that a use_shard took for the transaction of this connection before it checked its
         # shard, the number of savepoints that were open when it took the key, and the keys among them that a use_shard
@@ -1164,6 +1168,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         # start at zero.
         self.session_locks_of_entered_use_shards = Counter()
         self.session_locks_of_entered_use_shards_that_checked_the_state = Counter()
+        self.session_lock_keys_whose_check_is_stale = set()
         self.forget_transaction_locks()
         super().close()
 
@@ -1175,8 +1180,10 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         its shard is active count. Returns False when ``lock_keys`` is empty.
 
         The move commands take the exclusive lock of a shard before they change the shard, so these locks keep the move
-        commands from changing it. Code that saves the state of a shard without the exclusive lock does not wait for
-        these locks, and a use_shard that relies on them does not see that change.
+        commands of other sessions from changing it. PostgreSQL gives this session the exclusive lock while it holds
+        these locks, so a move command on this session ends the validity of the reads of the shard, with or without a
+        check of the state: see ``forget_the_checks_of_the_shards()``. Code that saves the state of a shard without the
+        exclusive lock does not wait for these locks, and a use_shard that relies on them does not see that change.
         """
         if only_if_the_state_was_checked:
             session_locks = self.session_locks_of_entered_use_shards_that_checked_the_state
@@ -1185,7 +1192,24 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             session_locks = self.session_locks_of_entered_use_shards
             transaction_locks = self.transaction_locks_of_entered_use_shards
 
-        return bool(lock_keys) and all(session_locks[key] or key in transaction_locks for key in lock_keys)
+        return bool(lock_keys) and all(
+            (session_locks[key] and key not in self.session_lock_keys_whose_check_is_stale) or key in transaction_locks
+            for key in lock_keys
+        )
+
+    def forget_the_checks_of_the_shards(self, lock_keys):
+        """
+        Forgets that a use_shard read the shards of ``lock_keys`` under their locks, with or without a check of the
+        state, because this session takes their exclusive locks, under which a move command can change the shards. A
+        use_shard that is entered later takes the locks and reads the shard itself.
+        """
+        for key in lock_keys:
+            self.transaction_locks_of_entered_use_shards.pop(key, None)
+
+        self.transaction_locks_of_entered_use_shards_that_checked_the_state.difference_update(lock_keys)
+        self.session_lock_keys_whose_check_is_stale.update(
+            key for key in lock_keys if self.session_locks_of_entered_use_shards[key]
+        )
 
     def record_transaction_locks(self, lock_keys, *, with_a_check_of_the_state):
         """
@@ -1251,6 +1275,7 @@ class DatabaseWrapper(BaseDatabaseWrapper):
             key: depth for key, depth in self.transaction_locks_of_entered_use_shards.items() if depth <= index
         }
         # A key that is kept is held by a lock that was taken before its shard was checked, so the check stays valid.
+        # The check of a key whose exclusive lock this session took after the check is forgotten already.
         self.transaction_locks_of_entered_use_shards_that_checked_the_state &= set(
             self.transaction_locks_of_entered_use_shards
         )
@@ -1788,6 +1813,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         cursor = _cursor or self._get_lock_cursor()
         cursor.acquire_advisory_lock(key, shared=shared, xact=xact)
 
+        if not shared:
+            self.forget_the_checks_of_the_shards([key])
+
     def release_advisory_lock(self, key, shared=True, _cursor=None):
         """
         Release a shared or exclusive advisory lock on a given key. Like acquire_advisory_lock, this method uses a
@@ -1803,6 +1831,9 @@ class DatabaseWrapper(BaseDatabaseWrapper):
         not set the search_path.
         """
         self._get_lock_cursor().acquire_advisory_lock_for_each_key(keys, shared=shared, xact=xact)
+
+        if not shared:
+            self.forget_the_checks_of_the_shards(keys)
 
     def release_advisory_lock_for_each_key(self, keys, shared=True):
         """
@@ -1984,6 +2015,7 @@ class ShardDatabaseWrapper(DatabaseWrapper):
         'current_search_paths',
         'session_locks_of_entered_use_shards',
         'session_locks_of_entered_use_shards_that_checked_the_state',
+        'session_lock_keys_whose_check_is_stale',
         'transaction_locks_of_entered_use_shards',
         'transaction_locks_of_entered_use_shards_that_checked_the_state',
         'open_savepoint_ids',
