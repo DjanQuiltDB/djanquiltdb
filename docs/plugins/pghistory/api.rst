@@ -17,7 +17,7 @@ The tracking functions, the event bases, ``create_event_model()`` and the querys
 ``djanquiltdb_plugin_pghistory``, the distribution package, which resolves its exports lazily, like the namespaces
 above. A type checker or an IDE cannot follow either of them, so point it at the modules that define the names:
 ``djanquiltdb_plugin_pghistory.core`` for the tracking functions and ``create_event_model()``, ``.sharded``,
-``.mirrored`` and ``.public`` for the event bases, and ``.querysets`` for the queryset.
+``.mirrored``, ``.public`` and ``.single_node`` for the event bases, and ``.querysets`` for the queryset.
 
 
 Tracking
@@ -55,6 +55,11 @@ tracked model only.
 
     The events are stored in the public schema. The ``pgh_id`` of an event is its natural key, which public models must
     have.
+
+.. class:: SingleNodeEvent
+
+    The events are stored in the public schema of the node of the tracked model, which must be on a single node. The
+    tracking functions give each event model that node.
 
 Event models
 ============

@@ -56,14 +56,16 @@ def check_pghistory_sharding_configuration(app_configs, **kwargs):
     """
     Reports django-pghistory configuration that does not work with sharding.
     """
-    from djanquiltdb.utils import get_declared_sharding_mode, get_sharding_mode
+    from djanquiltdb.utils import get_declared_sharding_mode, get_model_single_node_alias, get_placement
 
     if not apps.is_installed(PGHISTORY_APP_NAME):
         return []
 
-    context_mode = get_sharding_mode(PGHISTORY_APP_NAME, 'context')
+    context_mode, context_node = get_placement(PGHISTORY_APP_NAME, 'context')
 
     if not context_mode:
+        # Core reports the Context model as djanquiltdb.E004 too. This warning names the OVERRIDE_SHARDING_MODE entry
+        # that places the pghistory app, which the hint of E004 cannot name.
         return [
             checks.Warning(
                 "The pghistory app's Context model has no sharding mode.",
@@ -84,7 +86,8 @@ def check_pghistory_sharding_configuration(app_configs, **kwargs):
     event_models_with_context_foreign_key = _find_event_models_with_context_foreign_key()
 
     if not event_models_with_context_foreign_key:
-        if context_mode is not ShardingMode.PUBLIC:
+        # A public Context table, or one on a single node, that no event model uses costs nothing.
+        if context_mode in _UNUSED_CONTEXT_TABLE_BY_SHARDING_MODE:
             messages.append(
                 checks.Warning(
                     'The pghistory Context model is {mode}, but no event model has a foreign key to it.'.format(
@@ -151,6 +154,25 @@ def check_pghistory_sharding_configuration(app_configs, **kwargs):
                 id='djanquiltdb_plugin_pghistory.W003',
             )
         )
+    elif context_mode is ShardingMode.SINGLE_NODE_UNSHARDED:
+        # The Context table is on one node only, so an event model on any other node cannot reach it.
+        for model in event_models_with_context_foreign_key:
+            if get_model_single_node_alias(model) == context_node:
+                continue
+
+            messages.append(
+                checks.Error(
+                    "{event} has a foreign key to the Context model, but its events are not on the node '{node}', "
+                    'where the pghistory app is, so the events cannot reach the Context table.'.format(
+                        event=model._meta.label, node=context_node
+                    ),
+                    hint='{denormalize}, and {make_public}.'.format(
+                        denormalize=_DENORMALIZE_THE_CONTEXT, make_public=_MAKE_THE_APP_PUBLIC
+                    ),
+                    obj=model,
+                    id='djanquiltdb_plugin_pghistory.E005',
+                )
+            )
     else:
         messages.append(
             checks.Warning(

@@ -13,6 +13,7 @@ _DEFINING_MODULE_BY_NAME = {
     'MirroredEvent': 'djanquiltdb_plugin_pghistory.mirrored',
     'PublicEvent': 'djanquiltdb_plugin_pghistory.public',
     'ShardedEvent': 'djanquiltdb_plugin_pghistory.sharded',
+    'SingleNodeEvent': 'djanquiltdb_plugin_pghistory.single_node',
     'create_event_model': 'djanquiltdb_plugin_pghistory.core',
 }
 
@@ -22,6 +23,7 @@ __all__ = [  # noqa: F822
     'MirroredEvent',
     'PublicEvent',
     'ShardedEvent',
+    'SingleNodeEvent',
     'create_event_model',
 ]
 
