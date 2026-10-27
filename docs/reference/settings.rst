@@ -79,6 +79,37 @@ The attribute of the session that ``UseShardMiddleware`` and ``UseShardForMiddle
 Defaults to ``shard_selector``, which is the attribute that the ``djanquiltdb.sessions`` backend provides. See
 :doc:`/guides/sessions`.
 
+.. _shard_selector_regex_setting:
+
+SHARD_SELECTOR_REGEX
+~~~~~~~~~~~~~~~~~~~~
+The regular expression that every shard selector matches. A shard selector is the mapping value inside an identifier,
+such as a session key of the ``djanquiltdb.sessions`` backend, and it names the shard that the identifier belongs to.
+Defaults to ``'[0-9]+'``, which matches integer mapping values. For tenants that are mapped by slug:
+
+.. code-block:: python
+
+  QUILT_DB = {
+      'SHARD_CLASS': 'myapp.models.Shard',
+      'MAPPING_MODEL': 'myapp.models.TenantShard',
+      'SHARD_SELECTOR_REGEX': '[-a-z0-9]+',
+  }
+
+.. warning::
+
+    A shard selector is part of every identifier that has one, and an identifier can travel in a cookie, a header, a
+    form body, a query string or a URL path. Not every library accepts every character in those places. For example,
+    a URL path converter can refuse a character that your regex allows, and Basic authentication separates the user
+    name from the password at a colon. To keep your identifiers usable with as many libraries as possible, it is
+    strongly recommended to limit mapping field values to letters, digits, ``-`` and ``_``, which are the characters
+    that Django's ``slug`` path converter matches, and to use a regex that matches only those characters, such as
+    ``[-a-z0-9]+``, ``[0-9]+`` or one that matches a UUID.
+
+``QUILT_SESSIONS['SHARD_SELECTOR_REGEX']`` is deprecated and will be removed in DjanQuiltDB 5.0. DjanQuiltDB uses it
+when ``QUILT_DB`` has no ``SHARD_SELECTOR_REGEX``, and reports it with the warning ``djanquiltdb.W005``. When the two
+settings have different regexes, DjanQuiltDB uses the regex of ``QUILT_DB`` and reports the difference with the error
+``djanquiltdb.E010``.
+
 OVERRIDE_SHARDING_MODE
 ~~~~~~~~~~~~~~~~~~~~~~
 If you want to override the sharding mode for a specific model or application you can use
@@ -264,7 +295,8 @@ The settings of the ``djanquiltdb.sessions`` session backend. See :doc:`/guides/
 ``SESSION_MODEL``
     Required. The dotted path of the project's session model, a sharded subclass of ``BaseQuiltSession``.
 ``SHARD_SELECTOR_REGEX``
-    The regular expression that a shard selector, a mapping value, has to match. Defaults to ``'[0-9]+'``.
+    Deprecated, and will be removed in DjanQuiltDB 5.0. Set :ref:`QUILT_DB['SHARD_SELECTOR_REGEX']
+    <shard_selector_regex_setting>` instead.
 ``SESSION_KEY_DELIMITER``
     The text that separates the shard selector from the rest of a session key. Defaults to ``'K'``, and must be text
-    that ``SHARD_SELECTOR_REGEX`` does not match.
+    that ``QUILT_DB['SHARD_SELECTOR_REGEX']`` does not match.

@@ -2,6 +2,8 @@ import contextlib
 import copy
 import inspect
 import logging
+import re
+import warnings
 from collections import defaultdict
 from functools import cache, wraps
 
@@ -126,6 +128,39 @@ def reset_cached_shard_and_mapping_classes(setting, **kwargs):
     if setting == 'QUILT_DB':
         get_shard_class.cache_clear()
         get_mapping_class.cache_clear()
+
+
+#: The regex that a shard selector matches when ``QUILT_DB`` does not set ``SHARD_SELECTOR_REGEX``.
+DEFAULT_SHARD_SELECTOR_REGEX = '[0-9]+'
+
+
+def shard_selector_regex():
+    """
+    Returns the regex, without anchors, that every shard selector matches. A shard selector is the mapping value inside
+    an identifier, such as a session key, and it names the shard that the identifier belongs to.
+
+    The regex is ``QUILT_DB['SHARD_SELECTOR_REGEX']``. When ``QUILT_DB`` has no such regex, it is the deprecated
+    ``QUILT_SESSIONS['SHARD_SELECTOR_REGEX']``. This function issues a DeprecationWarning whenever ``QUILT_SESSIONS``
+    has a regex.
+    """
+    session_regex = getattr(settings, 'QUILT_SESSIONS', {}).get('SHARD_SELECTOR_REGEX')
+
+    if session_regex is not None:
+        warnings.warn(
+            "QUILT_SESSIONS['SHARD_SELECTOR_REGEX'] is deprecated and will be removed in djanquiltdb 5.0. Set "
+            "QUILT_DB['SHARD_SELECTOR_REGEX'] instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
+    return settings.QUILT_DB.get('SHARD_SELECTOR_REGEX', session_regex or DEFAULT_SHARD_SELECTOR_REGEX)
+
+
+def shard_selector_pattern():
+    """
+    Returns :func:`shard_selector_regex` compiled and anchored, so that it only matches a whole shard selector.
+    """
+    return re.compile('^(?:' + shard_selector_regex() + ')$')
 
 
 def _node_exists(node_name):
@@ -599,6 +634,15 @@ class use_shard_for(use_shard):
 
 def get_new_shard_node():
     return settings.QUILT_DB.get('NEW_SHARD_NODE', None)
+
+
+def session_shard_selector_attribute_name():
+    """
+    Returns the name of the attribute of a session that has the shard selector of the session, which
+    ``QUILT_DB['SESSION_SHARD_SELECTOR_KEY']`` sets. The default is ``shard_selector``, the attribute of
+    ``djanquiltdb.sessions.SessionStore``. A middleware that reads the shard selector of a session reads this attribute.
+    """
+    return settings.QUILT_DB.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector')
 
 
 def create_schema_on_node(schema_name, node_name=None, migrate=True):

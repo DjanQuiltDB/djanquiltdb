@@ -26,6 +26,7 @@ from djanquiltdb.checks import (
     check_no_asgi_application,
     check_pgtrigger_compatibility,
     check_shard_and_mapping_models_are_mirrored,
+    check_shard_selector_regex_setting,
     check_trigger_writes_stay_in_their_sharding_mode,
     check_views_are_sync,
     cross_mode_trigger_messages,
@@ -122,6 +123,61 @@ class PgtriggerCompatibilityCheckTestCase(SimpleTestCase):
         with override_settings(PGTRIGGER_MIGRATIONS=False, PGTRIGGER_INSTALL_ON_MIGRATE=True):
             with override_sharding_setting(MUTE_SETTING, False):
                 self.assertEqual(warning_ids(), ['djanquiltdb.W001', 'djanquiltdb.W002'])
+
+
+def shard_selector_regex_message_ids():
+    return [message.id for message in check_shard_selector_regex_setting(None)]
+
+
+class ShardSelectorRegexSettingCheckTestCase(SimpleTestCase):
+    def test_check_is_registered(self):
+        """
+        Case: The app config has been readied, as it is for every test run.
+        Expected: The check is part of Django's check registry.
+        """
+        self.assertIn(check_shard_selector_regex_setting, registry.get_checks())
+
+    @override_settings(QUILT_SESSIONS={})
+    def test_no_message_without_the_session_setting(self):
+        """
+        Case: QUILT_SESSIONS does not set SHARD_SELECTOR_REGEX, regardless of whether QUILT_DB sets it.
+        Expected: No messages.
+        """
+        self.assertEqual(shard_selector_regex_message_ids(), [])
+
+        with override_sharding_setting('SHARD_SELECTOR_REGEX', '[a-z]+'):
+            self.assertEqual(shard_selector_regex_message_ids(), [])
+
+    @override_settings(QUILT_SESSIONS={'SHARD_SELECTOR_REGEX': '[a-z]+'})
+    def test_the_session_setting_on_its_own_is_deprecated(self):
+        """
+        Case: Only QUILT_SESSIONS sets SHARD_SELECTOR_REGEX.
+        Expected: The deprecation warning djanquiltdb.W005.
+        """
+        with override_sharding_setting('SHARD_SELECTOR_REGEX'):
+            self.assertEqual(shard_selector_regex_message_ids(), ['djanquiltdb.W005'])
+
+    @override_settings(QUILT_SESSIONS={'SHARD_SELECTOR_REGEX': '[a-z]+'})
+    def test_the_same_regex_in_both_settings_is_deprecated(self):
+        """
+        Case: QUILT_DB and QUILT_SESSIONS both set SHARD_SELECTOR_REGEX to the same regex.
+        Expected: The deprecation warning djanquiltdb.W005, since the session setting can be removed.
+        """
+        with override_sharding_setting('SHARD_SELECTOR_REGEX', '[a-z]+'):
+            self.assertEqual(shard_selector_regex_message_ids(), ['djanquiltdb.W005'])
+
+    @override_settings(QUILT_SESSIONS={'SHARD_SELECTOR_REGEX': '[a-z]+'})
+    def test_two_different_regexes_are_an_error(self):
+        """
+        Case: QUILT_DB and QUILT_SESSIONS set SHARD_SELECTOR_REGEX to different regexes.
+        Expected: The error djanquiltdb.E010, naming both regexes.
+        """
+        with override_sharding_setting('SHARD_SELECTOR_REGEX', '[0-9]+'):
+            messages = check_shard_selector_regex_setting(None)
+
+        self.assertEqual([message.id for message in messages], ['djanquiltdb.E010'])
+        self.assertIn('[a-z]+', messages[0].msg)
+        self.assertIn('[0-9]+', messages[0].msg)
 
 
 class FakeTrigger:

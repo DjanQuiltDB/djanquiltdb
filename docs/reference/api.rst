@@ -77,7 +77,8 @@ Utilities
 =========
 
 .. automodule:: djanquiltdb.utils
-   :members: use_shard, use_shard_for, get_shard_for, for_each_shard, create_template_schema
+   :members: use_shard, use_shard_for, get_shard_for, for_each_shard, create_template_schema, shard_selector_regex,
+      shard_selector_pattern, session_shard_selector_attribute_name
    :exclude-members: copy_for_one_call, read_shard_after_locking, check_shard_after_locking
 
 
@@ -178,8 +179,8 @@ group. See :doc:`/plugins/celery/index`, :doc:`/plugins/pghistory/index`, :doc:`
 :doc:`/plugins/postgres-objects/index` for the plugins in this repository.
 
 A plugin's API is served from inside ``djanquiltdb``, under the name that the plugin registers, so that name is part of
-the plugin's public API. ``djanquiltdb.base``, ``djanquiltdb.decorators``, ``djanquiltdb.models`` and
-``djanquiltdb.utils`` each serve the plugin module that has the same name:
+the plugin's public API. ``djanquiltdb.base``, ``djanquiltdb.decorators``, ``djanquiltdb.middleware``,
+``djanquiltdb.models`` and ``djanquiltdb.utils`` each serve the plugin module that has the same name:
 
 ``djanquiltdb.base.<name>``
     The plugin's ``base`` module: classes that a project subclasses or refers to, such as the base class of a plugin's
@@ -187,6 +188,11 @@ the plugin's public API. ``djanquiltdb.base``, ``djanquiltdb.decorators``, ``dja
 
 ``djanquiltdb.decorators.<name>``
     The plugin's ``decorators`` module, so its decorators are imported from the same place as the model decorators.
+
+``djanquiltdb.middleware.<name>``
+    The plugin's ``middleware`` module, so that a ``MIDDLEWARE`` entry can name one of its classes as
+    ``'djanquiltdb.middleware.<name>.<class>'``. A plugin cannot be served there under a name that
+    ``djanquiltdb.middleware`` defines itself, such as ``UseShardForMiddleware``.
 
 ``djanquiltdb.models.<name>``
     The plugin's ``models`` module: base classes, querysets, and the like.
@@ -215,8 +221,8 @@ By default, the decorators of a plugin are also served directly from ``djanquilt
 decorators, which suits a placement decorator such as ``@public_function()``. A decorators module that defines
 ``__all__`` serves only those names there, so a name that one plugin imports does not resolve there for every plugin. A
 plugin that keeps its own namespace sets ``SERVE_UNQUALIFIED = False`` in its decorators module. ``djanquiltdb.base``,
-``djanquiltdb.models`` and ``djanquiltdb.utils`` have no such setting, because they only serve a plugin under the
-plugin's name.
+``djanquiltdb.middleware``, ``djanquiltdb.models`` and ``djanquiltdb.utils`` have no such setting, because they only
+serve a plugin under the plugin's name.
 
 When two installed distributions register the same name, DjanQuiltDB raises ``ImproperlyConfigured`` when the app
 registry is ready, so the project does not start, and every time that name is looked up. Other names are served as

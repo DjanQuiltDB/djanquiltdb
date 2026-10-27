@@ -69,7 +69,9 @@ from djanquiltdb.utils import (
     relation_with_a_model_on_a_single_node_is_allowed,
     resolve_node_alias,
     schema_exists,
+    session_shard_selector_attribute_name,
     shard_lock_key,
+    shard_selector_pattern,
     stored_mapping_value,
     transaction_for_every_node,
     transaction_for_nodes,
@@ -259,6 +261,79 @@ class StoredMappingValueTestCase(SimpleTestCase):
             stored_value = stored_mapping_value(MirroredUser(pk=42, email='luke@layton.l5'))
 
         self.assertEqual(stored_value, 'luke@layton.l5')
+
+
+class ShardSelectorPatternTestCase(SimpleTestCase):
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'}, QUILT_SESSIONS={})
+    def test_the_default_pattern_matches_a_whole_number(self):
+        """
+        Case: Neither QUILT_DB nor QUILT_SESSIONS sets SHARD_SELECTOR_REGEX.
+        Expected: The pattern matches a whole selector of digits, and nothing that only starts or ends with digits.
+        """
+        pattern = shard_selector_pattern()
+
+        self.assertIsNotNone(pattern.match('42'))
+        self.assertIsNone(pattern.match('42a'))
+        self.assertIsNone(pattern.match('a42'))
+
+    @override_settings(
+        QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'SHARD_SELECTOR_REGEX': '[a-z]+'}, QUILT_SESSIONS={}
+    )
+    def test_the_pattern_is_read_from_quilt_db(self):
+        """
+        Case: QUILT_DB sets SHARD_SELECTOR_REGEX to '[a-z]+'.
+        Expected: The pattern matches a selector of letters, and not a selector of digits.
+        """
+        pattern = shard_selector_pattern()
+
+        self.assertIsNotNone(pattern.match('abc'))
+        self.assertIsNone(pattern.match('42'))
+
+    @override_settings(
+        QUILT_DB={'SHARD_CLASS': 'example.models.Shard'}, QUILT_SESSIONS={'SHARD_SELECTOR_REGEX': '[a-z]+'}
+    )
+    def test_the_deprecated_session_setting_is_used_with_a_warning(self):
+        """
+        Case: Only QUILT_SESSIONS sets SHARD_SELECTOR_REGEX.
+        Expected: A DeprecationWarning that names QUILT_DB, and the pattern of the session setting.
+        """
+        with self.assertWarnsMessage(DeprecationWarning, "QUILT_DB['SHARD_SELECTOR_REGEX']"):
+            pattern = shard_selector_pattern()
+
+        self.assertIsNotNone(pattern.match('abc'))
+
+    @override_settings(
+        QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'SHARD_SELECTOR_REGEX': '[A-Z]+'},
+        QUILT_SESSIONS={'SHARD_SELECTOR_REGEX': '[a-z]+'},
+    )
+    def test_quilt_db_takes_precedence_over_the_deprecated_session_setting(self):
+        """
+        Case: QUILT_DB and QUILT_SESSIONS both set SHARD_SELECTOR_REGEX, to different regexes.
+        Expected: A DeprecationWarning, and the pattern of QUILT_DB.
+        """
+        with self.assertWarns(DeprecationWarning):
+            pattern = shard_selector_pattern()
+
+        self.assertIsNotNone(pattern.match('ABC'))
+        self.assertIsNone(pattern.match('abc'))
+
+
+class SessionShardSelectorAttributeNameTestCase(SimpleTestCase):
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'})
+    def test_the_default_name_is_the_attribute_of_the_session_backend(self):
+        """
+        Case: QUILT_DB does not set SESSION_SHARD_SELECTOR_KEY.
+        Expected: 'shard_selector', the attribute of djanquiltdb.sessions.SessionStore.
+        """
+        self.assertEqual(session_shard_selector_attribute_name(), 'shard_selector')
+
+    @override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard', 'SESSION_SHARD_SELECTOR_KEY': 'organization'})
+    def test_the_name_is_read_from_quilt_db(self):
+        """
+        Case: QUILT_DB sets SESSION_SHARD_SELECTOR_KEY to 'organization'.
+        Expected: 'organization'.
+        """
+        self.assertEqual(session_shard_selector_attribute_name(), 'organization')
 
 
 class SetActiveConnectionTestCase(ResetConnectionTestCaseMixin, SimpleTestCase):

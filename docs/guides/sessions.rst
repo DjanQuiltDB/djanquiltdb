@@ -74,13 +74,13 @@ the ``SESSION_ENGINE``::
 
     QUILT_SESSIONS = {
         'SESSION_MODEL': 'myapp.models.QuiltSession',
-        # The tenants are mapped by slug. See the format of the shard selector below.
-        'SHARD_SELECTOR_REGEX': '[-a-z0-9]+',
     }
 
     QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
         'MAPPING_MODEL': 'myapp.models.TenantShard',
+        # The mapping model of this example maps tenants by slug. See "The format of the shard selector" below.
+        'SHARD_SELECTOR_REGEX': '[-a-z0-9]+',
         'OVERRIDE_SHARDING_MODE': {
             ...
             ('sessions',): ShardingMode.SHARDED,
@@ -143,14 +143,18 @@ the ``SessionStorage`` of ``django.contrib.messages``.
 The format of the shard selector
 --------------------------------
 
-The selector has to match ``SHARD_SELECTOR_REGEX`` in ``QUILT_SESSIONS``, which is ``'[0-9]+'`` by default: the values
-of a mapping field that holds integer ids. Change it when the mapping values are something else. For the slugs of
+The selector has to match ``SHARD_SELECTOR_REGEX`` in ``QUILT_DB``, which is ``'[0-9]+'`` by default and matches the
+values of a mapping field that has integer ids. Change it when the mapping values are something else. For the slugs of
 tenants, for example::
 
-    QUILT_SESSIONS = {
-        'SESSION_MODEL': 'myapp.models.QuiltSession',
+    QUILT_DB = {
+        ...
         'SHARD_SELECTOR_REGEX': '[-a-z0-9]+',
     }
+
+Every identifier that has a shard selector, such as a session key, uses this one regular expression. See
+:ref:`shard_selector_regex_setting` for the characters that mapping values are strongly recommended to keep to, and for
+the deprecated ``QUILT_SESSIONS['SHARD_SELECTOR_REGEX']``.
 
 That regular expression matches lowercase slugs. A mapping field whose slugs can have uppercase letters needs one that
 matches those, and then another delimiter than ``K`` too.

@@ -40,6 +40,11 @@ in ``INSTALLED_APPS``.
                      import is not checked: Django reports it when it loads the request handler.
 ``djanquiltdb.E009`` ``ASGI_APPLICATION`` is set, as Channels and Daphne have it. The consumers of the application run
                      on the event loop.
+``djanquiltdb.W005`` ``QUILT_SESSIONS['SHARD_SELECTOR_REGEX']`` is set. It is deprecated: set
+                     ``QUILT_DB['SHARD_SELECTOR_REGEX']`` instead.
+``djanquiltdb.E010`` ``QUILT_DB['SHARD_SELECTOR_REGEX']`` and ``QUILT_SESSIONS['SHARD_SELECTOR_REGEX']`` are set to
+                     different regexes. DjanQuiltDB uses the regex of ``QUILT_DB``, so a session key whose shard
+                     selector only matches the regex of ``QUILT_SESSIONS`` names no shard.
 ==================== ==================================================================================================
 
 See :doc:`/database_objects/triggers` for why the settings of W001 and W002 matter, and for the triggers that E001,
@@ -47,8 +52,8 @@ E002 and W003 report. ``MUTE_PGTRIGGER_COMPATIBILITY_WARNING`` (see :doc:`/refer
 The other checks have no setting of their own: ``SILENCED_SYSTEM_CHECKS`` is the only way to silence them. If you
 keep models on a single node on purpose, silence W004 that way. ``manage.py check <app_label>`` reports E001, E002
 and W003 for the triggers on the models of the apps that it names only, E003 for the Shard model and the mapping model
-when they are models of those apps, and E004, W004, E005 and E006 for the models of those apps. It reports E007, E008 and
-E009 for the whole project.
+when they are models of those apps, and E004, W004, E005 and E006 for the models of those apps. It reports E007, E008,
+E009, W005 and E010 for the whole project. See :ref:`shard_selector_regex_setting` for W005 and E010.
 
 E007, E008 and E009 report async code, which DjanQuiltDB does not support. They do not mean that the code is wrong: async
 code that enters shards only inside ``sync_to_async`` or ``database_sync_to_async`` is safe. Once your async code does
