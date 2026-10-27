@@ -7,13 +7,22 @@ from django.http import HttpResponse
 from django.utils.deprecation import MiddlewareMixin
 from django.utils.module_loading import import_string
 
+from djanquiltdb.plugins import install_plugin_importer, served_plugin_module
 from djanquiltdb.utils import (
     StateException,
     get_shard_class,
     public_schema_alias_for_reading,
+    session_shard_selector_attribute_name,
     use_shard,
     use_shard_for,
 )
+
+# A plugin's middleware module is served as the submodule djanquiltdb.middleware.<plugin>, and the import system only
+# asks PluginImporter for a submodule when the parent module has a __path__. The list is empty, because no submodule is
+# found by searching it.
+__path__ = []
+
+install_plugin_importer()
 
 logger = logging.getLogger(__name__)
 
@@ -213,7 +222,7 @@ class UseShardMiddleware(BaseUseShardMiddleware, ExceptionMiddlewareMixin):
 
     def get_shard_id(self, request):
         """The shard id the session carries, under the key ``SESSION_SHARD_SELECTOR_KEY`` names."""
-        return getattr(request.session, settings.QUILT_DB.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector'))
+        return getattr(request.session, session_shard_selector_attribute_name())
 
     def _enable_shard(self, request, shard_id):
         try:
@@ -232,7 +241,7 @@ class UseShardForMiddleware(BaseUseShardForMiddleware, ExceptionMiddlewareMixin)
 
     def get_mapping_value(self, request):
         """The mapping value the session carries, under the key ``SESSION_SHARD_SELECTOR_KEY`` names."""
-        return getattr(request.session, settings.QUILT_DB.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector'))
+        return getattr(request.session, session_shard_selector_attribute_name())
 
     def _enable_shard_for(self, request, target_value):
         try:
@@ -242,3 +251,18 @@ class UseShardForMiddleware(BaseUseShardForMiddleware, ExceptionMiddlewareMixin)
             # and djanquiltdb.sessions reads the session as empty, so the user is logged out, instead of getting the
             # response of a shard that is not active.
             request._mapping_value = None
+
+
+def __getattr__(name):
+    """
+    Serves the middleware module of a plugin under the plugin's registered name, for plain attribute access.
+    :class:`~djanquiltdb.plugins.PluginImporter` handles import statements, and also the ``import_string()`` with which
+    Django loads a ``MIDDLEWARE`` entry such as ``'djanquiltdb.middleware.<name>.<class>'``. A name that this module
+    defines itself is found before this function runs, so a plugin cannot replace it.
+    """
+    module = served_plugin_module(__name__, name)
+
+    if module is None:
+        raise AttributeError(f'module {__name__!r} has no attribute {name!r}')
+
+    return module

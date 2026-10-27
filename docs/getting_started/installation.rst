@@ -74,6 +74,10 @@ holds the models of the next step, these are the settings::
         # Optional, but strongly recommended for convenience: finds the shard of a tenant by a value of the tenant, and
         # lets several tenants share a shard. Required when using the session backend. See "The mapping model".
         'MAPPING_MODEL': 'myapp.models.TenantShard',
+        # Optional: the regex that every shard selector matches. A shard selector is the mapping value inside an
+        # identifier, such as a session key. The default matches integer mapping values, and this example maps tenants
+        # by slug. See "Settings".
+        'SHARD_SELECTOR_REGEX': '[-a-z0-9]+',
         # Required as soon as the project has mirrored models, as auth and contenttypes are here. See "Settings".
         'PRIMARY_DB_ALIAS': 'default',
         # Required: every model needs a sharding mode, and these give one to the models of Django's own apps. Any
@@ -93,8 +97,6 @@ holds the models of the next step, these are the settings::
     QUILT_SESSIONS = {
         # Required: the session model of the project. See "Sessions".
         'SESSION_MODEL': 'myapp.models.QuiltSession',
-        # Optional: the default matches integer mapping values; these tenants are mapped by slug. See "Sessions".
-        'SHARD_SELECTOR_REGEX': '[-a-z0-9]+',
     }
 
     MIDDLEWARE = [
@@ -152,6 +154,11 @@ What each part does:
   recommended for convenience: code finds the shard of a tenant by a value of the tenant, such as its slug, several
   tenants can share a shard, and one tenant can move to another shard (see :doc:`/guides/mapping_model`). It is required
   when using the session backend, because that finds the shard of a session through it.
+* **SHARD_SELECTOR_REGEX** is the regex that every shard selector matches. A shard selector is the mapping value of a
+  tenant inside an identifier, such as a session key, and it names the shard of the identifier. The default,
+  ``'[0-9]+'``, matches integer mapping values only, and the mapping model of the next step maps tenants by slug, so it
+  is set here. It is strongly recommended to limit mapping values to those allowed by Django's ``slug`` path converter,
+  see :ref:`QUILT_DB['SHARD_SELECTOR_REGEX'] <shard_selector_regex_setting>`.
 * **PRIMARY_DB_ALIAS** names the node that writes to mirrored models go to. A project with mirrored models has to set
   it, and ``auth`` and ``contenttypes`` are mirrored here.
 * **OVERRIDE_SHARDING_MODE** gives the models of Django's own apps a sharding mode. Every model needs one (see
@@ -163,10 +170,8 @@ What each part does:
   instead. It keeps each session in the shard of its tenant, in a session model of the project: a
   subclass of ``BaseQuiltSession``, which the project can extend with fields of its own. ``SESSION_MODEL`` names it, and
   is the one key of ``QUILT_SESSIONS`` without a default; the others fall back on their defaults (see
-  :doc:`/reference/settings`). ``SHARD_SELECTOR_REGEX`` is set here because its default, ``'[0-9]+'``, matches integer
-  mapping values only, and the mapping model of the next step maps tenants by slug. Keep ``django.contrib.sessions``
-  installed for its ``clearsessions`` command. Your login flow has to tell each session which tenant it belongs to, as
-  :doc:`/guides/sessions` describes.
+  :doc:`/reference/settings`). Keep ``django.contrib.sessions`` installed for its ``clearsessions`` command. Your login
+  flow has to tell each session which tenant it belongs to, as :doc:`/guides/sessions` describes.
 * **UseShardForMiddleware** enters the shard of the tenant of the session for each request, so views need not enter it
   themselves (see :doc:`/guides/requests`). Put it after ``SessionMiddleware``, which it reads the tenant from.
 * **djanquiltdb.contrib.quilt_admin** adds a shard switcher to the Django admin, so that staff can browse the data of

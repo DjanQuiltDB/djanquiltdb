@@ -8,9 +8,11 @@ from unittest import mock
 
 from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase
+from django.utils.module_loading import import_string
 
 from djanquiltdb import base as djanquiltdb_base
 from djanquiltdb import decorators as djanquiltdb_decorators
+from djanquiltdb import middleware as djanquiltdb_middleware
 from djanquiltdb import models as djanquiltdb_models
 from djanquiltdb import plugins
 from djanquiltdb import utils as djanquiltdb_utils
@@ -23,6 +25,7 @@ FIXTURE_NAME = 'fixture'
 NAMESPACE_AND_SERVED_FIXTURE_MODULE = (
     ('djanquiltdb.base', plugin_fixture.base),
     ('djanquiltdb.decorators', plugin_fixture.decorators),
+    ('djanquiltdb.middleware', plugin_fixture.middleware),
     ('djanquiltdb.models', plugin_fixture.models),
     ('djanquiltdb.utils', plugin_fixture.utils),
 )
@@ -94,30 +97,58 @@ class PluginNamespaceTestCase(SimpleTestCase):
         with self.patch_installed_entry_points(fake_entry_point()):
             from djanquiltdb.base.fixture import FixtureBase
             from djanquiltdb.decorators.fixture import shiny_decorator
+            from djanquiltdb.middleware.fixture import FixtureMiddleware
             from djanquiltdb.models.fixture import FixtureEvent
             from djanquiltdb.utils.fixture import fixture_helper
 
             self.assertIs(FixtureBase, plugin_fixture.base.FixtureBase)
             self.assertIs(shiny_decorator, plugin_fixture.decorators.shiny_decorator)
+            self.assertIs(FixtureMiddleware, plugin_fixture.middleware.FixtureMiddleware)
             self.assertIs(FixtureEvent, plugin_fixture.models.FixtureEvent)
             self.assertIs(fixture_helper, plugin_fixture.utils.fixture_helper)
+
+    def test_a_middleware_setting_can_name_a_served_class(self):
+        """
+        Case: A middleware class of a plugin is loaded by its dotted path under djanquiltdb.middleware, as Django loads
+              each entry of the MIDDLEWARE setting with import_string().
+        Expected: The class that the plugin defines.
+        """
+        with self.patch_installed_entry_points(fake_entry_point()):
+            served_middleware_class = import_string('djanquiltdb.middleware.fixture.FixtureMiddleware')
+
+        self.assertIs(served_middleware_class, plugin_fixture.middleware.FixtureMiddleware)
 
     def test_the_namespaces_serve_different_modules(self):
         """
         Case: The same plugin is reached in every namespace.
         Expected: djanquiltdb.base serves the base module of the plugin, djanquiltdb.decorators serves its decorators
-                  module, djanquiltdb.models serves its models module, and djanquiltdb.utils serves its utils module.
+                  module, djanquiltdb.middleware serves its middleware module, djanquiltdb.models serves its models
+                  module, and djanquiltdb.utils serves its utils module.
         """
         with self.patch_installed_entry_points(fake_entry_point()):
             from djanquiltdb.base import fixture as served_base_module
             from djanquiltdb.decorators import fixture as served_decorators_module
+            from djanquiltdb.middleware import fixture as served_middleware_module
             from djanquiltdb.models import fixture as served_models_module
             from djanquiltdb.utils import fixture as served_utils_module
 
             self.assertIs(served_base_module, plugin_fixture.base)
             self.assertIs(served_decorators_module, plugin_fixture.decorators)
+            self.assertIs(served_middleware_module, plugin_fixture.middleware)
             self.assertIs(served_models_module, plugin_fixture.models)
             self.assertIs(served_utils_module, plugin_fixture.utils)
+
+    def test_a_plugin_cannot_replace_a_name_that_middleware_defines(self):
+        """
+        Case: A plugin registers the name UseShardForMiddleware, which djanquiltdb.middleware defines itself, and the
+              name is read from djanquiltdb.middleware.
+        Expected: The UseShardForMiddleware of djanquiltdb.middleware, and not the middleware module of the plugin.
+        """
+        with self.patch_installed_entry_points(fake_entry_point(name='UseShardForMiddleware')):
+            from djanquiltdb.middleware import UseShardForMiddleware
+
+            self.assertIsNot(UseShardForMiddleware, plugin_fixture.middleware)
+            self.assertIs(UseShardForMiddleware, vars(djanquiltdb_middleware)['UseShardForMiddleware'])
 
     def test_a_plugin_cannot_replace_a_name_that_utils_defines(self):
         """
@@ -147,9 +178,11 @@ class PluginNamespaceTestCase(SimpleTestCase):
 
     def test_a_plugin_without_a_models_module_is_not_served_under_models(self):
         """
-        Case: A plugin object has decorators but no base, no models and no utils, as the postgres-objects plugin does.
-        Expected: The plugin is served under djanquiltdb.decorators. Under djanquiltdb.base, djanquiltdb.models and
-                  djanquiltdb.utils, an import raises ModuleNotFoundError and an attribute raises AttributeError.
+        Case: A plugin object has decorators but no base, no middleware, no models and no utils, as the postgres-objects
+              plugin does.
+        Expected: The plugin is served under djanquiltdb.decorators. Under djanquiltdb.base, djanquiltdb.middleware,
+                  djanquiltdb.models and djanquiltdb.utils, an import raises ModuleNotFoundError and an attribute raises
+                  AttributeError.
         """
         plugin_with_only_decorators = types.SimpleNamespace(decorators=plugin_fixture.decorators, install=lambda: None)
 
@@ -160,6 +193,9 @@ class PluginNamespaceTestCase(SimpleTestCase):
                 import djanquiltdb.base.fixture  # noqa: F401
 
             with self.assertRaises(ModuleNotFoundError):
+                import djanquiltdb.middleware.fixture  # noqa: F401
+
+            with self.assertRaises(ModuleNotFoundError):
                 import djanquiltdb.models.fixture  # noqa: F401
 
             with self.assertRaises(ModuleNotFoundError):
@@ -167,6 +203,9 @@ class PluginNamespaceTestCase(SimpleTestCase):
 
             with self.assertRaises(AttributeError):
                 djanquiltdb_base.fixture
+
+            with self.assertRaises(AttributeError):
+                djanquiltdb_middleware.fixture
 
             with self.assertRaises(AttributeError):
                 djanquiltdb_models.fixture
@@ -414,7 +453,8 @@ class PluginLoadingIsLazyTestCase(SimpleTestCase):
             "settings.configure(INSTALLED_APPS=['django.contrib.contenttypes'], DATABASES={}, "
             "QUILT_DB={'SHARD_CLASS': 'djanquiltdb.models.BaseShard'})\n"
             'django.setup()\n'
-            'import djanquiltdb.base, djanquiltdb.decorators, djanquiltdb.models, djanquiltdb.utils\n'
+            'import djanquiltdb.base, djanquiltdb.decorators, djanquiltdb.middleware, djanquiltdb.models, '
+            'djanquiltdb.utils\n'
             'from djanquiltdb.plugins import _entry_points_by_name\n'
             'info = _entry_points_by_name.cache_info()\n'
             'assert info.misses == 0 and info.hits == 0, info\n'

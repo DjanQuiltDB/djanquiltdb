@@ -6,6 +6,7 @@ from django.utils.functional import classproperty
 
 from djanquiltdb import State
 from djanquiltdb.models import BaseShard
+from djanquiltdb.utils import session_shard_selector_attribute_name
 
 
 class BaseAdminShardSelector(ABC):
@@ -49,9 +50,7 @@ class BaseAdminShardSelector(ABC):
 
     @classmethod
     def retrieve_main_value(cls, request: HttpRequest) -> Optional[Any]:
-        from django.conf import settings
-
-        return getattr(request.session, settings.QUILT_DB.get('SESSION_SHARD_SELECTOR_KEY', 'shard_selector'))
+        return getattr(request.session, session_shard_selector_attribute_name())
 
 
 class AdminShardSelector(BaseAdminShardSelector):
