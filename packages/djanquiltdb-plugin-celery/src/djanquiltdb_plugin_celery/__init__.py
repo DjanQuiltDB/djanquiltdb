@@ -28,7 +28,7 @@ from djanquiltdb_plugin_celery.utils import (
     per_shard_signatures,
 )
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 
 def install():
