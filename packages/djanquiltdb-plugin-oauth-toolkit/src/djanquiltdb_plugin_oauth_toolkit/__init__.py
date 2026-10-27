@@ -13,6 +13,7 @@ from djanquiltdb_plugin_oauth_toolkit.middleware import OAuthToolkitUseShardForM
 from djanquiltdb_plugin_oauth_toolkit.utils import (
     ShardSelectorError,
     active_shard_selector,
+    clear_expired_for_all_shards,
     generate_access_token,
     generate_client_id_for_selector,
     generate_refresh_token,
@@ -48,6 +49,7 @@ __all__ = [
     'ShardSelectorClientIdGenerator',
     'ShardSelectorError',
     'active_shard_selector',
+    'clear_expired_for_all_shards',
     'generate_access_token',
     'generate_client_id_for_selector',
     'generate_refresh_token',
