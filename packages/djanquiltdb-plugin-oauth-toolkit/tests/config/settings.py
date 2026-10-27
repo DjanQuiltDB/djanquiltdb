@@ -58,6 +58,43 @@ QUILT_DB = {
 
 AUTH_USER_MODEL = 'example.User'
 
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',
+    'oauth2_provider.backends.OAuth2Backend',
+]
+
+# The session key has the organization id in it, so a session is stored in the shard of its organization.
+SESSION_ENGINE = 'djanquiltdb.sessions'
+
+QUILT_SESSIONS = {
+    'SESSION_MODEL': 'example.models.QuiltSession',
+}
+
+MIDDLEWARE = [
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'djanquiltdb.middleware.oauth_toolkit.OAuthToolkitUseShardForMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'oauth2_provider.middleware.OAuth2TokenMiddleware',
+]
+
+ROOT_URLCONF = 'config.urls'
+
+LOGIN_URL = '/login/'
+
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+            ],
+        },
+    },
+]
+
 OAUTH2_PROVIDER = {
     'CLIENT_ID_GENERATOR_CLASS': 'djanquiltdb.base.oauth_toolkit.ShardSelectorClientIdGenerator',
     'ACCESS_TOKEN_GENERATOR': 'djanquiltdb.utils.oauth_toolkit.generate_access_token',
@@ -65,7 +102,11 @@ OAUTH2_PROVIDER = {
     'SCOPES': {'read': 'Read', 'write': 'Write', 'openid': 'OpenID Connect', 'introspection': 'Introspect tokens'},
     'OIDC_ENABLED': True,
     # A key of the test process only, so that no private key is kept in the repository.
-    'OIDC_RSA_PRIVATE_KEY': jwk.JWK.generate(kty='RSA', size=2048).export_to_pem(private_key=True, password=None),
+    'OIDC_RSA_PRIVATE_KEY': (
+        jwk.JWK.generate(kty='RSA', size=2048).export_to_pem(private_key=True, password=None).decode()
+    ),
+    'OIDC_RP_INITIATED_LOGOUT_ENABLED': True,
+    'OAUTH_DEVICE_VERIFICATION_URI': 'http://testserver/o/device/',
 }
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
