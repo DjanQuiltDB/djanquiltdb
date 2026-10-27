@@ -1,11 +1,13 @@
 from unittest import mock
 
 from celery import Task, group, signals
+from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from djanquiltdb.router import get_active_connection
 from djanquiltdb.utils import StateException, use_shard
 
 from config.celery import app
+from djanquiltdb_plugin_celery.celery_app import QuiltCelery
 from djanquiltdb_plugin_celery.decorators import shared_task_for_shard
 from djanquiltdb_plugin_celery.targets import TARGET_HEADER_NAME, TaskNodeError, TaskQuiltError, TaskShardError
 from djanquiltdb_plugin_celery.tasks import QuiltTask
@@ -30,6 +32,10 @@ from plugin_tests.base import PluginTestCase
 
 def node_and_schema_of(result):
     return result['node_name'], result['schema_name']
+
+
+def function_to_decorate(**kwargs):
+    pass  # pragma: no cover
 
 
 class SendingTestCase(PluginTestCase):
@@ -794,28 +800,38 @@ class DecoratorOptionsTestCase(PluginTestCase):
             (5, 5, 60, False),
         )
 
-    @override_settings(QUILT_CELERY=None)
-    def test_a_setting_that_is_not_a_dict_gives_the_default_retries(self):
+    def test_a_setting_that_is_not_a_dict_fails_when_the_app_registers_the_task(self):
         """
-        Case: A task is decorated while QUILT_CELERY is None, before the system check reports the setting, as a tasks
-              module can be imported before the system checks run.
-        Expected: The task is created, with five retries with a backoff of 5 seconds, at most 60 seconds, without
-                  jitter.
+        Case: QUILT_CELERY is None. A task of an app that is not finalized yet is decorated, and then the app is
+              finalized.
+        Expected: The decoration raises nothing, so that a tasks module imports and the system check can report the
+                  setting. The finalization, which registers the task, raises ImproperlyConfigured.
         """
+        later_app = QuiltCelery('later_app', set_as_current=False)
 
-        @shared_task_for_shard(name='plugin_tests.tasks.retry_defaults_without_a_dict')
-        def retry_defaults_without_a_dict():
-            pass  # pragma: no cover
+        with override_settings(QUILT_CELERY=None):
+            later_app.task_for_shard(name='plugin_tests.tasks.retries_without_a_dict', shared=False)(
+                function_to_decorate
+            )
 
-        self.assertEqual(
-            (
-                retry_defaults_without_a_dict.max_retries,
-                retry_defaults_without_a_dict.retry_backoff,
-                retry_defaults_without_a_dict.retry_backoff_max,
-                retry_defaults_without_a_dict.retry_jitter,
-            ),
-            (5, 5, 60, False),
+            with self.assertRaisesMessage(ImproperlyConfigured, 'QUILT_CELERY is not a dict'):
+                later_app.finalize()
+
+    def test_the_retry_settings_are_read_when_the_app_registers_the_task(self):
+        """
+        Case: A task of an app that is not finalized yet is decorated while QUILT_CELERY sets no retry setting. Then
+              QUILT_CELERY sets MAX_RETRIES to 2, and the app is finalized.
+        Expected: The task has two retries, because the app reads the retry settings when it registers the task.
+        """
+        later_app = QuiltCelery('later_app', set_as_current=False)
+        task = later_app.task_for_shard(name='plugin_tests.tasks.retries_read_at_registration', shared=False)(
+            function_to_decorate
         )
+
+        with override_settings(QUILT_CELERY={'MAX_RETRIES': 2}):
+            later_app.finalize()
+
+        self.assertEqual(task.max_retries, 2)
 
     def test_one_decorator_with_options_can_decorate_two_functions(self):
         """

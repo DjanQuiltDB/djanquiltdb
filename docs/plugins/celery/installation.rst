@@ -79,13 +79,14 @@ The optional ``QUILT_CELERY`` setting is a dict whose keys override these defaul
         'TASK_BASE': None,
     }
 
-The arguments of each decorator take precedence over these settings. The retry settings are read when a task is
-decorated, and the other settings when a task is sent. ``TASK_BASE`` and the task class of the Celery app are read when
-the app registers the task, as Celery reads the task class, so a ``TASK_BASE`` that does not import fails there.
+The arguments of each decorator take precedence over these settings. The retry settings, ``TASK_BASE`` and the task
+class of the Celery app are read when the app registers the task, as Celery reads the task class, and the other
+settings when a task is sent. So a tasks module can be imported whatever the settings are, and a ``TASK_BASE`` that does
+not import fails when the app registers the task.
 
 The plugin's system checks report a ``QUILT_CELERY`` key that the plugin does not read
 (``djanquiltdb_plugin_celery.E001``). They also report a value that a key does not accept, a ``MAPPING_KWARG`` that is
 ``shard_id`` or ``node_name``, a ``MAPPING_KWARG`` in a project without a ``MAPPING_MODEL``, a ``TASK_BASE`` that does
 not import or does not inherit from ``QuiltTask``, and a ``QUILT_CELERY`` that is not a dict
-(``djanquiltdb_plugin_celery.E002``). While ``QUILT_CELERY`` is not a dict, the plugin uses the defaults,
-so that the ``tasks`` modules can be imported and the check can report the setting.
+(``djanquiltdb_plugin_celery.E002``). While ``QUILT_CELERY`` is not a dict, every read of a setting raises
+``ImproperlyConfigured``.

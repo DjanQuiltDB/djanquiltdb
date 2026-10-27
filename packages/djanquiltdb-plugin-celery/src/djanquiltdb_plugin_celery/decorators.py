@@ -98,7 +98,7 @@ def _create_quilt_task(func, task_attributes, options, app):
     # the function receives them.
     run_in_target.__signature__ = WRAPPER_SIGNATURE
     task_attributes = {**task_attributes, 'function_signature': _signature_of_function(func, bind)}
-    task_options = {'bind': True, **task_attributes, **_retry_options(options)}
+    task_options = {'bind': True, **task_attributes, **options}
 
     if app is None:
         return _shared_task_based_on_each_app(run_in_target, task_options, base)
@@ -108,12 +108,13 @@ def _create_quilt_task(func, task_attributes, options, app):
 
 def _registration_with_the_base_of_each_app(fun, options, base):
     """
-    Returns the function that registers the task of ``fun`` in an app, with ``options`` and with ``base``, or, when
-    ``base`` is None, with the base class that task_base_of_app() returns for that app.
+    Returns the function that registers the task of ``fun`` in an app, with ``options`` and the retry settings, and with
+    ``base``, or, when ``base`` is None, with the base class that task_base_of_app() returns for that app. The settings
+    are read when the app registers the task, so that a tasks module can be imported whatever the settings are.
     """
 
     def register_in(app):
-        return app._task_from_fun(fun, base=base or task_base_of_app(app), **options)
+        return app._task_from_fun(fun, base=base or task_base_of_app(app), **_retry_options(options))
 
     return register_in
 
