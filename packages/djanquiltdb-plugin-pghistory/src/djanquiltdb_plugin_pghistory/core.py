@@ -1,14 +1,15 @@
 import pghistory
 from django.core.exceptions import ImproperlyConfigured
 from djanquiltdb import ShardingMode
-from djanquiltdb.utils import get_declared_sharding_mode
+from djanquiltdb.utils import get_declared_placement, get_declared_sharding_mode
 
-from djanquiltdb_plugin_pghistory import mirrored, public, sharded
+from djanquiltdb_plugin_pghistory import mirrored, public, sharded, single_node
 
 _EVENT_BASE_BY_SHARDING_MODE = {
     ShardingMode.SHARDED: sharded.Event,
     ShardingMode.MIRRORED: mirrored.Event,
     ShardingMode.PUBLIC: public.Event,
+    ShardingMode.SINGLE_NODE_UNSHARDED: single_node.Event,
 }
 
 
@@ -46,33 +47,59 @@ def _resolve_base_model(tracked_model, base_model):
 
     raise ImproperlyConfigured(
         'base_model {base} does not inherit any of the plugin event bases (ShardedEvent, MirroredEvent, '
-        'PublicEvent), so the events of {label} would have no sharding mode.'.format(
+        'PublicEvent, SingleNodeEvent), so the events of {label} would have no sharding mode.'.format(
             base=base_model.__name__, label=tracked_model._meta.label
         )
     )
 
 
-def create_event_model(tracked_model, *trackers, base_model=None, **kwargs):
+def _attrs_of_the_event_model(tracked_model, base_model, attrs):
+    """
+    Returns the ``attrs`` of the event model of ``tracked_model``. Events on a single node also get the node of the
+    tracked model, which is the node where the trigger of the tracked model writes them.
+    """
+    if not issubclass(base_model, single_node.Event):
+        return attrs
+
+    node = get_declared_placement(tracked_model)[1]
+
+    if node is None:
+        raise ImproperlyConfigured(
+            'base_model {base} stores the events on the node of {label}, but {label} is not on a single node.'.format(
+                base=base_model.__name__, label=tracked_model._meta.label
+            )
+        )
+
+    return {**(attrs or {}), '__single_node': node}
+
+
+def create_event_model(tracked_model, *trackers, base_model=None, attrs=None, **kwargs):
     """
     Calls ``pghistory.create_event_model`` with the plugin base for the sharding mode of the tracked model, and not with
     ``PGHISTORY_BASE_MODEL``. Takes the same arguments. An explicit ``base_model`` must inherit one of the plugin bases.
+    The events of a model on a single node are stored on the node of that model.
     """
     base_model = _resolve_base_model(tracked_model, base_model)
+    attrs = _attrs_of_the_event_model(tracked_model, base_model, attrs)
 
-    return pghistory.create_event_model(tracked_model, *trackers, base_model=base_model, **kwargs)
+    return pghistory.create_event_model(tracked_model, *trackers, base_model=base_model, attrs=attrs, **kwargs)
 
 
-def track(*trackers, base_model=None, **kwargs):
+def track(*trackers, base_model=None, attrs=None, **kwargs):
     """
     Calls ``pghistory.track`` with a base model that matches the sharding mode of the tracked model.
 
     Takes the same arguments as ``pghistory.track``. Without an explicit ``base_model``, the mode is read from the
     decorated model, so the mode decorator has to be applied first, below this one. An explicit ``base_model`` must
-    inherit one of the plugin bases, and is checked against the mode of the model whenever the model has one.
+    inherit one of the plugin bases, and is checked against the mode of the model whenever the model has one. The events
+    of a model on a single node are stored on the node of that model.
     """
 
     def track_with_resolved_base_model(tracked_model):
-        return pghistory.track(*trackers, base_model=_resolve_base_model(tracked_model, base_model), **kwargs)(
+        resolved_base_model = _resolve_base_model(tracked_model, base_model)
+        attrs_of_the_event_model = _attrs_of_the_event_model(tracked_model, resolved_base_model, attrs)
+
+        return pghistory.track(*trackers, base_model=resolved_base_model, attrs=attrs_of_the_event_model, **kwargs)(
             tracked_model
         )
 

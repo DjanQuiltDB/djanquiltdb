@@ -50,5 +50,5 @@ are not schema-qualified in the function body, they resolve at execution time to
 caller is pointed at. This means that you usually want to use ``@sharded_function()`` **only** when the
 *function itself* has to differ per shard.
 
-An unannotated declaration is public, which means declarations written for a single-database project keep working when
-that project is sharded.
+A declaration without a placement decorator is public, but fails the system check
+``djanquiltdb_plugin_postgres_objects.E001`` (see :doc:`installation`).

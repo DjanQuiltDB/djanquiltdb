@@ -12,7 +12,10 @@ that they describe:
 * the events of a mirrored model are stored in a mirrored table, in the public schema of every node. The router sends
   each write of a mirrored model to the primary node, so the trigger writes the events there, and the replication that
   copies the tracked table to the other nodes has to copy the event table too;
-* the events of a public model are stored in the public schema.
+* the events of a public model are stored in the public schema;
+* the events of a model on a single node (see :doc:`/guides/sharding_modes`) are stored in the public schema of that
+  node. The event model gets the node of the tracked model as the tracked model declares it, so the event model of a
+  model on ``PRIMARY_NODE`` is on ``PRIMARY_NODE`` too.
 
 To move a project from plain pghistory to the plugin, change the imports. The only requirement is that ``track()`` can
 read the mode from the model when it runs, so the mode decorator goes below it::
@@ -50,7 +53,8 @@ Resolving the mode
 
 ``track()`` reads the mode in the same way as the router, and also works for models that have no mode of their own:
 
-* the marker of ``@sharded_model()``, ``@mirrored_model()`` or ``@public_model()``, when that decorator has already run;
+* the marker of ``@sharded_model()``, ``@mirrored_model()``, ``@public_model()`` or
+  ``@single_node_unsharded_model(node)``, when that decorator has already run;
 * a ``QUILT_DB['OVERRIDE_SHARDING_MODE']`` entry, which takes precedence over the marker and also covers third-party
   models;
 * a proxy model gets the mode of its concrete model, so a proxy of a third-party model is tracked like the model that it
@@ -93,7 +97,8 @@ Custom base models
 ==================
 
 ``base_model=`` works as in pghistory, with one extra requirement: the base must inherit one of the plugin's event bases
-(``ShardedEvent``, ``MirroredEvent``, ``PublicEvent``), because those bases have the sharding mode and the queryset::
+(``ShardedEvent``, ``MirroredEvent``, ``PublicEvent``, ``SingleNodeEvent``), because those bases have the sharding mode
+and the queryset::
 
     from djanquiltdb.decorators.pghistory import track
     from djanquiltdb.models.pghistory import ShardedEvent
@@ -114,6 +119,9 @@ Custom base models
 As in pghistory, the class name of the base is part of the name of the generated model. Each of the plugin's own bases
 is a class named ``Event``, which is why plain tracking generates a model named ``ContractEvent``, and the example above
 generates ``ContractAuditevent``. Pass ``model_name=`` to choose a name explicitly.
+
+A base that inherits ``SingleNodeEvent`` is only accepted for a model on a single node, because the event model gets
+the node of the tracked model.
 
 The database has to fill in an extra field on a base, because the trigger that writes the events only sets the snapshot
 and ``pgh_*`` columns. The trigger does not apply a Django ``default``, so the column is ``NULL``, or the insert fails

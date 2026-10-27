@@ -1,11 +1,13 @@
 import subprocess  # nosec
 import sys
 
+import djanquiltdb.base.celery as base_namespace
 import djanquiltdb.utils.celery as utils_namespace
 from django.test import SimpleTestCase
-from djanquiltdb import decorators, utils
+from djanquiltdb import base, decorators, utils
+from djanquiltdb.base.celery import QuiltTask
 from djanquiltdb.decorators import celery
-from djanquiltdb.decorators.celery import task_for_shard
+from djanquiltdb.decorators.celery import shared_task_for_shard
 from djanquiltdb.plugins import load_plugins
 from djanquiltdb.utils.celery import fan_out
 
@@ -50,10 +52,10 @@ class PluginDiscoveryTestCase(SimpleTestCase):
 
     def test_a_decorator_can_be_imported_from_inside_the_namespace(self):
         """
-        Case: task_for_shard is imported from djanquiltdb.decorators.celery.
+        Case: shared_task_for_shard is imported from djanquiltdb.decorators.celery.
         Expected: It is the plugin's own decorator.
         """
-        self.assertIs(task_for_shard, djanquiltdb_plugin_celery.task_for_shard)
+        self.assertIs(shared_task_for_shard, djanquiltdb_plugin_celery.shared_task_for_shard)
 
     def test_the_helpers_are_served_from_the_core_utils_module(self):
         """
@@ -70,10 +72,25 @@ class PluginDiscoveryTestCase(SimpleTestCase):
             with self.subTest(name=name):
                 self.assertIs(getattr(utils_namespace, name), getattr(djanquiltdb_plugin_celery, name))
 
+    def test_the_task_classes_are_served_from_the_core_base_module(self):
+        """
+        Case: djanquiltdb.base.celery is imported, read as an attribute of djanquiltdb.base, and QuiltTask is imported
+              from inside it.
+        Expected: Each is the plugin's base module or the class that the plugin defines, and each name in the __all__
+                  of the base module is the same object that the distribution package exports.
+        """
+        self.assertIs(base_namespace, djanquiltdb_plugin_celery.base)
+        self.assertIs(base.celery, djanquiltdb_plugin_celery.base)
+        self.assertIs(QuiltTask, djanquiltdb_plugin_celery.tasks.QuiltTask)
+
+        for name in djanquiltdb_plugin_celery.base.__all__:
+            with self.subTest(name=name):
+                self.assertIs(getattr(base_namespace, name), getattr(djanquiltdb_plugin_celery, name))
+
     def test_the_decorators_are_not_attributes_of_the_core_decorators_module(self):
         """
-        Case: task_for_shard is read directly from djanquiltdb.decorators, without the plugin's namespace.
+        Case: shared_task_for_shard is read directly from djanquiltdb.decorators, without the plugin's namespace.
         Expected: AttributeError, because the plugin sets SERVE_UNQUALIFIED = False.
         """
         with self.assertRaises(AttributeError):
-            decorators.task_for_shard
+            decorators.shared_task_for_shard

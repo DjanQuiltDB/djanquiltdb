@@ -2,6 +2,7 @@ import sys
 from importlib import import_module
 
 from django.apps import apps
+from django.conf import settings
 from django.core.management.base import CommandError
 from django.core.management.commands.migrate import Command as MigrateCommand
 from django.core.management.sql import emit_post_migrate_signal, emit_pre_migrate_signal
@@ -20,7 +21,7 @@ from djanquiltdb.management.executor import (
     shared_migration_states_enabled,
 )
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import get_all_databases, get_template_name, schema_exists, use_shard
+from djanquiltdb.utils import create_template_schema, get_all_databases, get_template_name, schema_exists, use_shard
 
 
 class Command(MigrateCommand):
@@ -103,6 +104,15 @@ class Command(MigrateCommand):
 
         for connection_ in connections:
             connections[connection_].prepare_database()
+
+        # Every node that this command migrates gets a template schema when it has none, before the plan is made, so
+        # that the plan has every migration that the template schema needs. A node that this command does not migrate is
+        # not changed, because this command does not migrate a template schema there, and a new shard on that node is
+        # cloned from its template schema. For the same reason, a run with --schema-name creates the template schema
+        # only when that option names the template schema.
+        if settings.QUILT_DB.get('AUTO_CREATE_TEMPLATE_SCHEMA', True) and schema_name in (None, get_template_name()):
+            for database in databases:
+                create_template_schema(node_name=database, migrate=False)
 
         # Every run starts with fresh executors and loads the migrations from disk again. Project states are only shared
         # when building a new test database, where there are no shards and every schema starts from scratch.

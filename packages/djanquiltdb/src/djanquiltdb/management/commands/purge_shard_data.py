@@ -17,6 +17,7 @@ from djanquiltdb.utils import (
     get_model_sharding_mode,
     get_shard_class,
     pgtrigger_triggers_ignored,
+    public_schema_alias_for_reading,
     transaction_for_nodes,
 )
 
@@ -164,7 +165,8 @@ class Command(BaseCommand):
         """
         Get shard based on alias.
         """
-        shard = get_shard_class().objects.filter(alias=alias).first()
+        shard_class = get_shard_class()
+        shard = shard_class.objects.using(public_schema_alias_for_reading(shard_class)).filter(alias=alias).first()
 
         if not shard:
             raise CommandError("No shard could be found with alias '{}'".format(alias))

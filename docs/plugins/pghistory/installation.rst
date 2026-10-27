@@ -91,6 +91,10 @@ denormalized context. The checks read the generated event models and not the set
   write happened. Nothing routes them to the primary, so the copies on the nodes stop matching.
   ``djanquiltdb_plugin_pghistory.W003`` reports this. This placement only works when your replication also covers the
   context table.
+* When the table is **on a single node**, with ``('pghistory',): single_node_unsharded(node)``, only the event models on
+  that node can reach it. The plugin reports ``djanquiltdb_plugin_pghistory.E005`` for every other event model with such
+  a foreign key. Like a public table, a table on a single node that no event model has a foreign key to gets no
+  message.
 
 The trigger of an event model with such a foreign key calls pghistory's ``_pgh_attach_context()`` function, like a
 statement-level trigger does. When the app is sharded, the function only exists in the shards, so the plugin reports

@@ -1,6 +1,8 @@
 """
 Helpers that send a task once for every shard or once for every node. Sending a task in this way is a fan-out.
-DjanQuiltDB serves this module as ``djanquiltdb.utils.celery``.
+DjanQuiltDB serves this module as ``djanquiltdb.utils.celery``, which also serves the exceptions of a task without a
+target and the name of the message header that carries the target, which are defined in
+:mod:`djanquiltdb_plugin_celery.targets`.
 
 The task is one that the plugin's decorators create. The helpers for shards take a task that runs in a shard, and each
 task that they send runs in the shard of its ``shard_id``. The helpers for nodes take a task that runs on a node, and
@@ -14,6 +16,7 @@ from celery import chord
 from celery.canvas import Signature
 
 from djanquiltdb_plugin_celery.settings import ensure_valid_queue, ensure_valid_spread, quilt_celery_setting
+from djanquiltdb_plugin_celery.targets import TARGET_HEADER_NAME, TaskNodeError, TaskQuiltError, TaskShardError
 
 
 def fanout_shards(include_maintenance=False):
@@ -169,6 +172,10 @@ def aggregate_per_shard(
 
 
 __all__ = [
+    'TARGET_HEADER_NAME',
+    'TaskNodeError',
+    'TaskQuiltError',
+    'TaskShardError',
     'aggregate_per_shard',
     'fan_out',
     'fan_out_to_nodes',

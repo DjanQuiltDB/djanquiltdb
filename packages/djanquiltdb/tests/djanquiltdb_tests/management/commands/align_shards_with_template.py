@@ -234,7 +234,7 @@ class AlignShardsWithTemplateTestCase(ShardingTransactionTestCase):
         cursor.execute("SELECT to_regprocedure('public.template_alignment_statements(text, text, boolean)')")
         self.assertIsNone(cursor.fetchone()[0])
 
-    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock_for_each_key')
     def test_takes_the_lock_of_each_shard(self, mock_acquire_lock):
         """
         Case: The command runs over both shards, and one of them is in maintenance.
@@ -249,7 +249,7 @@ class AlignShardsWithTemplateTestCase(ShardingTransactionTestCase):
 
         for shard in (self.shard, self.other_shard):
             with self.subTest(shard=shard.schema_name):
-                mock_acquire_lock.assert_any_call('shard_{}'.format(shard.id), shared=True, xact=True)
+                mock_acquire_lock.assert_any_call(['shard_{}'.format(shard.id)], shared=True, xact=True)
 
     def test_a_shard_without_a_schema(self):
         """

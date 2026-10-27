@@ -1,6 +1,6 @@
 from django.conf import settings
 from django.contrib.sessions.base_session import AbstractBaseSession
-from django.db import connections, models, transaction
+from django.db import connections, models, router, transaction
 from django.db.models import Q
 
 from djanquiltdb import STATES, State
@@ -60,10 +60,9 @@ class BaseShard(models.Model):
 
     .. rubric:: Mirroring
 
-    You can, if you wish, apply the ``@mirrored_model`` decorator to this model as well.
-    Like all mirrored models, you will have to keep them in sync yourself.
-    Though this library does provide helper functions to accomplish that.
-    Since this model will create a schema when saved, it has logic to only do so on the node it targets.
+    Decorate this model with ``@mirrored_model()``, so that every node has the shard registry, which DjanQuiltDB reads
+    on the node that is active. As for every mirrored model, keep the copies the same on every node.
+    Saving a shard creates its schema on the node of the shard only.
     """
 
     alias = models.CharField(max_length=128, db_index=True, unique=True)
@@ -87,9 +86,13 @@ class BaseShard(models.Model):
         if not self.node_name:
             raise ValueError('No node_name given, or no NEW_SHARD_NODE set in the QUILT_DB settings.')
 
-        # If this is an update, no need to create a schema
-        if self.pk and get_shard_class().objects.filter(pk=self.pk).exists():
-            return super().save(using=using, **kwargs)
+        # If this is an update, no need to create a schema. The shard is looked up in the registry that the save writes
+        # to.
+        if self.pk:
+            shard_class = get_shard_class()
+            registry = using or router.db_for_write(shard_class, instance=self)
+            if shard_class.objects.using(registry).filter(pk=self.pk).exists():
+                return super().save(using=using, **kwargs)
 
         from djanquiltdb.utils import create_schema_on_node, schema_exists  # Prevent cyclic imports
 

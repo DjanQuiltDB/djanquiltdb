@@ -8,7 +8,7 @@ from django.core.exceptions import FieldDoesNotExist, ImproperlyConfigured
 from django.db import models
 from django.test import override_settings
 
-from djanquiltdb import STATES, ShardingMode
+from djanquiltdb import STATES, ShardingMode, raise_for_invalid_node
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.plugins import install_plugin_importer
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
@@ -207,6 +207,42 @@ def public_model(allow_copy=True):
     return configure
 
 
+def single_node_unsharded_model(node):
+    """
+    A decorator that puts a model on one node only: its table is in the public schema of ``node``, and every query of
+    the model goes there, whichever node or shard is active. ``node`` is the alias of a node, or ``PRIMARY_NODE`` for
+    the node that ``PRIMARY_DB_ALIAS`` names.
+
+    This is strongly discouraged. It is a convenience for a project that moves an app without sharding to DjanQuiltDB
+    one model at a time, and it opts the model out of the system check ``djanquiltdb.E004`` at the project's own risk.
+    Each model that uses it gets the warning ``djanquiltdb.W004``, which you can silence through
+    ``SILENCED_SYSTEM_CHECKS``. For a third-party model, use ``single_node_unsharded()`` in ``OVERRIDE_SHARDING_MODE``.
+
+    :Example:
+        .. code-block:: python
+
+            from django.db import models
+            from djanquiltdb import PRIMARY_NODE
+            from djanquiltdb.decorators import single_node_unsharded_model
+
+
+            @single_node_unsharded_model(node=PRIMARY_NODE)
+            class LegacyReport(models.Model):
+                title = models.CharField('title', max_length=100)
+
+                class Meta:
+                    app_label = 'example'
+    """
+    raise_for_invalid_node(node)
+
+    def configure(cls):
+        cls.__sharding_mode = ShardingMode.SINGLE_NODE_UNSHARDED
+        cls.__single_node = node
+        return cls
+
+    return configure
+
+
 def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
     """
     A decorator for marking a model that maps shards and their content.
@@ -218,9 +254,9 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
 
     :param mapping_field: Name of the primary field used to query the table to find a shard.
         This is used by the MappingQuerySet object manager.
-    :param route_to_primary_db: Always route read and write queries for this model to the primary database,
-        should there be more than one. Default is ``True``. If set to ``False`` the queries are routed according
-        to the current prevailing sharding context as normal.
+    :param route_to_primary_db: The mapping model is mirrored, so it is always written on the primary node. This
+        argument decides where it is read: on the primary node when ``True``, the default, and on the active node when
+        ``False``.
 
     :note: Some fields are required to use this model:
 
@@ -228,30 +264,31 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
         * state: Single length char field with utils.States as options.
         * a field that is listed as the 'mapping_field' as argument to the decorator
 
-    :note: This decorator does not determine the sharding mode for this model. You can apply a sharding decorator in
-        addition. Do note that marking the mapping model as @sharded_model defeats its purpose.
+    :note: This decorator does not determine the sharding mode for this model. Decorate the model with
+        ``@mirrored_model()`` too, so that every node has the mapping table.
 
     :Example:
         .. code-block:: python
 
             from django.db import models
-            from djanquiltdb.decorators import shard_mapping_model, sharded_model
+            from djanquiltdb.decorators import mirrored_model, shard_mapping_model
             from djanquiltdb.models import BaseShard
             from djanquiltdb.utils import State
 
 
+            @mirrored_model()
             class Shard(BaseShard):
                 class Meta:
                     app_label = 'example'
 
 
-            @public_model()
-            @shard_mapping_model(mapping_field='organization_id')
-            class ShardMapping(models.Model):
-                # List every organization in this model, so you can easily request in which shard they live.
+            @mirrored_model()
+            @shard_mapping_model(mapping_field='tenant_slug')
+            class TenantShard(models.Model):
+                # List every tenant in this model, so you can easily request in which shard they live.
                 shard = models.ForeignKey('Shard', verbose_name='shard', on_delete=models.CASCADE)
-                organization_name = models.CharField('organization name', max_length=100)
-                organization_id = models.PositiveIntegerField(_('organization id'))
+                tenant_name = models.CharField('tenant name', max_length=100)
+                tenant_slug = models.SlugField(_('tenant slug'), unique=True)
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
                 objects = MappingQuerySet.as_manager()
@@ -261,7 +298,7 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
 
 
             @sharded_model()
-            class Organization(models.Model):
+            class Tenant(models.Model):
                 name = models.CharField('name', max_length=100)
                 created_at = models.DateTimeField(_('created at'), null=True, blank=True, default=timezone.now)
 
@@ -358,17 +395,18 @@ def sharded_model():
         .. code-block:: python
 
             from django.db import models
-            from djanquiltdb.decorators import sharded_model
+            from djanquiltdb.decorators import mirrored_model, sharded_model
             from djanquiltdb.models import BaseShard
 
 
+            @mirrored_model()
             class Shard(BaseShard):
                 class Meta:
                     app_label = 'example'
 
 
             @sharded_model()
-            class Organization(models.Model):
+            class Tenant(models.Model):
                 name = models.CharField('name', max_length=100)
                 created_at = models.DateTimeField(_('created at'), null=True, blank=True, default=timezone.now)
 
@@ -464,7 +502,9 @@ class override_sharding_setting(override_settings):
 def __getattr__(name):
     """
     Serves the decorators module of a plugin under the plugin's registered name, and serves the decorators of every
-    plugin directly, unless the plugin sets ``SERVE_UNQUALIFIED = False``.
+    plugin directly, unless the plugin sets ``SERVE_UNQUALIFIED = False``. A decorators module that defines ``__all__``
+    serves only those names directly, so the names it imports for its own use, which every module has as attributes, do
+    not resolve here across plugins.
     """
     from djanquiltdb.plugins import load_plugins, served_plugin_module
 
@@ -479,6 +519,8 @@ def __getattr__(name):
     for plugin in load_plugins():
         decorators = getattr(plugin, 'decorators', None)
         if decorators is None or not getattr(decorators, 'SERVE_UNQUALIFIED', True):
+            continue
+        if name not in getattr(decorators, '__all__', (name,)):
             continue
         if hasattr(decorators, name):
             return getattr(decorators, name)

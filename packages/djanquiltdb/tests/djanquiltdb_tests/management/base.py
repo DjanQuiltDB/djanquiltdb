@@ -4,8 +4,9 @@ from django.conf import settings
 from django.core.management import CommandError, call_command
 
 from djanquiltdb import State
+from djanquiltdb.decorators import override_sharding_setting
 from djanquiltdb.management.base import get_databases_and_schema_from_options, shard_table_exists
-from djanquiltdb.utils import create_template_schema, get_all_databases
+from djanquiltdb.utils import create_template_schema, get_all_databases, use_shard
 from djanquiltdb_tests import ShardingTestCase
 from example.models import Shard
 
@@ -51,6 +52,32 @@ class GetDatabasesAndSchemaFromOptionsTestCase(ShardingTestCase):
                 get_databases_and_schema_from_options(options={'database': 'other', 'schema_name': 'test_sina'})
 
         mock_shard_table_exists.assert_called_once_with('other')
+
+    def test_shard_check_reads_the_shard_registry_of_the_primary_node(self):
+        """
+        Case: PRIMARY_DB_ALIAS points at the other node, whose shard registry has a shard that the registry of the
+              default node, which is active, does not have. Validate the schema name of that shard.
+        Expected: The schema name is accepted, because the check reads the shard registry of the primary node, where it
+                  also checks that the registry exists.
+        """
+        with use_shard(node_name='other', schema_name='public') as env:
+            env.connection.cursor().execute(
+                'INSERT INTO "{}" (id, alias, schema_name, node_name, state) VALUES (%s, %s, %s, %s, %s)'.format(
+                    Shard._meta.db_table
+                ),
+                [9001, 'on_the_other_node', 'test_on_the_other_node', 'other', State.ACTIVE],
+            )
+
+        with (
+            override_sharding_setting('PRIMARY_DB_ALIAS', 'other'),
+            use_shard(node_name='default', schema_name='public'),
+        ):
+            databases, schema_name = get_databases_and_schema_from_options(
+                options={'database': 'other', 'schema_name': 'test_on_the_other_node'}
+            )
+
+        self.assertEqual(databases, ['other'])
+        self.assertEqual(schema_name, 'test_on_the_other_node')
 
     def test_without_options(self):
         """

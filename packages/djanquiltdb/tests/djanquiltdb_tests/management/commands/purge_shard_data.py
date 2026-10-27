@@ -558,3 +558,23 @@ class PurgeShardDataTransactionTestCase(ShardingTestCase):
         mock_log.assert_any_call('\nOperation cancelled.', level=1)
 
         self.assertFalse(mock_delete_data.called)
+
+
+class GetShardTestCase(ShardingTestCase):
+    def test_get_shard_inside_a_shard_without_the_public_schema(self):
+        """
+        Case: Look up a shard by its alias, inside another shard that is entered without the public schema.
+        Expected: The shard, read from the shard registry.
+        """
+        create_template_schema('default')
+        entered_shard = Shard.objects.create(
+            alias='entered_shard', schema_name='test_entered_schema', node_name='default', state=State.ACTIVE
+        )
+        purged_shard = Shard.objects.create(
+            alias='purged_shard', schema_name='test_purged_schema', node_name='default', state=State.ACTIVE
+        )
+
+        with use_shard(entered_shard, include_public=False):
+            shard = Command.get_shard('purged_shard')
+
+        self.assertEqual(shard, purged_shard)

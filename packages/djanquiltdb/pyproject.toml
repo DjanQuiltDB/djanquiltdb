@@ -45,10 +45,12 @@ dependencies = [
 
 [project.optional-dependencies]
 celery = [
-    "djanquiltdb-plugin-celery>=1.0,<2.0",
+    # 1.1 serves its task classes from djanquiltdb.base, which 4.5 adds.
+    "djanquiltdb-plugin-celery>=1.1,<2.0",
 ]
 pghistory = [
-    "djanquiltdb-plugin-pghistory>=1.0,<2.0",
+    # 1.1 serves ShardRoutedRevert from djanquiltdb.base, which 4.5 adds.
+    "djanquiltdb-plugin-pghistory>=1.1,<2.0",
 ]
 postgres-denormalize = [
     "djanquiltdb-plugin-postgres-denormalize>=1.0,<2.0",
@@ -117,7 +119,7 @@ source = [
 
 [tool.coverage.report]
 omit = ["*/.tox/*"]
-fail_under = 87
+fail_under = 91
 
 [tool.coverage.html]
 directory = "../coverage"

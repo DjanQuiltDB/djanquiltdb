@@ -37,6 +37,8 @@ Things to know
 * Apply the sharding mode decorator below ``track()``, so that ``track()`` can read the mode. See :doc:`tracking`.
 * The events of a mirrored model are written on the primary node, so the replication that copies the tracked table to
   the other nodes has to copy the event table too. See :doc:`tracking`.
+* The events of a model on a single node are stored on that node, and only the events on that node can reach a
+  ``Context`` table on a single node. See :doc:`tracking` and :doc:`installation`.
 * An extra field on an event base needs a ``db_default``, or a trigger that fills it in, because the trigger that writes
   the events does not apply a Django ``default``. See :doc:`tracking`.
 * Do not dump public event models with ``dumpdata --natural-primary``. Their natural key is their primary key, so every

@@ -131,10 +131,10 @@ installing it and :doc:`/plugins/postgres-objects/functions` for the full refere
 
 ``@public_function()``, ``@mirrored_function()`` and ``@sharded_function()`` correspond to the sharding modes above.
 They put the mode in the declaration's ``router_hints``, the same hint channel a hinted ``RunSQL`` uses, so the
-placement rules are the ones already described. A declaration left unannotated is public, which is the right answer
-for the common case and lets a declaration written for a single-database project keep working once that project is
-sharded. For a function the public and mirrored modes place identically; the distinction only bites for a materialized
-view, whose refresh differs between them.
+placement rules are the ones already described. A declaration without a decorator is public, but fails the system
+check ``djanquiltdb_plugin_postgres_objects.E001``, so that every declaration says where it belongs. For a function the
+public and mirrored modes place identically; the distinction only bites for a materialized view, whose refresh differs
+between them.
 
 The declaration is also callable, so the same class serves both the migration that creates the function and the
 queries that call it, in place of the ``Func`` above.
@@ -143,6 +143,6 @@ To use the appropriate decorators with these declarations, install the ``djanqui
 
 Migrations that were generated before the plugin was installed carry no placement hint. Unlike a hint-less
 ``RunSQL``, they do not fail: at apply time such an operation falls back to the default placement the plugin
-installs, the public schema of every node - exactly what an unannotated declaration gets. Review pre-existing
+installs, the public schema of every node - exactly what a declaration without a decorator gets. Review pre-existing
 migrations when adopting the extra on a project that already used django-postgres-objects, and regenerate them if
 another placement is wanted.

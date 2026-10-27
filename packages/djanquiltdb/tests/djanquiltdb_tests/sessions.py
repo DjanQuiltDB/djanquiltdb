@@ -7,14 +7,17 @@ Basic test to verify sessions are stored in the appropriate shard.
 from datetime import timedelta
 from unittest import mock
 
+from django.conf import settings
+from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY
 from django.core import signing
+from django.core.exceptions import ImproperlyConfigured
 from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from djanquiltdb.sessions import SessionStore
 from djanquiltdb.utils import State, create_template_schema, use_shard
 from djanquiltdb_tests import ShardingTestCase
-from example.models import Organization, OrganizationShard, QuiltSession, Shard
+from example.models import Organization, OrganizationShard, QuiltSession, Shard, User
 
 
 @override_settings(
@@ -85,6 +88,82 @@ class SessionStoreShardRoutingTestCase(ShardingTestCase):
         store2 = SessionStore(session_key=store.session_key, shard_selector=self.org.id)
         store2.load()
         self.assertEqual(store2.get('test_key'), 'test_value')
+
+    def create_session_of_removed_mapping(self):
+        """
+        Saves a session in the shard of the organization, then deletes the mapping of the organization, and returns a
+        store for the key of that session that knows only the key.
+        """
+        store = SessionStore(shard_selector=self.org.id)
+        store['test_key'] = 'test_value'
+        store.save()
+        OrganizationShard.objects.filter(organization_id=self.org.id).delete()
+        return SessionStore(session_key=store.session_key)
+
+    def test_load_reads_a_session_whose_mapping_is_gone_as_empty(self):
+        """
+        Case: Load a session whose shard selector the mapping table no longer has.
+        Expected: The session is empty, and the store drops its session key and its shard selector, as Django's database
+                  backend drops a key that it does not find.
+        """
+        store = self.create_session_of_removed_mapping()
+
+        self.assertEqual(store.load(), {})
+        self.assertIsNone(store.session_key)
+        self.assertIsNone(store.shard_selector)
+
+    def test_load_reads_a_session_key_without_a_shard_selector_as_empty_without_queries(self):
+        """
+        Case: Load a session whose key is signed correctly, but holds no shard selector that matches
+              SHARD_SELECTOR_REGEX, as a key that was signed before SHARD_SELECTOR_REGEX changed.
+        Expected: The session is empty and the store drops its session key, and no query runs, because without a
+                  selector there is no mapping value to look up.
+        """
+        store = SessionStore(session_key=sign_session_key('SacmeKrandompart'))
+
+        with self.assertNumQueries(0):
+            self.assertEqual(store.load(), {})
+
+        self.assertIsNone(store.session_key)
+
+    def test_delete_of_a_session_whose_mapping_is_gone_does_nothing(self):
+        """
+        Case: Delete a session whose shard selector the mapping table no longer has, as logout() does.
+        Expected: No exception, and the session stays in the shard, where clearsessions deletes it once it expires.
+        """
+        store = self.create_session_of_removed_mapping()
+        session_key = store.session_key
+
+        store.delete()
+
+        with use_shard(self.shard):
+            self.assertTrue(QuiltSession.objects.filter(session_key=session_key).exists())
+
+    def test_save_after_loading_a_session_whose_mapping_is_gone_needs_a_selector(self):
+        """
+        Case: Load a session whose shard selector the mapping table no longer has, write to it, and save it.
+        Expected: The save raises the DoesNotExist of the mapping model, as the save of any session without a selector
+                  does, instead of saving the session under the selector that the mapping table does not have.
+        """
+        store = self.create_session_of_removed_mapping()
+        store.load()
+        store['test_key'] = 'other_value'
+
+        with self.assertRaises(OrganizationShard.DoesNotExist):
+            store.save()
+
+    def test_load_and_delete_without_a_mapping_model_report_the_missing_setting(self):
+        """
+        Case: Load and delete a session while QUILT_DB has no MAPPING_MODEL.
+        Expected: The ImproperlyConfigured that use_shard_for raises without a MAPPING_MODEL, and no AttributeError.
+        """
+        store = SessionStore(shard_selector=self.org.id)
+
+        with override_settings(QUILT_DB={'SHARD_CLASS': 'example.models.Shard'}):
+            with self.assertRaisesMessage(ImproperlyConfigured, 'MAPPING_MODEL'):
+                store.load()
+            with self.assertRaisesMessage(ImproperlyConfigured, 'MAPPING_MODEL'):
+                store.delete()
 
 
 @override_settings(
@@ -183,3 +262,151 @@ class SessionStoreShardSelectorSignatureTestCase(SimpleTestCase):
         with mock.patch.object(signing, 'loads', side_effect=signing.BadSignature('bad signature')):
             self.assertIsNone(store.shard_selector)
         self.assertIsNone(store.session_key)
+
+    def test_shard_selector_returns_none_when_key_holds_no_selector(self):
+        """
+        Case: The session key is signed correctly, but the value it signs has no shard selector that matches
+              SHARD_SELECTOR_REGEX, as the keys made before a change to SHARD_SELECTOR_REGEX or SESSION_KEY_DELIMITER.
+        Expected: shard_selector returns None, session_key is cleared, no exception.
+        """
+        store = SessionStore(session_key=sign_session_key('SacmeKrandompart'))
+
+        self.assertIsNone(store.shard_selector)
+        self.assertIsNone(store.session_key)
+
+
+@override_settings(
+    QUILT_DB={
+        'SHARD_CLASS': 'example.models.Shard',
+        'MAPPING_MODEL': 'example.models.OrganizationShard',
+    },
+    QUILT_SESSIONS={
+        'SESSION_MODEL': 'example.models.QuiltSession',
+    },
+)
+class SessionStoreAsyncTestCase(SimpleTestCase):
+    """The async methods of SessionStore refuse, since they would read and write the session outside its shard."""
+
+    async def test_async_methods_raise_not_implemented_error(self):
+        """
+        Case: Call each async method of SessionStore that reaches the database, and aget() and aflush(), which reach
+              them through Django's SessionBase.
+        Expected: NotImplementedError from each, instead of a query outside the shard of the session.
+        """
+        calls = {
+            'aload': lambda store: store.aload(),
+            'aexists': lambda store: store.aexists(store.session_key),
+            'acreate': lambda store: store.acreate(),
+            'asave': lambda store: store.asave(),
+            'adelete': lambda store: store.adelete(),
+            'aclear_expired': lambda store: SessionStore.aclear_expired(),
+            'aget': lambda store: store.aget('test_key'),
+            'aflush': lambda store: store.aflush(),
+        }
+
+        for name, call in calls.items():
+            with self.assertRaises(NotImplementedError, msg=name):
+                await call(SessionStore(session_key='x' * 32))
+
+
+def sign_session_key(value):
+    """
+    Signs ``value`` as SessionStore signs the session keys it makes.
+    """
+    return signing.dumps(value, compress=True, salt=SessionStore.salt, serializer=SessionStore().serializer)
+
+
+@override_settings(
+    QUILT_DB={
+        'SHARD_CLASS': 'example.models.Shard',
+        'MAPPING_MODEL': 'example.models.OrganizationShard',
+    },
+    QUILT_SESSIONS={
+        'SESSION_MODEL': 'example.models.QuiltSession',
+    },
+    SESSION_ENGINE='djanquiltdb.sessions',
+    MIDDLEWARE=[
+        'django.contrib.sessions.middleware.SessionMiddleware',
+        'djanquiltdb.middleware.UseShardForMiddleware',
+        'django.contrib.auth.middleware.AuthenticationMiddleware',
+    ],
+    ROOT_URLCONF='djanquiltdb_tests.test_urlconfs.session_urlconf',
+)
+class SessionStoreRequestTestCase(ShardingTestCase):
+    """A request whose session cookie names no session the backend can read goes on as an anonymous visitor."""
+
+    def setUp(self):
+        super().setUp()
+        create_template_schema()
+
+        self.shard = Shard.objects.create(
+            alias='test_shard', schema_name='test_schema', node_name='default', state=State.ACTIVE
+        )
+        with use_shard(self.shard):
+            self.org = Organization.objects.create(name='Test Org')
+            self.user = User.objects.create_user(email='bob@example.com', password='password', organization=self.org)
+        OrganizationShard.objects.create(organization_id=self.org.id, shard=self.shard)
+
+    def create_logged_in_session(self):
+        """
+        Saves a session in which the user is logged in, and returns its key.
+        """
+        store = SessionStore(shard_selector=self.org.id)
+        store[SESSION_KEY] = str(self.user.pk)
+        store[BACKEND_SESSION_KEY] = 'django.contrib.auth.backends.ModelBackend'
+        store[HASH_SESSION_KEY] = self.user.get_session_auth_hash()
+        store.save()
+        return store.session_key
+
+    def get_with_session_cookie(self, session_key):
+        self.client.cookies[settings.SESSION_COOKIE_NAME] = session_key
+        return self.client.get('/')
+
+    def assert_anonymous_and_cookie_deleted(self, response):
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'anonymous')
+        self.assertEqual(response.cookies[settings.SESSION_COOKIE_NAME].value, '')
+        self.assertEqual(response.cookies[settings.SESSION_COOKIE_NAME]['max-age'], 0)
+
+    def test_session_cookie_of_a_logged_in_user(self):
+        """
+        Case: A request carries the session cookie of a session in which the user is logged in.
+        Expected: The view sees the user as logged in, and the response keeps the cookie.
+        """
+        response = self.get_with_session_cookie(self.create_logged_in_session())
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b'authenticated')
+        self.assertNotIn(settings.SESSION_COOKIE_NAME, response.cookies)
+
+    def test_session_cookie_with_a_bad_signature(self):
+        """
+        Case: A request carries a session cookie whose signature is wrong.
+        Expected: The view sees an anonymous visitor, and the response deletes the cookie.
+        """
+        response = self.get_with_session_cookie(self.create_logged_in_session()[:-4] + 'XXXX')
+
+        self.assert_anonymous_and_cookie_deleted(response)
+
+    def test_session_cookie_without_a_shard_selector(self):
+        """
+        Case: A request carries a session cookie that is signed correctly, but holds no shard selector that matches
+              SHARD_SELECTOR_REGEX.
+        Expected: The view sees an anonymous visitor, and the response deletes the cookie.
+        """
+        response = self.get_with_session_cookie(sign_session_key('SacmeKrandompart'))
+
+        self.assert_anonymous_and_cookie_deleted(response)
+
+    def test_session_cookie_whose_mapping_is_gone(self):
+        """
+        Case: A request carries the session cookie of a logged-in user whose mapping value the mapping table no longer
+              has.
+        Expected: The view sees an anonymous visitor, and the response deletes the cookie.
+        """
+        session_key = self.create_logged_in_session()
+        OrganizationShard.objects.filter(organization_id=self.org.id).delete()
+
+        response = self.get_with_session_cookie(session_key)
+
+        self.assert_anonymous_and_cookie_deleted(response)

@@ -36,7 +36,7 @@ The command takes these options:
 
 .. code-block:: console
 
-  manage.py purge_shard_data --shard-alias shard1 --model-name example.Organization --object-value 1 --simple-collector
+  manage.py purge_shard_data --shard-alias shard1 --model-name example.Tenant --object-value 1 --simple-collector
 
 ``--shard-alias``, ``-s``
 ~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -44,12 +44,12 @@ The alias of the shard the data is located on.
 
 ``--model-name``, ``-m``
 ~~~~~~~~~~~~~~~~~~~~~~~~
-The app name and the model name of the model the object belongs to as dot notation, e.g. ``example.Organization``.
+The app name and the model name of the model the object belongs to as dot notation, e.g. ``example.Tenant``.
 
 ``--object-value``, ``-o``
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 The value of the object field of the object whose data is purged. The object field defaults to ``id``, so this is
-usually the primary key value, such as the ``id`` of an ``example.Organization``.
+usually the primary key value, such as the ``id`` of an ``example.Tenant``.
 
 ``--object-field``
 ~~~~~~~~~~~~~~~~~~
@@ -57,11 +57,11 @@ The field to map the object value to on the model and defaults to ``id``. Take f
 
 .. code-block:: python
 
-    class Organization(models.Model):
+    class Tenant(models.Model):
         uuid = UUIDField()
 
-If ``--model-name`` is set to ``example.Organization``, ``--object-value`` is a UUID and ``--object-field`` is set to
-``uuid``, it will select the organization object with that UUID.
+If ``--model-name`` is set to ``example.Tenant``, ``--object-value`` is a UUID and ``--object-field`` is set to
+``uuid``, it will select the tenant object with that UUID.
 
 ``--simple-collector``
 ~~~~~~~~~~~~~~~~~~~~~~

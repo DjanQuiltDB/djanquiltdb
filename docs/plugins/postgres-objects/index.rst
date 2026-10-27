@@ -25,7 +25,8 @@ Things to know
 * Migrations that were generated before the plugin was installed have no placement, so they create their objects in
   the public schema of every node. Review them, and regenerate the ones that should not be public. See
   :doc:`installation`.
-* A function or view without a placement decorator is public. See :doc:`functions` and :doc:`views`.
+* A function or view without a placement decorator is public, and fails the system check
+  ``djanquiltdb_plugin_postgres_objects.E001``. See :doc:`installation`.
 * A sharded function cannot be reached from the public schema. A public function can read sharded tables, as long as it
   does not qualify their names with a schema. See :doc:`functions`.
 * Only the views of django-postgres-objects are supported, and not those of django-pgviews-redux. See :doc:`views`.

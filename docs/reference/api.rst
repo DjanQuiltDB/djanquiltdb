@@ -18,6 +18,11 @@ Sharding modes
     :members:
     :undoc-members:
 
+.. autodata:: PRIMARY_NODE
+    :no-value:
+
+.. autofunction:: single_node_unsharded
+
 
 .. _api_decorators:
 
@@ -26,6 +31,7 @@ Decorators
 
 .. automodule:: djanquiltdb.decorators
     :members:
+    :exclude-members: class_method_use_shard, override_sharding_setting
 
 
 Models
@@ -49,6 +55,7 @@ schema that cannot live in the library.
 
 .. autoclass:: ShardOptions
     :members:
+    :exclude-members: lock_keys
 
 
 Routing
@@ -60,11 +67,8 @@ The router decides which node and schema a query reaches, from the sharding mode
 whichever shard is active on the current thread.
 
 .. autoclass:: DynamicDbRouter
-    :members:
 
 .. autofunction:: get_active_connection
-
-.. autofunction:: set_active_connection
 
 
 .. _api_utils:
@@ -73,7 +77,16 @@ Utilities
 =========
 
 .. automodule:: djanquiltdb.utils
-   :members: use_shard, use_shard_for, for_each_shard, create_schema_on_node, create_template_schema, migrate_schema
+   :members: use_shard, use_shard_for, get_shard_for, for_each_shard, create_template_schema
+   :exclude-members: copy_for_one_call, read_shard_after_locking, check_shard_after_locking
+
+
+Migration operations
+====================
+
+.. currentmodule:: djanquiltdb.operations
+
+.. autoclass:: CreateMissingMirroredTable
 
 
 Transactions
@@ -81,7 +94,8 @@ Transactions
 
 .. currentmodule:: djanquiltdb.transaction
 
-Django's ``atomic`` binds to one connection; these resolve the connection the active shard is on first.
+Django's ``atomic`` binds to one connection; these resolve the connection the active shard is on first. See
+:doc:`/guides/transactions` for when each applies.
 
 .. autofunction:: atomic
 
@@ -140,12 +154,14 @@ Ships with the package rather than with the suite, so a project's own tests and 
 
 .. autoclass:: ResetConnectionTestCaseMixin
     :members:
+    :exclude-members: setUp
 
 .. autoclass:: CleanShardingArtifactsMixin
     :members:
 
 .. autoclass:: OverrideMirroredRoutingMixin
     :members:
+    :exclude-members: setUp, reset_router_override
 
 .. autofunction:: skip_without_virtual_generated_column_support
 
@@ -157,15 +173,17 @@ Ships with the package rather than with the suite, so a project's own tests and 
 Plugins
 =======
 
-.. currentmodule:: djanquiltdb.plugins
-
 Optional features are separate distributions, which DjanQuiltDB finds through the ``djanquiltdb.plugins`` entry-point
 group. See :doc:`/plugins/celery/index`, :doc:`/plugins/pghistory/index`, :doc:`/plugins/postgres-denormalize/index` and
 :doc:`/plugins/postgres-objects/index` for the plugins in this repository.
 
 A plugin's API is served from inside ``djanquiltdb``, under the name that the plugin registers, so that name is part of
-the plugin's public API. ``djanquiltdb.decorators``, ``djanquiltdb.models`` and ``djanquiltdb.utils`` each serve the
-plugin module that has the same name:
+the plugin's public API. ``djanquiltdb.base``, ``djanquiltdb.decorators``, ``djanquiltdb.models`` and
+``djanquiltdb.utils`` each serve the plugin module that has the same name:
+
+``djanquiltdb.base.<name>``
+    The plugin's ``base`` module: classes that a project subclasses or refers to, such as the base class of a plugin's
+    tasks.
 
 ``djanquiltdb.decorators.<name>``
     The plugin's ``decorators`` module, so its decorators are imported from the same place as the model decorators.
@@ -174,8 +192,9 @@ plugin module that has the same name:
     The plugin's ``models`` module: base classes, querysets, and the like.
 
 ``djanquiltdb.utils.<name>``
-    The plugin's ``utils`` module: functions, such as helpers that run in every shard. A plugin cannot be served there
-    under a name that ``djanquiltdb.utils`` defines itself, such as ``use_shard``, because that name is found first.
+    The plugin's ``utils`` module: functions, such as helpers that run in every shard, and the exceptions and constants
+    that a project uses with them. A plugin cannot be served there under a name that ``djanquiltdb.utils`` defines
+    itself, such as ``use_shard``, because that name is found first.
 
 A plugin is only served under the modules that it has. Every namespace supports importing the plugin's module and
 importing a single name from it, and both ways are supported::
@@ -188,23 +207,21 @@ imported. No namespace is a package on disk: the names are resolved when they ar
 only imported when something uses it. A type checker cannot follow these names, so for a type checker, import the names
 from the modules in the plugin's distribution package that define them.
 
+The API of a served module is its ``__all__``. Because the served module is the plugin's own module, the names that it
+imports for its own use can be read from it as well, as from any Python module, but they are not part of its API and
+can change in any release.
+
 By default, the decorators of a plugin are also served directly from ``djanquiltdb.decorators``, next to the model
-decorators, which suits a placement decorator such as ``@public_function()``. A plugin that keeps its own namespace sets
-``SERVE_UNQUALIFIED = False`` in its decorators module. ``djanquiltdb.models`` and ``djanquiltdb.utils`` have no such
-setting, because they only serve a plugin under the plugin's name.
+decorators, which suits a placement decorator such as ``@public_function()``. A decorators module that defines
+``__all__`` serves only those names there, so a name that one plugin imports does not resolve there for every plugin. A
+plugin that keeps its own namespace sets ``SERVE_UNQUALIFIED = False`` in its decorators module. ``djanquiltdb.base``,
+``djanquiltdb.models`` and ``djanquiltdb.utils`` have no such setting, because they only serve a plugin under the
+plugin's name.
 
 When two installed distributions register the same name, DjanQuiltDB raises ``ImproperlyConfigured`` when the app
 registry is ready, so the project does not start, and every time that name is looked up. Other names are served as
 usual, so a name that no plugin serves is still a missing attribute or module. A registered plugin name takes precedence
 over a decorator with the same name that another plugin serves directly.
-
-.. autofunction:: load_plugins
-
-.. autofunction:: load_plugin_by_name
-
-.. autofunction:: raise_for_duplicate_plugin_names
-
-.. autofunction:: served_plugin_module
 
 .. _command_hooks:
 
@@ -268,9 +285,3 @@ loaded, and their contexts are exited in reverse order.
 ``move_sharded_models``
     ``move_context(command)``, ``pre_move(command)`` and ``post_move(command)``, around the move of the sharded tables
     from the public schema into the schema of the shard. The command has the ``shard``.
-
-.. autofunction:: plugin_hooks
-
-.. autofunction:: run_plugin_hooks
-
-.. autofunction:: entered_plugin_hook_contexts

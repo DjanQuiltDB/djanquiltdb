@@ -6,9 +6,9 @@ every installed plugin before the app registry is ready, and the event bases can
 
 from types import SimpleNamespace
 
-from djanquiltdb_plugin_pghistory import data_moves, decorators, models
+from djanquiltdb_plugin_pghistory import base, data_moves, decorators, models
 
-__version__ = '1.0.1'
+__version__ = '1.1.0'
 
 
 def install():
@@ -32,6 +32,7 @@ def install():
 # while rows are moved or purged: DjanQuiltDB does that itself in move_shard_to_node, move_data_to_shard and
 # purge_shard_data, so no event is recorded for those rows without the plugin needing a hook.
 plugin = SimpleNamespace(
+    base=base,
     decorators=decorators,
     models=models,
     install=install,

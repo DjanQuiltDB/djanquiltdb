@@ -21,7 +21,7 @@ Command usage
 
 Root-object
 -----------
-With a 'root-object' we mean the top-level object of a data structure. This can be a User, an Organization, a Server,
+With a 'root-object' we mean the top-level object of a data structure. This can be a User, a Tenant, a Server,
 whatever tops your data structure. You often want to move this root object and all data that hangs beneath this over to
 another shard. That is exactly what this command does.
 
@@ -58,6 +58,24 @@ pre-existing target data remain the operator's responsibility, as described unde
 looks up each model's sequence through its auto-incrementing primary key column, so it also works for a table that was
 renamed after it was created. If a model's auto-incrementing column has no sequence, or the shard has no such table or
 column, the command stops with an error that names the column. It stops before any sequence is reset.
+
+
+Replication lag
+---------------
+The command saves the mapping objects, or the source shard without a mapping model, as in maintenance when it starts,
+and with the target shard and their previous state when it ends. The mapping model and the Shard model are mirrored, so
+these saves go to the primary node, and the replication of the project copies them to the other nodes later.
+
+``use_shard_for()`` reads the mapping table on the primary node, unless the mapping model sets ``route_to_primary_db``
+to ``False``, so it sees the target shard as soon as the command ends. A process on another node that reads the copy
+of that node instead:
+
+* raises ``StateException`` while that copy has the mapping object or the shard in maintenance, and a task of the
+  celery plugin tries again later;
+* enters the source shard while that copy is behind by longer than the whole move, and what it writes there is not in
+  the target shard.
+
+Keep the lag of the replication well below the time that a move takes.
 
 
 Operational notes
@@ -113,7 +131,7 @@ To solve this, you can easily extend the command and override the function it ca
             """
             Create a new shard to receive the data.
             """
-            return Shard.objects.create(alias='new Shard', node_name=get_new_shard_node(), organization=root_object)
+            return Shard.objects.create(alias='new Shard', node_name=get_new_shard_node(), tenant=root_object)
 
 
 Options
@@ -123,7 +141,7 @@ Most options the command recognizes are mandatory. For example:
 .. code-block:: console
 
     manage.py move_data_to_shard --source-shard-alias earth --target-shard-alias mars \
-        --model-name example.organization --root-object-id 1
+        --model-name example.tenant --root-object-id 1
 
 ``--source-shard-alias``
 ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -136,7 +154,7 @@ The ``--target-shard-alias`` argument must be the name of the shard that will re
 ``--model-name``
 ~~~~~~~~~~~~~~~~
 The ``--model-name`` argument must contain the app name and the model name of the model the ``root_object`` belongs to,
-separated by a dot, e.g. ``--model-name example.Organization``.
+separated by a dot, e.g. ``--model-name example.Tenant``.
 
 ``--root-object-id``
 ~~~~~~~~~~~~~~~~~~~~

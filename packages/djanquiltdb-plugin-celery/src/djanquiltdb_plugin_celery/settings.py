@@ -3,6 +3,7 @@ The ``QUILT_CELERY`` setting, an optional dict whose keys override the defaults 
 """
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 QUILT_CELERY_DEFAULTS = {
     # The keyword argument that identifies a shard by its mapping value, which is not shard_id or node_name. None means
@@ -19,6 +20,9 @@ QUILT_CELERY_DEFAULTS = {
     # The countdown of each task that a fan-out sends: a random number of seconds from 0 to an integer, or between a
     # pair of integers, which are not negative and in ascending order. None means no countdown.
     'FANOUT_SPREAD': None,
+    # The dotted path of the base class of a task whose decorator is not given a base, which inherits from QuiltTask.
+    # None means QuiltTask combined with the task class of the Celery app.
+    'TASK_BASE': None,
 }
 
 #: How a message describes the values that a spread accepts.
@@ -30,13 +34,14 @@ QUEUE_DESCRIPTION = 'a string or None'
 
 def quilt_celery_setting(name):
     """
-    Returns the value of ``name`` in QUILT_CELERY, else the default of ``name``. When QUILT_CELERY is not a dict, the
-    function returns the default, so that a tasks module can be imported and the system check can report the setting.
+    Returns the value of ``name`` in QUILT_CELERY, else the default of ``name``. Raises ImproperlyConfigured when
+    QUILT_CELERY is not a dict. The plugin reads no setting when a tasks module is imported, so the system check can
+    report such a setting before anything raises.
     """
     quilt_celery = getattr(settings, 'QUILT_CELERY', {})
 
     if not isinstance(quilt_celery, dict):
-        quilt_celery = {}
+        raise ImproperlyConfigured('QUILT_CELERY is not a dict.')
 
     return quilt_celery.get(name, QUILT_CELERY_DEFAULTS[name])
 

@@ -7,8 +7,8 @@ from django.core.checks.registry import registry
 from django.db import models
 from django.test import SimpleTestCase, modify_settings, override_settings
 from django.test.utils import isolate_apps
-from djanquiltdb import ShardingMode
-from djanquiltdb.decorators import mirrored_model
+from djanquiltdb import ShardingMode, single_node_unsharded
+from djanquiltdb.decorators import mirrored_model, single_node_unsharded_model
 
 from djanquiltdb_plugin_pghistory import MirroredEvent, ShardedEvent, create_event_model
 from djanquiltdb_plugin_pghistory.checks import (
@@ -191,6 +191,58 @@ class PghistoryShardingConfigurationCheckTestCase(SimpleTestCase):
         self.assertEqual([error.obj for error in errors], [PublicContextEvent, MirroredContextEvent])
         self.assertIn('PUBLIC', errors[0].msg)
         self.assertIn('MIRRORED', errors[1].msg)
+
+    def test_a_context_model_on_a_single_node_reports_the_event_models_that_cannot_reach_it(self):
+        """
+        Case: The pghistory app is on the single node 'default'. The event models denormalize their context, or have a
+              foreign key to the Context table: WaffleEvent, which is sharded, and event models on the nodes 'default'
+              and 'other'.
+        Expected: Nothing for a denormalized context and for the event model on 'default'. djanquiltdb_plugin_pghistory
+                  .E005 for WaffleEvent and for the event model on 'other', which names the node of the Context table.
+        """
+        with isolate_apps('example'):
+
+            @single_node_unsharded_model(node='default')
+            class LedgerOnDefault(models.Model):
+                class Meta:
+                    app_label = 'example'
+
+            @single_node_unsharded_model(node='other')
+            class LedgerOnOther(models.Model):
+                class Meta:
+                    app_label = 'example'
+
+        event_model_on_default = create_event_model(
+            LedgerOnDefault,
+            pghistory.InsertEvent('ledger_on_default.context_insert'),
+            context_field=pghistory.ContextForeignKey(),
+            abstract=True,
+        )
+        event_model_on_other = create_event_model(
+            LedgerOnOther,
+            pghistory.InsertEvent('ledger_on_other.context_insert'),
+            context_field=pghistory.ContextForeignKey(),
+            abstract=True,
+        )
+        cases = [
+            ([CakeEvent, NoContextEvent], []),
+            ([event_model_on_default], []),
+            ([WaffleEvent], ['djanquiltdb_plugin_pghistory.E005']),
+            ([event_model_on_other], ['djanquiltdb_plugin_pghistory.E005']),
+        ]
+
+        quilt_db = quilt_db_with_app_sharding_mode('pghistory', single_node_unsharded(node='default'))
+
+        for event_models, expected in cases:
+            with self.subTest(events=[model.__name__ for model in event_models]):
+                with override_settings(QUILT_DB=quilt_db):
+                    self.assertEqual(configuration_check_ids_for_event_models(event_models), expected)
+
+        with override_settings(QUILT_DB=quilt_db), mock.patch.object(apps, 'get_models', return_value=[WaffleEvent]):
+            [error] = check_pghistory_sharding_configuration(None)
+
+        self.assertIn('example.WaffleEvent has a foreign key to the Context model', error.msg)
+        self.assertIn("not on the node 'default'", error.msg)
 
     def test_a_context_model_without_a_sharding_mode_is_reported(self):
         """

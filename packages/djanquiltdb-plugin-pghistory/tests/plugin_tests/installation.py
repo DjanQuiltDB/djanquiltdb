@@ -1,9 +1,11 @@
 import subprocess  # nosec
 import sys
 
+import djanquiltdb.base.pghistory as base_namespace
 import djanquiltdb.models.pghistory as models_namespace
+from django.db.migrations.serializer import serializer_factory
 from django.test import SimpleTestCase
-from djanquiltdb import decorators, models
+from djanquiltdb import base, decorators, models
 from djanquiltdb.decorators import pghistory
 from djanquiltdb.decorators.pghistory import track, track_sharded
 from djanquiltdb.models.pghistory import EventQuerySet, ShardedEvent, create_event_model
@@ -102,13 +104,34 @@ class PluginDiscoveryTestCase(SimpleTestCase):
             with self.subTest(name=name):
                 self.assertIs(getattr(models_namespace, name), getattr(djanquiltdb_plugin_pghistory, name))
 
-    def test_both_namespaces_support_plain_attribute_access(self):
+    def test_every_namespace_supports_plain_attribute_access(self):
         """
         Case: The plugin is read as an attribute of each core module, without importing the submodule first.
         Expected: Each attribute is the plugin module of the same name.
         """
+        self.assertIs(base.pghistory, djanquiltdb_plugin_pghistory.base)
         self.assertIs(decorators.pghistory, djanquiltdb_plugin_pghistory.decorators)
         self.assertIs(models.pghistory, djanquiltdb_plugin_pghistory.models)
+
+    def test_the_base_namespace_serves_the_revert_mixin(self):
+        """
+        Case: djanquiltdb.base.pghistory is imported.
+        Expected: It is the plugin's base module, and ShardRoutedRevert, which every event base inherits from, is read
+                  from it as the class that the plugin defines.
+        """
+        self.assertIs(base_namespace, djanquiltdb_plugin_pghistory.base)
+        self.assertIs(base_namespace.ShardRoutedRevert, djanquiltdb_plugin_pghistory.base.ShardRoutedRevert)
+
+    def test_a_migration_names_the_revert_mixin_by_its_served_path(self):
+        """
+        Case: ShardRoutedRevert is serialized as makemigrations serializes the bases of a new event model.
+        Expected: The migration names it as djanquiltdb.base.pghistory.ShardRoutedRevert and imports that module, so
+                  that a generated migration does not import from the distribution package.
+        """
+        serialized, imports = serializer_factory(djanquiltdb_plugin_pghistory.base.ShardRoutedRevert).serialize()
+
+        self.assertEqual(serialized, 'djanquiltdb.base.pghistory.ShardRoutedRevert')
+        self.assertEqual(imports, {'import djanquiltdb.base.pghistory'})
 
     def test_the_event_bases_the_queryset_and_create_event_model_can_be_imported_from_inside_the_models_namespace(
         self,
@@ -136,6 +159,7 @@ class PluginDiscoveryTestCase(SimpleTestCase):
         """
         for module in (
             djanquiltdb_plugin_pghistory,
+            djanquiltdb_plugin_pghistory.base,
             djanquiltdb_plugin_pghistory.decorators,
             djanquiltdb_plugin_pghistory.models,
         ):

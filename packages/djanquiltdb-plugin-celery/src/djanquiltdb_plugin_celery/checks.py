@@ -9,6 +9,7 @@ from djanquiltdb_plugin_celery.settings import (
     is_spread,
 )
 from djanquiltdb_plugin_celery.targets import NODE_NAME_KWARG, SHARD_ID_KWARG
+from djanquiltdb_plugin_celery.tasks import import_task_base
 
 #: For each key of QUILT_CELERY: a function that returns whether a value of the key is valid, and how a message
 #: describes the valid values. A boolean is an instance of int, so the keys that accept an integer and not a boolean
@@ -24,7 +25,30 @@ QUILT_CELERY_VALIDATORS = {
     'RETRY_JITTER': (lambda value: isinstance(value, bool), 'a boolean'),
     'FANOUT_QUEUE': (lambda value: isinstance(value, (str, type(None))), QUEUE_DESCRIPTION),
     'FANOUT_SPREAD': (is_spread, SPREAD_DESCRIPTION),
+    'TASK_BASE': (lambda value: isinstance(value, (str, type(None))), 'a dotted path or None'),
 }
+
+
+def check_task_base(task_base):
+    """
+    Returns the error for a ``QUILT_CELERY['TASK_BASE']`` that is a string, but does not import or does not name a
+    subclass of QuiltTask, or None.
+    """
+    try:
+        import_task_base(task_base)
+    except ImportError as error:
+        return checks.Error(
+            "QUILT_CELERY['TASK_BASE'] is {!r}, which does not import: {}".format(task_base, error),
+            id='djanquiltdb_plugin_celery.E002',
+        )
+    except TypeError as error:
+        return checks.Error(
+            str(error),
+            hint='Name a subclass of djanquiltdb.base.celery.QuiltTask, or remove the key.',
+            id='djanquiltdb_plugin_celery.E002',
+        )
+
+    return None
 
 
 @checks.register(checks.Tags.compatibility)
@@ -75,5 +99,11 @@ def check_quilt_celery_setting(app_configs, **kwargs):
                 id='djanquiltdb_plugin_celery.E002',
             )
         )
+
+    if isinstance(quilt_celery.get('TASK_BASE'), str):
+        task_base_error = check_task_base(quilt_celery['TASK_BASE'])
+
+        if task_base_error is not None:
+            messages.append(task_base_error)
 
     return messages

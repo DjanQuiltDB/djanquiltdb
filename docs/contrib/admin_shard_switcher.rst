@@ -16,7 +16,7 @@ allowing administrators to easily switch between shards while browsing the admin
     from django.db import OperationalError
 
     from djanquiltdb.utils import StateException, use_shard_for
-    from myapp.models import OrganizationShard
+    from myapp.models import TenantShard
 
     class CustomAdminAuthenticationForm(AuthenticationForm):
         shard_identifying_field = ...
@@ -25,13 +25,13 @@ allowing administrators to easily switch between shards while browsing the admin
             shard_selector = ...
 
             try:
-                # Assuming you're using djanquiltdb.sessions backend
+                # Assuming you're using the djanquiltdb.sessions backend, see the Sessions guide
                 if self.request is not None:
                     self.request.session.shard_selector = shard_selector
 
                     with use_shard_for(shard_selector):
                         return super().clean()
-            except (OrganizationShard.DoesNotExist, StateException, OperationalError):
+            except (TenantShard.DoesNotExist, StateException, OperationalError):
                 raise ValidationError(self.error_messages['invalid_login'], code='invalid_login')
 
     admin.site.login_form = CustomAdminAuthenticationForm
@@ -97,13 +97,13 @@ session and will be used by your shard middleware for subsequent requests.
 The dropdown shows:
 
 - Shard alias
-- Node name and schema name (e.g., ``default|org_1_schema``)
+- Node name and schema name (e.g., ``default|shard_1_schema``)
 - Current selection is highlighted
 
 Selecting no shard clears the shard selection and returns to the default behavior.
 
 If you are not using a default ``UseShardMiddleware``/``UseShardForMiddleware`` or have a non-standard session backend
-(i.e. not ``djanquiltdb.sessions``), it might be necessary to customize the ``AdminOverrideMiddleware``, the setting
+(i.e. not ``djanquiltdb.sessions``, see :doc:`/guides/sessions`), it might be necessary to customize the ``AdminOverrideMiddleware``, the setting
 ``OVERRIDE_SHARD_SELECTOR_KEY`` under ``QUILT_ADMIN``, or define a custom ``SHARD_SELECTOR`` class that subclasses
 ``djanquiltdb.contrib.quilt_admin.shard_selector.BaseAdminShardSelector``. If this is required, refer to the code for
 more details and reference implementations.

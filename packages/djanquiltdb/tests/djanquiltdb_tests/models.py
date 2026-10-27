@@ -141,6 +141,53 @@ class BaseShardTestCase(ShardingTestCase):
             self.assertTrue(mock_create_schema.called)
             self.assertTrue(mock_save.called)
 
+    def test_save_an_existing_shard_inside_a_shard_without_the_public_schema(self):
+        """
+        Case: Change the state of an existing shard, and save it inside another shard that is entered without the public
+              schema.
+        Expected: The save updates the shard, and does not create its schema again.
+        """
+        create_template_schema('default')
+        entered_shard = Shard.objects.create(
+            alias='entered_shard', schema_name='test_entered_schema', node_name='default', state=State.ACTIVE
+        )
+        saved_shard = Shard.objects.create(
+            alias='saved_shard', schema_name='test_saved_schema', node_name='default', state=State.ACTIVE
+        )
+        saved_shard.state = State.MAINTENANCE
+
+        with (
+            mock.patch('djanquiltdb.utils.create_schema_on_node') as mock_create_schema,
+            use_shard(entered_shard, include_public=False),
+        ):
+            saved_shard.save()
+
+        self.assertFalse(mock_create_schema.called)
+        self.assertEqual(Shard.objects.get(pk=saved_shard.pk).state, State.MAINTENANCE)
+
+    @mock.patch('djanquiltdb.utils.create_schema_on_node')
+    def test_save_with_using_looks_up_the_shard_where_it_saves(self, mock_create_schema):
+        """
+        Case: Save, with using='other', a shard that the shard registry of the other node has and the registry of the
+              default node, which is active, does not have.
+        Expected: The save updates the shard on the other node, and does not create its schema, because it looks up the
+                  shard in the registry that it saves to.
+        """
+        with use_shard(node_name='other', schema_name='public') as env:
+            env.connection.cursor().execute(
+                'INSERT INTO "{}" (id, alias, schema_name, node_name, state) VALUES (%s, %s, %s, %s, %s)'.format(
+                    Shard._meta.db_table
+                ),
+                [9001, 'on_the_other_node', 'on_the_other_node_schema', 'other', State.ACTIVE],
+            )
+
+        shard = Shard.objects.using('other').get(pk=9001)
+        shard.state = State.MAINTENANCE
+        shard.save(using='other')
+
+        self.assertFalse(mock_create_schema.called)
+        self.assertEqual(Shard.objects.using('other').get(pk=9001).state, State.MAINTENANCE)
+
     def test_clean(self):
         """
         Case: Call the clean method from the Shard model with an existing node_name

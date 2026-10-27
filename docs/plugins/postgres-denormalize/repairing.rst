@@ -34,17 +34,17 @@ a denormalized field.
 The shard of one root object
 ----------------------------
 
-``use_shard_for()`` enters the shard of a root object, such as an organization. To repair that shard, pass the shard
-itself:
+``use_shard_for()`` enters the shard of a root object, such as a tenant, by its mapping value. To repair that shard,
+pass the shard itself:
 
 .. code-block:: python
 
     from djanquiltdb.utils import get_shard_for
 
-    repair_shard(get_shard_for(organization.id))
+    repair_shard(get_shard_for('acme'))
 
 ``backfill_denormalized()`` corrects a whole table, so the repair covers every root object in that shard, and not only
-this organization. Inside a block of your own, you can also call django-postgres-denormalize's functions directly. Enter
+this tenant. Inside a block of your own, you can also call django-postgres-denormalize's functions directly. Enter
 the shard first, and then open the transaction, so that it runs on the shard's connection:
 
 .. code-block:: python
@@ -53,5 +53,5 @@ the shard first, and then open the transaction, so that it runs on the shard's c
     from djanquiltdb.utils import use_shard_for
     from postgres_denormalize.operations import backfill_denormalized
 
-    with use_shard_for(organization.id), transaction.atomic():
+    with use_shard_for('acme'), transaction.atomic():
         backfill_denormalized(Task)

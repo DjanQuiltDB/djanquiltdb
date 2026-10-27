@@ -3,9 +3,10 @@ import re
 import threading
 from unittest import mock
 
+from asgiref.sync import sync_to_async
 from django.apps import apps
 from django.conf import settings
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, SynchronousOnlyOperation
 from django.db import ProgrammingError, connections, models, transaction
 from django.db.models.signals import (
     post_delete,
@@ -22,8 +23,14 @@ from django.test import SimpleTestCase, override_settings
 from django.test.utils import CaptureQueriesContext, isolate_apps
 from django.utils.module_loading import import_string
 
+from djanquiltdb import PRIMARY_NODE, single_node_unsharded
 from djanquiltdb.db import connection
-from djanquiltdb.decorators import atomic_write_to_every_node, override_sharding_setting
+from djanquiltdb.decorators import (
+    atomic_write_to_every_node,
+    override_sharding_setting,
+    sharded_model,
+    single_node_unsharded_model,
+)
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import DatabaseWrapper, ShardDatabaseWrapper
 from djanquiltdb.postgresql_backend.utils import LockCursorWrapperMixin
@@ -46,16 +53,21 @@ from djanquiltdb.utils import (
     get_all_public_schema_models,
     get_all_sharded_models,
     get_connection_alias,
+    get_declared_placement,
     get_declared_sharding_mode,
     get_mapping_class,
     get_model_definition,
     get_model_sharding_mode,
+    get_model_single_node_alias,
+    get_placement,
     get_shard_class,
     get_shard_for,
     get_sharding_mode,
     get_template_name,
     migrate_schema,
     move_model_to_schema,
+    relation_with_a_model_on_a_single_node_is_allowed,
+    resolve_node_alias,
     schema_exists,
     shard_lock_key,
     stored_mapping_value,
@@ -90,6 +102,7 @@ from example.models import (
     Suborganization,
     SuperType,
     Type,
+    Unrelated,
     User,
 )
 
@@ -680,27 +693,27 @@ class UseShardTestCase(ShardingTestCase):
         env.disable()
         mock_release_lock.assert_called_once_with()
 
-    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock_for_each_key')
     def test_acquire_lock(self, mock_acquire_lock):
         """
         Case: Call use_shard.acquire_lock().
-        Expected: Connection's acquire_advisory_lock to be called with the correct arguments.
+        Expected: Connection's acquire_advisory_lock_for_each_key to be called with the correct arguments.
         """
         env = use_shard(self.shard)
         env.connection = connections[env.options]
         env.acquire_lock()
-        mock_acquire_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True, xact=True)
+        mock_acquire_lock.assert_called_once_with(['shard_{}'.format(self.shard.id)], shared=True, xact=True)
 
-    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
-    def test_release_lock(self, mock_release_advisory_lock):
+    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock_for_each_key')
+    def test_release_lock(self, mock_release_lock):
         """
         Case: Call use_shard.release_lock().
-        Expected: Connection's release_advisory_lock to be called with the correct arguments.
+        Expected: Connection's release_advisory_lock_for_each_key to be called with the correct arguments.
         """
         env = use_shard(self.shard)
         env.connection = connections[env.options]
         env.release_lock()
-        mock_release_advisory_lock.assert_called_once_with('shard_{}'.format(self.shard.id), shared=True)
+        mock_release_lock.assert_called_once_with(['shard_{}'.format(self.shard.id)], shared=True)
 
     def test_multiple_disable(self):
         """
@@ -934,42 +947,36 @@ class UseShardForTestCase(ShardingTestCase):
             self.assertEqual(env.options.mapping_value, 1)
             self.assertEqual(env.options.kwargs['lock'], False)
 
-    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock')
+    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.acquire_advisory_lock_for_each_key')
     def test_acquire_lock(self, mock_acquire_lock):
         """
         Case: Call the acquire_lock method on a use_shard_for instance.
-        Expected: DatabaseWrapper.acquire_advisory_lock called with the correct parameters.
+        Expected: DatabaseWrapper.acquire_advisory_lock_for_each_key called once, with the lock key of the shard and the
+                  lock key of the mapping value.
         """
         env = use_shard_for(self.org_shard1.organization_id)
         env.connection = connections[env.options]
         env.acquire_lock()
 
-        self.assertEqual(mock_acquire_lock.call_count, 2)
-
-        mock_acquire_lock.assert_has_calls(
-            [
-                mock.call('shard_{}'.format(self.shard1.id), shared=True, xact=True),
-                mock.call('mapping_{}'.format(self.org_shard1.organization_id), shared=True, xact=True),
-            ]
+        mock_acquire_lock.assert_called_once_with(
+            ['shard_{}'.format(self.shard1.id), 'mapping_{}'.format(self.org_shard1.organization_id)],
+            shared=True,
+            xact=True,
         )
 
-    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock')
-    def test_release_lock(self, mock_release_advisory_lock):
+    @mock.patch('djanquiltdb.postgresql_backend.base.DatabaseWrapper.release_advisory_lock_for_each_key')
+    def test_release_lock(self, mock_release_lock):
         """
         Case: Call the release_lock method on a use_shard_for instance.
-        Expected: DatabaseWrapper.release_advisory_lock called with the correct parameters.
+        Expected: DatabaseWrapper.release_advisory_lock_for_each_key called once, with the lock key of the shard and the
+                  lock key of the mapping value.
         """
         env = use_shard_for(self.org_shard1.organization_id)
         env.connection = connections[env.options]
         env.release_lock()
 
-        self.assertEqual(mock_release_advisory_lock.call_count, 2)
-
-        mock_release_advisory_lock.assert_has_calls(
-            [
-                mock.call('shard_{}'.format(self.shard1.id), shared=True),
-                mock.call('mapping_{}'.format(self.org_shard1.organization_id), shared=True),
-            ]
+        mock_release_lock.assert_called_once_with(
+            ['shard_{}'.format(self.shard1.id), 'mapping_{}'.format(self.org_shard1.organization_id)], shared=True
         )
 
 
@@ -1078,26 +1085,391 @@ class UseShardInsideEnteredUseShardTestCase(ShardingTransactionTestCase):
 
             self.assertTrue(self.lock_is_free('mapping_2'))
 
-    def test_inner_use_shard_takes_its_own_lock_inside_a_transaction(self):
+    def assert_takes_its_lock_and_reads_the_shard(self, captured):
         """
-        Case: Enter use_shard for a shard while a use_shard for that shard is entered inside a transaction.
-        Expected: The inner use_shard takes its own transaction-scoped lock, because the outer use_shard holds only a
-                  transaction-scoped lock, and a commit inside the outer use_shard releases that lock. The inner
-                  use_shard then reads the shard again, as a use_shard does once it holds the lock.
+        Asserts that the captured statements take the transaction-scoped lock of the shard, and read the shard again.
         """
         key = LockCursorWrapperMixin.get_int_from_key('shard_{}'.format(self.shard.id))
+        statements = [query['sql'] for query in captured.captured_queries]
 
+        self.assertEqual(statements[0], 'SELECT pg_advisory_xact_lock_shared({});'.format(key))
+        self.assertTrue(any('"example_shard"' in statement for statement in statements[1:]))
+
+    def test_inner_use_shard_runs_no_statements_inside_a_transaction(self):
+        """
+        Case: Enter and leave use_shard for a shard while a use_shard for that shard is entered inside a transaction.
+        Expected: No statements run, because the outer use_shard holds the transaction-scoped lock of the shard until
+                  the transaction ends, and checked the shard once it held the lock.
+        """
         with transaction.atomic():
             with use_shard(self.shard):
                 with CaptureQueriesContext(connections['default']) as captured:
                     with use_shard(self.shard):
                         pass
 
-        statements = [query['sql'] for query in captured.captured_queries]
+        self.assertEqual(captured.captured_queries, [])
 
-        self.assertEqual(statements[0], 'SELECT pg_advisory_xact_lock_shared({});'.format(key))
-        self.assertEqual([statement for statement in statements if 'pg_advisory' in statement], [statements[0]])
-        self.assertTrue(any('"example_shard"' in statement for statement in statements[1:]))
+    def test_a_later_use_shard_in_the_transaction_runs_no_statements(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard, then enter and leave use_shard for that shard
+              again.
+        Expected: The shard is still locked after the first use_shard is left, and the second use_shard runs no
+                  statements, because PostgreSQL holds a transaction-scoped lock until the transaction ends.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard):
+                pass
+
+            self.assertFalse(self.lock_is_free('shard_{}'.format(self.shard.id)))
+
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_inner_use_shard_checks_the_state_inside_a_use_shard_that_does_not(self):
+        """
+        Case: The registry has the shard in maintenance. Enter use_shard for the shard with active_only_schemas False,
+              and inside it, enter use_shard for the shard as it was read while it was active.
+        Expected: The inner use_shard raises StateException, because the outer use_shard did not check that the shard
+                  is active, so the inner use_shard takes the locks and reads the shard itself.
+        """
+        Shard.objects.filter(pk=self.shard.pk).update(state=State.MAINTENANCE)
+        # The flush at the end of the test reads the shards, and refuses a shard in maintenance.
+        self.addCleanup(Shard.objects.filter(pk=self.shard.pk).update, state=State.ACTIVE)
+
+        with use_shard(self.shard, active_only_schemas=False):
+            with self.assertRaises(StateException):
+                with use_shard(self.shard):
+                    pass
+
+    def test_inner_use_shard_that_does_not_check_the_state_runs_no_statements_inside_one_that_does_not_either(self):
+        """
+        Case: Enter use_shard for a shard with active_only_schemas False, and inside it, enter and leave use_shard for
+              the shard with active_only_schemas False.
+        Expected: The inner use_shard runs no statements, because it does not check the state, and the outer use_shard
+                  checked under the same locks that the shard is on its node and in its schema.
+        """
+        with use_shard(self.shard, active_only_schemas=False):
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard, active_only_schemas=False):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_a_later_use_shard_that_does_not_check_the_state_runs_no_statements_after_one_that_does_not_either(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard with active_only_schemas False, then enter and
+              leave use_shard for the shard with active_only_schemas False again.
+        Expected: The second use_shard runs no statements, because it does not check the state, and the first use_shard
+                  holds the transaction-scoped locks of the shard until the transaction ends.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard, active_only_schemas=False):
+                pass
+
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard, active_only_schemas=False):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_the_options_of_a_use_shard_that_does_not_check_the_state_enter_without_statements_inside_it(self):
+        """
+        Case: Inside use_shard for a shard with active_only_schemas False, enter the context that use() of the options
+              of that use_shard returns, as a sharded model method does.
+        Expected: No statements run, because the options do not check the state either.
+        """
+        with use_shard(self.shard, active_only_schemas=False) as env:
+            with CaptureQueriesContext(connections['default']) as captured:
+                with env.options.use():
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_a_later_use_shard_in_the_transaction_checks_the_state_after_a_use_shard_that_does_not(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard with active_only_schemas False, put the shard
+              in maintenance in the registry, and enter use_shard for the shard as it was read while it was active.
+        Expected: The second use_shard raises StateException, because the first use_shard did not check that the shard
+                  is active, so the second use_shard takes the locks and reads the shard itself.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard, active_only_schemas=False):
+                pass
+
+            Shard.objects.filter(pk=self.shard.pk).update(state=State.MAINTENANCE)
+            # The flush at the end of the test reads the shards, and refuses a shard in maintenance.
+            self.addCleanup(Shard.objects.filter(pk=self.shard.pk).update, state=State.ACTIVE)
+
+            with self.assertRaises(StateException):
+                with use_shard(self.shard):
+                    pass
+
+    def put_the_shard_in_maintenance_under_the_exclusive_lock_of_this_session(self, take_the_lock):
+        """
+        Takes the exclusive lock of the shard with ``take_the_lock(connection, key)`` on the connection of this session,
+        as the move commands take it, puts the shard in maintenance in the registry, and releases the lock. PostgreSQL
+        gives a session the exclusive lock of a key also while that session holds the shared lock of the key.
+        """
+        key = 'shard_{}'.format(self.shard.id)
+        take_the_lock(connections['default'], key)
+        Shard.objects.filter(pk=self.shard.pk).update(state=State.MAINTENANCE)
+        # The flush at the end of the test reads the shards, and refuses a shard in maintenance.
+        self.addCleanup(Shard.objects.filter(pk=self.shard.pk).update, state=State.ACTIVE)
+        connections['default'].release_advisory_lock(key=key, shared=False)
+
+    def test_a_later_use_shard_in_the_transaction_checks_the_state_after_an_exclusive_lock_of_this_session(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard, then take the exclusive lock of the shard on
+              the same session and put the shard in maintenance, as a move command in the same transaction does, and
+              enter use_shard for the shard as it was read while it was active.
+        Expected: The second use_shard raises StateException, because the exclusive lock ends the validity of the check
+                  of the first use_shard, so the second use_shard takes the locks and reads the shard itself.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard):
+                pass
+
+            self.put_the_shard_in_maintenance_under_the_exclusive_lock_of_this_session(
+                lambda connection, key: connection.acquire_advisory_lock(key=key, shared=False)
+            )
+
+            with self.assertRaises(StateException):
+                with use_shard(self.shard):
+                    pass
+
+    def test_inner_use_shard_checks_the_state_after_an_exclusive_lock_of_this_session(self):
+        """
+        Case: Enter use_shard for a shard, then take the exclusive lock of the shard on the same session and put the
+              shard in maintenance, as a move command inside the use_shard does, and inside the use_shard, enter
+              use_shard for the shard as it was read while it was active.
+        Expected: The inner use_shard raises StateException, because the exclusive lock ends the validity of the check
+                  of the outer use_shard, so the inner use_shard takes the locks and reads the shard itself.
+        """
+        with use_shard(self.shard):
+            self.put_the_shard_in_maintenance_under_the_exclusive_lock_of_this_session(
+                lambda connection, key: connection.acquire_advisory_lock_for_each_key([key], shared=False)
+            )
+
+            with self.assertRaises(StateException):
+                with use_shard(self.shard):
+                    pass
+
+    def move_the_shard_to_another_schema_under_the_exclusive_lock_of_this_session(self):
+        """
+        Takes the exclusive lock of the shard on the connection of this session, as the move commands take it, gives
+        the shard another schema in the registry, and releases the lock. ``self.shard`` keeps the schema that it was
+        read with.
+        """
+        key = 'shard_{}'.format(self.shard.id)
+        connections['default'].acquire_advisory_lock(key=key, shared=False)
+        Shard.objects.filter(pk=self.shard.pk).update(schema_name='test_moved_schema')
+        # The flush at the end of the test reads the shards from the registry.
+        self.addCleanup(Shard.objects.filter(pk=self.shard.pk).update, schema_name=self.shard.schema_name)
+        connections['default'].release_advisory_lock(key=key, shared=False)
+
+    def test_inner_use_shard_that_does_not_check_the_state_reads_a_shard_moved_in_this_session(self):
+        """
+        Case: Enter use_shard for a shard with active_only_schemas False, then take the exclusive lock of the shard on
+              the same session and give the shard another schema, as a move command inside the use_shard does, and
+              inside the use_shard, enter use_shard with active_only_schemas False for the shard as it was read before
+              the move.
+        Expected: The inner use_shard raises StateException, because the exclusive lock ends the validity of the read of
+                  the outer use_shard, so the inner use_shard takes the locks and reads the shard itself.
+        """
+        with use_shard(self.shard, active_only_schemas=False):
+            self.move_the_shard_to_another_schema_under_the_exclusive_lock_of_this_session()
+
+            with self.assertRaisesMessage(StateException, 'test_moved_schema'):
+                with use_shard(self.shard, active_only_schemas=False):
+                    pass
+
+    def test_use_shard_that_does_not_check_the_state_inside_one_that_does_reads_a_shard_moved_in_this_session(self):
+        """
+        Case: Enter use_shard for a shard, then take the exclusive lock of the shard on the same session and give the
+              shard another schema, as a move command inside the use_shard does, and inside the use_shard, enter
+              use_shard with active_only_schemas False for the shard as it was read before the move.
+        Expected: The inner use_shard raises StateException, because the exclusive lock ends the validity of the read of
+                  the outer use_shard, so the inner use_shard takes the locks and reads the shard itself.
+        """
+        with use_shard(self.shard):
+            self.move_the_shard_to_another_schema_under_the_exclusive_lock_of_this_session()
+
+            with self.assertRaisesMessage(StateException, 'test_moved_schema'):
+                with use_shard(self.shard, active_only_schemas=False):
+                    pass
+
+    def test_a_later_use_shard_that_does_not_check_the_state_reads_a_shard_moved_in_this_session(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard with active_only_schemas False, then take the
+              exclusive lock of the shard on the same session and give the shard another schema, as a move command in
+              the same transaction does, and enter use_shard with active_only_schemas False for the shard as it was
+              read before the move.
+        Expected: The second use_shard raises StateException, because the exclusive lock ends the validity of the read
+                  of the first use_shard, so the second use_shard takes the locks and reads the shard itself.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard, active_only_schemas=False):
+                pass
+
+            self.move_the_shard_to_another_schema_under_the_exclusive_lock_of_this_session()
+
+            with self.assertRaisesMessage(StateException, 'test_moved_schema'):
+                with use_shard(self.shard, active_only_schemas=False):
+                    pass
+
+    def test_inner_use_shard_that_does_not_check_the_state_runs_no_statements_in_a_later_use_shard(self):
+        """
+        Case: Enter use_shard for a shard with active_only_schemas False, take and release the exclusive lock of the
+              shard on the same session, and leave the use_shard. Then enter use_shard for the shard with
+              active_only_schemas False, and inside it, enter and leave such a use_shard again.
+        Expected: The inner use_shard of the second pair runs no statements, because its outer use_shard read the shard
+                  after the exclusive lock was released.
+        """
+        key = 'shard_{}'.format(self.shard.id)
+
+        with use_shard(self.shard, active_only_schemas=False):
+            connections['default'].acquire_advisory_lock(key=key, shared=False)
+            connections['default'].release_advisory_lock(key=key, shared=False)
+
+        with use_shard(self.shard, active_only_schemas=False):
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard, active_only_schemas=False):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_a_use_shard_after_the_one_that_an_exclusive_lock_of_this_session_was_taken_in_runs_no_statements(self):
+        """
+        Case: Enter use_shard for a shard, take and release the exclusive lock of the shard on the same session, and
+              leave the use_shard. Then enter use_shard for the shard, and inside it, enter and leave use_shard for the
+              shard again.
+        Expected: The inner use_shard of the second pair runs no statements, because its outer use_shard checked the
+                  shard after the exclusive lock was released.
+        """
+        key = 'shard_{}'.format(self.shard.id)
+
+        with use_shard(self.shard):
+            connections['default'].acquire_advisory_lock(key=key, shared=False)
+            connections['default'].release_advisory_lock(key=key, shared=False)
+
+        with use_shard(self.shard):
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_a_rollback_to_a_savepoint_set_before_the_lock_releases_it(self):
+        """
+        Case: Inside a transaction, set a savepoint, enter and leave use_shard for a shard, roll back to the savepoint,
+              and enter use_shard for that shard again.
+        Expected: The rollback releases the lock of the shard, and the second use_shard takes the lock again and reads
+                  the shard again.
+        """
+        with transaction.atomic():
+            savepoint = transaction.savepoint()
+
+            with use_shard(self.shard):
+                pass
+
+            transaction.savepoint_rollback(savepoint)
+
+            self.assertTrue(self.lock_is_free('shard_{}'.format(self.shard.id)))
+
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard):
+                    pass
+
+        self.assert_takes_its_lock_and_reads_the_shard(captured)
+
+    def test_a_rollback_to_a_savepoint_set_after_the_lock_keeps_it(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard, set a savepoint, roll back to it, and enter
+              use_shard for that shard again.
+        Expected: The shard is still locked after the rollback, and the second use_shard runs no statements.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard):
+                pass
+
+            savepoint = transaction.savepoint()
+            transaction.savepoint_rollback(savepoint)
+
+            self.assertFalse(self.lock_is_free('shard_{}'.format(self.shard.id)))
+
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_a_released_savepoint_hands_its_lock_to_the_transaction(self):
+        """
+        Case: Inside a transaction, enter and leave use_shard for a shard inside a nested atomic block, which releases
+              its savepoint, then roll back to a savepoint set after it, and enter use_shard for that shard again.
+        Expected: The shard is still locked, and the second use_shard runs no statements, because the released savepoint
+                  handed the lock to the transaction, which a later rollback does not release.
+        """
+        with transaction.atomic():
+            with transaction.atomic():
+                with use_shard(self.shard):
+                    pass
+
+            savepoint = transaction.savepoint()
+            transaction.savepoint_rollback(savepoint)
+
+            self.assertFalse(self.lock_is_free('shard_{}'.format(self.shard.id)))
+
+            with CaptureQueriesContext(connections['default']) as captured:
+                with use_shard(self.shard):
+                    pass
+
+        self.assertEqual(captured.captured_queries, [])
+
+    def test_the_end_of_the_transaction_forgets_its_locks(self):
+        """
+        Case: Enter and leave use_shard for a shard inside a transaction, and enter use_shard for that shard after the
+              transaction committed.
+        Expected: The connection holds no transaction-scoped locks and no savepoints after the commit, and the second
+                  use_shard takes the lock of the shard for the session.
+        """
+        with transaction.atomic():
+            with use_shard(self.shard):
+                pass
+
+        self.assertEqual(connections['default'].transaction_locks_of_entered_use_shards, {})
+        self.assertEqual(connections['default'].open_savepoint_ids, [])
+
+        with use_shard(self.shard):
+            session_locks = connections['default'].session_locks_of_entered_use_shards
+
+            self.assertEqual(session_locks['shard_{}'.format(self.shard.id)], 1)
+
+    def test_a_commit_while_a_use_shard_is_entered_releases_its_lock(self):
+        """
+        Case: Start a transaction, enter use_shard for a shard, commit the transaction while the use_shard is entered,
+              and enter use_shard for that shard inside a new transaction.
+        Expected: The inner use_shard takes the lock again and reads the shard again, because the commit released the
+                  transaction-scoped lock of the outer use_shard.
+        """
+        outer_transaction = transaction.atomic()
+        outer_transaction.__enter__()
+        outer_use_shard = use_shard(self.shard)
+        outer_use_shard.__enter__()
+        outer_transaction.__exit__(None, None, None)
+
+        try:
+            with transaction.atomic():
+                with CaptureQueriesContext(connections['default']) as captured:
+                    with use_shard(self.shard):
+                        pass
+        finally:
+            outer_use_shard.__exit__(None, None, None)
+
+        self.assert_takes_its_lock_and_reads_the_shard(captured)
 
     def test_closing_the_connection_forgets_the_held_locks(self):
         """
@@ -1134,9 +1506,11 @@ class UseShardInsideEnteredUseShardTestCase(ShardingTransactionTestCase):
         """
         Case: Enter and leave use_shard_for a mapping value while no use_shard is entered. The use_shard_for is
               constructed before the statements are counted, because the constructor looks up the mapping value.
-        Expected: Five statements: the locks of the shard and of the mapping value, one read of the mapping value and
-                  its shard once the locks are held, and the releases of the locks.
+        Expected: Three statements: the locks of the shard and of the mapping value in one statement, one read of the
+                  mapping value and its shard once the locks are held, and the releases of the locks in one statement.
         """
+        shard_key = LockCursorWrapperMixin.get_int_from_key('shard_{}'.format(self.shard.id))
+        mapping_key = LockCursorWrapperMixin.get_int_from_key('mapping_1')
         env = use_shard_for(1)
 
         with CaptureQueriesContext(connections['default']) as captured:
@@ -1145,13 +1519,17 @@ class UseShardInsideEnteredUseShardTestCase(ShardingTransactionTestCase):
 
         statements = [query['sql'] for query in captured.captured_queries]
 
-        self.assertEqual(len(statements), 5)
+        self.assertEqual(len(statements), 3)
         self.assertEqual(
-            [statement for statement in statements if 'pg_advisory' in statement],
-            [statements[0], statements[1], statements[3], statements[4]],
+            statements[0],
+            'SELECT pg_advisory_lock_shared({}), pg_advisory_lock_shared({});'.format(shard_key, mapping_key),
         )
-        self.assertIn('"example_organizationshard"', statements[2])
-        self.assertIn('"example_shard"', statements[2])
+        self.assertIn('"example_organizationshard"', statements[1])
+        self.assertIn('"example_shard"', statements[1])
+        self.assertEqual(
+            statements[2],
+            'SELECT pg_advisory_unlock_shared({}), pg_advisory_unlock_shared({});'.format(shard_key, mapping_key),
+        )
 
     def test_recursive_function_decorated_with_use_shard(self):
         """
@@ -1586,16 +1964,17 @@ class GetModelDefinitionTestCase(SimpleTestCase):
 
 
 class GetModelShardingModeTestCase(SimpleTestCase):
-    @mock.patch('djanquiltdb.utils.get_sharding_mode')
+    @mock.patch('djanquiltdb.utils.get_placement', return_value=(ShardingMode.SHARDED, None))
     @mock.patch('djanquiltdb.utils.get_model_definition', return_value=User)
-    def test(self, mock_get_model_definition, mock_get_sharding_mode):
+    def test(self, mock_get_model_definition, mock_get_placement):
         """
         Case: Call get_model_sharding_mode.
-        Expected: get_model_definition and get_sharding_mode to be called with the correct arguments.
+        Expected: get_model_definition and get_placement to be called with the correct arguments, and the mode that
+                  get_placement returns.
         """
-        get_model_sharding_mode(User)
+        self.assertEqual(get_model_sharding_mode(User), ShardingMode.SHARDED)
         mock_get_model_definition.assert_called_once_with(User)
-        mock_get_sharding_mode.assert_called_once_with('example', 'user')
+        mock_get_placement.assert_called_once_with('example', 'user')
 
 
 class GetShardingModeTestCase(SimpleTestCase):
@@ -1766,6 +2145,146 @@ class GetDeclaredShardingModeTestCase(SimpleTestCase):
         self.assertEqual(get_declared_sharding_mode(User.cake.through), ShardingMode.SHARDED)
 
 
+class GetDeclaredPlacementTestCase(SimpleTestCase):
+    def test_the_decorator_declares_the_mode_and_the_node(self):
+        """
+        Case: Call get_declared_placement for Unrelated, which is decorated with
+              @single_node_unsharded_model(node='default'), and for the sharded User.
+        Expected: SINGLE_NODE_UNSHARDED with the node 'default', and SHARDED without a node.
+        """
+        self.assertEqual(get_declared_placement(Unrelated), (ShardingMode.SINGLE_NODE_UNSHARDED, 'default'))
+        self.assertEqual(get_declared_placement(User), (ShardingMode.SHARDED, None))
+
+    def test_an_override_entry_declares_the_mode_and_the_node(self):
+        """
+        Case: Call get_declared_placement and get_sharding_mode for a model of an app whose OVERRIDE_SHARDING_MODE entry
+              is single_node_unsharded(node=PRIMARY_NODE).
+        Expected: SINGLE_NODE_UNSHARDED with PRIMARY_NODE as declared, and SINGLE_NODE_UNSHARDED from get_sharding_mode.
+        """
+        with override_settings(
+            QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example',): single_node_unsharded(node=PRIMARY_NODE)}}
+        ):
+            self.assertEqual(get_declared_placement(User), (ShardingMode.SINGLE_NODE_UNSHARDED, PRIMARY_NODE))
+            self.assertEqual(get_sharding_mode('example', 'user'), ShardingMode.SINGLE_NODE_UNSHARDED)
+
+    def test_a_subclass_in_another_mode_has_no_node(self):
+        """
+        Case: Call get_declared_placement for a sharded subclass of a model on a single node, which inherits the node of
+              its parent.
+        Expected: SHARDED without a node.
+        """
+        with isolate_apps('example'):
+
+            @single_node_unsharded_model(node='default')
+            class OnDefault(models.Model):
+                class Meta:
+                    app_label = 'example'
+
+            @sharded_model()
+            class ShardedChild(OnDefault):
+                class Meta:
+                    app_label = 'example'
+
+        self.assertEqual(get_declared_placement(ShardedChild), (ShardingMode.SHARDED, None))
+
+
+class SingleNodeAliasTestCase(SimpleTestCase):
+    def test_primary_node_resolves_to_the_primary_db_alias(self):
+        """
+        Case: Resolve PRIMARY_NODE and the alias 'default' while PRIMARY_DB_ALIAS is 'other'.
+        Expected: 'other' for PRIMARY_NODE, and 'default' for 'default'.
+        """
+        with override_sharding_setting('PRIMARY_DB_ALIAS', 'other'):
+            self.assertEqual(resolve_node_alias(PRIMARY_NODE), 'other')
+            self.assertEqual(resolve_node_alias('default'), 'default')
+
+    def test_the_alias_of_a_model(self):
+        """
+        Case: Ask for the node alias of Unrelated, of the sharded User, and of a model that the app registry does not
+              have while an OVERRIDE_SHARDING_MODE entry puts it on PRIMARY_NODE, with PRIMARY_DB_ALIAS set to 'other'.
+        Expected: 'default' for Unrelated, None for User, and 'other' for the model without a class.
+        """
+        self.assertEqual(get_model_single_node_alias(Unrelated), 'default')
+        self.assertEqual(get_placement('example', 'unrelated'), (ShardingMode.SINGLE_NODE_UNSHARDED, 'default'))
+        self.assertIsNone(get_model_single_node_alias(User))
+        self.assertEqual(get_placement('example', 'user'), (ShardingMode.SHARDED, None))
+
+        with override_settings(
+            QUILT_DB={
+                'PRIMARY_DB_ALIAS': 'other',
+                'OVERRIDE_SHARDING_MODE': {('example', 'removed'): single_node_unsharded(node=PRIMARY_NODE)},
+            }
+        ):
+            self.assertEqual(get_placement('example', 'removed'), (ShardingMode.SINGLE_NODE_UNSHARDED, 'other'))
+
+    def test_the_placement_of_an_operation_or_a_model_without_a_mode(self):
+        """
+        Case: Ask for the placement of an operation without a model name, and of a model that declares no mode.
+        Expected: None for the operation and False for the model, each without a node, as get_sharding_mode returns.
+        """
+        self.assertEqual(get_placement('example', None), (None, None))
+
+        with isolate_apps('example'):
+
+            class ModelWithoutShardingMode(models.Model):
+                class Meta:
+                    app_label = 'example'
+
+        with mock.patch('djanquiltdb.utils.apps.get_model', return_value=ModelWithoutShardingMode):
+            self.assertEqual(get_placement('example', 'modelwithoutshardingmode'), (False, None))
+
+    def test_the_value_of_an_override_entry(self):
+        """
+        Case: Compare and show two single_node_unsharded() values.
+        Expected: Equal when they name the same node, and shown as the call that makes them.
+        """
+        self.assertEqual(single_node_unsharded(node='default'), single_node_unsharded(node='default'))
+        self.assertNotEqual(single_node_unsharded(node='default'), single_node_unsharded(node=PRIMARY_NODE))
+        self.assertEqual(repr(single_node_unsharded(node='other')), "single_node_unsharded(node='other')")
+
+    def test_an_override_entry_with_a_node_that_is_not_an_alias(self):
+        """
+        Case: Call single_node_unsharded() with a list of aliases, which is neither a string nor PRIMARY_NODE.
+        Expected: TypeError, as @single_node_unsharded_model() raises for the same node.
+        """
+        with self.assertRaisesMessage(TypeError, "node must be the alias of a node or PRIMARY_NODE, not ['default']."):
+            single_node_unsharded(node=['default'])
+
+    def test_relations_with_a_model_on_a_single_node(self):
+        """
+        Case: Ask whether a relation is allowed for each pair of the mode and the node of the model that is referred to
+              and of the model that refers to it, where at least one of them is on a single node, and for a pair
+              without one. False stands for a model without a sharding mode.
+        Expected: Only a model on the same node may refer to a model on a single node, and a model on a single node may
+                  refer only to a public or mirrored model. None when neither model is on a single node.
+        """
+        single_node = ShardingMode.SINGLE_NODE_UNSHARDED
+        combinations = [
+            ('referred to on the same node', (single_node, 'default'), (single_node, 'default'), True),
+            ('referred to from another node', (single_node, 'default'), (single_node, 'other'), False),
+            ('referred to by a sharded model', (single_node, 'default'), (ShardingMode.SHARDED, None), False),
+            ('referred to by a mirrored model', (single_node, 'default'), (ShardingMode.MIRRORED, None), False),
+            ('referred to by a model without a mode', (single_node, 'default'), (False, None), False),
+            ('referring to a public model', (ShardingMode.PUBLIC, None), (single_node, 'default'), True),
+            ('referring to a mirrored model', (ShardingMode.MIRRORED, None), (single_node, 'default'), True),
+            ('referring to a sharded model', (ShardingMode.SHARDED, None), (single_node, 'default'), False),
+            ('referring to a model without a mode', (False, None), (single_node, 'default'), False),
+            ('neither on a single node', (ShardingMode.MIRRORED, None), (ShardingMode.SHARDED, None), None),
+        ]
+
+        for name, (referred_mode, referred_node), (referring_mode, referring_node), allowed in combinations:
+            with self.subTest(name):
+                self.assertIs(
+                    relation_with_a_model_on_a_single_node_is_allowed(
+                        referred_mode=referred_mode,
+                        referred_node=referred_node,
+                        referring_mode=referring_mode,
+                        referring_node=referring_node,
+                    ),
+                    allowed,
+                )
+
+
 class GetAllShardedModels(ShardingTestCase):
     available_apps = ['example']
 
@@ -1867,17 +2386,18 @@ class GetAllMirroredModels(ShardingTestCase):
     def test_with_override(self):
         """
         Case: Call get_all_mirrored_models, while the settings override models.
-        Expected: Only MirroredUser and Shard models returned. Type is overridden,
+        Expected: Only the MirroredUser, OrganizationShard and Shard models returned. Type is overridden,
                   the rest is sharded and/or not mirrored.
         Note: System test
         """
         with override_settings(QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example', 'type'): ShardingMode.SHARDED}}):
-            self.assertCountEqual(get_all_mirrored_models(), [MirroredUser, Shard])
+            self.assertCountEqual(get_all_mirrored_models(), [MirroredUser, OrganizationShard, Shard])
 
     def test_with_override_archived_models(self):
         """
         Case: Call get_all_mirrored_models, while the settings override no longer existing models.
-        Expected: Only Type and Shard models to be returned. The rest is sharded and/or not mirrored.
+        Expected: Only the Type, OrganizationShard and Shard models to be returned. The rest is sharded and/or not
+                  mirrored.
         Note: System test
         """
         with override_settings(
@@ -1888,7 +2408,7 @@ class GetAllMirroredModels(ShardingTestCase):
                 }
             }
         ):
-            self.assertCountEqual(get_all_mirrored_models(), [Type, Shard])
+            self.assertCountEqual(get_all_mirrored_models(), [Type, OrganizationShard, Shard])
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
     def test(self, mock_get_model_sharding_mode):
@@ -1912,6 +2432,7 @@ class GetAllMirroredModels(ShardingTestCase):
             result,
             [
                 "<class 'example.models.Shard'>",
+                "<class 'example.models.OrganizationShard'>",
                 "<class 'example.models.Type'>",
                 "<class 'example.models.MirroredUser'>",
                 "<class 'example.models.MirroredUser_type'>",
@@ -1929,6 +2450,7 @@ class GetAllMirroredModels(ShardingTestCase):
             result,
             [
                 "<class 'example.models.Shard'>",
+                "<class 'example.models.OrganizationShard'>",
                 "<class 'example.models.Type'>",
                 "<class 'example.models.MirroredUser'>",
                 "<class 'example.models.ProxyMirroredUser'>",
@@ -2025,20 +2547,20 @@ class GetAllPublicSchemaModels(ShardingTestCase):
     def test_with_override(self):
         """
         Case: Call get_all_public_schema_models, while the settings override models.
-        Expected: Only Shard, SuperType, MirroredModel and CakeType models to be returned.
+        Expected: Only Shard, OrganizationShard, SuperType, MirroredModel and CakeType models to be returned.
                   The rest is sharded and/or not mirrored.
         Note: System test
         """
         with override_settings(QUILT_DB={'OVERRIDE_SHARDING_MODE': {('example', 'mirroreduser'): ShardingMode.PUBLIC}}):
             self.assertCountEqual(
                 get_all_public_schema_models(),
-                [Shard, SuperType, Type, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle],
+                [Shard, OrganizationShard, SuperType, Type, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle],
             )
 
     def test_with_override_archived_models(self):
         """
         Case: Call get_all_public_schema_models, while the settings override no longer existing models.
-        Expected: Only Shard, SuperType, MirroredUser and CakeType models to be returned.
+        Expected: Only Shard, OrganizationShard, SuperType, MirroredUser and CakeType models to be returned.
                   The rest is sharded and/or not mirrored, or does not exist.
         Note: System test
         """
@@ -2052,7 +2574,7 @@ class GetAllPublicSchemaModels(ShardingTestCase):
         ):
             self.assertCountEqual(
                 get_all_public_schema_models(),
-                [Shard, SuperType, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle],
+                [Shard, OrganizationShard, SuperType, MirroredUser, CakeType, CoatingType, Flavour, Sprinkle],
             )
 
     @mock.patch('djanquiltdb.utils.get_model_sharding_mode')
@@ -2077,6 +2599,7 @@ class GetAllPublicSchemaModels(ShardingTestCase):
             result,
             [
                 "<class 'example.models.Shard'>",
+                "<class 'example.models.OrganizationShard'>",
                 "<class 'example.models.Type'>",
                 "<class 'example.models.MirroredUser'>",
                 "<class 'example.models.MirroredUser_type'>",
@@ -2101,6 +2624,7 @@ class GetAllPublicSchemaModels(ShardingTestCase):
             result,
             [
                 "<class 'example.models.Shard'>",
+                "<class 'example.models.OrganizationShard'>",
                 "<class 'example.models.Type'>",
                 "<class 'example.models.MirroredUser'>",
                 "<class 'example.models.ProxyMirroredUser'>",
@@ -2220,6 +2744,34 @@ class ForEachShardTestCase(ShardingTestCase):
         for_each_shard(self.repeatable_function, as_id=True)
         self.assertEqual(self.shards, [self.shard1.id])
 
+    def test_for_each_shard_inside_a_shard_without_the_public_schema(self):
+        """
+        Case: Call self.repeatable_function for every shard, inside a shard that is entered without the public schema.
+        Expected: Function is called for every shard in the shard registry.
+        """
+        create_template_schema('default')
+        entered_shard = Shard.objects.create(
+            alias='entered_shard', schema_name='test_entered_schema', node_name='default', state=State.ACTIVE
+        )
+
+        self.shards = []
+        with use_shard(entered_shard, include_public=False):
+            for_each_shard(self.repeatable_function)
+
+        self.assertCountEqual(self.shards, [self.shard1, entered_shard])
+
+    def test_for_each_shard_with_a_coroutine_function(self):
+        """
+        Case: Call for_each_shard with an async function.
+        Expected: NotImplementedError, instead of calling the function for every shard without awaiting what it returns.
+        """
+
+        async def coroutine_function(shard=None):
+            pass
+
+        with self.assertRaises(NotImplementedError):
+            for_each_shard(coroutine_function)
+
 
 @mock.patch('djanquiltdb.utils.get_all_databases', return_value=['default', 'other'])
 class ForEachNodeTestCase(SimpleTestCase):
@@ -2244,6 +2796,64 @@ class ForEachNodeTestCase(SimpleTestCase):
         self.assertEqual(result, {'default': ('default', {'org_id': 1}), 'other': ('other', {'org_id': 1})})
 
         self.assertTrue(mock_get_all_databases.called)
+
+    def test_for_each_node_with_a_coroutine_function(self, mock_get_all_databases):
+        """
+        Case: Call for_each_node with an async function.
+        Expected: NotImplementedError, instead of returning a coroutine for every node that nothing awaits.
+        """
+
+        async def coroutine_function(node_name=None):
+            return node_name
+
+        with self.assertRaises(NotImplementedError):
+            for_each_node(coroutine_function)
+
+
+class UseShardInAsyncCodeTestCase(ShardingTestCase):
+    """DjanQuiltDB is not async-safe, so a shard is entered in sync code only, also from async code."""
+
+    def setUp(self):
+        super().setUp()
+
+        create_template_schema('default')
+        self.shard = Shard.objects.create(
+            alias='test_shard', schema_name='test_schema', node_name='default', state=State.ACTIVE
+        )
+
+    async def test_entering_a_shard_on_the_event_loop(self):
+        """
+        Case: Enter use_shard in async code, on the thread of the event loop.
+        Expected: SynchronousOnlyOperation that says DjanQuiltDB is not async-safe, because the async ORM runs its
+                  queries in another thread, which would not see the shard.
+        """
+        with self.assertRaisesMessage(SynchronousOnlyOperation, 'DjanQuiltDB is not async-safe'):
+            with use_shard(self.shard):
+                pass
+
+    async def test_entering_a_shard_inside_sync_to_async(self):
+        """
+        Case: Enter use_shard in a sync function that async code runs through sync_to_async.
+        Expected: The function runs in the shard.
+        """
+
+        def schema_name_inside_the_shard():
+            with use_shard(self.shard):
+                return connection.schema_name
+
+        self.assertEqual(await sync_to_async(schema_name_inside_the_shard)(), 'test_schema')
+
+    def test_decorating_a_coroutine_function(self):
+        """
+        Case: Decorate an async function with use_shard.
+        Expected: NotImplementedError when the function is decorated, instead of a function that leaves the shard before
+                  its body runs.
+        """
+        with self.assertRaises(NotImplementedError):
+
+            @use_shard(self.shard)
+            async def coroutine_function():
+                pass
 
 
 class WriteToEveryNodeSystemTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):

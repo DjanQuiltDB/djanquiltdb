@@ -1,20 +1,25 @@
 """
 This package defines the plugin object, which DjanQuiltDB finds through the ``djanquiltdb.plugins`` entry-point group,
-and exports the public API of the plugin. DjanQuiltDB serves the decorators as ``djanquiltdb.decorators.celery``, and
-the helpers as ``djanquiltdb.utils.celery``.
+and exports the public API of the plugin. DjanQuiltDB serves the decorators as ``djanquiltdb.decorators.celery``, the
+task classes as ``djanquiltdb.base.celery``, and the helpers, exceptions and constants as ``djanquiltdb.utils.celery``.
 """
 
 from types import SimpleNamespace
 
-from djanquiltdb_plugin_celery import decorators, utils
+from djanquiltdb_plugin_celery import base, decorators, utils
+from djanquiltdb_plugin_celery.base import QuiltCelery, QuiltTask, TaskSenderForTarget
 from djanquiltdb_plugin_celery.decorators import (
-    task_for_active_shard,
-    task_for_every_node,
-    task_for_every_shard,
-    task_for_node,
-    task_for_shard,
+    shared_task_for_active_shard,
+    shared_task_for_every_node,
+    shared_task_for_every_shard,
+    shared_task_for_node,
+    shared_task_for_shard,
 )
 from djanquiltdb_plugin_celery.utils import (
+    TARGET_HEADER_NAME,
+    TaskNodeError,
+    TaskQuiltError,
+    TaskShardError,
     aggregate_per_shard,
     fan_out,
     fan_out_to_nodes,
@@ -23,7 +28,7 @@ from djanquiltdb_plugin_celery.utils import (
     per_shard_signatures,
 )
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 
 def install():
@@ -33,9 +38,16 @@ def install():
     from djanquiltdb_plugin_celery import checks  # noqa: F401
 
 
-plugin = SimpleNamespace(decorators=decorators, utils=utils, install=install)
+plugin = SimpleNamespace(base=base, decorators=decorators, utils=utils, install=install)
 
 __all__ = [
+    'TARGET_HEADER_NAME',
+    'QuiltCelery',
+    'QuiltTask',
+    'TaskNodeError',
+    'TaskQuiltError',
+    'TaskSenderForTarget',
+    'TaskShardError',
     'aggregate_per_shard',
     'fan_out',
     'fan_out_to_nodes',
@@ -44,9 +56,9 @@ __all__ = [
     'per_node_signatures',
     'per_shard_signatures',
     'plugin',
-    'task_for_active_shard',
-    'task_for_every_node',
-    'task_for_every_shard',
-    'task_for_node',
-    'task_for_shard',
+    'shared_task_for_active_shard',
+    'shared_task_for_every_node',
+    'shared_task_for_every_shard',
+    'shared_task_for_node',
+    'shared_task_for_shard',
 ]

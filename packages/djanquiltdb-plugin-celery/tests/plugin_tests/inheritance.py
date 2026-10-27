@@ -25,8 +25,8 @@ class InheritedTargetTestCase(PluginTestCase):
 
     def test_a_task_that_inherits_runs_in_the_active_shard(self):
         """
-        Case: record_inherited_target, decorated with task_for_active_shard, is sent without a target inside use_shard()
-              for remote.
+        Case: record_inherited_target, decorated with shared_task_for_active_shard, is sent without a target inside
+              use_shard() for remote.
         Expected: It runs in the schema of remote, and the header identifies remote by its primary key.
         """
         with use_shard(self.remote):
@@ -79,20 +79,21 @@ class InheritedTargetTestCase(PluginTestCase):
 
         send_task.assert_not_called()
 
-    def test_task_for_shard_inherits_when_it_is_told_to(self):
+    def test_shared_task_for_shard_inherits_when_it_is_told_to(self):
         """
-        Case: record_target_that_inherits, decorated with task_for_shard(inherit_active_shard=True), is sent without a
-              target inside use_shard() for remote.
-        Expected: It runs in the schema of remote, as a task that is decorated with task_for_active_shard does.
+        Case: record_target_that_inherits, decorated with shared_task_for_shard(inherit_active_shard=True), is sent
+              without a target inside use_shard() for remote.
+        Expected: It runs in the schema of remote, as a task that is decorated with shared_task_for_active_shard does.
         """
         with use_shard(self.remote):
             result = record_target_that_inherits.delay().get()
 
         self.assertEqual(node_and_schema_of(result), ('other', 'remote_schema'))
 
-    def test_task_for_shard_does_not_inherit_by_default(self):
+    def test_shared_task_for_shard_does_not_inherit_by_default(self):
         """
-        Case: record_target, decorated with task_for_shard, is sent without a target inside use_shard() for remote.
+        Case: record_target, decorated with shared_task_for_shard, is sent without a target inside use_shard() for
+              remote.
         Expected: TaskShardError, because the task does not inherit the active shard.
         """
         with use_shard(self.remote):

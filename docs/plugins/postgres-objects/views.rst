@@ -46,8 +46,8 @@ the caller is pointed at. A view does not: its body is resolved when the view is
 the schema it was created in. A public view over ``example_cake`` would therefore attempt to read a public schema's
 table regardless of which shard the query came from (which would generally result in an error).
 
-An unannotated declaration is public, exactly as for a function, so a declaration written for a single-database project
-keeps working once that project is sharded.
+A declaration without a placement decorator is public, exactly as for a function, and fails the system check
+``djanquiltdb_plugin_postgres_objects.E001`` (see :doc:`installation`).
 
 
 What a new shard inherits

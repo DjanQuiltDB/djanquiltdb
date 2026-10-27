@@ -4,25 +4,43 @@ from unittest import mock, skipIf, skipUnless
 import django.core.checks
 import django.core.checks.registry
 from django.apps import apps
+from django.conf import settings
+from django.contrib.sessions.models import Session
 from django.core.checks.registry import CheckRegistry, registry
 from django.core.management import call_command, get_commands, load_command_class
 from django.core.management.base import SystemCheckError
 from django.db import models, router
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import isolate_apps, override_system_checks
+from django.utils.decorators import async_only_middleware
+from django.utils.deprecation import MiddlewareMixin
 
+from djanquiltdb import STATES, State
 from djanquiltdb.apps import _patch_checks
 from djanquiltdb.checks import (
     MUTE_SETTING,
     PGTRIGGER_APP_NAME,
+    check_middleware_is_sync_capable,
+    check_models_have_a_sharding_mode,
+    check_models_on_a_single_node,
+    check_no_asgi_application,
     check_pgtrigger_compatibility,
+    check_shard_and_mapping_models_are_mirrored,
     check_trigger_writes_stay_in_their_sharding_mode,
+    check_views_are_sync,
     cross_mode_trigger_messages,
     written_tables,
 )
-from djanquiltdb.decorators import override_sharding_setting, public_model
+from djanquiltdb.decorators import (
+    mirrored_model,
+    override_sharding_setting,
+    public_model,
+    sharded_model,
+    single_node_unsharded_model,
+)
+from djanquiltdb.models import BaseShard
 from djanquiltdb.router import _placement_is_node_scoped
-from example.models import CakeType, DefaultUser, Organization, Type, User
+from example.models import CakeType, DefaultUser, Organization, Shard, Type, Unrelated, User
 
 # Only the dedicated tox environment installs django-pgtrigger and puts it in INSTALLED_APPS. Everywhere else the
 # check must stay silent, which is a case worth asserting in its own right.
@@ -261,11 +279,12 @@ class CrossModeTriggerMessagesTestCase(SimpleTestCase):
         self.assertEqual(message_ids(User, 'UPDATE "example_caketype" SET x = 1;'), [])
         self.assertEqual(message_ids(Type, 'UPDATE "example_type" SET x = 1;'), [])
 
-    def test_models_and_tables_without_a_sharding_mode_are_skipped(self):
+    def test_models_on_a_single_node_and_tables_without_a_model_are_skipped(self):
         """
-        Case: A trigger on DefaultUser, which has no sharding mode, that writes the sharded User, a trigger on the
+        Case: A trigger on DefaultUser, which is on a single node, that writes the sharded User, a trigger on the
               mirrored Type that writes DefaultUser, and one that writes a table that no model has.
-        Expected: No messages, because the check cannot tell where those tables are.
+        Expected: No messages, because the check has no pair of modes for a model on a single node, and cannot tell
+                  where a table without a model is.
         """
         self.assertEqual(message_ids(DefaultUser, 'UPDATE "example_user" SET x = 1;'), [])
         self.assertEqual(message_ids(Type, 'UPDATE "example_defaultuser" SET x = 1;'), [])
@@ -423,6 +442,309 @@ class TriggerWritesCheckTestCase(SimpleTestCase):
                 call_command('check', tags=['models'], stdout=StringIO(), stderr=StringIO())
 
 
+class ShardAndMappingModelsAreMirroredCheckTestCase(SimpleTestCase):
+    def test_check_is_registered(self):
+        """
+        Case: The app config has been readied, as it is for every test run.
+        Expected: The check is part of Django's check registry.
+        """
+        self.assertIn(check_shard_and_mapping_models_are_mirrored, registry.get_checks())
+
+    def test_the_models_of_this_suite_pass(self):
+        """
+        Case: The check runs for the Shard model and the mapping model of the test project, which are both mirrored.
+        Expected: No messages.
+        """
+        self.assertEqual(check_shard_and_mapping_models_are_mirrored(None), [])
+
+    @isolate_apps('djanquiltdb')
+    def test_a_shard_model_that_is_not_mirrored(self):
+        """
+        Case: The check runs while the Shard model of the project is a subclass of BaseShard without @mirrored_model.
+        Expected: djanquiltdb.E003 for the Shard model, whose message names the model.
+        """
+
+        class UndecoratedShard(BaseShard):
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with mock.patch('djanquiltdb.checks.get_shard_class', return_value=UndecoratedShard):
+            messages = check_shard_and_mapping_models_are_mirrored(None)
+
+        self.assertEqual([(message.id, message.obj) for message in messages], [('djanquiltdb.E003', UndecoratedShard)])
+        self.assertIn('djanquiltdb.UndecoratedShard', messages[0].msg)
+
+    @isolate_apps('djanquiltdb')
+    def test_a_mapping_model_that_is_not_mirrored(self):
+        """
+        Case: The check runs while the mapping model of the project is not decorated with @mirrored_model.
+        Expected: djanquiltdb.E003 for the mapping model.
+        """
+
+        class UndecoratedTenantShard(models.Model):
+            shard = models.ForeignKey(Shard, on_delete=models.CASCADE, related_name='+')
+            tenant_id = models.PositiveIntegerField()
+            state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
+
+            mapping_field = 'tenant_id'
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with mock.patch('djanquiltdb.checks.get_mapping_class', return_value=UndecoratedTenantShard):
+            messages = check_shard_and_mapping_models_are_mirrored(None)
+
+        self.assertEqual(
+            [(message.id, message.obj) for message in messages], [('djanquiltdb.E003', UndecoratedTenantShard)]
+        )
+
+    @override_sharding_setting('MAPPING_MODEL')
+    def test_a_project_without_a_mapping_model(self):
+        """
+        Case: The check runs in a project without QUILT_DB['MAPPING_MODEL'].
+        Expected: No messages, because only the Shard model has to be mirrored.
+        """
+        self.assertEqual(check_shard_and_mapping_models_are_mirrored(None), [])
+
+    @isolate_apps('djanquiltdb')
+    def test_only_the_models_of_the_given_apps_are_checked(self):
+        """
+        Case: The check runs for the example app only, while the Shard model of the djanquiltdb app is not mirrored, as
+              `manage.py check example` runs it.
+        Expected: No messages, because the Shard model is not a model of the example app.
+        """
+
+        class UndecoratedShard(BaseShard):
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with mock.patch('djanquiltdb.checks.get_shard_class', return_value=UndecoratedShard):
+            messages = check_shard_and_mapping_models_are_mirrored([apps.get_app_config('example')])
+
+        self.assertEqual(messages, [])
+
+
+def ids_and_objects(messages):
+    return [(message.id, message.obj) for message in messages]
+
+
+class ModelsHaveAShardingModeCheckTestCase(SimpleTestCase):
+    def test_check_is_registered(self):
+        """
+        Case: The app config has been readied, as it is for every test run.
+        Expected: The check is part of Django's check registry.
+        """
+        self.assertIn(check_models_have_a_sharding_mode, registry.get_checks())
+
+    def test_the_models_of_this_suite_pass(self):
+        """
+        Case: The check runs for the models of the test project, which all have a sharding mode, some of them through
+              OVERRIDE_SHARDING_MODE.
+        Expected: No messages.
+        """
+        self.assertEqual(check_models_have_a_sharding_mode(None), [])
+
+    @isolate_apps('example')
+    def test_a_model_without_a_sharding_mode(self):
+        """
+        Case: The check runs for a model without a decorator or an OVERRIDE_SHARDING_MODE entry, and for its proxy.
+        Expected: djanquiltdb.E004 for the model, whose message names it, and none for the proxy, which has no table of
+                  its own.
+        """
+
+        class ModelWithoutShardingMode(models.Model):
+            class Meta:
+                app_label = 'example'
+
+        class ProxyOfModelWithoutShardingMode(ModelWithoutShardingMode):
+            class Meta:
+                app_label = 'example'
+                proxy = True
+
+        with mock.patch.object(
+            apps, 'get_models', return_value=[ModelWithoutShardingMode, ProxyOfModelWithoutShardingMode]
+        ):
+            messages = check_models_have_a_sharding_mode(None)
+
+        self.assertEqual(ids_and_objects(messages), [('djanquiltdb.E004', ModelWithoutShardingMode)])
+        self.assertIn('example.ModelWithoutShardingMode', messages[0].msg)
+
+    @isolate_apps('example')
+    def test_only_the_models_of_the_given_apps_are_checked(self):
+        """
+        Case: The check runs for the djanquiltdb app only, while a model of the example app has no sharding mode.
+        Expected: No messages.
+        """
+
+        class ModelWithoutShardingMode(models.Model):
+            class Meta:
+                app_label = 'example'
+
+        with mock.patch.object(apps, 'get_models', return_value=[ModelWithoutShardingMode]):
+            messages = check_models_have_a_sharding_mode([apps.get_app_config('djanquiltdb')])
+
+        self.assertEqual(messages, [])
+
+
+class ModelsOnASingleNodeCheckTestCase(SimpleTestCase):
+    def test_check_is_registered(self):
+        """
+        Case: The app config has been readied, as it is for every test run.
+        Expected: The check is part of Django's check registry.
+        """
+        self.assertIn(check_models_on_a_single_node, registry.get_checks())
+
+    def test_the_models_of_this_suite(self):
+        """
+        Case: The check runs for the models of the test project, where Unrelated, DefaultUser and the Session model of
+              django.contrib.sessions are on the default node.
+        Expected: djanquiltdb.W004 for each of those three models, and nothing else.
+        """
+        messages = check_models_on_a_single_node(None)
+
+        self.assertCountEqual(
+            ids_and_objects(messages),
+            [
+                ('djanquiltdb.W004', Unrelated),
+                ('djanquiltdb.W004', DefaultUser),
+                ('djanquiltdb.W004', Session),
+            ],
+        )
+        self.assertIn("'default'", messages[0].msg)
+
+    @isolate_apps('example')
+    def test_a_node_that_is_not_in_databases(self):
+        """
+        Case: The check runs for a model on the node 'elsewhere', which DATABASES does not have.
+        Expected: djanquiltdb.W004 and djanquiltdb.E006 for the model.
+        """
+
+        @single_node_unsharded_model(node='elsewhere')
+        class ModelElsewhere(models.Model):
+            class Meta:
+                app_label = 'example'
+
+        with mock.patch.object(apps, 'get_models', return_value=[ModelElsewhere]):
+            messages = check_models_on_a_single_node(None)
+
+        self.assertEqual(
+            ids_and_objects(messages), [('djanquiltdb.W004', ModelElsewhere), ('djanquiltdb.E006', ModelElsewhere)]
+        )
+
+    @isolate_apps('example')
+    def test_relations_to_and_from_a_model_on_a_single_node(self):
+        """
+        Case: The check runs for foreign keys between a model on the default node, a model on the other node, the
+              sharded Organization, the mirrored Type and the public CakeType, and for a many-to-many field from the
+              model on the default node to Organization.
+        Expected: djanquiltdb.E005 for each relation that does not stay on the node of a model on a single node: from
+                  the sharded, mirrored and public models to the model on the default node, from the model on the
+                  default node to Organization, also through the many-to-many field, and between the two nodes. None
+                  for the relations from the model on the default node to Type, CakeType and a model on the same node.
+        """
+
+        @single_node_unsharded_model(node='default')
+        class OnDefault(models.Model):
+            organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='+')
+            type = models.ForeignKey(Type, on_delete=models.CASCADE, related_name='+')
+            cake_type = models.ForeignKey(CakeType, on_delete=models.CASCADE, related_name='+')
+            organizations = models.ManyToManyField(Organization, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        @single_node_unsharded_model(node='default')
+        class AlsoOnDefault(models.Model):
+            on_default = models.ForeignKey(OnDefault, on_delete=models.CASCADE, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        @single_node_unsharded_model(node='other')
+        class OnOther(models.Model):
+            on_default = models.ForeignKey(OnDefault, on_delete=models.CASCADE, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        @sharded_model()
+        class ShardedToDefault(models.Model):
+            on_default = models.ForeignKey(OnDefault, on_delete=models.CASCADE, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        @mirrored_model()
+        class MirroredToDefault(models.Model):
+            on_default = models.ForeignKey(OnDefault, on_delete=models.CASCADE, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        @public_model()
+        class PublicToDefault(models.Model):
+            on_default = models.ForeignKey(OnDefault, on_delete=models.CASCADE, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        through = OnDefault.organizations.through
+        isolated_models = [
+            OnDefault,
+            AlsoOnDefault,
+            OnOther,
+            ShardedToDefault,
+            MirroredToDefault,
+            PublicToDefault,
+            through,
+        ]
+
+        with mock.patch.object(apps, 'get_models', return_value=isolated_models):
+            messages = check_models_on_a_single_node(None)
+
+        errors = [message for message in messages if message.id == 'djanquiltdb.E005']
+
+        self.assertCountEqual(
+            [(message.obj, message.msg.split()[2]) for message in errors],
+            [
+                (OnDefault, 'organization'),
+                (OnOther, 'on_default'),
+                (ShardedToDefault, 'on_default'),
+                (MirroredToDefault, 'on_default'),
+                (PublicToDefault, 'on_default'),
+                (through, 'organization'),
+            ],
+        )
+        self.assertIn(
+            "The field on_default of example.OnOther, a model on the node 'other', refers to example.OnDefault, a model "
+            "on the node 'default'.",
+            [message.msg for message in errors],
+        )
+
+    @isolate_apps('example')
+    def test_a_relation_to_a_model_without_a_sharding_mode_is_left_to_e004(self):
+        """
+        Case: The check runs for a foreign key from a model on the default node to a model without a sharding mode.
+        Expected: No djanquiltdb.E005, because djanquiltdb.E004 reports the model without a sharding mode.
+        """
+
+        class ModelWithoutShardingMode(models.Model):
+            class Meta:
+                app_label = 'example'
+
+        @single_node_unsharded_model(node='default')
+        class OnDefault(models.Model):
+            other = models.ForeignKey(ModelWithoutShardingMode, on_delete=models.CASCADE, related_name='+')
+
+            class Meta:
+                app_label = 'example'
+
+        with mock.patch.object(apps, 'get_models', return_value=[OnDefault, ModelWithoutShardingMode]):
+            messages = check_models_on_a_single_node(None)
+
+        self.assertEqual(ids_and_objects(messages), [('djanquiltdb.W004', OnDefault)])
+
+
 def missing_field_constraint():
     return models.UniqueConstraint(fields=['missing'], name='unique_missing')
 
@@ -559,3 +881,208 @@ class NodeScopedPlacementInChecksTestCase(SimpleTestCase):
 
         self.assertEqual(len(missing_field_messages(messages, CakeType)), 1)
         self.assertEqual(len(missing_field_messages(direct_messages, CakeType)), 1)
+
+
+class AsyncViewsCheckTestCase(SimpleTestCase):
+    def test_check_is_registered(self):
+        """
+        Case: The app config has been readied, as it is for every test run.
+        Expected: The check is part of Django's check registry.
+        """
+        self.assertIn(check_views_are_sync, registry.get_checks())
+
+    def test_the_views_of_this_suite_pass(self):
+        """
+        Case: The check runs for the URL configuration of the test project, whose views are all sync.
+        Expected: No messages.
+        """
+        self.assertEqual(check_views_are_sync(None), [])
+
+    def test_a_project_without_a_url_configuration_passes(self):
+        """
+        Case: The check runs for a project whose settings have no ROOT_URLCONF, such as a project that only runs Celery
+              workers.
+        Expected: No messages, because the project has no views.
+        """
+        with self.settings():
+            del settings.ROOT_URLCONF
+
+            self.assertEqual(check_views_are_sync(None), [])
+
+    @override_settings(ROOT_URLCONF='djanquiltdb_tests.test_urlconfs.async_urlconf')
+    def test_async_views(self):
+        """
+        Case: The check runs for a URL configuration with a sync and an async function view, a sync and an async
+              class-based view, and a sync and an async function view behind an include().
+        Expected: djanquiltdb.E007 for each async view, and none for the sync views. Each message names the view and its
+                  route.
+        """
+        messages = check_views_are_sync(None)
+
+        self.assertEqual([message.id for message in messages], ['djanquiltdb.E007'] * 3)
+        self.assertIn('async_urlconf.async_function_view', messages[0].msg)
+        self.assertIn("'async-function/'", messages[0].msg)
+        self.assertIn('async_urlconf.AsyncClassView', messages[1].msg)
+        self.assertIn("'async-class/'", messages[1].msg)
+        self.assertIn('async_urlconf.async_function_view', messages[2].msg)
+        self.assertIn("'included/async/'", messages[2].msg)
+
+    @override_settings(ROOT_URLCONF='djanquiltdb_tests.test_urlconfs.partial_urlconf')
+    def test_an_async_view_wrapped_in_a_partial(self):
+        """
+        Case: The check runs for a URL configuration with an async function view that functools.partial() wraps, and a
+              view that is an instance of a class, which inspect.markcoroutinefunction() marks as async, and which has
+              no __qualname__.
+        Expected: djanquiltdb.E007 for both views. The message of the partial names the function that it wraps, and the
+                  message of the instance its repr.
+        """
+        messages = check_views_are_sync(None)
+
+        self.assertEqual([message.id for message in messages], ['djanquiltdb.E007'] * 2)
+        self.assertIn('async_urlconf.async_function_view', messages[0].msg)
+        self.assertIn("'partial/'", messages[0].msg)
+        self.assertIn('<async view instance>', messages[1].msg)
+        self.assertIn("'instance/'", messages[1].msg)
+
+    @override_settings(ROOT_URLCONF='djanquiltdb_tests.test_urlconfs.async_urlconf')
+    def test_silenced_system_checks_silence_it(self):
+        """
+        Case: The URL configuration has async views, SILENCED_SYSTEM_CHECKS lists djanquiltdb.E007, and `manage.py
+              check` runs.
+        Expected: The command succeeds, because Django's own setting is how a project acknowledges the error.
+        """
+        with override_settings(SILENCED_SYSTEM_CHECKS=['djanquiltdb.E007']):
+            call_command('check', tags=['urls'], stdout=StringIO(), stderr=StringIO())
+
+    @override_settings(ROOT_URLCONF='djanquiltdb_tests.test_urlconfs.async_urlconf')
+    def test_the_check_command_stops_at_the_error(self):
+        """
+        Case: The URL configuration has async views, and `manage.py check` runs.
+        Expected: The command fails with djanquiltdb.E007, as every command that runs the checks would.
+        """
+        with self.assertRaisesMessage(SystemCheckError, 'djanquiltdb.E007'):
+            call_command('check', tags=['urls'], stdout=StringIO(), stderr=StringIO())
+
+
+class SyncOnlyMiddleware:
+    sync_capable = True
+    async_capable = False
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        return self.get_response(request)
+
+
+class SyncAndAsyncMiddleware(MiddlewareMixin):
+    pass
+
+
+class AsyncOnlyMiddleware:
+    sync_capable = False
+    async_capable = True
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    async def __call__(self, request):
+        return await self.get_response(request)
+
+
+@async_only_middleware
+def async_only_middleware_factory(get_response):
+    async def middleware(request):
+        return await get_response(request)
+
+    return middleware
+
+
+class AsyncOnlyMiddlewareCheckTestCase(SimpleTestCase):
+    def test_check_is_registered(self):
+        """
+        Case: The app config has been readied, as it is for every test run.
+        Expected: The check is part of Django's check registry.
+        """
+        self.assertIn(check_middleware_is_sync_capable, registry.get_checks())
+
+    def test_the_middleware_of_this_suite_passes(self):
+        """
+        Case: The check runs for the MIDDLEWARE of the test project, which is all sync capable.
+        Expected: No messages.
+        """
+        self.assertEqual(check_middleware_is_sync_capable(None), [])
+
+    @override_settings(
+        MIDDLEWARE=[
+            'djanquiltdb_tests.checks.SyncOnlyMiddleware',
+            'djanquiltdb_tests.checks.SyncAndAsyncMiddleware',
+            'djanquiltdb_tests.checks.AsyncOnlyMiddleware',
+            'djanquiltdb_tests.checks.async_only_middleware_factory',
+        ]
+    )
+    def test_async_only_middleware(self):
+        """
+        Case: The check runs for a MIDDLEWARE with a sync-only middleware, a MiddlewareMixin middleware, an async-only
+              middleware class and a middleware factory marked with Django's @async_only_middleware.
+        Expected: djanquiltdb.E008 for the two async-only middlewares, whose messages name them, and none for the other
+                  two, whose hooks Django runs in the sync thread of the request.
+        """
+        messages = check_middleware_is_sync_capable(None)
+
+        self.assertEqual([message.id for message in messages], ['djanquiltdb.E008'] * 2)
+        self.assertIn('djanquiltdb_tests.checks.AsyncOnlyMiddleware', messages[0].msg)
+        self.assertIn('djanquiltdb_tests.checks.async_only_middleware_factory', messages[1].msg)
+
+    @override_settings(
+        MIDDLEWARE=[
+            'middleware_package_that_is_not_installed.Middleware',
+            'djanquiltdb_tests.checks.AsyncOnlyMiddleware',
+        ]
+    )
+    def test_a_middleware_that_does_not_import_is_left_to_django(self):
+        """
+        Case: The check runs for a MIDDLEWARE with a middleware whose package is not installed, as in a process that
+              runs migrate without the packages of the web server, and an async-only middleware.
+        Expected: djanquiltdb.E008 for the async-only middleware only, and no ImportError, because Django reports a
+                  middleware that does not import when it loads the request handler.
+        """
+        messages = check_middleware_is_sync_capable(None)
+
+        self.assertEqual([message.id for message in messages], ['djanquiltdb.E008'])
+        self.assertIn('djanquiltdb_tests.checks.AsyncOnlyMiddleware', messages[0].msg)
+
+
+class AsgiApplicationCheckTestCase(SimpleTestCase):
+    def test_check_is_registered(self):
+        """
+        Case: The app config has been readied, as it is for every test run.
+        Expected: The check is part of Django's check registry.
+        """
+        self.assertIn(check_no_asgi_application, registry.get_checks())
+
+    def test_the_settings_of_this_suite_pass(self):
+        """
+        Case: The check runs for the settings of the test project, which have no ASGI_APPLICATION.
+        Expected: No messages.
+        """
+        self.assertEqual(check_no_asgi_application(None), [])
+
+    @override_settings(ASGI_APPLICATION='config.asgi.application')
+    def test_an_asgi_application(self):
+        """
+        Case: The check runs while ASGI_APPLICATION is set, as Channels and Daphne have it set.
+        Expected: djanquiltdb.E009, whose message names the application.
+        """
+        messages = check_no_asgi_application(None)
+
+        self.assertEqual([message.id for message in messages], ['djanquiltdb.E009'])
+        self.assertIn('config.asgi.application', messages[0].msg)
+
+    @override_settings(ASGI_APPLICATION='config.asgi.application', SILENCED_SYSTEM_CHECKS=['djanquiltdb.E009'])
+    def test_silenced_system_checks_silence_it(self):
+        """
+        Case: ASGI_APPLICATION is set, SILENCED_SYSTEM_CHECKS lists djanquiltdb.E009, and `manage.py check` runs.
+        Expected: The command succeeds, because Django's own setting is how a project acknowledges the error.
+        """
+        call_command('check', tags=['compatibility'], stdout=StringIO(), stderr=StringIO())

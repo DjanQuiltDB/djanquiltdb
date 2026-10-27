@@ -1,5 +1,6 @@
 import contextlib
 import copy
+import inspect
 import logging
 from collections import defaultdict
 from functools import cache, wraps
@@ -22,9 +23,10 @@ from django.db.models.signals import (
 )
 from django.db.transaction import Atomic
 from django.dispatch import receiver
+from django.utils.asyncio import async_unsafe
 from django.utils.module_loading import import_string
 
-from djanquiltdb import ShardingMode, State, public_modes
+from djanquiltdb import PRIMARY_NODE, ShardingMode, SingleNodeUnsharded, State, public_modes
 from djanquiltdb.db import DefaultConnectionProxy
 from djanquiltdb.plugins import install_plugin_importer, served_plugin_module
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME, DatabaseWrapper
@@ -37,6 +39,13 @@ __path__ = []
 install_plugin_importer()
 
 logger = logging.getLogger(__name__)
+
+# The end of the message with which DjanQuiltDB refuses async code.
+NOT_ASYNC_SAFE = (
+    'DjanQuiltDB is not async-safe, because it keeps the active shard per thread. Enter the shard in sync code that '
+    'runs through sync_to_async or database_sync_to_async; the "Async code" guide of the documentation describes what '
+    'is safe.'
+)
 
 
 class StateException(Exception):
@@ -133,10 +142,13 @@ class use_shard(object):
     Once it holds the lock of the shard, a use_shard that is not inside an entered use_shard of the same shard reads the
     shard again, in one query, and raises StateException when ``move_shard_to_node`` or ``move_data_to_shard`` changed
     the shard after the shard that use_shard is given was read. ``use_shard_for()``, and a use_shard that is given a
-    mapping value, read the mapping value and its shard again instead. A use_shard inside an entered use_shard of the
-    same shard runs no statements when the entered use_shard holds the locks of the shard for the session, which it
-    does outside a transaction. Inside a transaction the locks last until the transaction ends, so a use_shard inside
-    an entered use_shard of the same shard takes its own locks and reads the shard again.
+    mapping value, read the mapping value and its shard again instead. A use_shard of a shard whose locks this
+    connection already holds for a use_shard that checked the shard runs no statements: outside a transaction while that
+    use_shard is entered, because it holds the locks for the session until it is left, and inside a transaction until
+    the transaction ends, or until a rollback to a savepoint that was set before the locks were taken, because
+    PostgreSQL holds transaction-scoped locks until then. A use_shard with ``active_only_schemas`` False does not check
+    the state, so a later use_shard of the shard that does check it takes the locks and reads the shard itself. So does
+    a use_shard after this connection took the exclusive lock of the shard, as a move command on this connection does.
 
     use_shard does not check that the schema of the shard exists when it is entered. The first query in a shard whose
     schema does not exist raises IntegrityError.
@@ -200,8 +212,9 @@ class use_shard(object):
         self._enabled = False
         self._locks_are_xact = False
         # The lock keys that this context adds to the lock counts of the node connection, and removes from those counts
-        # when it is left.
+        # when it is left, and whether it also adds them to the counts of the contexts that checked the state.
         self._counted_session_lock_keys = []
+        self._counted_session_lock_keys_checked_the_state = False
         # Whether this context took the locks of the shard itself, so that it releases them when it is left. A context
         # whose locks are held by other entered use_shard contexts takes no locks of its own, and neither does a
         # context that has no lock keys.
@@ -231,6 +244,12 @@ class use_shard(object):
         self.disable()
 
     def __call__(self, querying_func):
+        if inspect.iscoroutinefunction(querying_func):
+            # The sync wrapper below would leave the shard once it has created the coroutine, before its body runs.
+            raise NotImplementedError(
+                'use_shard cannot decorate the async function {}: {}'.format(querying_func.__qualname__, NOT_ASYNC_SAFE)
+            )
+
         @wraps(querying_func)
         def inner(*args, **kwargs):
             # Each call enters a copy of this context, so that a call inside another call of the function, and a call
@@ -318,6 +337,7 @@ class use_shard(object):
                 shard.state,
             )
 
+    @async_unsafe('use_shard cannot be entered on the event loop: ' + NOT_ASYNC_SAFE)
     def enable(self):
         from djanquiltdb.router import get_active_connection, set_active_connection  # Prevent cyclic imports
 
@@ -340,13 +360,20 @@ class use_shard(object):
 
         # Third: Take the advisory locks of the shard and of the mapping value (if there is one), and check the shard
         # again once this context holds the locks. Locks that are held for the session are added to the lock counts of
-        # the node connection. When other entered use_shard contexts hold all of these locks for the session, this
-        # context takes no locks and does not check the shard: those contexts hold the locks until after this context is
-        # left, so the move commands cannot change the shard in the meantime. A context for a node and a schema without
-        # a shard id or a mapping value has no locks to take, so it takes none and builds no connection.
+        # the node connection, and locks that are held for the transaction are recorded on it, with whether this context
+        # checked that the shard is active. When the node connection already holds all of these locks for a use_shard
+        # that checked the shard, this context takes no locks and does not check the shard: the locks are held until
+        # after this context is left, or until the transaction ends, so the move commands cannot have changed the shard
+        # since it was checked. A context that checks that the shard is active relies only on the locks of a use_shard
+        # that checked that too, so inside a use_shard with active_only_schemas False, it takes the locks and reads the
+        # shard itself. A context for a node and a schema without a shard id or a mapping value has no locks to take, so
+        # it takes none and builds no connection.
         lock_keys = self.options.lock_keys if self.options.lock else []
+        checks_that_the_shard_is_active = self._kwargs.get('active_only_schemas', True)
 
-        if lock_keys and not self._node_connection.entered_use_shards_hold_session_locks(lock_keys):
+        if lock_keys and not self._node_connection.entered_use_shards_hold_locks(
+            lock_keys, only_if_the_state_was_checked=checks_that_the_shard_is_active
+        ):
             self.acquire_lock()
 
             if self.options.shard_id is not None:
@@ -358,9 +385,17 @@ class use_shard(object):
 
             self._holds_its_own_locks = True
 
-            if not self._locks_are_xact:
+            if self._locks_are_xact:
+                self._node_connection.record_transaction_locks(
+                    lock_keys, with_a_check_of_the_state=checks_that_the_shard_is_active
+                )
+            else:
                 self._counted_session_lock_keys = lock_keys
-                self._node_connection.session_locks_of_entered_use_shards.update(self._counted_session_lock_keys)
+                self._counted_session_lock_keys_checked_the_state = checks_that_the_shard_is_active
+                self._node_connection.session_locks_of_entered_use_shards.update(lock_keys)
+
+                if checks_that_the_shard_is_active:
+                    self._node_connection.session_locks_of_entered_use_shards_that_checked_the_state.update(lock_keys)
 
         # Fourth: Set the new active schema
         set_active_connection(self.options)
@@ -382,7 +417,18 @@ class use_shard(object):
                 held_lock_keys = self._node_connection.session_locks_of_entered_use_shards
                 held_lock_keys.subtract(self._counted_session_lock_keys)
                 self._node_connection.session_locks_of_entered_use_shards = +held_lock_keys
+                # Once no entered context that holds a key is left, no check of the key is stale.
+                self._node_connection.session_lock_keys_whose_check_is_stale.intersection_update(+held_lock_keys)
+
+                if self._counted_session_lock_keys_checked_the_state:
+                    checked_lock_keys = self._node_connection.session_locks_of_entered_use_shards_that_checked_the_state
+                    checked_lock_keys.subtract(self._counted_session_lock_keys)
+                    self._node_connection.session_locks_of_entered_use_shards_that_checked_the_state = (
+                        +checked_lock_keys
+                    )
+
                 self._counted_session_lock_keys = []
+                self._counted_session_lock_keys_checked_the_state = False
 
             self.release_lock()
 
@@ -425,26 +471,28 @@ def get_shard_for(target_value, active_only=True, field=None):
             # settings
             QUILT_DB = {
                 'SHARD_CLASS': 'myapp.models.Shard',
-                'MAPPING_MODEL': 'myapp.models.MyMappingModel',
+                'MAPPING_MODEL': 'myapp.models.TenantShard',
             }
 
             # myapp.models
-            from djanquiltdb.decorators import shard_mapping_model
+            from djanquiltdb.decorators import mirrored_model, shard_mapping_model
             from djanquiltdb.models import BaseShard
             from djanquiltdb.utils import State
 
 
+            @mirrored_model()
             class Shard(BaseShard):
                 class Meta:
                     app_label = 'myapp'
 
 
-            @shard_mapping_model(mapping_field='organization_id')
-            class OrganizationShard(models.Model):
-                shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
-                organization_id = models.PositiveSmallIntegerField(db_index=True)
+            @mirrored_model()
+            @shard_mapping_model(mapping_field='tenant_slug')
+            class TenantShard(models.Model):
+                shard = models.ForeignKey('myapp.Shard', on_delete=models.CASCADE)
+                tenant_slug = models.SlugField(unique=True)
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
-                slug = models.SlugField(unique=True)
+                tenant_uuid = models.UUIDField(unique=True)
 
                 objects = MappingQuerySet.as_manager()
 
@@ -455,9 +503,9 @@ def get_shard_for(target_value, active_only=True, field=None):
             # myapp.views
             from djanquiltdb.utils import get_shard_for
 
-            print(get_shard_for(user.organization.id))  # <class 'myapp.models.Shard'>
-            print(get_shard_for(user.organization.id, active_only=True))  # StateException if state is not active
-            print(get_shard_for(user.organization.id, field='slug'))  # <class 'myapp.models.Shard'>
+            print(get_shard_for('acme'))  # <class 'myapp.models.Shard'>
+            print(get_shard_for('acme', active_only=True))  # StateException if state is not active
+            print(get_shard_for(tenant.uuid, field='tenant_uuid'))  # <class 'myapp.models.Shard'>
 
     """
     mapping_model = get_mapping_class()
@@ -508,24 +556,26 @@ class use_shard_for(use_shard):
             # Settings
             QUILT_DB = {
                 'SHARD_CLASS': 'myapp.models.Shard',
-                'MAPPING_MODEL': 'myapp.models.MyMappingModel',
+                'MAPPING_MODEL': 'myapp.models.TenantShard',
             }
 
             # myapp.models
-            from djanquiltdb.decorators import shard_mapping_model
+            from djanquiltdb.decorators import mirrored_model, shard_mapping_model
             from djanquiltdb.models import BaseShard
             from djanquiltdb.utils import State
 
 
+            @mirrored_model()
             class Shard(BaseShard):
                 class Meta:
                     app_label = 'myapp'
 
 
-            @shard_mapping_model(mapping_field='organization_id')
-            class OrganizationShard(models.Model):
-                shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
-                organization_id = models.PositiveSmallIntegerField(db_index=True)
+            @mirrored_model()
+            @shard_mapping_model(mapping_field='tenant_slug')
+            class TenantShard(models.Model):
+                shard = models.ForeignKey('myapp.Shard', on_delete=models.CASCADE)
+                tenant_slug = models.SlugField(unique=True)
                 state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
                 objects = MappingQuerySet.as_manager()
@@ -537,8 +587,8 @@ class use_shard_for(use_shard):
             # myapp.views
             from djanquiltdb.utils import use_shard_for
 
-            with use_shard_for(user.organization.id):
-                ...  # Do things on my shard
+            with use_shard_for('acme'):
+                ...  # Do things on the shard of the tenant acme
 
     """
 
@@ -587,6 +637,14 @@ def create_schema_on_node(schema_name, node_name=None, migrate=True):
 
     if migrate:
         connections[node_name].clone_schema(get_template_name(), schema_name)
+
+
+def table_exists(connection, db_table):
+    """
+    Whether the schema of ``connection`` has a table named ``db_table``.
+    """
+    with connection.cursor() as cursor:
+        return db_table in connection.introspection.table_names(cursor)
 
 
 def delete_schema(schema_name, node_name, is_template=False):
@@ -704,7 +762,14 @@ def for_each_shard(func, args=(), kwargs=None, as_id=False):
             for_each_shard(sharded_function, kwargs={'prefix': 'shard-'}, as_id=True)
 
     """
-    for shard in get_shard_class().objects.all():
+    if inspect.iscoroutinefunction(func):
+        raise NotImplementedError(
+            'for_each_shard cannot call the async function {}: {}'.format(func.__qualname__, NOT_ASYNC_SAFE)
+        )
+
+    shard_class = get_shard_class()
+
+    for shard in shard_class.objects.using(public_schema_alias_for_reading(shard_class)):
         if as_id:
             func(*args, shard_id=shard.id, **(kwargs or {}))
         else:
@@ -761,9 +826,16 @@ def get_model_definition(model):
     return model
 
 
-def get_model_sharding_mode(model):
+def get_model_placement(model):
+    """
+    Returns the sharding mode of a model and the alias of its node as ``get_placement()`` returns them.
+    """
     model_class = get_model_definition(model)
-    return get_sharding_mode(model_class._meta.app_label, model_class._meta.model_name)
+    return get_placement(model_class._meta.app_label, model_class._meta.model_name)
+
+
+def get_model_sharding_mode(model):
+    return get_model_placement(model)[0]
 
 
 class OverrideShardingModeWithLowercaseKeys(dict):
@@ -773,15 +845,29 @@ class OverrideShardingModeWithLowercaseKeys(dict):
     """
 
 
-def get_declared_sharding_mode(model):
+def placement_of_sharding_mode_value(value):
     """
-    Returns the sharding mode that is declared for a model class, or None when nothing declares one.
+    Returns the sharding mode and the node of a value that names a sharding mode: an ``OVERRIDE_SHARDING_MODE`` entry
+    or a ``sharding_mode`` hint of a migration operation. The node is None for every mode but
+    ``SINGLE_NODE_UNSHARDED``, whose value can be a ``SingleNodeUnsharded``.
+    """
+    if isinstance(value, SingleNodeUnsharded):
+        return ShardingMode.SINGLE_NODE_UNSHARDED, value.node
 
-    The mode is resolved in the same way as the router resolves it, but only from the class, so this also works while
-    models are still being defined. An ``OVERRIDE_SHARDING_MODE`` entry takes precedence over the mode decorator, and
-    its keys are compared in lowercase, because before ``AppConfig.ready()`` they have the casing of the settings file.
-    A proxy model gets the mode of its concrete model, and an auto-created model gets the mode of the model that caused
-    its creation.
+    return value, None
+
+
+def get_declared_placement(model):
+    """
+    Returns the sharding mode that is declared for a model class and, for ``SINGLE_NODE_UNSHARDED``, the node that is
+    declared for it, as a ``(mode, node)`` pair. The mode is None when nothing declares one, and the node is None for
+    every other mode. The node is the alias or ``PRIMARY_NODE`` as declared; ``resolve_node_alias()`` resolves it.
+
+    The placement is resolved in the same way as the router resolves it, but only from the class, so this also works
+    while models are still being defined. An ``OVERRIDE_SHARDING_MODE`` entry takes precedence over the mode decorator,
+    and its keys are compared in lowercase, because before ``AppConfig.ready()`` they have the casing of the settings
+    file. A proxy model gets the placement of its concrete model, and an auto-created model gets the placement of the
+    model that caused its creation.
     """
     override_sharding_mode = settings.QUILT_DB.get('OVERRIDE_SHARDING_MODE', {})
 
@@ -794,43 +880,96 @@ def get_declared_sharding_mode(model):
 
     for key in ((opts.app_label, opts.model_name), (opts.app_label,)):
         if key in override_sharding_mode:
-            return override_sharding_mode[key]
+            return placement_of_sharding_mode_value(override_sharding_mode[key])
 
     mode = getattr(model, '__sharding_mode', None)
 
     if mode is None and opts.proxy:
         # A proxy of a third-party model has no marker of its own, and its table is the table of the concrete model.
-        return get_declared_sharding_mode(opts.concrete_model)
+        return get_declared_placement(opts.concrete_model)
 
     if mode is None and opts.auto_created:
-        return get_declared_sharding_mode(opts.auto_created)
+        return get_declared_placement(opts.auto_created)
 
-    return mode
+    # A subclass of a model on a single node inherits the node, also when it is decorated with another mode.
+    return mode, getattr(model, '__single_node', None) if mode is ShardingMode.SINGLE_NODE_UNSHARDED else None
 
 
-def get_sharding_mode(app_label, model_name):
+def get_declared_sharding_mode(model):
+    """
+    Returns the sharding mode that is declared for a model class, or None when nothing declares one. See
+    ``get_declared_placement()`` for how it is resolved.
+    """
+    return get_declared_placement(model)[0]
+
+
+def resolve_node_alias(node):
+    """
+    Returns the alias of ``node``: ``PRIMARY_DB_ALIAS`` for ``PRIMARY_NODE``, and ``node`` itself for an alias.
+    """
+    return get_primary_db_alias() if node is PRIMARY_NODE else node
+
+
+def get_model_single_node_alias(model):
+    """
+    Returns the alias of the node of a model whose sharding mode is ``SINGLE_NODE_UNSHARDED``, or None for a model in
+    any other mode or without one.
+    """
+    node = get_declared_placement(get_model_definition(model))[1]
+    return None if node is None else resolve_node_alias(node)
+
+
+def get_placement(app_label, model_name):
+    """
+    Returns the sharding mode of the model ``app_label.model_name`` and, for ``SINGLE_NODE_UNSHARDED``, the alias of its
+    node, as a ``(mode, node)`` pair. The node is None for every other mode. The mode is None for an operation without a
+    model name that no ``OVERRIDE_SHARDING_MODE`` entry places, and False for a model that declares no mode.
+    """
     override_sharding_mode = settings.QUILT_DB.get('OVERRIDE_SHARDING_MODE', {})
 
     # The override is read before the model is looked up, because the router also asks about migration operations that
     # name no model, and about models that the app registry does not have, such as a model that a later migration
-    # deletes. get_declared_sharding_mode() reads it again for the models that the registry has.
-    if override_sharding_mode:
-        if (app_label, model_name) in override_sharding_mode:
-            # The configuration overrides the sharding_mode for a model in an app
-            return override_sharding_mode[(app_label, model_name)]
-        elif (app_label,) in override_sharding_mode:
-            # The configuration overrides the sharding_mode for all models in an app
-            return override_sharding_mode[(app_label,)]
+    # deletes. get_declared_placement() reads it again for the models that the registry has.
+    for key in ((app_label, model_name), (app_label,)):
+        if key in override_sharding_mode:
+            mode, node = placement_of_sharding_mode_value(override_sharding_mode[key])
+            return mode, None if node is None else resolve_node_alias(node)
 
-    # Explicitly skip the migration model, since that one is both sharded and mirrored, so we can't determine the
-    # sharding mode
+    # The migration model is skipped, because it is both sharded and mirrored, so it has no one sharding mode.
     if not model_name or (app_label, model_name) == ('migrations', 'migration'):
-        return None
+        return None, None
 
-    mode = get_declared_sharding_mode(apps.get_model(app_label, model_name))
+    mode, node = get_declared_placement(apps.get_model(app_label, model_name))
 
     # Callers of this function expect False, and not None, when no mode is declared.
-    return False if mode is None else mode
+    return False if mode is None else mode, None if node is None else resolve_node_alias(node)
+
+
+def relation_with_a_model_on_a_single_node_is_allowed(*, referred_mode, referred_node, referring_mode, referring_node):
+    """
+    Whether a relation is allowed from the model with ``referring_mode`` and ``referring_node`` to the model with
+    ``referred_mode`` and ``referred_node``, when either model is on a single node. Only a model on the same node may
+    refer to a model on a single node, and a model on a single node may refer only to a public or mirrored model, which
+    every node has. Returns None when neither model is on a single node. The router and the system check
+    djanquiltdb.E005 both answer with this function.
+    """
+    single_node = ShardingMode.SINGLE_NODE_UNSHARDED
+
+    if referred_mode is single_node:
+        return referring_mode is single_node and referring_node == referred_node
+
+    if referring_mode is single_node:
+        return referred_mode in public_modes
+
+    return None
+
+
+def get_sharding_mode(app_label, model_name):
+    """
+    Returns the sharding mode of the model ``app_label.model_name``. See ``get_placement()``, which also returns its
+    node.
+    """
+    return get_placement(app_label, model_name)[0]
 
 
 def get_all_sharded_models(include_auto_created=False, include_proxy=False):
@@ -929,6 +1068,11 @@ def for_each_node(func, args=(), kwargs=None):
             for_each_node(sharded_function, kwargs={'prefix': 'node-'})  # {'default': 'node-default'}
 
     """
+    if inspect.iscoroutinefunction(func):
+        raise NotImplementedError(
+            'for_each_node cannot call the async function {}: {}'.format(func.__qualname__, NOT_ASYNC_SAFE)
+        )
+
     return_values = {}
     for node_name in get_all_databases():
         return_values[node_name] = func(*args, node_name=node_name, **(kwargs or {}))

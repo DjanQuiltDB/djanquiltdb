@@ -1,3 +1,69 @@
+v 4.5.0 (2026-10-27)
+--------------------
+Added:
+ * Migration operation ``CreateMissingMirroredTable``, which creates the table of a (newly) mirrored model on nodes
+   which don't (yet) have it.
+ * ``@single_node_unsharded_model(node)``, and ``single_node_unsharded(node)`` for ``OVERRIDE_SHARDING_MODE``, which
+   keep a model on one node. Strongly discouraged, only intended for very specific and narrow use cases. Refer to the
+   documentation.
+ * System checks for unmirrored Shard/mapping models, models without sharding modes, and single-node models.
+ * ``migrate`` now creates the template schema of every node that it migrates and that has none before it applies any
+   migration, unless ``QUILT_DB['AUTO_CREATE_TEMPLATE_SCHEMA']`` is False.
+ * Plugin API serving extended to ``djanquiltdb.base.<name>``.
+ * Documentation notes on risks of using the library with async code, plus warnings and system checks about its
+   compatibility gaps.
+
+Removed:
+ * The rebuild of a database clone with new migrations under ``--keepdb`` with ``--parallel``, added in 4.0.1. It
+   works around a bug of Django (Django ticket 26822) and not, as previously thought, a bug in this library.
+
+Altered:
+ * **Warning:** ``migrate`` now creates the template schemas itself. A project that connects a ``pre_migrate``
+   receiver of its own to create them, as the installation documentation suggested in 4.4.0 and earlier, should either
+   remove that receiver or explicitly disable the library default by setting ``QUILT_DB['AUTO_CREATE_TEMPLATE_SCHEMA']``
+   to False.
+ * **Warning:** DjanQuiltDB now refuses async code where it can be easily detected. Pre-existing code might now trip
+   these checks even though no behavioral change has occurred.
+ * Fixed the plugin API leaking plugin-internal imports to ``djanquiltdb.decorators``.
+ * Fixed the request middleware, quilt_admin, ``for_each_shard()``, ``purge_shard_data`` and saving an existing shard
+   raising ``ProgrammingError`` inside ``use_shard(include_public=False)``.
+ * Fixed the session backend raising ``DoesNotExist`` of the mapping model for a session key that holds no selector
+   matching ``SHARD_SELECTOR_REGEX``, or a selector that the mapping table no longer has.
+ * Fixed quilt_admin inconsistently dividing shard registry and mapping model reads between primary and active nodes.
+ * Fixed ``move_shard_to_node`` and ``move_data_to_shard`` reading shard registry on a different node than where they
+   write to it.
+ * Fixed saving a shard with ``using`` looking up the shard in the registry in a different node than it would save to.
+ * Fixed a query in a shard running in the public schema after ``transaction.savepoint_rollback()`` rolled back a
+   failed query in that shard.
+ * Speed improvement in reading and setting attributes of shard connections. No change in behavior.
+ * ``use_shard()`` and ``use_shard_for()`` now acquire and release advisory locks of a shard in single statements.
+ * Shard connections locking each statement now acquire and release advisory locks of a shard in single statements.
+ * Inside a transaction, ``use_shard()`` and ``use_shard_for()`` no longer acquire locks or re-read a shard when an
+   earlier ``use_shard()`` of the same shard already did so for that shard, nested or not. Safe because PostgreSQL holds
+   those locks until the transaction ends. A rollback to a savepoint that was set before the locks were acquired
+   releases them, and the next ``use_shard()`` re-acquires them.
+ * Fixed ``use_shard()`` and ``use_shard_for()`` not checking that a shard is active when an earlier
+   ``use_shard(active_only_schemas=False)`` of that shard held its locks.
+ * Fixed creating a queryset in a shard building two shard connections.
+ * Fixed ``loaddata`` creating and migrating the template schema for every fixture file, and migrating a template schema
+   that it created twice.
+ * Fixed ``loaddata`` ignoring ``--exclude`` and the router for fixtures with ``_schema`` entries.
+ * Fixed ``loaddata`` looking up natural keys on the default node, and failing on a natural key that names a later
+   entry.
+ * Fixed ``loaddata`` failing on JSON Lines fixtures and on fixtures read from stdin.
+ * ``loaddata`` now saves the entries of a fixture in the order of the fixture, and its output is the line of Django's
+   ``loaddata``, with the counts of all fixtures.
+ * Fixed a statement that fails inside a savepoint closing the database connection, which made the rest of the
+   enclosing transaction fail with "the connection is closed". Outside a transaction, a connection that is usable again
+   after an error is checked once instead of on every cursor.
+ * Fixed a statement that fails on the node inside a savepoint of a shard, such as a write to a mirrored model in an
+   inner ``transaction.atomic()``, ending the whole transaction instead of rolling back to the savepoint.
+ * Fixed ``use_shard()`` and ``use_shard_for()`` entering the old node or schema of a shard that a move command moved on
+   the same connection, inside an entered ``use_shard()`` of that shard or later in its transaction.
+ * Fixed a quilt_admin session override of a shard or a mapping value that no longer exists breaking every admin page.
+ * Fixed a subclass of ``BaseUseShardMiddleware`` or ``BaseUseShardForMiddleware`` raising ``DoesNotExist`` for a shard
+   or a mapping value that no longer exists.
+
 v 4.4.0 (2026-10-22)
 --------------------
 Added:

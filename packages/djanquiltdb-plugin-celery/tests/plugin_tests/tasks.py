@@ -1,12 +1,14 @@
 from unittest import mock
 
 from celery import Task, group, signals
+from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from djanquiltdb.router import get_active_connection
 from djanquiltdb.utils import StateException, use_shard
 
 from config.celery import app
-from djanquiltdb_plugin_celery.decorators import task_for_shard
+from djanquiltdb_plugin_celery.celery_app import QuiltCelery
+from djanquiltdb_plugin_celery.decorators import shared_task_for_shard
 from djanquiltdb_plugin_celery.targets import TARGET_HEADER_NAME, TaskNodeError, TaskQuiltError, TaskShardError
 from djanquiltdb_plugin_celery.tasks import QuiltTask
 from example.models import TenantShard, Widget
@@ -19,6 +21,8 @@ from example.tasks import (
     record_received_shard_id,
     record_received_tenant_id,
     record_schema_and_shard,
+    record_schema_of_shard_id,
+    record_schema_of_tenant,
     record_target,
     record_target_with_one_retry,
     record_target_without_lock,
@@ -28,6 +32,10 @@ from plugin_tests.base import PluginTestCase
 
 def node_and_schema_of(result):
     return result['node_name'], result['schema_name']
+
+
+def function_to_decorate(**kwargs):
+    pass  # pragma: no cover
 
 
 class SendingTestCase(PluginTestCase):
@@ -58,7 +66,7 @@ class SendingTestCase(PluginTestCase):
 
     def test_a_node_task_runs_in_the_public_schema_of_its_node_name(self):
         """
-        Case: record_node, decorated with task_for_node, is sent with node_name='other'.
+        Case: record_node, decorated with shared_task_for_node, is sent with node_name='other'.
         Expected: It runs in the public schema of the other node, without a lock, and the header identifies that schema.
                   Its function does not receive node_name.
         """
@@ -71,7 +79,8 @@ class SendingTestCase(PluginTestCase):
 
     def test_a_node_name_is_an_ordinary_keyword_argument_of_a_shard_task(self):
         """
-        Case: record_target, decorated with task_for_shard, is sent with the shard_id of remote and node_name='other'.
+        Case: record_target, decorated with shared_task_for_shard, is sent with the shard_id of remote and
+              node_name='other'.
         Expected: It runs in the schema of remote, and its function receives node_name, because node_name does not
                   identify the shard of a shard task.
         """
@@ -80,17 +89,17 @@ class SendingTestCase(PluginTestCase):
         self.assertEqual(node_and_schema_of(result), ('other', 'remote_schema'))
         self.assertEqual(result['kwargs'], {'node_name': 'other'})
 
-    def test_a_shard_task_with_only_a_node_name_points_at_task_for_node(self):
+    def test_a_shard_task_with_only_a_node_name_points_at_shared_task_for_node(self):
         """
-        Case: record_target, decorated with task_for_shard, is sent with node_name='other' and no shard.
-        Expected: TaskShardError, whose message says that a task that runs on a node is decorated with task_for_node.
+        Case: record_target, decorated with shared_task_for_shard, is sent with node_name='other' and no shard.
+        Expected: TaskShardError, whose message says to decorate a task that runs on a node with shared_task_for_node.
         """
-        with self.assertRaisesMessage(TaskShardError, 'decorated with task_for_node'):
+        with self.assertRaisesMessage(TaskShardError, 'Decorate a task that runs on a node with shared_task_for_node'):
             record_target.delay(node_name='other')
 
     def test_a_node_task_without_a_node_name_is_not_sent(self):
         """
-        Case: record_node, decorated with task_for_node, is sent without a node_name.
+        Case: record_node, decorated with shared_task_for_node, is sent without a node_name.
         Expected: TaskNodeError, whose message includes the task, and which is a TaskQuiltError.
         """
         with self.assertRaisesMessage(TaskNodeError, 'example.tasks.record_node has no node'):
@@ -98,12 +107,12 @@ class SendingTestCase(PluginTestCase):
 
         self.assertTrue(issubclass(TaskNodeError, TaskQuiltError))
 
-    def test_a_node_task_with_only_a_shard_id_points_at_task_for_shard(self):
+    def test_a_node_task_with_only_a_shard_id_points_at_shared_task_for_shard(self):
         """
-        Case: record_node, decorated with task_for_node, is sent with the shard_id of first and no node_name.
-        Expected: TaskNodeError, whose message says that a task that runs in a shard is decorated with task_for_shard.
+        Case: record_node, decorated with shared_task_for_node, is sent with the shard_id of first and no node_name.
+        Expected: TaskNodeError, whose message says to decorate a task that runs in a shard with shared_task_for_shard.
         """
-        with self.assertRaisesMessage(TaskNodeError, 'decorated with task_for_shard'):
+        with self.assertRaisesMessage(TaskNodeError, 'Decorate a task that runs in a shard with shared_task_for_shard'):
             record_node.delay(shard_id=self.first.id)
 
     def test_the_target_travels_in_a_message_header(self):
@@ -299,8 +308,8 @@ class TargetKeywordArgumentTestCase(PluginTestCase):
 
     def test_a_function_that_declares_shard_id_receives_the_shard_of_a_header_or_of_the_active_shard(self):
         """
-        Case: record_received_shard_id, decorated with task_for_active_shard, is sent without keyword arguments: with a
-              target header that identifies remote, and inside use_shard() for first.
+        Case: record_received_shard_id, decorated with shared_task_for_active_shard, is sent without keyword arguments:
+              with a target header that identifies remote, and inside use_shard() for first.
         Expected: The function receives the shard_id of remote, and then the shard_id of first.
         """
         from_header = record_received_shard_id.apply_async(
@@ -323,8 +332,8 @@ class TargetKeywordArgumentTestCase(PluginTestCase):
 
     def test_a_function_that_declares_node_name_receives_the_node_name(self):
         """
-        Case: record_received_node_name, decorated with task_for_node, whose function declares node_name, is sent with
-              node_name='other', and then with for_node('other') and no keyword arguments.
+        Case: record_received_node_name, decorated with shared_task_for_node, whose function declares node_name, is sent
+              with node_name='other', and then with for_node('other') and no keyword arguments.
         Expected: The function receives 'other' both times.
         """
         self.assertEqual(record_received_node_name.delay(node_name='other').get(), 'other')
@@ -361,7 +370,7 @@ class TargetKeywordArgumentTestCase(PluginTestCase):
         Expected: The message is published, as Celery publishes a task with typing=False without a check.
         """
 
-        @task_for_shard(name='plugin_tests.tasks.without_typing', typing=False)
+        @shared_task_for_shard(name='plugin_tests.tasks.without_typing', typing=False)
         def without_typing():
             pass  # pragma: no cover
 
@@ -369,6 +378,66 @@ class TargetKeywordArgumentTestCase(PluginTestCase):
             without_typing.delay('anvil', shard_id=self.first.id)
 
         send_task.assert_called_once()
+
+
+class PositionalTargetTestCase(PluginTestCase):
+    """
+    A function that declares the parameter that identifies its target, shard_id or the mapping keyword argument, can
+    receive the target by position, as any argument of a function can be passed.
+    """
+
+    def test_a_shard_id_that_is_passed_by_position_is_the_target(self):
+        """
+        Case: record_schema_of_shard_id, whose function takes shard_id, is sent with the shard_id of remote by position.
+        Expected: It runs in the schema of remote, and the function receives the shard_id that was passed.
+        """
+        result = record_schema_of_shard_id.delay(self.remote.id).get()
+
+        self.assertEqual(result, ['remote_schema', self.remote.id])
+
+    def test_a_mapping_value_that_is_passed_by_position_is_the_target(self):
+        """
+        Case: record_schema_of_tenant, whose function takes tenant_id and label, is sent with tenant 2 and a label, both
+              by position.
+        Expected: It runs in the schema of remote, the shard of tenant 2, and the function receives both arguments.
+        """
+        result = record_schema_of_tenant.delay(2, 'invoice').get()
+
+        self.assertEqual(result, ['remote_schema', 2, 'invoice'])
+
+    def test_a_task_called_as_a_function_takes_its_target_by_position(self):
+        """
+        Case: record_schema_of_shard_id is called as a function with the shard_id of first by position.
+        Expected: It runs in the schema of first.
+        """
+        self.assertEqual(record_schema_of_shard_id(self.first.id), ['first_schema', self.first.id])
+
+    def test_a_signature_takes_its_target_by_position(self):
+        """
+        Case: A signature of record_schema_of_shard_id is built with the shard_id of remote by position, and sent.
+        Expected: It runs in the schema of remote.
+        """
+        result = record_schema_of_shard_id.s(self.remote.id).apply_async().get()
+
+        self.assertEqual(result, ['remote_schema', self.remote.id])
+
+    def test_a_target_by_position_and_another_by_keyword_are_two_targets(self):
+        """
+        Case: record_schema_of_tenant is sent with tenant 2 by position and the shard_id of first by keyword.
+        Expected: TaskShardError before anything is sent, as for two shards in the keyword arguments.
+        """
+        with mock.patch.object(app, 'send_task') as send_task, self.assertRaises(TaskShardError):
+            record_schema_of_tenant.delay(2, 'invoice', shard_id=self.first.id)
+
+        send_task.assert_not_called()
+
+    def test_for_shard_refuses_a_target_by_position_as_well(self):
+        """
+        Case: record_schema_of_shard_id is sent through for_shard(first) with the shard_id of remote by position.
+        Expected: TaskShardError, whose message says that the arguments identify a shard as well.
+        """
+        with self.assertRaisesMessage(TaskShardError, 'its arguments identify a shard as well'):
+            record_schema_of_shard_id.for_shard(self.first).delay(self.remote.id)
 
 
 class SendingToATargetTestCase(PluginTestCase):
@@ -515,7 +584,7 @@ class SendingToATargetTestCase(PluginTestCase):
 
     def test_for_shard_on_a_fan_out_task_runs_in_that_shard_only(self):
         """
-        Case: record_every_shard, decorated with task_for_every_shard, is sent with for_shard(remote).delay().
+        Case: record_every_shard, decorated with shared_task_for_every_shard, is sent with for_shard(remote).delay().
         Expected: It runs in remote, and sends nothing.
         """
         result = record_every_shard.for_shard(self.remote).delay().get()
@@ -697,7 +766,7 @@ class DecoratorOptionsTestCase(PluginTestCase):
         Expected: The task has the values of the settings.
         """
 
-        @task_for_shard(name='plugin_tests.tasks.retry_settings')
+        @shared_task_for_shard(name='plugin_tests.tasks.retry_settings')
         def retry_settings():
             pass  # pragma: no cover
 
@@ -717,7 +786,7 @@ class DecoratorOptionsTestCase(PluginTestCase):
         Expected: Five retries with a backoff of 5 seconds, at most 60 seconds, without jitter.
         """
 
-        @task_for_shard(name='plugin_tests.tasks.retry_defaults')
+        @shared_task_for_shard(name='plugin_tests.tasks.retry_defaults')
         def retry_defaults():
             pass  # pragma: no cover
 
@@ -731,35 +800,46 @@ class DecoratorOptionsTestCase(PluginTestCase):
             (5, 5, 60, False),
         )
 
-    @override_settings(QUILT_CELERY=None)
-    def test_a_setting_that_is_not_a_dict_gives_the_default_retries(self):
+    def test_a_setting_that_is_not_a_dict_fails_when_the_app_registers_the_task(self):
         """
-        Case: A task is decorated while QUILT_CELERY is None, before the system check reports the setting, as a tasks
-              module can be imported before the system checks run.
-        Expected: The task is created, with five retries with a backoff of 5 seconds, at most 60 seconds, without
-                  jitter.
+        Case: QUILT_CELERY is None. A task of an app that is not finalized yet is decorated, and then the app is
+              finalized.
+        Expected: The decoration raises nothing, so that a tasks module imports and the system check can report the
+                  setting. The finalization, which registers the task, raises ImproperlyConfigured.
         """
+        later_app = QuiltCelery('later_app', set_as_current=False)
 
-        @task_for_shard(name='plugin_tests.tasks.retry_defaults_without_a_dict')
-        def retry_defaults_without_a_dict():
-            pass  # pragma: no cover
+        with override_settings(QUILT_CELERY=None):
+            later_app.task_for_shard(name='plugin_tests.tasks.retries_without_a_dict', shared=False)(
+                function_to_decorate
+            )
 
-        self.assertEqual(
-            (
-                retry_defaults_without_a_dict.max_retries,
-                retry_defaults_without_a_dict.retry_backoff,
-                retry_defaults_without_a_dict.retry_backoff_max,
-                retry_defaults_without_a_dict.retry_jitter,
-            ),
-            (5, 5, 60, False),
+            with self.assertRaisesMessage(ImproperlyConfigured, 'QUILT_CELERY is not a dict'):
+                later_app.finalize()
+
+    def test_the_retry_settings_are_read_when_the_app_registers_the_task(self):
+        """
+        Case: A task of an app that is not finalized yet is decorated while QUILT_CELERY sets no retry setting. Then
+              QUILT_CELERY sets MAX_RETRIES to 2, and the app is finalized.
+        Expected: The task has two retries, because the app reads the retry settings when it registers the task.
+        """
+        later_app = QuiltCelery('later_app', set_as_current=False)
+        task = later_app.task_for_shard(name='plugin_tests.tasks.retries_read_at_registration', shared=False)(
+            function_to_decorate
         )
+
+        with override_settings(QUILT_CELERY={'MAX_RETRIES': 2}):
+            later_app.finalize()
+
+        self.assertEqual(task.max_retries, 2)
 
     def test_one_decorator_with_options_can_decorate_two_functions(self):
         """
-        Case: task_for_shard(bind=True) is called once, and the decorator that it returns decorates two functions.
+        Case: shared_task_for_shard(bind=True) is called once, and the decorator that it returns decorates two
+              functions.
         Expected: Both functions receive the task, so the first decoration leaves the options of the second unchanged.
         """
-        bound_task = task_for_shard(bind=True)
+        bound_task = shared_task_for_shard(bind=True)
 
         @bound_task
         def first_bound_function(self, **kwargs):
@@ -783,7 +863,7 @@ class DecoratorOptionsTestCase(PluginTestCase):
             def on_success(self, retval, task_id, args, kwargs):
                 successes.append(retval)
 
-        @task_for_shard(name='plugin_tests.tasks.with_a_base_of_its_own', base=RecordingTask)
+        @shared_task_for_shard(name='plugin_tests.tasks.with_a_base_of_its_own', base=RecordingTask)
         def with_a_base_of_its_own(**kwargs):
             return get_active_connection().schema_name
 
@@ -799,7 +879,7 @@ class DecoratorOptionsTestCase(PluginTestCase):
         """
         with self.assertRaisesMessage(TypeError, 'QuiltTask'):
 
-            @task_for_shard(name='plugin_tests.tasks.with_a_plain_base', base=Task)
+            @shared_task_for_shard(name='plugin_tests.tasks.with_a_plain_base', base=Task)
             def with_a_plain_base(**kwargs):
                 pass  # pragma: no cover
 
@@ -809,7 +889,7 @@ class DecoratorOptionsTestCase(PluginTestCase):
         Expected: The task retries StateException and KeyError.
         """
 
-        @task_for_shard(name='plugin_tests.tasks.retry_key_errors', autoretry_for=(KeyError,))
+        @shared_task_for_shard(name='plugin_tests.tasks.retry_key_errors', autoretry_for=(KeyError,))
         def retry_key_errors():
             pass  # pragma: no cover
 

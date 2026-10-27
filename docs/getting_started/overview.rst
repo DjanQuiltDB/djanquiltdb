@@ -88,12 +88,13 @@ mapping table.
    :alt: Mapping table
    :align: center
 
-This table is essentially a lookup table to know which tenant lives on which shard. This table is created by the
-library user, but has certain formatting rules. It must have a relation to the Shard model, and a field on which we
-map our top-level object. ``user_id`` is an example. With this model we can ask for our shard for user '1', etc.
+This table is essentially a lookup table to know which tenant lives on which shard, so that several tenants can share
+one. This table is created by the library user, but has certain formatting rules. It must have a relation to the Shard
+model, and a field on which we map our top-level object, such as the slug of a tenant. With this model we can ask for
+the shard of tenant 'acme', etc. See :doc:`/guides/mapping_model`.
 
-.. note:: A detail here: this mapping field is not a relation/foreign-key. Just an integer field containing unique
-  values. As to why: see :ref:`the-complication` for details.
+.. note:: A detail here: this mapping field is not a relation/foreign-key to the top-level object. Just a field
+  containing unique values. As to why: see :ref:`the-complication` for details.
 
 Shared data and schema selection
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -173,31 +174,9 @@ be kept in sync by this method, so you can only do this if you are not relying o
 mechanisms.
 
 In case you want to handle this data writing yourself, refer to ``@transaction_for_every_node`` and
-``@atomic_write_to_every_node`` decorators as a starting point.
+``@atomic_write_to_every_node`` decorators as a starting point (see :doc:`/guides/transactions`).
 
-.. _cloning_limitations:
-
-What schema cloning carries - and what it does not
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-A new shard is created by cloning the template schema: tables with their rows, sequences and identity positions,
-constraints, indexes, defaults and generated columns, plain and materialized views, functions and triggers all carry
-over, rebound to the new schema where they should be. Everything a Django migration puts into the template arrives in
-the clone. The known limitations, which matter once objects reach the template by other routes than migrations:
-
-* **Partitioned tables** are not understood: the parent and each partition clone as independent plain tables, and the
-  rows arrive twice - once through the parent, once through the partition.
-* **Mixed-case table names** (a quoted ``db_table``) abort the clone; Django's conventional lowercase names are safe.
-* **Aggregates** are skipped: Postgres cannot render their definitions the way it renders functions.
-* **Function bodies are never rewritten.** An unqualified reference in a body resolves through the caller's search
-  path at runtime, which is what binds each shard's copy to its own tables; a reference that explicitly qualifies the
-  template schema keeps pointing at the template after the clone. Qualify deliberately, or not at all.
-* **Schema-local types and domains** are not cloned; a cloned column keeps using the template's type, and dropping the
-  template schema with ``CASCADE`` would then reach into every shard.
-* **Row-level security policies, grants and comments** on views and functions are not carried (table and column
-  comments are). A security policy on a template table is silently absent from its clones.
-* **Standalone sequences** are recreated with their value but not their parameters - ``INCREMENT``, ``MINVALUE``,
-  ``CYCLE`` and ``CACHE`` are lost. Sequences behind serial and identity columns are unaffected.
-* ``truncate_all_tables()`` on the connection truncates the schema the connection is on, not the schema named in its
-  argument.
-* The reserved-name check refuses creating or deleting a schema named literally ``default``, ``public``,
-  ``information_schema`` or a ``pg_``-prefixed name; other connection aliases are not reserved.
+New shards
+~~~~~~~~~~
+A new shard is created by cloning the template schema of its node, a schema with the tables of the sharded models and
+no tenant data. :doc:`/guides/template_schema` describes the template schema, and what a clone carries.

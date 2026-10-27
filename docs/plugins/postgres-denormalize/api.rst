@@ -26,11 +26,3 @@ Repair helpers
 .. autofunction:: repair_every_shard
 
 .. autofunction:: sharded_leaves
-
-
-The plugin object
-=================
-
-.. currentmodule:: djanquiltdb_plugin_postgres_denormalize
-
-.. autofunction:: install

@@ -5,14 +5,14 @@ from django.conf import settings
 from django.contrib.sessions.backends.base import VALID_KEY_CHARS
 from django.contrib.sessions.backends.cached_db import SessionStore as BaseSessionStore
 from django.core import signing
-from django.core.exceptions import ImproperlyConfigured
+from django.core.exceptions import ImproperlyConfigured, ObjectDoesNotExist
 from django.core.signals import setting_changed
 from django.dispatch import receiver
 from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.module_loading import import_string
 
-from djanquiltdb.utils import State, for_each_shard, use_shard, use_shard_for
+from djanquiltdb.utils import NOT_ASYNC_SAFE, State, for_each_shard, use_shard, use_shard_for
 
 
 @functools.cache
@@ -92,7 +92,13 @@ class SessionStore(BaseSessionStore):
             return None
 
         match = _get_session_key_regex().search(deserialized_key)
-        self.__shard_selector = match.group(1) if match else None
+        if not match:
+            # A key signed before SHARD_SELECTOR_REGEX or SESSION_KEY_DELIMITER changed holds no selector that the
+            # backend can read; it is discarded like a key with a bad signature.
+            self._session_key = None
+            return None
+
+        self.__shard_selector = match.group(1)
         return self.__shard_selector
 
     @shard_selector.setter
@@ -128,7 +134,23 @@ class SessionStore(BaseSessionStore):
             return super().exists(session_key)
 
     def load(self):
-        with use_shard_for(self.shard_selector):
+        if self.shard_selector is None:
+            # A key without a selector names no shard to read the session from, so the session is read as new and
+            # empty, as for a selector that the mapping table no longer has.
+            self._session_key = None
+            return {}
+
+        try:
+            shard_context = use_shard_for(self.shard_selector)
+        except ObjectDoesNotExist:
+            # The mapping table has no shard for the selector, for example because the mapping was deleted. Like
+            # Django's database backend with a key it does not find, the session is read as new and empty; the
+            # selector goes too, so a later save cannot store the session under it.
+            self._session_key = None
+            self.__shard_selector = None
+            return {}
+
+        with shard_context:
             return super().load()
 
     def save(self, must_create=False):
@@ -139,8 +161,35 @@ class SessionStore(BaseSessionStore):
         if self.shard_selector is None:
             # The session wasn't properly initialized
             return
-        with use_shard_for(self.shard_selector):
+        try:
+            shard_context = use_shard_for(self.shard_selector)
+        except ObjectDoesNotExist:
+            # The mapping table has no shard for the selector, so there is no shard to delete the session from.
+            return
+        with shard_context:
             super().delete(session_key)
+
+    # Django's async session methods read and write the database directly instead of through the sync ones above, so
+    # they would run outside the shard of the session. These are the methods that every other async method reaches.
+
+    async def aload(self):
+        raise NotImplementedError('SessionStore.aload(): ' + NOT_ASYNC_SAFE)
+
+    async def aexists(self, session_key):
+        raise NotImplementedError('SessionStore.aexists(): ' + NOT_ASYNC_SAFE)
+
+    async def acreate(self):
+        raise NotImplementedError('SessionStore.acreate(): ' + NOT_ASYNC_SAFE)
+
+    async def asave(self, must_create=False):
+        raise NotImplementedError('SessionStore.asave(): ' + NOT_ASYNC_SAFE)
+
+    async def adelete(self, session_key=None):
+        raise NotImplementedError('SessionStore.adelete(): ' + NOT_ASYNC_SAFE)
+
+    @classmethod
+    async def aclear_expired(cls):
+        raise NotImplementedError('SessionStore.aclear_expired(): ' + NOT_ASYNC_SAFE)
 
     @classmethod
     def clear_expired(cls):

@@ -1,3 +1,4 @@
+from django.core.exceptions import ObjectDoesNotExist
 from django.http import HttpResponse
 from django.urls import Resolver404, resolve
 
@@ -5,7 +6,13 @@ from djanquiltdb import State
 from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
 from djanquiltdb.contrib.quilt_admin.utils import CrossShardMappingUserProxy, CrossShardUserProxy
 from djanquiltdb.middleware import BaseUseShardForMiddleware, BaseUseShardMiddleware
-from djanquiltdb.utils import get_mapping_class, get_primary_db_alias, get_shard_class, use_shard, use_shard_for
+from djanquiltdb.utils import (
+    get_mapping_class,
+    get_shard_class,
+    public_schema_alias_for_reading,
+    use_shard,
+    use_shard_for,
+)
 
 """
 Middleware classes that allow viewing the admin for a shard different from the one that your user is stored on. These
@@ -38,6 +45,15 @@ def _is_logout_request(request):
         return request.path.endswith('/logout/') or '/logout' in request.path
 
 
+def _go_on_without_the_override(request):
+    """
+    Lets a request whose session override names a shard or a mapping value that no longer exists go on as a request
+    without an override, so that the override can be cleared through the shard switcher.
+    """
+    if isinstance(request.user, (CrossShardUserProxy, CrossShardMappingUserProxy)):
+        request.user = request.user._user
+
+
 def _check_maintenance_status(request, shard_id=None, mapping_value=None):
     """
     Check if the current shard or mapping entry is in maintenance mode.
@@ -51,7 +67,8 @@ def _check_maintenance_status(request, shard_id=None, mapping_value=None):
     if shard_id:
         # A stale session override may point at a shard that no longer exists; the admin then simply is not
         # in maintenance, so the override can be cleared through the switcher.
-        shard = get_shard_class().objects.using(get_primary_db_alias()).filter(id=shard_id).first()
+        shard_class = get_shard_class()
+        shard = shard_class.objects.using(public_schema_alias_for_reading(shard_class)).filter(id=shard_id).first()
         if shard is not None and shard.state == State.MAINTENANCE:
             is_maintenance = True
             maintenance_message = 'This shard is currently in maintenance mode.'
@@ -62,7 +79,7 @@ def _check_maintenance_status(request, shard_id=None, mapping_value=None):
             mapping_field = getattr(mapping_class, 'mapping_field', None)
             if mapping_field:
                 mapping_obj = (
-                    mapping_class.objects.using(get_primary_db_alias())
+                    mapping_class.objects.using(public_schema_alias_for_reading(mapping_class))
                     .select_related('shard')
                     .filter(**{mapping_field: mapping_value})
                     .first()
@@ -122,7 +139,13 @@ class BaseAdminOverrideUseShardMiddleware(BaseUseShardMiddleware):
 
     def _enable_shard(self, request, shard_id):
         # Allow access to maintenance shards for the admin (but read-only)
-        shard = get_shard_class().objects.get(id=shard_id)
+        shard_class = get_shard_class()
+        try:
+            shard = shard_class.objects.using(public_schema_alias_for_reading(shard_class)).get(id=shard_id)
+        except ObjectDoesNotExist:
+            request._shard_id = None
+            _go_on_without_the_override(request)
+            return
         shard_context_manager = self.set_shard_context_manager(request, use_shard(shard, active_only_schemas=False))
         shard_context_manager.enable()
 
@@ -165,10 +188,13 @@ class BaseAdminOverrideUseShardForMiddleware(BaseUseShardForMiddleware):
 
     def _enable_shard_for(self, request, target_value):
         # Allow access to maintenance shards for the admin (but read-only)
-        shard_context_manager = self.set_shard_context_manager(
-            request, use_shard_for(target_value, active_only_schemas=False)
-        )
-        shard_context_manager.enable()
+        try:
+            shard_context_manager = use_shard_for(target_value, active_only_schemas=False)
+        except ObjectDoesNotExist:
+            request._mapping_value = None
+            _go_on_without_the_override(request)
+            return
+        self.set_shard_context_manager(request, shard_context_manager).enable()
 
 
 class ShardIdAdminOverrideMiddleware(BaseAdminOverrideUseShardMiddleware):

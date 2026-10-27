@@ -7,12 +7,13 @@ from django.contrib.auth import get_user_model
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.module_loading import import_string
 
-from djanquiltdb import ShardingMode
+from djanquiltdb import ShardingMode, SingleNodeUnsharded
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import class_method_use_shard, shard_aware_from_db
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.plugins import load_plugins, raise_for_duplicate_plugin_names
 from djanquiltdb.postgresql_backend.base import ShardDatabaseWrapper
+from djanquiltdb.router import get_active_connection
 from djanquiltdb.utils import (
     OverrideShardingModeWithLowercaseKeys,
     get_all_mirrored_models,
@@ -121,7 +122,14 @@ def _validate_public_models():
 
 
 def _validate_override_sharding_mode_entry(key, value):
-    if not (isinstance(key, tuple) and len(key) in (1, 2) and isinstance(value, ShardingMode)):
+    if value is ShardingMode.SINGLE_NODE_UNSHARDED:
+        raise ImproperlyConfigured(
+            'The override sharding mode entry {} needs a node: use single_node_unsharded(node) as its value.'.format(
+                repr(key)
+            )
+        )
+
+    if not (isinstance(key, tuple) and len(key) in (1, 2) and isinstance(value, (ShardingMode, SingleNodeUnsharded))):
         raise ImproperlyConfigured(
             'The override sharding mode entry is improperly configured: {{ {}: {} }}'.format(repr(key), repr(value))
         )
@@ -184,8 +192,13 @@ def post_init(func):
     def with_shard_options(hints):
         hints = hints or {}
 
-        if '_shard_options' not in hints and not connection.is_public_schema():
-            hints['_shard_options'] = connection.shard_options
+        if '_shard_options' not in hints:
+            # The options come from the active connection, because reading an attribute of the connection object builds
+            # a new shard connection while a shard is active. They are the options that the shard connection has.
+            shard_options = ShardOptions.from_alias(get_active_connection())
+
+            if not shard_options.is_public_schema():
+                hints['_shard_options'] = shard_options
 
         return hints
 

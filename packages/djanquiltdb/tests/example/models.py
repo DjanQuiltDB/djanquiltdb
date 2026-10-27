@@ -5,7 +5,13 @@ from django.db import IntegrityError, models
 from django.utils import timezone
 
 from djanquiltdb import STATES, State
-from djanquiltdb.decorators import mirrored_model, public_model, shard_mapping_model, sharded_model
+from djanquiltdb.decorators import (
+    mirrored_model,
+    public_model,
+    shard_mapping_model,
+    sharded_model,
+    single_node_unsharded_model,
+)
 from djanquiltdb.models import BaseQuiltSession, BaseShard, MappingQuerySet
 
 __all__ = [
@@ -37,6 +43,7 @@ class Shard(BaseShard):
 
 
 # mapping table
+@mirrored_model()
 @shard_mapping_model(mapping_field='organization_id')
 class OrganizationShard(models.Model):
     shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
@@ -315,8 +322,9 @@ class ProxyMirroredUser(MirroredUser):
         app_label = 'example'
 
 
+@single_node_unsharded_model(node='default')
 class DefaultUser(AbstractUser):
-    """User that's not sharded nor mirrored. Used for the `createsuperuser` test"""
+    """User on the default node only, neither sharded nor mirrored. Used for the `createsuperuser` test"""
 
     class Meta:
         app_label = 'example'
@@ -363,8 +371,9 @@ class DetailedReport(Report):
         app_label = 'example'
 
 
+@single_node_unsharded_model(node='default')
 class Unrelated(models.Model):
-    """Model that does not have a sharding mode assigned"""
+    """Model on the default node only"""
 
     name = models.CharField('name', max_length=64)
 

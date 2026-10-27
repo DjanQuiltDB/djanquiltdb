@@ -22,15 +22,26 @@ entry should be loaded into.
 If an entry does not have a ``_schema`` property, it will be loaded into the default schema specified by the database
 connection you're using (typically the ``public`` schema).
 
+Apart from the ``_schema`` property, a fixture loads as it does with Django's ``loaddata``:
+
+* The entries are saved in the order of the fixture.
+* ``--exclude`` leaves out the models and apps that it names.
+* An entry whose model the router does not allow in its schema is skipped, and counted as Django counts it:
+  ``Installed 3 object(s) (of 4)``. A sharded model, for example, is only allowed in the schema of a shard, and a public
+  or mirrored model only in the ``public`` schema.
+* Foreign keys and natural keys are looked up in the schema of the entry, and a natural key may name an entry that comes
+  later in the fixture.
+
 Supported Formats
 -----------------
 
 The ``_schema`` property is supported for:
 
 * **JSON** fixtures (``.json`` files)
+* **JSON Lines** fixtures (``.jsonl`` files)
 * **YAML** fixtures (``.yaml`` or ``.yml`` files)
 
-Other fixture formats (such as XML) will be loaded normally without schema awareness.
+Fixtures in other formats, such as XML, are loaded into the default schema of the database connection.
 
 Special Schema Names
 --------------------
@@ -102,7 +113,7 @@ Here's an example JSON fixture file that loads data into multiple schemas:
 
     [
       {
-        "model": "example.Organization",
+        "model": "example.Tenant",
         "pk": 1,
         "fields": {
           "name": "The Empire"
@@ -115,12 +126,12 @@ Here's an example JSON fixture file that loads data into multiple schemas:
         "fields": {
           "name": "Sheev Palpatine",
           "email": "s.palpatine@sith.sw",
-          "organization": 1
+          "tenant": 1
         },
         "_schema": "empire_schema"
       },
       {
-        "model": "example.Organization",
+        "model": "example.Tenant",
         "pk": 2,
         "fields": {
           "name": "The Rebel Alliance"
@@ -133,7 +144,7 @@ Here's an example JSON fixture file that loads data into multiple schemas:
         "fields": {
           "name": "Mon Mothma",
           "email": "m.mothma@alliance.sw",
-          "organization": 2
+          "tenant": 2
         },
         "_schema": "alliance_schema"
       },
@@ -148,7 +159,7 @@ Here's an example JSON fixture file that loads data into multiple schemas:
 
 In this example:
 
-* The first two entries (Organization and User) are loaded into the ``empire_schema`` shard
+* The first two entries (Tenant and User) are loaded into the ``empire_schema`` shard
 * The next two entries are loaded into the ``alliance_schema`` shard
 * The last entry (Type) has no ``_schema`` property, so it's loaded into the default schema
 
@@ -159,7 +170,7 @@ The same fixture can be written in YAML format:
 
 .. code-block:: yaml
 
-    - model: example.Organization
+    - model: example.Tenant
       pk: 1
       fields:
         name: The Empire
@@ -169,9 +180,9 @@ The same fixture can be written in YAML format:
       fields:
         name: Sheev Palpatine
         email: s.palpatine@sith.sw
-        organization: 1
+        tenant: 1
       _schema: empire_schema
-    - model: example.Organization
+    - model: example.Tenant
       pk: 2
       fields:
         name: The Rebel Alliance
@@ -181,7 +192,7 @@ The same fixture can be written in YAML format:
       fields:
         name: Mon Mothma
         email: m.mothma@alliance.sw
-        organization: 2
+        tenant: 2
       _schema: alliance_schema
     - model: example.Type
       pk: 1
@@ -193,8 +204,9 @@ Schema Creation
 
 The fixture loader will automatically:
 
-1. Ensure the template schema exists and has all migrations applied
-2. Create any shard schemas that don't exist yet (cloning them from the template schema)
+1. When a fixture names a schema that doesn't exist yet, create the template schema if it is missing, and apply all
+   migrations to it
+2. Create the shard schemas that don't exist yet, cloning them from the template schema
 3. Load entries into their respective schemas
 4. Reset the sequences of the loaded models in each schema, so that the next row created gets a higher id than the
    loaded rows

@@ -53,7 +53,7 @@ a ``ShardOptions`` object from it, which the router uses to direct the query to 
 
   .. code-block:: python
 
-    shard = Shard.objects.create(alias='org_1', node_name='default', schema_name='org_1_schema')
+    shard = Shard.objects.create(alias='shard_1', node_name='default', schema_name='shard_1_schema')
     with use_shard(shard):
         (...)
 
@@ -61,16 +61,17 @@ a ``ShardOptions`` object from it, which the router uses to direct the query to 
 
   .. code-block:: python
 
-    with use_shard(node_name='default', schema_name='org_1_schema'):
+    with use_shard(node_name='default', schema_name='shard_1_schema'):
         (...)
 
-``use_shard_for`` takes the value of the mapping field of a mapping model, and looks up its shard:
+``use_shard_for`` takes the value of the mapping field of a mapping model, such as the slug of a tenant, and looks up its
+shard (see :doc:`/guides/mapping_model`):
 
 .. code-block:: python
 
-  shard = Shard.objects.create(alias='org_1', node_name='default', schema_name='org_1_schema')
-  OrganizationShard.objects.create(shard=shard, organization_id=1)
-  with use_shard_for(1):
+  shard = Shard.objects.create(alias='shard_1', node_name='default', schema_name='shard_1_schema')
+  TenantShard.objects.create(shard=shard, tenant_slug='acme')
+  with use_shard_for('acme'):
       (...)
 
 ``.using()`` and ``connections`` accept more forms, such as a ``'<node_name>|<schema_name>'`` string and a

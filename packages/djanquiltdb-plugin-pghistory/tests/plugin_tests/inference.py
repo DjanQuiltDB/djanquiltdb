@@ -8,10 +8,18 @@ from django.db import models
 from django.db.migrations.state import ModelState
 from django.test import SimpleTestCase, override_settings
 from django.test.utils import isolate_apps
-from djanquiltdb import ShardingMode
+from djanquiltdb import PRIMARY_NODE, ShardingMode
+from djanquiltdb.decorators import override_sharding_setting, single_node_unsharded_model
+from djanquiltdb.utils import get_declared_placement, get_model_single_node_alias
 from pghistory.models import Event
 
-from djanquiltdb_plugin_pghistory import MirroredEvent, PublicEvent, ShardedEvent, create_event_model
+from djanquiltdb_plugin_pghistory import (
+    MirroredEvent,
+    PublicEvent,
+    ShardedEvent,
+    SingleNodeEvent,
+    create_event_model,
+)
 from example.models import Bakery, Cake, CakeType, GroupProxy
 
 
@@ -198,3 +206,92 @@ class BaseModelInferenceTestCase(SimpleTestCase):
             event_model = create_event_model(ModelWithoutMode, base_model=MirroredEvent, abstract=True)
 
         self.assertTrue(issubclass(event_model, MirroredEvent))
+
+
+class SingleNodeEventModelTestCase(SimpleTestCase):
+    def model_on_a_single_node(self, node):
+        """
+        Returns a model on the single node ``node``, defined in an isolated app registry.
+        """
+        with isolate_apps('example'):
+
+            @single_node_unsharded_model(node=node)
+            class LegacyLedger(models.Model):
+                class Meta:
+                    app_label = 'example'
+
+        return LegacyLedger
+
+    def test_a_model_on_a_single_node_gets_its_events_on_its_node(self):
+        """
+        Case: Call create_event_model on a model on the node 'other', without an explicit base_model.
+        Expected: The event model inherits SingleNodeEvent, and is on the node 'other', as the tracked model is.
+        """
+        event_model = create_event_model(self.model_on_a_single_node('other'), abstract=True)
+
+        self.assertTrue(issubclass(event_model, SingleNodeEvent))
+        self.assertEqual(get_declared_placement(event_model), (ShardingMode.SINGLE_NODE_UNSHARDED, 'other'))
+        self.assertEqual(get_model_single_node_alias(event_model), 'other')
+
+    def test_the_primary_node_of_the_tracked_model_is_the_node_of_its_events(self):
+        """
+        Case: Call create_event_model on a model on PRIMARY_NODE, while PRIMARY_DB_ALIAS is 'other'.
+        Expected: The event model is on PRIMARY_NODE as declared, so its node resolves to 'other', as the node of the
+                  tracked model does.
+        """
+        tracked_model = self.model_on_a_single_node(PRIMARY_NODE)
+        event_model = create_event_model(tracked_model, abstract=True)
+
+        self.assertEqual(get_declared_placement(event_model), (ShardingMode.SINGLE_NODE_UNSHARDED, PRIMARY_NODE))
+
+        with override_sharding_setting('PRIMARY_DB_ALIAS', 'other'):
+            self.assertEqual(get_model_single_node_alias(event_model), 'other')
+            self.assertEqual(get_model_single_node_alias(tracked_model), 'other')
+
+    def test_the_attrs_of_the_caller_are_kept(self):
+        """
+        Case: Call create_event_model on a model on the node 'other', with attrs of the caller.
+        Expected: The event model has the attrs of the caller, and is on the node 'other'.
+        """
+        event_model = create_event_model(
+            self.model_on_a_single_node('other'), attrs={'description': 'ledger history'}, abstract=True
+        )
+
+        self.assertEqual(event_model.description, 'ledger history')
+        self.assertEqual(get_model_single_node_alias(event_model), 'other')
+
+    def test_an_explicit_single_node_base_model_gets_the_node_of_the_tracked_model(self):
+        """
+        Case: Call create_event_model on a model on the node 'other', with a base_model that inherits SingleNodeEvent.
+        Expected: The event model inherits the given base, and is on the node 'other'.
+        """
+
+        class SingleNodeEventBaseOfTheProject(SingleNodeEvent):
+            class Meta:
+                abstract = True
+
+        event_model = create_event_model(
+            self.model_on_a_single_node('other'), base_model=SingleNodeEventBaseOfTheProject, abstract=True
+        )
+
+        self.assertTrue(issubclass(event_model, SingleNodeEventBaseOfTheProject))
+        self.assertEqual(get_model_single_node_alias(event_model), 'other')
+
+    def test_an_explicit_single_node_base_model_is_refused_for_a_model_that_is_not_on_a_single_node(self):
+        """
+        Case: Call create_event_model with base_model=SingleNodeEvent on Cake, which is sharded, and on a model without
+              a mode.
+        Expected: ImproperlyConfigured for both: Cake has another mode, and the model without a mode has no node for
+                  its events.
+        """
+        with isolate_apps('example'):
+
+            class ModelWithoutMode(models.Model):
+                class Meta:
+                    app_label = 'example'
+
+        with self.assertRaisesMessage(ImproperlyConfigured, 'example.Cake is SHARDED'):
+            create_event_model(Cake, base_model=SingleNodeEvent, abstract=True)
+
+        with self.assertRaisesMessage(ImproperlyConfigured, 'is not on a single node'):
+            create_event_model(ModelWithoutMode, base_model=SingleNodeEvent, abstract=True)

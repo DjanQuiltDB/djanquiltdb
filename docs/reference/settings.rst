@@ -30,14 +30,15 @@ the wanted shard from mapping table automatically.
     # settings
     QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
-        'MAPPING_MODEL': 'myapp.models.MyMappingModel',
+        'MAPPING_MODEL': 'myapp.models.TenantShard',
     }
 
     # myapp.models
-    @shard_mapping_model(mapping_field='organization_id')
-    class OrganizationShard(models.Model):
-        shard = models.ForeignKey('example.Shard', on_delete=models.CASCADE)
-        organization_id = models.PositiveSmallIntegerField(db_index=True)
+    @mirrored_model()
+    @shard_mapping_model(mapping_field='tenant_slug')
+    class TenantShard(models.Model):
+        shard = models.ForeignKey('myapp.Shard', on_delete=models.CASCADE)
+        tenant_slug = models.SlugField(unique=True)
         state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
 
         objects = MappingQuerySet.as_manager()
@@ -45,10 +46,11 @@ the wanted shard from mapping table automatically.
     # myapp.views
     from djanquiltdb.utils import use_shard_for
 
-    with use_shard_for(user.organization_id):
-        # do things on my shard
+    with use_shard_for('acme'):
+        ...  # Queries of sharded models run in the shard of the tenant acme.
 
-Additionally, you can mirror the mapping model by adding ``@mirrored_model`` to it.
+Decorate the mapping model with ``@mirrored_model()``, like the Shard model, so that every node has the mapping table.
+:doc:`/guides/mapping_model` explains what the mapping model is for, and the fields that it needs.
 
 
 NEW_SHARD_NODE
@@ -73,15 +75,17 @@ connection error. Without them, the middleware returns a plain 503 response. See
 
 SESSION_SHARD_SELECTOR_KEY
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
-The session key that ``UseShardMiddleware`` and ``UseShardForMiddleware`` read the shard selector from. Defaults to
-``shard_selector``, which is the key that the ``djanquiltdb.sessions`` backend uses. See :ref:`session_backend`.
+The attribute of the session that ``UseShardMiddleware`` and ``UseShardForMiddleware`` read the shard selector from.
+Defaults to ``shard_selector``, which is the attribute that the ``djanquiltdb.sessions`` backend provides. See
+:doc:`/guides/sessions`.
 
 OVERRIDE_SHARDING_MODE
 ~~~~~~~~~~~~~~~~~~~~~~
 If you want to override the sharding mode for a specific model or application you can use
 ``QUILT_DB['OVERRIDE_SHARDING_MODE']`` configuration setting. The setting is a dictionary with tuple or list as a key
 and the ``ShardingMode`` enum as value. The key is composed from one or two lowercase strings and it is used as a lookup
-for an app or a model in an app.
+for an app or a model in an app. To put the models of an entry on one node, set the value to
+``single_node_unsharded(node)`` instead. This is strongly discouraged (see :doc:`/guides/sharding_modes`).
 
 .. code-block:: python
 
@@ -174,14 +178,28 @@ a ``default`` node. Even if the router will always route to the primary assigned
 TEMPLATE_NAME
 ~~~~~~~~~~~~~
 
-The name of the template schema each new shard is cloned from. It defaults to ``template`` and rarely needs
-changing; set it when that name collides with an existing schema in your database.
+The name of the template schema each new shard is cloned from (see :doc:`/guides/template_schema`). It defaults to
+``template`` and rarely needs changing; set it when that name collides with an existing schema in your database.
 
 .. code-block:: python
 
   QUILT_DB = {
       'SHARD_CLASS': 'myapp.models.Shard',
       'TEMPLATE_NAME': 'shard_template',
+  }
+
+AUTO_CREATE_TEMPLATE_SCHEMA
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Whether ``migrate`` creates the template schema of every node that it migrates and that has none, before it applies any
+migration. It defaults to ``True``. Set it to ``False`` for a project that creates its template schemas itself. See
+:doc:`/guides/template_schema`.
+
+.. code-block:: python
+
+  QUILT_DB = {
+      'SHARD_CLASS': 'myapp.models.Shard',
+      'AUTO_CREATE_TEMPLATE_SCHEMA': False,
   }
 
 DATABASE_CREATION_CLASS
@@ -241,12 +259,12 @@ So set ``djanquiltdb.router.DynamicDbRouter`` in ``DATABASE_ROUTERS`` in the set
 QUILT_SESSIONS
 --------------
 
-The settings of the ``djanquiltdb.sessions`` session backend. See :ref:`session_backend` for how to set it up.
+The settings of the ``djanquiltdb.sessions`` session backend. See :doc:`/guides/sessions` for how to set it up.
 
 ``SESSION_MODEL``
-    Required. The dotted path of the project's session model, a subclass of ``BaseQuiltSession``.
+    Required. The dotted path of the project's session model, a sharded subclass of ``BaseQuiltSession``.
 ``SHARD_SELECTOR_REGEX``
-    The regular expression that a shard selector value has to match. Defaults to ``'[0-9]+'``.
+    The regular expression that a shard selector, a mapping value, has to match. Defaults to ``'[0-9]+'``.
 ``SESSION_KEY_DELIMITER``
     The text that separates the shard selector from the rest of a session key. Defaults to ``'K'``, and must be text
     that ``SHARD_SELECTOR_REGEX`` does not match.

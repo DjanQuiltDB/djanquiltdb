@@ -106,6 +106,60 @@ class LockCursorWrapperTestCase(SimpleTestCase):
         mock_execute.assert_called_once_with('SELECT pg_advisory_unlock(%s);', ['foo'])
 
     @mock.patch.object(DummyCursorWrapper, 'execute')
+    @mock.patch.object(LockCursorWrapperMixin, 'get_int_from_key', side_effect=lambda key: '{}_int'.format(key))
+    def test_acquire_advisory_lock_for_each_key(self, mock_get_int_from_key, mock_execute):
+        """
+        Case: Call acquire_advisory_lock_for_each_key with two keys, for shared and for exclusive locks, scoped to the
+              session and to the transaction.
+        Expected: Cursor's execute called once, with one lock function for each key, in the order of the keys.
+        """
+        statements = {
+            (True, False): 'SELECT pg_advisory_lock_shared(%s), pg_advisory_lock_shared(%s);',
+            (False, False): 'SELECT pg_advisory_lock(%s), pg_advisory_lock(%s);',
+            (True, True): 'SELECT pg_advisory_xact_lock_shared(%s), pg_advisory_xact_lock_shared(%s);',
+            (False, True): 'SELECT pg_advisory_xact_lock(%s), pg_advisory_xact_lock(%s);',
+        }
+
+        for (shared, xact), statement in statements.items():
+            with self.subTest(shared=shared, xact=xact):
+                mock_execute.reset_mock()
+
+                self.cursor.acquire_advisory_lock_for_each_key(['first', 'second'], shared=shared, xact=xact)
+
+                mock_execute.assert_called_once_with(statement, ['first_int', 'second_int'])
+
+    @mock.patch.object(DummyCursorWrapper, 'execute')
+    @mock.patch.object(LockCursorWrapperMixin, 'get_int_from_key', side_effect=lambda key: '{}_int'.format(key))
+    def test_release_advisory_lock_for_each_key(self, mock_get_int_from_key, mock_execute):
+        """
+        Case: Call release_advisory_lock_for_each_key with two keys, for shared and for exclusive locks.
+        Expected: Cursor's execute called once, with one unlock function for each key, in the order of the keys.
+        """
+        statements = {
+            True: 'SELECT pg_advisory_unlock_shared(%s), pg_advisory_unlock_shared(%s);',
+            False: 'SELECT pg_advisory_unlock(%s), pg_advisory_unlock(%s);',
+        }
+
+        for shared, statement in statements.items():
+            with self.subTest(shared=shared):
+                mock_execute.reset_mock()
+
+                self.cursor.release_advisory_lock_for_each_key(['first', 'second'], shared=shared)
+
+                mock_execute.assert_called_once_with(statement, ['first_int', 'second_int'])
+
+    @mock.patch.object(DummyCursorWrapper, 'execute')
+    def test_no_statement_runs_for_an_empty_list_of_lock_keys(self, mock_execute):
+        """
+        Case: Call acquire_advisory_lock_for_each_key and release_advisory_lock_for_each_key without keys.
+        Expected: No statement runs, because a statement without lock functions is not valid SQL.
+        """
+        self.cursor.acquire_advisory_lock_for_each_key([])
+        self.cursor.release_advisory_lock_for_each_key([])
+
+        mock_execute.assert_not_called()
+
+    @mock.patch.object(DummyCursorWrapper, 'execute')
     def test_no_lock_on_execute(self, mock_execute):
         """
         Case: Call the cursor's execute method while lock_on_execute is equal to False
@@ -146,6 +200,36 @@ class LockCursorWrapperTestCase(SimpleTestCase):
 
         # New cursor asked for acquiring and releasing locks
         self._db._get_cursor.assert_called_once_with(skip_lock=True)
+
+    @mock.patch.object(DummyCursorWrapper, 'execute')
+    @mock.patch.object(LockCursorWrapperMixin, 'get_int_from_key', side_effect=lambda key: '{}_int'.format(key))
+    def test_lock_on_execute_with_two_lock_keys(self, mock_get_int_from_key, mock_execute):
+        """
+        Case: Call the cursor's execute method while lock_on_execute is True and the connection's shard_options have
+              two lock keys.
+        Expected: Cursor's super() execute called three times: one statement that locks both keys, the SQL we provided
+                  and one statement that unlocks both keys.
+        """
+        self._db.lock_on_execute = True
+        self._db.shard_options.lock_keys = ['shard_1', 'mapping_42']
+        self.cursor = self._db._get_cursor()
+
+        self.cursor.execute('SELECT * FROM dummy;')
+
+        self.assertEqual(
+            mock_execute.call_args_list,
+            [
+                mock.call(
+                    'SELECT pg_advisory_lock_shared(%s), pg_advisory_lock_shared(%s);',
+                    ['shard_1_int', 'mapping_42_int'],
+                ),
+                mock.call('SELECT * FROM dummy;'),
+                mock.call(
+                    'SELECT pg_advisory_unlock_shared(%s), pg_advisory_unlock_shared(%s);',
+                    ['shard_1_int', 'mapping_42_int'],
+                ),
+            ],
+        )
 
     @mock.patch.object(DummyCursorWrapper, 'execute')
     def test_lock_on_execute_no_lock_keys(self, mock_execute):
@@ -232,8 +316,8 @@ class LockCursorWrapperTestCase(SimpleTestCase):
         self.assertFalse(self._db._get_cursor.called)  # No new cursor asked for acquiring lock
 
     @mock.patch.object(DummyCursorWrapper, 'close')
-    @mock.patch.object(LockCursorWrapperMixin, 'acquire_advisory_lock')
-    @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock')
+    @mock.patch.object(LockCursorWrapperMixin, 'acquire_advisory_lock_for_each_key')
+    @mock.patch.object(LockCursorWrapperMixin, 'release_advisory_lock_for_each_key')
     def test_lock_cursor(self, mock_release_advisory_lock, mock_acquire_advisory_lock, mock_close):
         """
         Case: Use LockCursorWrapperMixin._lock() as context manager
@@ -251,11 +335,11 @@ class LockCursorWrapperTestCase(SimpleTestCase):
 
         with self.cursor._lock():
             self._db._get_cursor.assert_called_once_with(skip_lock=True)
-            mock_acquire_advisory_lock.assert_called_once_with('foo', shared=True, xact=False)
+            mock_acquire_advisory_lock.assert_called_once_with(['foo'], shared=True, xact=False)
             self.assertFalse(mock_release_advisory_lock.called)
             self.assertFalse(mock_close.called)
 
-        mock_release_advisory_lock.assert_called_once_with('foo', shared=True)
+        mock_release_advisory_lock.assert_called_once_with(['foo'], shared=True)
         mock_close.assert_called_once_with()
 
 
