@@ -1,6 +1,6 @@
 from enum import Enum
 
-__version__ = '4.4.0'
+__version__ = '4.5.0'
 
 
 default_app_config = 'djanquiltdb.apps.DjanQuiltDBConfig'
