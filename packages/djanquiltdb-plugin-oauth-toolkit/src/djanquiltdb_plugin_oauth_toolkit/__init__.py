@@ -27,12 +27,14 @@ __version__ = '1.0.0'
 
 def install():
     """
-    Connects ``refuse_foreign_client_id()`` as a ``pre_save`` receiver of the toolkit's application model. That receiver
-    refuses a client id of another shard. DjanQuiltDB calls this function when the app registry is ready.
+    Registers the system checks of the plugin, and connects ``refuse_foreign_client_id()`` as a ``pre_save`` receiver of
+    the toolkit's application model. That receiver refuses a client id of another shard. DjanQuiltDB calls this function
+    when the app registry is ready.
     """
     from django.db.models.signals import pre_save
     from oauth2_provider.settings import oauth2_settings
 
+    from djanquiltdb_plugin_oauth_toolkit import checks  # noqa: F401
     from djanquiltdb_plugin_oauth_toolkit.generators import refuse_foreign_client_id
 
     pre_save.connect(
