@@ -1,3 +1,23 @@
+v 4.6.0 (unreleased)
+--------------------
+Added:
+ * Client ids and tokens for django-oauth-toolkit that name their shard, installed through the
+   ``djanquiltdb[oauth-toolkit]`` extra.
+ * Plugin API serving extended to ``djanquiltdb.middleware.<name>``.
+ * ``QUILT_DB['SHARD_SELECTOR_REGEX']``, the regex that every shard selector matches.
+ * Checks ``djanquiltdb.W005`` for a ``QUILT_SESSIONS['SHARD_SELECTOR_REGEX']`` that is set, and ``djanquiltdb.E010``
+   for one that differs from ``QUILT_DB['SHARD_SELECTOR_REGEX']``.
+ * ``session_shard_selector_attribute_name()``, the name of the session attribute that
+   ``QUILT_DB['SESSION_SHARD_SELECTOR_KEY']`` sets, for a middleware that reads the shard selector of a session.
+ * ``djanquiltdb.natural_keys``, whose ``make_the_primary_key_the_natural_key()`` gives a model of a third-party app its
+   primary key as the natural key that a public model needs, without a migration. The Session model of a public
+   ``django.contrib.sessions`` app gets it.
+
+Altered:
+ * ``QUILT_SESSIONS['SHARD_SELECTOR_REGEX']`` is deprecated in favour of ``QUILT_DB['SHARD_SELECTOR_REGEX']``.
+ * The documentation recommends ``ShardingMode.PUBLIC`` for ``django.contrib.sessions`` in place of
+   ``ShardingMode.SHARDED``.
+
 v 4.5.0 (2026-10-27)
 --------------------
 Added:

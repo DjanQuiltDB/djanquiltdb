@@ -18,6 +18,7 @@ Plugin release |oauth-toolkit-version|.
     middleware
     commands
     api
+    changelog
 
 For another OAuth2 or API token library, see :doc:`/guides/oauth2`.
 
