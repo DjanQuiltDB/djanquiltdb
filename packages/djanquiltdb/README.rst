@@ -42,8 +42,8 @@ horizontally as your dataset grows.
 
 This library attempts to combine the best of as many worlds as possible. Tenant-specific data is kept in tenant-specific
 PostgreSQL schemas, while data that is tenant-agnostic or shared can be kept in public schemas, so as to deduplicate.
-There are helpers to split data off from one shard to another, to migrate a shard across nodes, to synchronize changes
-across nodes, etc.
+There are helpers to split data off from one shard to another, to migrate a shard across nodes, to write to every node
+at once, etc.
 
 As the name suggests, this approach provides an interface to data, that may in reality be scattered across various
 schemas in various database clusters, and presents it as a coherent and easily accessible patchwork of tables, resulting
@@ -54,43 +54,97 @@ Full documentation is at https://djanquiltdb.readthedocs.io/.
 Installation
 ============
 
+DjanQuiltDB is not async-safe. If your project has async views, async middleware or Channels consumers, read the `async
+guide <https://djanquiltdb.readthedocs.io/en/latest/guides/async.html>`_ first.
+
 ::
 
     pip install djanquiltdb
 
-Add it to ``INSTALLED_APPS``::
+The `installation guide <https://djanquiltdb.readthedocs.io/en/latest/getting_started/installation.html>`_ describes
+each step below in full. In ``settings.py``, for an app ``myapp`` that has the models of the next step::
 
-    INSTALLED_APPS = (
+    from djanquiltdb import ShardingMode
+
+    INSTALLED_APPS = [
         ...
         'djanquiltdb',
-        ...
-    )
+        'myapp',
+    ]
 
-Point every connection at the bundled backend, and routing at the router::
-
+    # Every node uses the DjanQuiltDB backend.
     DATABASES = {
-        'default': dj_database_url.parse(DATABASE_URL, engine='djanquiltdb.postgresql_backend'),
+        'default': {
+            'ENGINE': 'djanquiltdb.postgresql_backend',
+            ...
+        },
     }
 
+    # The router sends each query to the right node and schema.
     DATABASE_ROUTERS = ['djanquiltdb.router.DynamicDbRouter']
 
-Then declare a shard model of your own and name it in the ``QUILT_DB`` setting::
+    QUILT_DB = {
+        'SHARD_CLASS': 'myapp.models.Shard',
+        'MAPPING_MODEL': 'myapp.models.TenantShard',
+        # The node that writes to mirrored models go to.
+        'PRIMARY_DB_ALIAS': 'default',
+        # Every model needs a sharding mode, and these give one to the models of Django's own apps.
+        'OVERRIDE_SHARDING_MODE': {
+            ('auth',): ShardingMode.MIRRORED,
+            ('contenttypes',): ShardingMode.MIRRORED,
+            ('admin', 'logentry'): ShardingMode.SHARDED,
+            ('sessions',): ShardingMode.PUBLIC,
+        },
+    }
 
-    # myapp/models.py
-    from djanquiltdb.models import BaseShard
+In ``myapp/models.py``, the Shard model is the registry of the shards, and the mapping model records the shard of each
+tenant::
+
+    from django.db import models
+
+    from djanquiltdb import STATES, State
+    from djanquiltdb.decorators import mirrored_model, shard_mapping_model
+    from djanquiltdb.models import BaseShard, MappingQuerySet
 
 
+    @mirrored_model()
     class Shard(BaseShard):
         class Meta:
             app_label = 'myapp'
 
-    # settings.py
-    QUILT_DB = {
-        'SHARD_CLASS': 'myapp.models.Shard',
-    }
 
-Models are placed with the decorators in ``djanquiltdb.decorators``, and a model without one fails the system checks.
-``manage.py migrate`` is shard-aware, and applies each migration wherever its models live.
+    @mirrored_model()
+    @shard_mapping_model(mapping_field='tenant_slug')
+    class TenantShard(models.Model):
+        shard = models.ForeignKey(Shard, on_delete=models.CASCADE)
+        tenant_slug = models.SlugField(unique=True)
+        state = models.CharField(choices=STATES, max_length=1, default=State.ACTIVE)
+
+        objects = MappingQuerySet.as_manager()
+
+Give each of your other models a decorator with its sharding mode, such as ``@sharded_model()`` for the data of a
+tenant. A model without a sharding mode fails the system checks. Then make the migrations, and apply them::
+
+    python manage.py makemigrations
+    python manage.py migrate
+
+``migrate`` migrates the public schema of every node, and every shard. Create the first shard and tenant, and run
+queries in the shard of the tenant::
+
+    from djanquiltdb import State
+    from djanquiltdb.utils import use_shard_for
+
+    from myapp.models import Shard, TenantShard
+
+    shard = Shard.objects.create(alias='shard_1', node_name='default', schema_name='shard_1', state=State.ACTIVE)
+    TenantShard.objects.create(shard=shard, tenant_slug='acme')
+
+    with use_shard_for('acme'):
+        ...  # Queries of sharded models run in the shard of the tenant acme.
+
+The installation guide also sets up a session backend that keeps each session in the shard of its tenant, a middleware
+that enters that shard for each request, a shard switcher in the admin, and a ``createsuperuser`` command that works
+with shards.
 
 To run Celery tasks in a shard, or once in every shard or on every node, install the extra::
 
@@ -110,14 +164,12 @@ install the extra::
 
     pip install djanquiltdb[postgres-denormalize]
 
-To declare Postgres views and functions the same way, install the extra::
+To declare Postgres views and functions as classes, and place them with sharding decorators, install the extra::
 
     pip install djanquiltdb[postgres-objects]
 
-See the `installation docs <https://djanquiltdb.readthedocs.io/en/latest/getting_started/installation.html>`_ for the
-template schema that every node needs, and the `settings reference
-<https://djanquiltdb.readthedocs.io/en/latest/reference/settings.html>`_ for the full set of settings, including the
-mapping model, the session backend and the middleware.
+The `settings reference <https://djanquiltdb.readthedocs.io/en/latest/reference/settings.html>`_ describes every
+setting.
 
 Requirements
 ============
