@@ -10,6 +10,7 @@ from django.utils.module_loading import import_string
 from djanquiltdb import ShardingMode, SingleNodeUnsharded
 from djanquiltdb.db import connection
 from djanquiltdb.decorators import class_method_use_shard, shard_aware_from_db
+from djanquiltdb.natural_keys import add_natural_keys_to_public_session_models
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.plugins import load_plugins, raise_for_duplicate_plugin_names
 from djanquiltdb.postgresql_backend.base import ShardDatabaseWrapper
@@ -84,8 +85,9 @@ class DjanQuiltDBConfig(AppConfig):
         _patch_connections()
         _patch_transactions()
         _patch_checks()
-        # A plugin's install() can give a model of a third-party app the natural key that a public model needs, so the
-        # plugins are installed before the public models are validated.
+        # DjanQuiltDB, and a plugin's install(), can give a model of a third-party app the natural key that a public
+        # model needs, so that happens before the public models are validated.
+        add_natural_keys_to_public_session_models()
         _install_plugins()
         _validate_public_models()
         _initialize_sharded_models()

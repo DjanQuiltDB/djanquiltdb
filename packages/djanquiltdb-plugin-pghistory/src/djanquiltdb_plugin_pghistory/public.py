@@ -1,10 +1,10 @@
 from django.db import models
 from django.db.models.signals import class_prepared
 from djanquiltdb.decorators import public_model
+from djanquiltdb.natural_keys import make_the_primary_key_the_natural_key
 from pghistory import config
 
 from djanquiltdb_plugin_pghistory.base import ShardRoutedRevert
-from djanquiltdb_plugin_pghistory.natural_keys import make_the_primary_key_the_natural_key
 from djanquiltdb_plugin_pghistory.querysets import EventQuerySet
 
 

@@ -37,7 +37,7 @@ models that a new Django project has in ``INSTALLED_APPS``::
             ('contenttypes',): ShardingMode.MIRRORED,
             ('admin', 'logentry'): ShardingMode.SHARDED,
             # Unused with the djanquiltdb.sessions backend, see the Sessions guide.
-            ('sessions',): ShardingMode.SHARDED,
+            ('sessions',): ShardingMode.PUBLIC,
         },
     }
 
