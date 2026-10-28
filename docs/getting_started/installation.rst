@@ -87,7 +87,7 @@ holds the models of the next step, these are the settings::
             ('contenttypes',): ShardingMode.MIRRORED,
             ('admin', 'logentry'): ShardingMode.SHARDED,
             # Required while django.contrib.sessions is installed. See "Sessions".
-            ('sessions',): ShardingMode.SHARDED,
+            ('sessions',): ShardingMode.PUBLIC,
         },
     }
 

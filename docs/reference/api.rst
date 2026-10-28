@@ -58,6 +58,17 @@ schema that cannot live in the library.
     :exclude-members: lock_keys
 
 
+Natural keys
+============
+
+.. currentmodule:: djanquiltdb.natural_keys
+
+DjanQuiltDB requires a natural key of every public model. A model of a third-party app cannot declare one, so
+``make_the_primary_key_the_natural_key()`` gives it its primary key as the natural key, without a migration.
+
+.. autofunction:: make_the_primary_key_the_natural_key
+
+
 Routing
 =======
 

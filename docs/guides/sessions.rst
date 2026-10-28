@@ -83,7 +83,7 @@ the ``SESSION_ENGINE``::
         'SHARD_SELECTOR_REGEX': '[-a-z0-9]+',
         'OVERRIDE_SHARDING_MODE': {
             ...
-            ('sessions',): ShardingMode.SHARDED,
+            ('sessions',): ShardingMode.PUBLIC,
         },
     }
 
@@ -96,8 +96,14 @@ the ``SESSION_ENGINE``::
 
 Keep ``django.contrib.sessions`` in ``INSTALLED_APPS``: Django's ``clearsessions`` command is part of it (see
 :ref:`expired_sessions`). The backend does not use the ``Session`` model of that app, but every model needs a sharding
-mode (the system check ``djanquiltdb.E004``, see :doc:`/reference/checks`). ``('sessions',): ShardingMode.SHARDED``
-gives it one, and leaves an empty table in each shard.
+mode (the system check ``djanquiltdb.E004``, see :doc:`/reference/checks`). ``('sessions',): ShardingMode.PUBLIC``
+gives it one, and leaves an empty table in the public schema of each node. A project has one public schema on each
+node, but a schema for every shard: a sharded table would be created in every new shard, and copied, purged and
+migrated with each of them, while nothing reads it. DjanQuiltDB requires a natural key of every public model, and gives
+this one its session key, so the app needs no migration of its own.
+
+A project that installed ``django.contrib.sessions`` before it gave the app a mode already has the table, on the node
+that is named ``default`` (see :ref:`giving_a_mode_to_a_model_that_had_none`). ``ShardingMode.PUBLIC`` keeps it there.
 
 A project that moves to DjanQuiltDB while it still uses Django's database session backend can keep the table of that
 backend on one node with ``single_node_unsharded()`` (see :doc:`/guides/sharding_modes`) until it switches.
