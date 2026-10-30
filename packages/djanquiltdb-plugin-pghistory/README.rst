@@ -61,6 +61,36 @@ Install it through DjanQuiltDB's extra::
 
     pip install djanquiltdb[pghistory]
 
+The `installation guide <https://djanquiltdb.readthedocs.io/en/latest/plugins/pghistory/installation.html>`_ describes
+each step in full. ``pghistory`` and the ``pgtrigger`` app that it builds on go in ``INSTALLED_APPS``. Record the
+context denormalized, so that each event row keeps its context next to it, and make the ``pghistory`` app public::
+
+    # settings.py
+    import pghistory
+
+    from djanquiltdb import ShardingMode
+
+    INSTALLED_APPS = [
+        ...
+        'djanquiltdb',
+        'pgtrigger',
+        'pghistory',
+        ...
+    ]
+
+    PGHISTORY_CONTEXT_FIELD = pghistory.ContextJSONField()
+
+    QUILT_DB = {
+        ...
+        'OVERRIDE_SHARDING_MODE': {
+            ...
+            ('pghistory',): ShardingMode.PUBLIC,
+        },
+    }
+
+The triggers reach the template schema and every shard only through migrations, so do not use the ``pgtrigger``
+management commands that change the database directly.
+
 Full documentation is at https://djanquiltdb.readthedocs.io/en/latest/plugins/pghistory/index.html.
 
 Development
@@ -78,5 +108,5 @@ Requirements
 * Python 3.14
 * Django 6.0 or 6.1
 * PostgreSQL 17 or 18
-* djanquiltdb 4.2.0 or newer 4.x
+* djanquiltdb 4.6.0 or newer 4.x
 * django-pghistory 3.9.2 or newer 3.x

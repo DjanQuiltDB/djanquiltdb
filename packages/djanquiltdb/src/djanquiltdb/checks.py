@@ -84,6 +84,45 @@ def check_pgtrigger_compatibility(app_configs, **kwargs):
     return warnings
 
 
+@checks.register(checks.Tags.compatibility)
+def check_shard_selector_regex_setting(app_configs, **kwargs):
+    """
+    Report a warning when the deprecated ``QUILT_SESSIONS['SHARD_SELECTOR_REGEX']`` is set, and an error when
+    ``QUILT_DB['SHARD_SELECTOR_REGEX']`` is set to another regex. With two regexes, the session backend uses the regex
+    of ``QUILT_DB``, and the session keys in use may not match it.
+    """
+    session_regex = (getattr(settings, 'QUILT_SESSIONS', None) or {}).get('SHARD_SELECTOR_REGEX')
+
+    if session_regex is None:
+        return []
+
+    quilt_db_regex = (getattr(settings, 'QUILT_DB', None) or {}).get('SHARD_SELECTOR_REGEX')
+
+    if quilt_db_regex is not None and quilt_db_regex != session_regex:
+        return [
+            checks.Error(
+                "QUILT_DB['SHARD_SELECTOR_REGEX'] is {!r} and QUILT_SESSIONS['SHARD_SELECTOR_REGEX'] is {!r}.".format(
+                    quilt_db_regex, session_regex
+                ),
+                hint=(
+                    'DjanQuiltDB uses the regex of QUILT_DB. Check that the session keys in use match it, and then '
+                    'remove SHARD_SELECTOR_REGEX from QUILT_SESSIONS.'
+                ),
+                id='djanquiltdb.E010',
+            )
+        ]
+
+    return [
+        checks.Warning(
+            "QUILT_SESSIONS['SHARD_SELECTOR_REGEX'] is deprecated and will be removed in djanquiltdb 5.0.",
+            hint=(
+                "Set QUILT_DB['SHARD_SELECTOR_REGEX'] = {!r} and remove SHARD_SELECTOR_REGEX from QUILT_SESSIONS."
+            ).format(session_regex),
+            id='djanquiltdb.W005',
+        )
+    ]
+
+
 # The parts of a function body that are not SQL: comments, string literals and dollar-quoted strings, which are blanked
 # out before the body is searched. A quoted identifier is matched too, so that a quote inside it does not start a string
 # literal, and it is kept as it is. They are matched in one pass from left to right, so that "--" inside a string

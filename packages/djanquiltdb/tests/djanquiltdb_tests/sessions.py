@@ -194,6 +194,38 @@ class SessionStoreDelimiterTestCase(SimpleTestCase):
     QUILT_DB={
         'SHARD_CLASS': 'example.models.Shard',
         'MAPPING_MODEL': 'example.models.OrganizationShard',
+        'SHARD_SELECTOR_REGEX': '[a-z]+',
+    },
+    QUILT_SESSIONS={
+        'SESSION_MODEL': 'example.models.QuiltSession',
+    },
+)
+class SessionStoreShardSelectorRegexTestCase(SimpleTestCase):
+    """The shard selector of a session key matches QUILT_DB['SHARD_SELECTOR_REGEX']."""
+
+    def test_a_selector_of_the_quilt_db_regex_round_trips(self):
+        """
+        Case: QUILT_DB['SHARD_SELECTOR_REGEX'] is '[a-z]+', and a new session key is minted for the selector 'abc'.
+        Expected: A store constructed from just that key parses 'abc' back out of it.
+        """
+        store = SessionStore(shard_selector='abc')
+        with mock.patch.object(SessionStore, 'exists', return_value=False):
+            session_key = store._get_new_session_key()
+        self.assertEqual(SessionStore(session_key=session_key).shard_selector, 'abc')
+
+    def test_a_selector_outside_the_quilt_db_regex_is_refused(self):
+        """
+        Case: QUILT_DB['SHARD_SELECTOR_REGEX'] is '[a-z]+', and the selector 42 is set on a store.
+        Expected: ImproperlyConfigured that names the regex.
+        """
+        with self.assertRaisesMessage(ImproperlyConfigured, '[a-z]+'):
+            SessionStore().shard_selector = 42
+
+
+@override_settings(
+    QUILT_DB={
+        'SHARD_CLASS': 'example.models.Shard',
+        'MAPPING_MODEL': 'example.models.OrganizationShard',
     },
     QUILT_SESSIONS={
         'SESSION_MODEL': 'example.models.QuiltSession',

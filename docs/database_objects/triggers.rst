@@ -80,12 +80,15 @@ Why pgtrigger's management commands do not work
 
 Do not use ``pgtrigger install``, ``pgtrigger uninstall``, ``pgtrigger enable``, ``pgtrigger disable`` or
 ``pgtrigger prune``. They change the database directly instead of through a migration, and so never pass the shard-aware
-migration manager that spreads a change across the schemas. Each acts on whatever single schema the connection's search
-path points at, leaving the template and every other shard as they were, and any shard created afterwards is then cloned
-from a template that never saw the change.
+migration manager that spreads a change across the schemas and the nodes. A management command runs outside a shard, so
+each of them only reaches the public schema of the primary node. They skip the triggers of sharded models, because the
+router does not allow those models there, so the template and the shards keep the triggers of their migrations. They
+do change the triggers of public and mirrored models, but only on the primary node, so the other nodes no longer agree
+with it.
 
-``pgtrigger ls`` is misleading rather than harmful, for the same reason: it reports on one schema, so it tells you
-nothing about whether the others agree with it.
+``pgtrigger ls`` is misleading rather than harmful, for the same reason. It reports the triggers of the public schema of
+the primary node only, and lists every trigger of a sharded model as ``UNALLOWED``, so it tells you nothing about the
+template, the shards or the other nodes.
 
 Add, remove or disable a trigger in a migration instead, and it lands everywhere it belongs.
 

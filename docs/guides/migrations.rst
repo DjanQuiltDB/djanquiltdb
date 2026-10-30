@@ -186,6 +186,34 @@ For an operation on a table on a single node (see :doc:`/guides/sharding_modes`)
        hints={'sharding_mode': single_node_unsharded(node=PRIMARY_NODE)},
    )
 
+.. _giving_a_mode_to_a_model_that_had_none:
+
+Giving a mode to a model that had none
+--------------------------------------
+
+The router places each migration by the mode that a model has when the migration runs. A model without a mode had its
+migrations applied in the public schema of the node that is named ``default`` only. Every other schema records them as
+applied all the same: the template schema and the shards of that node, and every schema of the other nodes. None of
+them has a table for the model. Giving the model a mode later does not move its table or create it elsewhere, because
+``migrate`` finds nothing left to apply. ``djanquiltdb.E004`` asks for a mode of every model, so a project that upgrades
+from a version without that check meets this for each model that had none, such as those of Django's own apps.
+
+Choose the mode that keeps the table where it is:
+
+* **Public**, when the project has one node. The table already is in the public schema of ``default``, so the model
+  only needs the mode, and the natural key that DjanQuiltDB requires of a public model: a ``unique_together``, a
+  ``natural_key()`` method and a ``get_by_natural_key()`` method on its default manager (see
+  :doc:`/operations/move_shard_to_node`). DjanQuiltDB gives the ``Session`` model of ``django.contrib.sessions`` its
+  session key as the natural key. On a project with more nodes, the other nodes have no table yet. Create it there with
+  a one-time migration before anything queries the model on those nodes.
+* **Mirrored**: see :ref:`making_an_existing_model_mirrored`.
+
+A sharded mode moves the table, which ``migrate`` does not do for you: the template schema and the shards keep having no
+table. Every command that goes through the sharded models then fails on it, among them ``move_shard_to_node``,
+``purge_shard_data`` and ``move_data_to_shard``, and so do the queries of the model in a shard. To make such a model
+sharded, add a one-time migration that creates its table in the template schema and in every shard, copies each row to
+the shard it belongs to, and drops the table from the public schema.
+
 .. _making_an_existing_model_mirrored:
 
 Making an existing model mirrored

@@ -1,0 +1,97 @@
+[build-system]
+# The PEP 639 license expression below needs 77, which is also new enough not to want `wheel` declared here.
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "djanquiltdb-plugin-oauth-toolkit"
+dynamic = ["version"]
+description = "django-oauth-toolkit client ids and tokens that name the shard of a DjanQuiltDB project"
+readme = "README.rst"
+requires-python = ">=3.14"
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
+authors = [
+    { name = "DjanQuiltDB Project", email = "djanquiltdb@portal42.net" },
+]
+keywords = [
+    "django",
+    "database",
+    "sharding",
+    "postgresql",
+    "oauth2",
+    "django-oauth-toolkit",
+]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Environment :: Web Environment",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Framework :: Django",
+    "Framework :: Django :: 6.0",
+    "Framework :: Django :: 6.1",
+    "Topic :: Database",
+    "Topic :: Internet :: WWW/HTTP :: Session",
+]
+dependencies = [
+    "django>=6.0,<7.0",
+    # 4.6 serves a plugin's middleware module as djanquiltdb.middleware.<name>, and has QUILT_DB['SHARD_SELECTOR_REGEX'].
+    "djanquiltdb>=4.6,<5.0",
+    # 3.4 looks up a refresh token by a checksum of the whole token, as it looks up an access token. The middleware
+    # reads client ids and tokens from the places where the toolkit reads them, and it is keyed on the URL names of the
+    # toolkit, so a new major version has to be checked before the upper bound is raised.
+    "django-oauth-toolkit>=3.4,<4.0",
+]
+
+[project.entry-points."djanquiltdb.plugins"]
+oauth_toolkit = "djanquiltdb_plugin_oauth_toolkit:plugin"
+
+[project.urls]
+Homepage = "https://github.com/DjanQuiltDB/djanquiltdb"
+Documentation = "https://djanquiltdb.readthedocs.io/en/latest/plugins/oauth-toolkit/index.html"
+Source = "https://github.com/DjanQuiltDB/djanquiltdb/tree/master/packages/djanquiltdb-plugin-oauth-toolkit"
+Issues = "https://github.com/DjanQuiltDB/djanquiltdb/issues"
+Changelog = "https://github.com/DjanQuiltDB/djanquiltdb/blob/master/packages/djanquiltdb-plugin-oauth-toolkit/CHANGELOG.rst"
+
+[project.optional-dependencies]
+lint = [
+    "ruff==0.15.21",
+]
+test = [
+    "coverage",
+    "psycopg[binary]>=3.0.0",
+    "dj-database-url",
+]
+docs = [
+    "sphinx>=8,<10",
+]
+dev = [
+    "djanquiltdb-plugin-oauth-toolkit[test,lint,docs]",
+    "pre-commit",
+    # Native TOML configuration, so that tox.ini is not needed, landed in 4.21.
+    "tox>=4.21",
+    "build",
+    "twine",
+]
+
+[tool.setuptools.dynamic]
+version = { attr = "djanquiltdb_plugin_oauth_toolkit.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.coverage.run]
+source = ["djanquiltdb_plugin_oauth_toolkit"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 100
+
+# Shared settings live in ruff.toml at the repository root; only the src roots are per package.
+[tool.ruff]
+extend = "../../ruff.toml"
+src = ["src", "tests"]

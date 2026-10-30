@@ -74,16 +74,16 @@ the ``SESSION_ENGINE``::
 
     QUILT_SESSIONS = {
         'SESSION_MODEL': 'myapp.models.QuiltSession',
-        # The tenants are mapped by slug. See the format of the shard selector below.
-        'SHARD_SELECTOR_REGEX': '[-a-z0-9]+',
     }
 
     QUILT_DB = {
         'SHARD_CLASS': 'myapp.models.Shard',
         'MAPPING_MODEL': 'myapp.models.TenantShard',
+        # The mapping model of this example maps tenants by slug. See "The format of the shard selector" below.
+        'SHARD_SELECTOR_REGEX': '[-a-z0-9]+',
         'OVERRIDE_SHARDING_MODE': {
             ...
-            ('sessions',): ShardingMode.SHARDED,
+            ('sessions',): ShardingMode.PUBLIC,
         },
     }
 
@@ -96,8 +96,14 @@ the ``SESSION_ENGINE``::
 
 Keep ``django.contrib.sessions`` in ``INSTALLED_APPS``: Django's ``clearsessions`` command is part of it (see
 :ref:`expired_sessions`). The backend does not use the ``Session`` model of that app, but every model needs a sharding
-mode (the system check ``djanquiltdb.E004``, see :doc:`/reference/checks`). ``('sessions',): ShardingMode.SHARDED``
-gives it one, and leaves an empty table in each shard.
+mode (the system check ``djanquiltdb.E004``, see :doc:`/reference/checks`). ``('sessions',): ShardingMode.PUBLIC``
+gives it one, and leaves an empty table in the public schema of each node. A project has one public schema on each
+node, but a schema for every shard: a sharded table would be created in every new shard, and copied, purged and
+migrated with each of them, while nothing reads it. DjanQuiltDB requires a natural key of every public model, and gives
+this one its session key, so the app needs no migration of its own.
+
+A project that installed ``django.contrib.sessions`` before it gave the app a mode already has the table, on the node
+that is named ``default`` (see :ref:`giving_a_mode_to_a_model_that_had_none`). ``ShardingMode.PUBLIC`` keeps it there.
 
 A project that moves to DjanQuiltDB while it still uses Django's database session backend can keep the table of that
 backend on one node with ``single_node_unsharded()`` (see :doc:`/guides/sharding_modes`) until it switches.
@@ -143,14 +149,18 @@ the ``SessionStorage`` of ``django.contrib.messages``.
 The format of the shard selector
 --------------------------------
 
-The selector has to match ``SHARD_SELECTOR_REGEX`` in ``QUILT_SESSIONS``, which is ``'[0-9]+'`` by default: the values
-of a mapping field that holds integer ids. Change it when the mapping values are something else. For the slugs of
+The selector has to match ``SHARD_SELECTOR_REGEX`` in ``QUILT_DB``, which is ``'[0-9]+'`` by default and matches the
+values of a mapping field that has integer ids. Change it when the mapping values are something else. For the slugs of
 tenants, for example::
 
-    QUILT_SESSIONS = {
-        'SESSION_MODEL': 'myapp.models.QuiltSession',
+    QUILT_DB = {
+        ...
         'SHARD_SELECTOR_REGEX': '[-a-z0-9]+',
     }
+
+Every identifier that has a shard selector, such as a session key, uses this one regular expression. See
+:ref:`shard_selector_regex_setting` for the characters that mapping values are strongly recommended to keep to, and for
+the deprecated ``QUILT_SESSIONS['SHARD_SELECTOR_REGEX']``.
 
 That regular expression matches lowercase slugs. A mapping field whose slugs can have uppercase letters needs one that
 matches those, and then another delimiter than ``K`` too.

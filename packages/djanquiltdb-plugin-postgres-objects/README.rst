@@ -63,11 +63,28 @@ Install it through DjanQuiltDB's extra::
 
     pip install djanquiltdb[postgres-objects]
 
-The decorators are importable from ``djanquiltdb.decorators`` beside the model ones, as above.
+The `installation guide <https://djanquiltdb.readthedocs.io/en/latest/plugins/postgres-objects/installation.html>`_
+describes each step in full. ``postgres_objects`` goes in ``INSTALLED_APPS``, and the ``POSTGRES_OBJECTS`` setting names
+the module of each app that declares its functions and the module that declares its views::
 
-Functions get ``@public_function``, ``@mirrored_function`` and ``@sharded_function``; views get ``@public_view``,
-``@mirrored_view`` and ``@sharded_view``. An unannotated declaration is placed in the public schema, so declarations
-written for a single-database project keep working once that project is sharded.
+    # settings.py
+    INSTALLED_APPS = [
+        ...
+        'djanquiltdb',
+        'postgres_objects',
+        ...
+    ]
+
+    POSTGRES_OBJECTS = {
+        'FUNCTIONS_MODULE_PATH': 'functions',
+        'VIEWS_MODULE_PATH': 'db_views',
+    }
+
+The decorators are importable from ``djanquiltdb.decorators`` beside the decorators of the models. Functions get
+``@public_function()``, ``@mirrored_function()`` and ``@sharded_function()``, and views get ``@public_view()``,
+``@mirrored_view()`` and ``@sharded_view()``. A declaration without one of these decorators is placed in the public
+schema of every node, and fails the system check ``djanquiltdb_plugin_postgres_objects.E001``, so that every
+declaration says where it belongs.
 
 Full documentation is at https://djanquiltdb.readthedocs.io/en/latest/plugins/postgres-objects/index.html.
 
@@ -86,5 +103,5 @@ Requirements
 * Python 3.14
 * Django 6.0 or 6.1
 * PostgreSQL 17 or 18
-* djanquiltdb 4.x
-* django-postgres-objects 1.x
+* djanquiltdb 4.5.0 or newer 4.x
+* django-postgres-objects 1.0.0 or newer 1.x

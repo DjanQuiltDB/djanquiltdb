@@ -7,10 +7,11 @@ a project's declaration modules may be imported while the app registry is still 
 ``AppConfig.ready()`` has run, and the decorator re-export in :mod:`djanquiltdb.decorators` has to be able to answer
 then.
 
-A plugin's ``base``, ``decorators``, ``models`` and ``utils`` modules are served as ``djanquiltdb.base.<name>``,
-``djanquiltdb.decorators.<name>``, ``djanquiltdb.models.<name>`` and ``djanquiltdb.utils.<name>``, as the plugin's own
-module objects and not as copies. :class:`PluginImporter` handles import statements, and the ``__getattr__`` of each of
-the four core modules handles plain attribute access.
+A plugin's ``base``, ``decorators``, ``middleware``, ``models`` and ``utils`` modules are served as
+``djanquiltdb.base.<name>``, ``djanquiltdb.decorators.<name>``, ``djanquiltdb.middleware.<name>``,
+``djanquiltdb.models.<name>`` and ``djanquiltdb.utils.<name>``, as the plugin's own module objects and not as copies.
+:class:`PluginImporter` handles import statements, and the ``__getattr__`` of each of the five core modules handles
+plain attribute access.
 """
 
 import contextlib
@@ -161,6 +162,7 @@ def load_plugin_by_name(name):
 _PLUGIN_ATTRIBUTE_BY_NAMESPACE = {
     'djanquiltdb.base': 'base',
     'djanquiltdb.decorators': 'decorators',
+    'djanquiltdb.middleware': 'middleware',
     'djanquiltdb.models': 'models',
     'djanquiltdb.utils': 'utils',
 }

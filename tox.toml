@@ -10,6 +10,10 @@ env_list = [
     "celery-py314-dj60-pg18",
     "celery-py314-dj61-pg17",
     "celery-py314-dj61-pg18",
+    "oauth-toolkit-py314-dj60-pg17",
+    "oauth-toolkit-py314-dj60-pg18",
+    "oauth-toolkit-py314-dj61-pg17",
+    "oauth-toolkit-py314-dj61-pg18",
     "pghistory-py314-dj60-pg17",
     "pghistory-py314-dj60-pg18",
     "pghistory-py314-dj61-pg17",
@@ -26,6 +30,7 @@ env_list = [
     "docs",
     "core-coverage",
     "celery-coverage",
+    "oauth-toolkit-coverage",
     "pghistory-coverage",
     "postgres-denormalize-coverage",
     "postgres-objects-coverage",
@@ -287,6 +292,106 @@ commands = [
         "coverage",
         "run",
         "--rcfile={tox_root}/packages/djanquiltdb-plugin-celery/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.oauth-toolkit-py314-dj60-pg17]
+description = "Run the oauth-toolkit plugin suite against Django 6.0 and PostgreSQL 17"
+labels = ["oauth-toolkit", "test"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-oauth-toolkit>=3.4,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-oauth-toolkit[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.oauth-toolkit-py314-dj60-pg18]
+description = "Run the oauth-toolkit plugin suite against Django 6.0 and PostgreSQL 18"
+labels = ["oauth-toolkit", "test"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-oauth-toolkit>=3.4,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-oauth-toolkit[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.oauth-toolkit-py314-dj61-pg17]
+description = "Run the oauth-toolkit plugin suite against Django 6.1 and PostgreSQL 17"
+labels = ["oauth-toolkit", "test"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-oauth-toolkit>=3.4,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-oauth-toolkit[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.oauth-toolkit-py314-dj61-pg18]
+description = "Run the oauth-toolkit plugin suite against Django 6.1 and PostgreSQL 18"
+labels = ["oauth-toolkit", "test"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-oauth-toolkit>=3.4,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-oauth-toolkit[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/pyproject.toml",
         "manage.py",
         "test",
         "plugin_tests",
@@ -734,6 +839,8 @@ deps = [
     # integrate.
     "celery>=5.6,<6.0",
     "-e {tox_root}/packages/djanquiltdb-plugin-celery",
+    "django-oauth-toolkit>=3.4,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-oauth-toolkit",
     "django-pghistory>=3.9.2,<4.0",
     "-e {tox_root}/packages/djanquiltdb-plugin-pghistory",
     "{env:POSTGRES_DENORMALIZE:django-postgres-denormalize>=1.0,<2.0}",
@@ -764,6 +871,15 @@ deps = ["coverage"]
 change_dir = "{tox_root}/packages/djanquiltdb-plugin-celery/tests"
 commands = [
     ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-celery/pyproject.toml"],
+]
+
+[env.oauth-toolkit-coverage]
+description = "Report on the coverage the oauth-toolkit plugin test envs recorded"
+labels = ["oauth-toolkit"]
+deps = ["coverage"]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/tests"
+commands = [
+    ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/pyproject.toml"],
 ]
 
 [env.pghistory-coverage]
@@ -809,6 +925,17 @@ description = "Build the djanquiltdb-plugin-celery sdist and wheel and check the
 labels = ["celery", "build"]
 deps = ["build", "twine"]
 change_dir = "{tox_root}/packages/djanquiltdb-plugin-celery"
+commands = [
+    ["python", "-c", "import shutil; shutil.rmtree('dist', ignore_errors=True)"],
+    ["python", "-m", "build"],
+    ["twine", "check", "dist/*"],
+]
+
+[env.oauth-toolkit-build]
+description = "Build the djanquiltdb-plugin-oauth-toolkit sdist and wheel and check the metadata"
+labels = ["oauth-toolkit", "build"]
+deps = ["build", "twine"]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-oauth-toolkit"
 commands = [
     ["python", "-c", "import shutil; shutil.rmtree('dist', ignore_errors=True)"],
     ["python", "-m", "build"],
