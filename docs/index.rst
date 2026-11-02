@@ -76,6 +76,7 @@ DjanQuiltDB finds them through the ``djanquiltdb.plugins`` entry-point group.
     :maxdepth: 2
     :caption: Reference
 
+    reference/commands
     reference/settings
     reference/checks
     reference/api

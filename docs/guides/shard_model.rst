@@ -60,7 +60,9 @@ States
 A shard is ``ACTIVE`` or in ``MAINTENANCE``. Entering a shard that is in maintenance raises ``StateException``, and
 the request middleware turns that into a 503 response (see :ref:`exception_middleware`). ``move_shard_to_node`` puts a shard
 in maintenance while it moves the shard. ``move_data_to_shard`` does the same to its source shard, or, with a mapping
-model, only to the tenants that it moves (see :doc:`/operations/move_data_to_shard`).
+model, only to the tenants that it moves (see :doc:`/operations/move_data_to_shard`). A management command that takes
+``--ignore-maintenance``, such as ``flush``, enters a shard in maintenance anyway when you pass the flag, so wait for
+a running move to finish first (see :ref:`the warning on --ignore-maintenance <ignore_maintenance_warning>`).
 
 
 Entering a shard
