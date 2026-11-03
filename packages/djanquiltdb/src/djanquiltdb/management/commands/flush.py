@@ -1,9 +1,10 @@
+from django.core.management import CommandError
 from django.core.management.commands.flush import Command as FlushCommand
 from django.db import connections
 
 from djanquiltdb.management.base import get_databases_and_schema_from_options, get_shards_by_node
 from djanquiltdb.options import ShardOptions
-from djanquiltdb.utils import get_all_databases, get_template_name
+from djanquiltdb.utils import StateException, get_all_databases, get_template_name
 
 
 class Command(FlushCommand):
@@ -29,7 +30,10 @@ class Command(FlushCommand):
             '--ignore-maintenance',
             action='store_true',
             dest='ignore_maintenance',
-            help='Allow flushing shards that are in maintenance mode.',
+            help=(
+                'Also flush the shards that are in maintenance. A move puts a shard in maintenance while it copies the '
+                "shard's data, so wait for a running move to finish."
+            ),
         )
 
     def handle(self, **options):
@@ -56,6 +60,9 @@ class Command(FlushCommand):
 
         shards_by_node = {} if schema_name else get_shards_by_node(node_names)
 
+        # A shard that cannot be flushed does not stop the other schemas. Its error is raised after the last schema.
+        errors_by_shard = {}
+
         for node_name in node_names:
             if schema_name:
                 schema_options = options.copy()
@@ -76,12 +83,12 @@ class Command(FlushCommand):
 
                 # And now this node's shards, as far as the registry knows them.
                 for shard in shards_by_node.get(node_name, []):
-                    shard_options = options.copy()
-                    if options.get('ignore_maintenance'):
-                        shard_options['database'] = ShardOptions.from_shard(shard, active_only_schemas=False)
-                    else:
-                        shard_options['database'] = ShardOptions.from_shard(shard)
-                    super().handle(**shard_options)
+                    try:
+                        self.flush_shard(shard, options)
+                    except StateException:
+                        errors_by_shard[shard] = 'it is in maintenance. Pass --ignore-maintenance to flush it.'
+                    except CommandError as error:
+                        errors_by_shard[shard] = str(error)
 
                 # And finally do the public schema. We do this as last, to make sure we don't face constraints for
                 # flushing.
@@ -92,3 +99,22 @@ class Command(FlushCommand):
                 # shards or the template schema.
                 public_options['allow_cascade'] = True
                 super().handle(**public_options)
+
+        if errors_by_shard:
+            raise CommandError(
+                'Shard(s) {} could not be flushed. The other schemas were flushed.\n{}'.format(
+                    ', '.join(shard.alias for shard in errors_by_shard),
+                    '\n'.join('Shard {}: {}'.format(shard.alias, error) for shard, error in errors_by_shard.items()),
+                )
+            )
+
+    def flush_shard(self, shard, options):
+        """
+        Flushes the schema of ``shard``. Raises StateException for a shard in maintenance unless ``ignore_maintenance``
+        is in ``options``, and CommandError when the schema cannot be flushed.
+        """
+        shard_options = options.copy()
+        shard_options['database'] = ShardOptions.from_shard(
+            shard, active_only_schemas=not options.get('ignore_maintenance')
+        )
+        super().handle(**shard_options)

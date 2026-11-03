@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 from djanquiltdb_plugin_pghistory import base, data_moves, decorators, models
 
-__version__ = '1.1.0'
+__version__ = '1.1.1'
 
 
 def install():

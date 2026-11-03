@@ -25,6 +25,7 @@ Release |version|.
     guides/transactions
     guides/requests
     guides/sessions
+    guides/oauth2
     guides/async
     guides/forms
     guides/migrations
@@ -66,6 +67,7 @@ DjanQuiltDB finds them through the ``djanquiltdb.plugins`` entry-point group.
     :caption: Integrations
 
     plugins/celery/index
+    plugins/oauth-toolkit/index
     plugins/pghistory/index
     plugins/postgres-denormalize/index
     plugins/postgres-objects/index
@@ -74,6 +76,7 @@ DjanQuiltDB finds them through the ``djanquiltdb.plugins`` entry-point group.
     :maxdepth: 2
     :caption: Reference
 
+    reference/commands
     reference/settings
     reference/checks
     reference/api

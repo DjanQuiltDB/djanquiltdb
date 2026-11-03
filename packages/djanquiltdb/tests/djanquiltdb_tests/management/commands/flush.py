@@ -1,8 +1,12 @@
-from django.core.management import call_command
+from unittest import mock
+
+from django.core.management import CommandError, call_command
+from django.db import DatabaseError
+from django.db.backends.base.operations import BaseDatabaseOperations
 
 from djanquiltdb import State
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
-from djanquiltdb.utils import StateException, create_template_schema, use_shard
+from djanquiltdb.utils import create_template_schema, use_shard
 from djanquiltdb_tests import OverrideMirroredRoutingMixin, ShardingTransactionTestCase
 from example.models import Organization, Shard, Type
 
@@ -91,29 +95,66 @@ class FlushTestCase(OverrideMirroredRoutingMixin, ShardingTransactionTestCase):
         with use_shard(self.shard2):
             self.assertTrue(Organization.objects.exists())
 
-    def test_flush_fails_with_maintenance_shard(self):
+    def test_a_shard_in_maintenance_is_named_in_the_error_and_the_other_schemas_are_flushed(self):
         """
-        Case: Call the flush command when a shard is in maintenance mode
-        Expected: StateException raised, shard not flushed
+        Case: Call the flush command for the database default while its shard sinaloa is in maintenance
+        Expected: CommandError that names sinaloa and says to pass --ignore-maintenance, after the public schema of
+                  default is flushed. Shard sinaloa keeps its data, and the other database is not touched
         """
         self.shard1.state = State.MAINTENANCE
         self.shard1.save(update_fields=['state'])
 
-        try:
-            with self.assertRaises(StateException):
-                call_command('flush', verbosity=0, interactive=False, database='default')
+        # The flush of the public schema of default deletes the registry row of sinaloa on that node, so the row is
+        # made active again only where it still exists.
+        self.addCleanup(Shard.objects.filter(pk=self.shard1.pk).update, state=State.ACTIVE)
 
-            # Verify shard was not flushed
-            with use_shard(self.shard1, active_only_schemas=False):
-                self.assertTrue(Organization.objects.exists())
+        with self.assertRaisesMessage(CommandError, 'Shard sinaloa: it is in maintenance.'):
+            call_command('flush', verbosity=0, interactive=False, database='default')
 
-            # Verify other shards were not affected
-            with use_shard(self.shard2):
-                self.assertTrue(Organization.objects.exists())
-        finally:
-            # Reset shard state to ACTIVE for teardown
-            self.shard1.state = State.ACTIVE
-            self.shard1.save(update_fields=['state'])
+        with use_shard(node_name='default', schema_name=PUBLIC_SCHEMA_NAME):
+            self.assertFalse(Type.objects.exists())
+
+        with use_shard(self.shard1, active_only_schemas=False):
+            self.assertTrue(Organization.objects.exists())
+
+        with use_shard(node_name='other', schema_name=PUBLIC_SCHEMA_NAME):
+            self.assertTrue(Type.objects.exists())
+
+        with use_shard(self.shard2):
+            self.assertTrue(Organization.objects.exists())
+
+    def test_a_shard_that_cannot_be_flushed_does_not_stop_the_other_schemas(self):
+        """
+        Case: The flush SQL fails with a DatabaseError in the schema of sinaloa, and the flush command is called for all
+              databases
+        Expected: CommandError that names sinaloa and the error of its flush, after every other schema is flushed
+        """
+        execute_sql_flush = BaseDatabaseOperations.execute_sql_flush
+
+        def execute_sql_flush_unless_el_chapo(operations, sql_list):
+            if operations.connection.get_schema() == 'el_chapo':
+                raise DatabaseError('The tables of el_chapo are locked.')
+
+            return execute_sql_flush(operations, sql_list)
+
+        with mock.patch.object(BaseDatabaseOperations, 'execute_sql_flush', execute_sql_flush_unless_el_chapo):
+            with self.assertRaisesMessage(CommandError, 'Shard(s) sinaloa could not be flushed.') as raised:
+                call_command('flush', verbosity=0, interactive=False)
+
+        self.assertIn('Shard sinaloa: Database ', str(raised.exception))
+        self.assertIn("couldn't be flushed", str(raised.exception))
+
+        with use_shard(node_name='default', schema_name=PUBLIC_SCHEMA_NAME):
+            self.assertFalse(Type.objects.exists())
+
+        with use_shard(node_name='other', schema_name=PUBLIC_SCHEMA_NAME):
+            self.assertFalse(Type.objects.exists())
+
+        with use_shard(self.shard2):
+            self.assertFalse(Organization.objects.exists())
+
+        with use_shard(self.shard1):
+            self.assertTrue(Organization.objects.exists())
 
     def test_flush_succeeds_with_ignore_maintenance_flag(self):
         """

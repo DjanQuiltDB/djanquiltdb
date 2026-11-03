@@ -53,11 +53,19 @@ while that shard is in maintenance::
     send_invoice.delay(invoice_id=12, tenant_slug='acme')
 
 The ``shared_task_for_*`` decorators create a shared task, as ``celery.shared_task()`` does. The ``task_for_*`` methods
-of a ``QuiltCelery`` app create a task of that app, as ``app.task()`` does::
+of a ``QuiltCelery`` app create a task of that app, as ``app.task()`` does. Set up the app as `Celery's documentation
+for Django <https://docs.celeryq.dev/en/stable/django/first-steps-with-django.html>`_ describes, with ``QuiltCelery``
+in place of ``Celery``::
 
+    # myproject/celery.py
     from djanquiltdb.base.celery import QuiltCelery
 
     app = QuiltCelery('myproject')
+    app.config_from_object('django.conf:settings', namespace='CELERY')
+    app.autodiscover_tasks()
+
+    # myapp/tasks.py
+    from myproject.celery import app
 
 
     @app.task_for_shard
@@ -83,6 +91,9 @@ Install the plugin through the ``celery`` extra of DjanQuiltDB::
 
     pip install djanquiltdb[celery]
 
+The `installation guide <https://djanquiltdb.readthedocs.io/en/latest/plugins/celery/installation.html>`_ describes the
+setup in full, and the optional ``QUILT_CELERY`` setting.
+
 Full documentation is at https://djanquiltdb.readthedocs.io/en/latest/plugins/celery/index.html.
 
 Development
@@ -100,5 +111,5 @@ Requirements
 * Python 3.14
 * Django 6.0 or 6.1
 * PostgreSQL 17 or 18
-* djanquiltdb 4.4.0 or newer 4.x
+* djanquiltdb 4.5.0 or newer 4.x
 * Celery 5.6 or newer 5.x

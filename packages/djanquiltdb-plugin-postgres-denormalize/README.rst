@@ -50,6 +50,33 @@ Install it through DjanQuiltDB's extra::
 
     pip install djanquiltdb[postgres-denormalize]
 
+The `installation guide
+<https://djanquiltdb.readthedocs.io/en/latest/plugins/postgres-denormalize/installation.html>`_ describes each step in
+full. ``postgres_denormalize`` and the ``pgtrigger`` app that it builds on go in ``INSTALLED_APPS``. Run every node that
+stores copies at SERIALIZABLE, because at a lower level a copy can differ from its lookup path, and retry the
+transactions that fail with a serialization error::
+
+    # settings.py
+    from django.db.backends.postgresql.psycopg_any import IsolationLevel
+
+    INSTALLED_APPS = [
+        ...
+        'djanquiltdb',
+        'pgtrigger',
+        'postgres_denormalize',
+        ...
+    ]
+
+    DATABASES = {
+        'default': {
+            ...,
+            'OPTIONS': {'isolation_level': IsolationLevel.SERIALIZABLE},
+        },
+    }
+
+Do not copy a column of a mirrored or public model. The triggers of such a copy only reach the current shard, and fail
+outside one.
+
 Full documentation is at https://djanquiltdb.readthedocs.io/en/latest/plugins/postgres-denormalize/index.html.
 
 Development

@@ -1,3 +1,9 @@
+v 1.1.1 (2026-11-03)
+--------------------
+Altered:
+ * Require djanquiltdb 4.6, whose ``djanquiltdb.natural_keys`` gives the public models of the plugin their natural
+   key.
+
 v 1.1.0 (2026-10-27)
 --------------------
 Added:

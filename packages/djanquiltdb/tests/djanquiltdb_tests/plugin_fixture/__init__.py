@@ -5,13 +5,15 @@ points to return it.
 
 from types import SimpleNamespace
 
-from djanquiltdb_tests.plugin_fixture import base, decorators, models, utils
+from djanquiltdb_tests.plugin_fixture import base, decorators, middleware, models, utils
 
 
 def install():
     pass
 
 
-plugin = SimpleNamespace(base=base, decorators=decorators, models=models, utils=utils, install=install)
+plugin = SimpleNamespace(
+    base=base, decorators=decorators, middleware=middleware, models=models, utils=utils, install=install
+)
 
 __all__ = ['install', 'plugin']

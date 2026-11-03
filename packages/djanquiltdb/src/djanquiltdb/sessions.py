@@ -12,12 +12,20 @@ from django.utils import timezone
 from django.utils.crypto import get_random_string
 from django.utils.module_loading import import_string
 
-from djanquiltdb.utils import NOT_ASYNC_SAFE, State, for_each_shard, use_shard, use_shard_for
+from djanquiltdb.utils import (
+    NOT_ASYNC_SAFE,
+    State,
+    for_each_shard,
+    shard_selector_pattern,
+    shard_selector_regex,
+    use_shard,
+    use_shard_for,
+)
 
 
 @functools.cache
 def _get_shard_selector_regex() -> re.Pattern:
-    return re.compile('^' + getattr(settings, 'QUILT_SESSIONS', {}).get('SHARD_SELECTOR_REGEX', '[0-9]+') + '$')
+    return shard_selector_pattern()
 
 
 @functools.cache
@@ -37,16 +45,15 @@ def _get_session_key_regex() -> re.Pattern:
             )
         )
 
-    # When taking the shard selector regex, we remove the anchors ^ and $
-    return re.compile('^S(' + shard_selector.pattern[1:-1] + ')' + delimiter)
+    return re.compile('^S(' + shard_selector_regex() + ')' + delimiter)
 
 
 @receiver(setting_changed)
 def reset_cached_session_settings(setting, **kwargs):
     """
-    Clears the cached regexes and delimiter when override_settings() changes QUILT_SESSIONS.
+    Clears the cached regexes and delimiter when override_settings() changes QUILT_DB or QUILT_SESSIONS.
     """
-    if setting == 'QUILT_SESSIONS':
+    if setting in ('QUILT_DB', 'QUILT_SESSIONS'):
         _get_shard_selector_regex.cache_clear()
         _get_delimiter.cache_clear()
         _get_session_key_regex.cache_clear()
