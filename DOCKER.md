@@ -42,5 +42,12 @@ docker compose run --no-deps --rm test tox -e docs
 The Postgres containers keep their data in named volumes; `docker compose down -v` resets them. The tox
 environments live in a container-internal volume (`/app/.tox`), so they never pollute the host checkout.
 
+The `test` container runs as uid and gid 1000, so the files that it writes to the checkout are owned by you rather
+than by root, if your user has those ids. If it has other ids, pass them in front of each command:
+
+```bash
+HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose run --rm test tox
+```
+
 CI runs these same tox environments, one per job, against a pair of PostgreSQL service containers rather
 than this compose file; `.github/workflows/ci.yml` is the whole of the difference.
