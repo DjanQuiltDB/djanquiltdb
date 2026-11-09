@@ -1,3 +1,14 @@
+v 4.6.1 (2026-11-09)
+--------------------
+Added:
+ * ``QUILT_ADMIN['SHARD_SWITCHER_SORT_KEY']`` for sorting the admin shard selector dropdown by mapping value, shard
+   alias, schema name or a custom function.
+ * Badges to documentation overview
+ * Code coverage badges
+
+Altered:
+ * Fixed RTD badge hitting proxy 502s in Github's overview
+
 v 4.6.0 (2026-11-03)
 --------------------
 Added:
