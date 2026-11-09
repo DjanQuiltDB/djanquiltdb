@@ -17,6 +17,7 @@ class ShardedAdminAppConfig(AppConfig):
         from django.conf import settings
         from django.utils.module_loading import import_string
 
+        from djanquiltdb.contrib.quilt_admin.context_processors import get_shard_switcher_sort_function
         from djanquiltdb.contrib.quilt_admin.shard_selector import BaseAdminShardSelector
 
         global ADMIN_SHARD_SELECTOR_CLASS
@@ -32,6 +33,10 @@ class ShardedAdminAppConfig(AppConfig):
             raise ImproperlyConfigured(
                 f"Shard selector class {ADMIN_SHARD_SELECTOR_CLASS} doesn't subclass BaseAdminShardSelector"
             )
+
+        # Raises ImproperlyConfigured at startup when SHARD_SWITCHER_SORT_KEY is not a built-in choice, a dotted path or
+        # a function.
+        get_shard_switcher_sort_function()
 
         self._patch_admin_logging()
 
