@@ -100,13 +100,37 @@ The dropdown shows:
 - Node name and schema name (e.g., ``default|shard_1_schema``)
 - Current selection is highlighted
 
+The dropdown is sorted by the mapping value, or by the shard alias if your project has no mapping model. To sort it by
+something else, set ``QUILT_ADMIN['SHARD_SWITCHER_SORT_KEY']`` to one of these:
+
+- ``'mapping_value'`` (the default): the value of the mapping field, such as the slug of a tenant. If your project has
+  no mapping model, the shard alias is used.
+- ``'shard_alias'``: the alias of the shard.
+- ``'schema_name'``: the schema name of the shard.
+- A function, or its dotted path, that returns the sort key of an option.
+
+The three built-in choices ignore the case of strings, and compare other values, such as integer mapping values, as
+they are. An option whose sort field is empty comes last, such as a mapping row without a shard when you sort by shard
+alias. The shard switcher calls your own function as ``fn(value, shard, mapping)`` for each option, with the same
+arguments as ``format_override_option()`` of the shard selector class. If your project has no mapping model, ``value``
+is the id of the shard and ``mapping`` is ``None``::
+
+    # myapp/admin.py
+    def shard_state_sort_key(value, shard, mapping):
+        return (shard.state, shard.alias.casefold())
+
+    # settings.py
+    QUILT_ADMIN = {
+        'SHARD_SWITCHER_SORT_KEY': 'myapp.admin.shard_state_sort_key',
+    }
+
 Selecting no shard clears the shard selection and returns to the default behavior.
 
 If you are not using a default ``UseShardMiddleware``/``UseShardForMiddleware`` or have a non-standard session backend
-(i.e. not ``djanquiltdb.sessions``, see :doc:`/guides/sessions`), it might be necessary to customize the ``AdminOverrideMiddleware``, the setting
-``OVERRIDE_SHARD_SELECTOR_KEY`` under ``QUILT_ADMIN``, or define a custom ``SHARD_SELECTOR`` class that subclasses
-``djanquiltdb.contrib.quilt_admin.shard_selector.BaseAdminShardSelector``. If this is required, refer to the code for
-more details and reference implementations.
+(i.e. not ``djanquiltdb.sessions``, see :doc:`/guides/sessions`), it might be necessary to customize
+``AdminOverrideMiddleware``, the setting ``OVERRIDE_SHARD_SELECTOR_KEY`` under ``QUILT_ADMIN``, or define a custom
+``SHARD_SELECTOR`` class that subclasses ``djanquiltdb.contrib.quilt_admin.shard_selector.BaseAdminShardSelector``. If
+this is required, refer to the code for more details and reference implementations.
 
 If your project serves the Django admin under a strict Content Security Policy (e.g. ``script-src 'nonce-…'``
 without ``'unsafe-inline'``), set ``QUILT_ADMIN['USE_CSP_NONCE'] = True``. The shard switcher will then emit

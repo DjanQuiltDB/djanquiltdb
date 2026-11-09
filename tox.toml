@@ -854,12 +854,15 @@ commands = [["sphinx-build", "-b", "html", "-W", "docs", "docs/_build/html"]]
 # The gate lives here rather than at the end of each test env, so that narrowing a run to one test with `-- -k Name`
 # reports on that run instead of failing it for the coverage the tests you skipped would have contributed.
 [env.core-coverage]
-description = "Render the HTML report and summary of the coverage the core test envs recorded"
+description = "Render the HTML report, XML report and summary of the coverage the core test envs recorded"
 labels = ["core"]
 deps = ["coverage"]
 change_dir = "{tox_root}/packages/djanquiltdb/tests"
 commands = [
     ["coverage", "combine", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
+    # CI uploads coverage.xml to Codecov. It is written first and without the gate, so that it exists when coverage is
+    # below the gate, which fails html and report.
+    ["coverage", "xml", "--fail-under=0", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
     ["coverage", "html", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
     ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml"],
 ]
@@ -870,6 +873,13 @@ labels = ["celery"]
 deps = ["coverage"]
 change_dir = "{tox_root}/packages/djanquiltdb-plugin-celery/tests"
 commands = [
+    # Written first and without the gate, for the reason that the core-coverage env spells out.
+    [
+        "coverage",
+        "xml",
+        "--fail-under=0",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-celery/pyproject.toml",
+    ],
     ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-celery/pyproject.toml"],
 ]
 
@@ -879,6 +889,13 @@ labels = ["oauth-toolkit"]
 deps = ["coverage"]
 change_dir = "{tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/tests"
 commands = [
+    # Written first and without the gate, for the reason that the core-coverage env spells out.
+    [
+        "coverage",
+        "xml",
+        "--fail-under=0",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/pyproject.toml",
+    ],
     ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/pyproject.toml"],
 ]
 
@@ -888,6 +905,13 @@ labels = ["pghistory"]
 deps = ["coverage"]
 change_dir = "{tox_root}/packages/djanquiltdb-plugin-pghistory/tests"
 commands = [
+    # Written first and without the gate, for the reason that the core-coverage env spells out.
+    [
+        "coverage",
+        "xml",
+        "--fail-under=0",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+    ],
     ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml"],
 ]
 
@@ -897,6 +921,13 @@ labels = ["postgres-denormalize"]
 deps = ["coverage"]
 change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/tests"
 commands = [
+    # Written first and without the gate, for the reason that the core-coverage env spells out.
+    [
+        "coverage",
+        "xml",
+        "--fail-under=0",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/pyproject.toml",
+    ],
     ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/pyproject.toml"],
 ]
 
@@ -906,6 +937,13 @@ labels = ["postgres-objects"]
 deps = ["coverage"]
 change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
 commands = [
+    # Written first and without the gate, for the reason that the core-coverage env spells out.
+    [
+        "coverage",
+        "xml",
+        "--fail-under=0",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
+    ],
     ["coverage", "report", "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml"],
 ]
 

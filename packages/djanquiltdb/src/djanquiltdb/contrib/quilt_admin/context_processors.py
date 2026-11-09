@@ -1,7 +1,9 @@
 import logging
 
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 from django.db import DatabaseError
+from django.utils.module_loading import import_string
 
 from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
 from djanquiltdb.utils import (
@@ -13,13 +15,63 @@ from djanquiltdb.utils import (
 logger = logging.getLogger(__name__)
 
 
+def _case_insensitive_sort_key(value):
+    """
+    Returns a sort key that ignores the case of a string. Other values are compared as they are, and None comes last.
+    """
+    return (value is None, value.casefold() if isinstance(value, str) else value)
+
+
+def mapping_value_sort_key(value, shard, mapping):
+    """Returns the sort key of the mapping value, or of the shard alias when the project has no mapping model."""
+    if mapping is None:
+        return shard_alias_sort_key(value, shard, mapping)
+    return _case_insensitive_sort_key(value)
+
+
+def shard_alias_sort_key(value, shard, mapping):
+    return _case_insensitive_sort_key(shard.alias if shard is not None else None)
+
+
+def schema_name_sort_key(value, shard, mapping):
+    return _case_insensitive_sort_key(shard.schema_name if shard is not None else None)
+
+
+BUILT_IN_SORT_FUNCTIONS = {
+    'mapping_value': mapping_value_sort_key,
+    'shard_alias': shard_alias_sort_key,
+    'schema_name': schema_name_sort_key,
+}
+
+
+def get_shard_switcher_sort_function():
+    """
+    Returns the sort function that QUILT_ADMIN['SHARD_SWITCHER_SORT_KEY'] sets. Raises ImproperlyConfigured when the
+    setting is not a built-in choice, a dotted path or a function.
+    """
+    setting_value = getattr(settings, 'QUILT_ADMIN', {}).get('SHARD_SWITCHER_SORT_KEY', 'mapping_value')
+
+    if callable(setting_value):
+        return setting_value
+    if isinstance(setting_value, str) and setting_value in BUILT_IN_SORT_FUNCTIONS:
+        return BUILT_IN_SORT_FUNCTIONS[setting_value]
+    if isinstance(setting_value, str) and '.' in setting_value:
+        return import_string(setting_value)
+
+    raise ImproperlyConfigured(
+        "QUILT_ADMIN['SHARD_SWITCHER_SORT_KEY'] is {!r}. Set it to one of {}, the dotted path of a function, or a "
+        'function.'.format(setting_value, ', '.join(repr(name) for name in BUILT_IN_SORT_FUNCTIONS))
+    )
+
+
 def admin_shard_context(request):
     """
     Context processor to provide shard information to admin templates.
     Adds shard switcher context to admin templates.
 
     If a mapping model is configured (QUILT_DB["MAPPING_MODEL"]), the selector lists
-    mapping entries (by mapping value) instead of shards (by shard id).
+    mapping entries (by mapping value) instead of shards (by shard id). QUILT_ADMIN['SHARD_SWITCHER_SORT_KEY'] decides
+    the order of the entries.
     """
     context = {
         'available_shards': [],
@@ -38,51 +90,48 @@ def admin_shard_context(request):
         context['shard_maintenance_message'] = getattr(request, '_shard_maintenance_message', None)
     # Only add shard context if user is authenticated and in admin
     if hasattr(request, 'user') and request.user.is_authenticated and request.path.startswith('/admin/'):
+        sort_function = get_shard_switcher_sort_function()
         try:
             mapping_class = get_mapping_class()
             if mapping_class:
                 mapping_field = getattr(mapping_class, 'mapping_field', None)
 
+                # The database order only decides between options that have the same sort key.
                 qs = (
                     mapping_class.objects.using(public_schema_alias_for_reading(mapping_class))
                     .select_related('shard')
                     .all()
+                    .order_by('pk')
                 )
-                if mapping_field:
-                    qs = qs.order_by(mapping_field)
-                else:
-                    qs = qs.order_by('pk')
 
-                mappings = list(qs)
-                context['available_shards'] = mappings
+                entries = []
+                for mapping in qs:
+                    mapping_value = getattr(mapping, mapping_field) if mapping_field else mapping.pk
+                    entries.append((mapping_value, getattr(mapping, 'shard', None), mapping))
+                entries.sort(key=lambda entry: sort_function(*entry))
+
+                context['available_shards'] = [mapping for _, _, mapping in entries]
                 context['shard_switcher_mode'] = 'mapping'
                 context['shard_switcher_field_name'] = 'mapping_value'
 
                 current_value = quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.retrieve_override_value(request)
                 context['current_shard_switcher_value'] = '' if current_value is None else str(current_value)
 
-                options = []
-                for mapping in mappings:
-                    if mapping_field:
-                        mapping_value = getattr(mapping, mapping_field)
-                        mapping_value_str = '' if mapping_value is None else str(mapping_value)
-                    else:
-                        mapping_value = mapping.pk
-                        mapping_value_str = str(mapping.pk)
-
-                    shard = getattr(mapping, 'shard', None)
-                    label = quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.format_override_option(
-                        mapping_value, shard, mapping
-                    )
-
-                    options.append({'value': mapping_value_str, 'label': label})
-
-                context['shard_switcher_options'] = options
+                context['shard_switcher_options'] = [
+                    {
+                        'value': '' if mapping_value is None else str(mapping_value),
+                        'label': quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.format_override_option(
+                            mapping_value, shard, mapping
+                        ),
+                    }
+                    for mapping_value, shard, mapping in entries
+                ]
             else:
                 shard_class = get_shard_class()
                 shards = list(
-                    shard_class.objects.using(public_schema_alias_for_reading(shard_class)).all().order_by('alias')
+                    shard_class.objects.using(public_schema_alias_for_reading(shard_class)).all().order_by('pk')
                 )
+                shards.sort(key=lambda shard: sort_function(shard.id, shard, None))
                 context['available_shards'] = shards
 
                 current_id = quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.retrieve_override_value(request)

@@ -9,9 +9,13 @@ DjanQuiltDB
     :target: https://github.com/DjanQuiltDB/djanquiltdb/actions/workflows/ci.yml
     :alt: CI
 
-.. image:: https://readthedocs.org/projects/djanquiltdb/badge/?version=latest
+.. image:: https://img.shields.io/readthedocs/djanquiltdb/latest
     :target: https://djanquiltdb.readthedocs.io/
     :alt: Documentation
+
+.. image:: https://img.shields.io/codecov/c/github/DjanQuiltDB/djanquiltdb/master?flag=core
+    :target: https://app.codecov.io/gh/DjanQuiltDB/djanquiltdb
+    :alt: Coverage
 
 .. image:: https://img.shields.io/pypi/v/djanquiltdb.svg
     :target: https://pypi.org/project/djanquiltdb/

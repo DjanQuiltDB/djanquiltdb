@@ -29,9 +29,13 @@ djanquiltdb-plugin-celery
     :target: https://github.com/DjanQuiltDB/djanquiltdb/actions/workflows/ci.yml
     :alt: CI
 
-.. image:: https://readthedocs.org/projects/djanquiltdb/badge/?version=latest
+.. image:: https://img.shields.io/readthedocs/djanquiltdb/latest
     :target: https://djanquiltdb.readthedocs.io/en/latest/plugins/celery/index.html
     :alt: Documentation
+
+.. image:: https://img.shields.io/codecov/c/github/DjanQuiltDB/djanquiltdb/master?flag=celery
+    :target: https://app.codecov.io/gh/DjanQuiltDB/djanquiltdb
+    :alt: Coverage
 
 .. image:: https://img.shields.io/pypi/l/djanquiltdb-plugin-celery.svg
     :target: https://github.com/DjanQuiltDB/djanquiltdb/blob/master/LICENSE
