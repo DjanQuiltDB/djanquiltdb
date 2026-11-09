@@ -1,5 +1,9 @@
+import contextlib
 import functools
 
+from django.core.exceptions import ImproperlyConfigured, PermissionDenied
+
+from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
 from djanquiltdb.models import BaseShard
 from djanquiltdb.utils import get_shard_class, get_shard_for, public_schema_alias_for_reading, use_shard
 
@@ -102,3 +106,100 @@ def route_admin_log_to_home_shard(func):
         return func(self, request, *args, **kwargs)
 
     return wrapper
+
+
+@contextlib.contextmanager
+def _as_the_user_in_the_home_shard(request):
+    """
+    Puts the logged-in user on ``request`` in place of the cross-shard proxy, and enters the user's own shard, so that
+    switchable_mappings() and switchable_shards() of the shard selector class get the same user and the same active
+    shard in the override middleware, the shard switcher and the switch view.
+    """
+    proxy = getattr(request, 'user', None)
+    if not isinstance(proxy, _BaseCrossShardUserProxy):
+        yield
+        return
+    request.user = proxy._user
+    try:
+        with proxy._enter_home_shard():
+            yield
+    finally:
+        request.user = proxy
+
+
+def _call_switchable_hook(hook_name, request, queryset):
+    """
+    Returns the queryset that the hook ``hook_name`` of the shard selector class returns for ``queryset``. Raises
+    ImproperlyConfigured when that queryset has a slice, because the callers filter and order it.
+    """
+    switchable = getattr(quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS, hook_name)(request, queryset)
+    if switchable.query.is_sliced:
+        raise ImproperlyConfigured(
+            '{}() of {} returns a queryset with a slice. Return a queryset without a slice, because the shard switcher '
+            'and the override middleware filter and order it.'.format(
+                hook_name, quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.__name__
+            )
+        )
+    return switchable
+
+
+def _queryset_of_all_mappings(mapping_class):
+    return mapping_class.objects.using(public_schema_alias_for_reading(mapping_class)).select_related('shard').all()
+
+
+def _queryset_of_all_shards(shard_class):
+    return shard_class.objects.using(public_schema_alias_for_reading(shard_class)).all()
+
+
+def list_switchable_mappings(request, mapping_class):
+    """
+    Returns a list of the mappings that switchable_mappings() of the shard selector class returns, in the order of
+    their primary keys.
+    """
+    with _as_the_user_in_the_home_shard(request):
+        mappings = _call_switchable_hook('switchable_mappings', request, _queryset_of_all_mappings(mapping_class))
+        return list(mappings.order_by('pk'))
+
+
+def list_switchable_shards(request, shard_class):
+    """
+    Returns a list of the shards that switchable_shards() of the shard selector class returns, in the order of their
+    primary keys.
+    """
+    with _as_the_user_in_the_home_shard(request):
+        shards = _call_switchable_hook('switchable_shards', request, _queryset_of_all_shards(shard_class))
+        return list(shards.order_by('pk'))
+
+
+def find_switchable_mapping(request, mapping_class, mapping_field, mapping_value):
+    """
+    Returns the mapping whose ``mapping_field`` is ``mapping_value``, or None when the mapping table has no such
+    mapping. Raises PermissionDenied when the mapping exists but switchable_mappings() of the shard selector class does
+    not return it.
+    """
+    with _as_the_user_in_the_home_shard(request):
+        all_mappings = _queryset_of_all_mappings(mapping_class)
+        # The value is filtered on the queryset that the hook returns, so that the result is the requested mapping
+        # also when the hook ignores the queryset that it receives.
+        mapping = (
+            _call_switchable_hook('switchable_mappings', request, all_mappings)
+            .filter(**{mapping_field: mapping_value})
+            .first()
+        )
+        if mapping is None and all_mappings.filter(**{mapping_field: mapping_value}).exists():
+            raise PermissionDenied
+    return mapping
+
+
+def find_switchable_shard(request, shard_id):
+    """
+    Returns the shard with the id ``shard_id``, or None when the shard registry has no such shard. Raises
+    PermissionDenied when the shard exists but switchable_shards() of the shard selector class does not return it.
+    """
+    with _as_the_user_in_the_home_shard(request):
+        all_shards = _queryset_of_all_shards(get_shard_class())
+        # As in find_switchable_mapping().
+        shard = _call_switchable_hook('switchable_shards', request, all_shards).filter(id=shard_id).first()
+        if shard is None and all_shards.filter(id=shard_id).exists():
+            raise PermissionDenied
+    return shard

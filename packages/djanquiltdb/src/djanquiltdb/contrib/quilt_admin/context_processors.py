@@ -6,11 +6,8 @@ from django.db import DatabaseError
 from django.utils.module_loading import import_string
 
 from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
-from djanquiltdb.utils import (
-    get_mapping_class,
-    get_shard_class,
-    public_schema_alias_for_reading,
-)
+from djanquiltdb.contrib.quilt_admin.utils import list_switchable_mappings, list_switchable_shards
+from djanquiltdb.utils import get_mapping_class, get_shard_class
 
 logger = logging.getLogger(__name__)
 
@@ -70,8 +67,9 @@ def admin_shard_context(request):
     Adds shard switcher context to admin templates.
 
     If a mapping model is configured (QUILT_DB["MAPPING_MODEL"]), the selector lists
-    mapping entries (by mapping value) instead of shards (by shard id). QUILT_ADMIN['SHARD_SWITCHER_SORT_KEY'] decides
-    the order of the entries.
+    mapping entries (by mapping value) instead of shards (by shard id). The entries are limited to the mappings that
+    switchable_mappings() of the shard selector class returns, or to the shards that switchable_shards() returns.
+    QUILT_ADMIN['SHARD_SWITCHER_SORT_KEY'] decides the order of the entries.
     """
     context = {
         'available_shards': [],
@@ -97,15 +95,8 @@ def admin_shard_context(request):
                 mapping_field = getattr(mapping_class, 'mapping_field', None)
 
                 # The database order only decides between options that have the same sort key.
-                qs = (
-                    mapping_class.objects.using(public_schema_alias_for_reading(mapping_class))
-                    .select_related('shard')
-                    .all()
-                    .order_by('pk')
-                )
-
                 entries = []
-                for mapping in qs:
+                for mapping in list_switchable_mappings(request, mapping_class):
                     mapping_value = getattr(mapping, mapping_field) if mapping_field else mapping.pk
                     entries.append((mapping_value, getattr(mapping, 'shard', None), mapping))
                 entries.sort(key=lambda entry: sort_function(*entry))
@@ -127,10 +118,7 @@ def admin_shard_context(request):
                     for mapping_value, shard, mapping in entries
                 ]
             else:
-                shard_class = get_shard_class()
-                shards = list(
-                    shard_class.objects.using(public_schema_alias_for_reading(shard_class)).all().order_by('pk')
-                )
+                shards = list_switchable_shards(request, get_shard_class())
                 shards.sort(key=lambda shard: sort_function(shard.id, shard, None))
                 context['available_shards'] = shards
 

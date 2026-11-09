@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
+from django.db.models import QuerySet
 from django.http import HttpRequest
 from django.utils.functional import classproperty
 
@@ -51,6 +52,22 @@ class BaseAdminShardSelector(ABC):
     @classmethod
     def retrieve_main_value(cls, request: HttpRequest) -> Optional[Any]:
         return getattr(request.session, session_shard_selector_attribute_name())
+
+    @classmethod
+    def switchable_mappings(cls, request: HttpRequest, queryset: QuerySet) -> QuerySet:
+        """
+        Returns a queryset of the mappings in ``queryset`` that the user of ``request`` may switch the admin to. Returns
+        ``queryset`` itself by default. The queryset must not have a slice, because the admin filters and orders it.
+        """
+        return queryset
+
+    @classmethod
+    def switchable_shards(cls, request: HttpRequest, queryset: QuerySet) -> QuerySet:
+        """
+        Returns a queryset of the shards in ``queryset`` that the user of ``request`` may switch the admin to. Returns
+        ``queryset`` itself by default. The queryset must not have a slice, because the admin filters and orders it.
+        """
+        return queryset
 
 
 class AdminShardSelector(BaseAdminShardSelector):

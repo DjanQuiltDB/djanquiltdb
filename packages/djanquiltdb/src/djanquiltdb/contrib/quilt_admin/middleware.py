@@ -1,17 +1,22 @@
-from django.core.exceptions import ObjectDoesNotExist
+from django.contrib import messages
+from django.core.exceptions import PermissionDenied
 from django.http import HttpResponse
 from django.urls import Resolver404, resolve
 
 from djanquiltdb import State
 from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
-from djanquiltdb.contrib.quilt_admin.utils import CrossShardMappingUserProxy, CrossShardUserProxy
+from djanquiltdb.contrib.quilt_admin.utils import (
+    CrossShardMappingUserProxy,
+    CrossShardUserProxy,
+    find_switchable_mapping,
+    find_switchable_shard,
+)
 from djanquiltdb.middleware import BaseUseShardForMiddleware, BaseUseShardMiddleware
 from djanquiltdb.utils import (
     get_mapping_class,
     get_shard_class,
     public_schema_alias_for_reading,
     use_shard,
-    use_shard_for,
 )
 
 """
@@ -45,13 +50,36 @@ def _is_logout_request(request):
         return request.path.endswith('/logout/') or '/logout' in request.path
 
 
-def _go_on_without_the_override(request):
-    """
-    Lets a request whose session override names a shard or a mapping value that no longer exists go on as a request
-    without an override, so that the override can be cleared through the shard switcher.
-    """
+def _unwrap_the_cross_shard_proxy(request):
+    """Puts the logged-in user on ``request`` in place of a cross-shard proxy."""
     if isinstance(request.user, (CrossShardUserProxy, CrossShardMappingUserProxy)):
         request.user = request.user._user
+
+
+def _user_is_authenticated(request):
+    user = getattr(request, 'user', None)
+    return user is not None and user.is_authenticated
+
+
+def _refuse_an_override_that_is_not_switchable(request, override_value, message):
+    """
+    Handles an override that exists but that switchable_mappings() or switchable_shards() of the shard selector class
+    does not return for the user of ``request``.
+
+    A request to switch shards or to log out goes on without the override, so that the user can pick another tenant or
+    log out. Any other request raises PermissionDenied, which Django turns into a 403 response, so that a request for a
+    tenant that the user may not switch to is never served in the user's own shard. When the session has this override,
+    the override is cleared and ``message`` tells the user so on the next page.
+    """
+    if _is_shard_switching_request(request) or _is_logout_request(request):
+        return
+    selector_class = quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS
+    if override_value == selector_class.retrieve_override_value(request):
+        selector_class.set_override_value(request, None)
+        # The message is dropped when MessageMiddleware comes after this middleware, so that the 403 response still
+        # goes out.
+        messages.error(request, message, fail_silently=True)
+    raise PermissionDenied
 
 
 def _check_maintenance_status(request, shard_id=None, mapping_value=None):
@@ -107,23 +135,21 @@ class BaseAdminOverrideUseShardMiddleware(BaseUseShardMiddleware):
         if not request.path.startswith('/admin/'):
             return None
 
-        # If we are viewing a different shard than the user's own, ensure request.user is proxied.
-        # Otherwise, ensure it is not/no longer proxied.
-        if shard_id := self.get_shard_id(request):
-            if request.user is not None and not isinstance(request.user, CrossShardUserProxy):
-                request.user = CrossShardUserProxy(
-                    request.user,
-                    quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.retrieve_main_value(request),
-                )
-        else:
-            if request.user is not None and isinstance(request.user, CrossShardUserProxy):
-                request.user = request.user._user
+        # _enable_shard() puts the cross-shard proxy on the request once it enters the shard of the override.
+        _unwrap_the_cross_shard_proxy(request)
+
+        if not _user_is_authenticated(request):
+            # The admin sends the user to the login page. The override stays in the session for the next login.
+            self.set_shard_context_manager(request, None)
+            request._shard_id = None
+            _check_maintenance_status(request)
+            return None
 
         if result := super().process_request(request):
             return result
 
         # Check maintenance status for both GET and POST requests
-        is_maintenance = _check_maintenance_status(request, shard_id=shard_id)
+        is_maintenance = _check_maintenance_status(request, shard_id=request._shard_id)
 
         # Block POST requests if in maintenance (except shard switching and logout)
         # Only apply this check for admin requests
@@ -138,16 +164,24 @@ class BaseAdminOverrideUseShardMiddleware(BaseUseShardMiddleware):
         return result
 
     def _enable_shard(self, request, shard_id):
-        # Allow access to maintenance shards for the admin (but read-only)
-        shard_class = get_shard_class()
         try:
-            shard = shard_class.objects.using(public_schema_alias_for_reading(shard_class)).get(id=shard_id)
-        except ObjectDoesNotExist:
+            shard = find_switchable_shard(request, shard_id)
+        except PermissionDenied:
             request._shard_id = None
-            _go_on_without_the_override(request)
+            _refuse_an_override_that_is_not_switchable(
+                request, shard_id, 'Cleared the override, because you do not have access to the selected shard.'
+            )
             return
-        shard_context_manager = self.set_shard_context_manager(request, use_shard(shard, active_only_schemas=False))
-        shard_context_manager.enable()
+        if shard is None:
+            # The request goes on without an override when the shard registry does not have the shard of the override,
+            # so that the user can clear the override through the shard switcher.
+            request._shard_id = None
+            return
+        request.user = CrossShardUserProxy(
+            request.user, quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.retrieve_main_value(request)
+        )
+        # Allow access to maintenance shards for the admin (but read-only)
+        self.set_shard_context_manager(request, use_shard(shard, active_only_schemas=False)).enable()
 
 
 class BaseAdminOverrideUseShardForMiddleware(BaseUseShardForMiddleware):
@@ -156,23 +190,21 @@ class BaseAdminOverrideUseShardForMiddleware(BaseUseShardForMiddleware):
         if not request.path.startswith('/admin/'):
             return None
 
-        # If we are viewing a different shard than the user's own, ensure request.user is proxied.
-        # Otherwise, ensure it is not/no longer proxied.
-        if mapping_value := self.get_mapping_value(request):
-            if request.user is not None and not isinstance(request.user, CrossShardMappingUserProxy):
-                request.user = CrossShardMappingUserProxy(
-                    request.user,
-                    quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.retrieve_main_value(request),
-                )
-        else:
-            if request.user is not None and isinstance(request.user, CrossShardMappingUserProxy):
-                request.user = request.user._user
+        # _enable_shard_for() puts the cross-shard proxy on the request once it enters the shard of the override.
+        _unwrap_the_cross_shard_proxy(request)
+
+        if not _user_is_authenticated(request):
+            # As in BaseAdminOverrideUseShardMiddleware.process_request().
+            self.set_shard_context_manager(request, None)
+            request._mapping_value = None
+            _check_maintenance_status(request)
+            return None
 
         if result := super().process_request(request):
             return result
 
         # Check maintenance status for both GET and POST requests
-        is_maintenance = _check_maintenance_status(request, mapping_value=mapping_value)
+        is_maintenance = _check_maintenance_status(request, mapping_value=request._mapping_value)
 
         # Block POST requests if in maintenance (except shard switching and logout)
         # Only apply this check for admin requests
@@ -187,14 +219,28 @@ class BaseAdminOverrideUseShardForMiddleware(BaseUseShardForMiddleware):
         return result
 
     def _enable_shard_for(self, request, target_value):
-        # Allow access to maintenance shards for the admin (but read-only)
+        mapping_class = get_mapping_class()
         try:
-            shard_context_manager = use_shard_for(target_value, active_only_schemas=False)
-        except ObjectDoesNotExist:
+            mapping = find_switchable_mapping(request, mapping_class, mapping_class.mapping_field, target_value)
+        except PermissionDenied:
             request._mapping_value = None
-            _go_on_without_the_override(request)
+            _refuse_an_override_that_is_not_switchable(
+                request,
+                target_value,
+                'Cleared the override, because you do not have access to the selected mapping value.',
+            )
             return
-        self.set_shard_context_manager(request, shard_context_manager).enable()
+        if mapping is None:
+            # As in BaseAdminOverrideUseShardMiddleware._enable_shard().
+            request._mapping_value = None
+            return
+        request.user = CrossShardMappingUserProxy(
+            request.user, quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.retrieve_main_value(request)
+        )
+        # Allow access to maintenance shards for the admin (but read-only)
+        self.set_shard_context_manager(
+            request, use_shard(mapping.shard, mapping_value=target_value, active_only_schemas=False)
+        ).enable()
 
 
 class ShardIdAdminOverrideMiddleware(BaseAdminOverrideUseShardMiddleware):

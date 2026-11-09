@@ -10,10 +10,17 @@ from django.test import SimpleTestCase, override_settings
 import djanquiltdb.contrib.quilt_admin as quilt_admin_pkg
 from djanquiltdb.contrib.quilt_admin.apps import ShardedAdminAppConfig
 from djanquiltdb.contrib.quilt_admin.context_processors import admin_shard_context, get_shard_switcher_sort_function
+from djanquiltdb.contrib.quilt_admin.utils import CrossShardMappingUserProxy, CrossShardUserProxy
 from djanquiltdb.decorators import override_sharding_setting
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
 from djanquiltdb.utils import State, create_template_schema, use_shard
 from djanquiltdb_tests import ShardingTestCase
+from djanquiltdb_tests.contrib.quilt_admin.shard_selectors import (
+    EvenAliasShardSelector,
+    EvenOrganizationsShardSelector,
+    RecordingShardSelector,
+    SlicingShardSelector,
+)
 from example.models import OrganizationShard, Shard
 
 
@@ -41,6 +48,7 @@ class ShardSwitcherSelectorBindingTestCase(ShardingTestCase):
         """
         fake_selector = mock.Mock()
         fake_selector.retrieve_override_value.return_value = None
+        fake_selector.switchable_mappings.side_effect = lambda request, queryset: queryset
 
         with mock.patch('djanquiltdb.contrib.quilt_admin.apps.ADMIN_SHARD_SELECTOR_CLASS', fake_selector):
             admin_shard_context(_make_admin_request())
@@ -90,6 +98,190 @@ class ShardSwitcherRegistryTestCase(ShardingTestCase):
         self.assertEqual([mapping.organization_id for mapping in context['available_shards']], [1])
 
 
+class ShardSwitcherSwitchableMappingsTestCase(ShardingTestCase):
+    def setUp(self):
+        super().setUp()
+        create_template_schema('default')
+        for organization_id in (1, 2, 3, 4):
+            shard = Shard.objects.create(
+                alias=f'shard_{organization_id}',
+                schema_name=f'schema_{organization_id}',
+                node_name='default',
+                state=State.ACTIVE,
+            )
+            OrganizationShard.objects.create(organization_id=organization_id, shard=shard)
+
+    def test_default_selector_lists_every_mapping(self):
+        """
+        Case: The mapping table has four rows, and the shard selector class does not override switchable_mappings().
+        Expected: The switcher lists all four mappings.
+        """
+        context = admin_shard_context(_make_admin_request())
+
+        self.assertEqual([option['value'] for option in context['shard_switcher_options']], ['1', '2', '3', '4'])
+        self.assertEqual([mapping.organization_id for mapping in context['available_shards']], [1, 2, 3, 4])
+
+    def test_switcher_lists_only_the_switchable_mappings(self):
+        """
+        Case: The mapping table has four rows, and switchable_mappings() of the shard selector class returns the
+              mappings of even organization ids only.
+        Expected: The switcher lists the mappings of organizations 2 and 4, and not the mappings of organizations 1 and
+                  3.
+        """
+        with mock.patch(
+            'djanquiltdb.contrib.quilt_admin.apps.ADMIN_SHARD_SELECTOR_CLASS', EvenOrganizationsShardSelector
+        ):
+            context = admin_shard_context(_make_admin_request())
+
+        self.assertEqual([option['value'] for option in context['shard_switcher_options']], ['2', '4'])
+        self.assertEqual([mapping.organization_id for mapping in context['available_shards']], [2, 4])
+
+    def test_switchable_mappings_receives_the_request(self):
+        """
+        Case: Build the switcher context for a request, with a mock in place of switchable_mappings() of the shard
+              selector class.
+        Expected: switchable_mappings() receives that request as its first argument.
+        """
+        request = _make_admin_request()
+
+        with (
+            mock.patch(
+                'djanquiltdb.contrib.quilt_admin.apps.ADMIN_SHARD_SELECTOR_CLASS', EvenOrganizationsShardSelector
+            ),
+            mock.patch.object(
+                EvenOrganizationsShardSelector,
+                'switchable_mappings',
+                side_effect=lambda request, queryset: queryset,
+            ) as switchable_mappings,
+        ):
+            admin_shard_context(request)
+
+        self.assertIs(switchable_mappings.call_args.args[0], request)
+
+    def test_switchable_mappings_receives_the_user_in_the_home_shard(self):
+        """
+        Case: The admin of organization 2 has switched to organization 1, so request.user is the cross-shard proxy and
+              the shard of organization 1 is entered. The switcher context is built.
+        Expected: switchable_mappings() of the shard selector class receives the user itself while the shard of
+                  organization 2, which is the home shard of the user, is entered. Afterwards, request.user is the
+                  cross-shard proxy.
+        """
+        request = _make_admin_request()
+        user = mock.Mock(is_authenticated=True)
+        request.user = CrossShardMappingUserProxy(user, 2)
+
+        with (
+            mock.patch('djanquiltdb.contrib.quilt_admin.apps.ADMIN_SHARD_SELECTOR_CLASS', RecordingShardSelector),
+            mock.patch.object(RecordingShardSelector, 'calls', []),
+            use_shard(Shard.objects.get(alias='shard_1')),
+        ):
+            admin_shard_context(request)
+            calls = RecordingShardSelector.calls
+
+        self.assertEqual(calls, [(user, 'schema_2')])
+        self.assertIsInstance(request.user, CrossShardMappingUserProxy)
+
+    def test_a_hook_that_returns_a_slice_is_improperly_configured(self):
+        """
+        Case: switchable_mappings() of the shard selector class returns a queryset with a slice.
+        Expected: Building the switcher context raises ImproperlyConfigured, which names switchable_mappings().
+        """
+        with mock.patch('djanquiltdb.contrib.quilt_admin.apps.ADMIN_SHARD_SELECTOR_CLASS', SlicingShardSelector):
+            with self.assertRaisesMessage(ImproperlyConfigured, 'switchable_mappings() of SlicingShardSelector'):
+                admin_shard_context(_make_admin_request())
+
+
+@override_sharding_setting('MAPPING_MODEL')
+class ShardSwitcherSwitchableShardsTestCase(ShardingTestCase):
+    def setUp(self):
+        super().setUp()
+        create_template_schema('default')
+        for number in (1, 2, 3, 4):
+            Shard.objects.create(
+                alias=f'shard_{number}', schema_name=f'schema_{number}', node_name='default', state=State.ACTIVE
+            )
+
+    def test_default_selector_lists_every_shard(self):
+        """
+        Case: The project has no mapping model, the shard registry has four shards, and the shard selector class does
+              not override switchable_shards().
+        Expected: The switcher lists all four shards.
+        """
+        context = admin_shard_context(_make_admin_request())
+
+        self.assertEqual(
+            [shard.alias for shard in context['available_shards']], ['shard_1', 'shard_2', 'shard_3', 'shard_4']
+        )
+
+    def test_switcher_lists_only_the_switchable_shards(self):
+        """
+        Case: The project has no mapping model, the shard registry has four shards, and switchable_shards() of the
+              shard selector class returns shard_2 and shard_4 only.
+        Expected: The switcher lists shard_2 and shard_4, both in its options and in available_shards, and not shard_1
+                  and shard_3.
+        """
+        with mock.patch('djanquiltdb.contrib.quilt_admin.apps.ADMIN_SHARD_SELECTOR_CLASS', EvenAliasShardSelector):
+            context = admin_shard_context(_make_admin_request())
+
+        self.assertEqual([shard.alias for shard in context['available_shards']], ['shard_2', 'shard_4'])
+        self.assertEqual(
+            [option['value'] for option in context['shard_switcher_options']],
+            [str(shard.id) for shard in Shard.objects.filter(alias__in=['shard_2', 'shard_4']).order_by('alias')],
+        )
+
+    def test_switchable_shards_receives_the_request(self):
+        """
+        Case: The project has no mapping model. Build the switcher context for a request, with a mock in place of
+              switchable_shards() of the shard selector class.
+        Expected: switchable_shards() receives that request as its first argument.
+        """
+        request = _make_admin_request()
+
+        with (
+            mock.patch('djanquiltdb.contrib.quilt_admin.apps.ADMIN_SHARD_SELECTOR_CLASS', EvenAliasShardSelector),
+            mock.patch.object(
+                EvenAliasShardSelector,
+                'switchable_shards',
+                side_effect=lambda request, queryset: queryset,
+            ) as switchable_shards,
+        ):
+            admin_shard_context(request)
+
+        self.assertIs(switchable_shards.call_args.args[0], request)
+
+    def test_switchable_shards_receives_the_user_in_the_home_shard(self):
+        """
+        Case: The project has no mapping model. The admin of shard_2 has switched to shard_1, so request.user is the
+              cross-shard proxy and shard_1 is entered. The switcher context is built.
+        Expected: switchable_shards() of the shard selector class receives the user itself while shard_2, which is the
+                  home shard of the user, is entered. Afterwards, request.user is the cross-shard proxy.
+        """
+        request = _make_admin_request()
+        user = mock.Mock(is_authenticated=True)
+        request.user = CrossShardUserProxy(user, Shard.objects.get(alias='shard_2').id)
+
+        with (
+            mock.patch('djanquiltdb.contrib.quilt_admin.apps.ADMIN_SHARD_SELECTOR_CLASS', RecordingShardSelector),
+            mock.patch.object(RecordingShardSelector, 'calls', []),
+            use_shard(Shard.objects.get(alias='shard_1')),
+        ):
+            admin_shard_context(request)
+            calls = RecordingShardSelector.calls
+
+        self.assertEqual(calls, [(user, 'schema_2')])
+        self.assertIsInstance(request.user, CrossShardUserProxy)
+
+    def test_a_hook_that_returns_a_slice_is_improperly_configured(self):
+        """
+        Case: The project has no mapping model, and switchable_shards() of the shard selector class returns a queryset
+              with a slice.
+        Expected: Building the switcher context raises ImproperlyConfigured, which names switchable_shards().
+        """
+        with mock.patch('djanquiltdb.contrib.quilt_admin.apps.ADMIN_SHARD_SELECTOR_CLASS', SlicingShardSelector):
+            with self.assertRaisesMessage(ImproperlyConfigured, 'switchable_shards() of SlicingShardSelector'):
+                admin_shard_context(_make_admin_request())
+
+
 def descending_organization_id_sort_key(value, shard, mapping):
     return -mapping.organization_id
 
@@ -128,9 +320,9 @@ class ShardSwitcherSortTestCase(ShardingTestCase):
         ]
         mapping_class = mock.Mock()
         mapping_class.mapping_field = 'tenant_slug'
-        mapping_class.objects.using.return_value.select_related.return_value.all.return_value.order_by.return_value = (
-            mappings
-        )
+        all_mappings = mapping_class.objects.using.return_value.select_related.return_value.all.return_value
+        all_mappings.query.is_sliced = False
+        all_mappings.order_by.return_value = mappings
 
         with mock.patch(
             'djanquiltdb.contrib.quilt_admin.context_processors.get_mapping_class', return_value=mapping_class

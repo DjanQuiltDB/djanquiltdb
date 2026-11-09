@@ -81,14 +81,16 @@ Include the admin URLs in your main URLconf. The URLs should be included under t
     from django.urls import include, path
 
     urlpatterns = [
-        path('admin/', admin.site.urls),
         path('admin/', include('djanquiltdb.contrib.quilt_admin.urls')),
+        path('admin/', admin.site.urls),
         ...
     ]
 
 .. note::
 
-    The order matters: include ``admin.site.urls`` first, then include the shard switcher URLs.
+    The order matters: include the shard switcher URLs first, then include ``admin.site.urls``. The admin ends its URLs
+    with a pattern that matches every other path under ``admin/``, so it answers ``admin/switch-shard/`` with a 404 when
+    you include ``admin.site.urls`` first.
 
 Once installed, a dropdown will appear in the top right corner of the Django admin interface (next to the user links).
 The dropdown lists all available shards and allows you to switch between them. The selected shard is stored in the
@@ -125,6 +127,42 @@ is the id of the shard and ``mapping`` is ``None``::
     }
 
 Selecting no shard clears the shard selection and returns to the default behavior.
+
+The shard switcher lists every mapping by default. To limit a user to some of the tenants, for example by the user's
+permissions or by a field of the mapping, subclass the shard selector class, override
+``switchable_mappings(request, queryset)``, and point ``QUILT_ADMIN['SHARD_SELECTOR_CLASS']`` at the subclass.
+``switchable_mappings()`` receives a queryset of all mappings and returns a queryset of the mappings that the user of
+the request may switch to. While it runs, ``request.user`` is the logged-in user, also when the admin shows another
+tenant, and the user's own shard is active, so a query on a sharded model reads the data of the user's own shard. Return
+a queryset without a slice, because the admin filters and orders it::
+
+    # myapp/admin.py
+    from djanquiltdb.contrib.quilt_admin.shard_selector import AdminShardSelector
+
+    class RegionAdminShardSelector(AdminShardSelector):
+        @classmethod
+        def switchable_mappings(cls, request, queryset):
+            if request.user.is_superuser:
+                return queryset
+            return queryset.filter(region=request.user.region)
+
+    # settings.py
+    QUILT_ADMIN = {
+        'SHARD_SELECTOR_CLASS': 'myapp.admin.RegionAdminShardSelector',
+    }
+
+The shard switcher lists only the mappings that ``switchable_mappings()`` returns. The switch view responds with 403
+Forbidden to a mapping value that exists but that ``switchable_mappings()`` does not return.
+``MappingValueAdminOverrideMiddleware`` responds with 403 Forbidden to an admin request for such a mapping value,
+whether the value comes from the session or from a subclass that overrides ``get_mapping_value()``, so a user who loses
+access to a tenant can neither see nor change its data from the next request on. When the value comes from the session,
+the middleware also clears the override and adds a message that says why, so the next admin page opens in the user's
+own shard. A request to switch shards or to log out goes on without the override, so that the user can pick another
+tenant or log out.
+
+If your project has no mapping model, override ``switchable_shards(request, queryset)``. It receives a queryset of all
+shards and returns a queryset of the shards that the user of the request may switch to. The shard switcher, the
+switch view and ``ShardIdAdminOverrideMiddleware`` use it in the same way.
 
 If you are not using a default ``UseShardMiddleware``/``UseShardForMiddleware`` or have a non-standard session backend
 (i.e. not ``djanquiltdb.sessions``, see :doc:`/guides/sessions`), it might be necessary to customize

@@ -7,11 +7,8 @@ from django.utils.decorators import method_decorator
 from django.views import View
 
 from djanquiltdb.contrib.quilt_admin import apps as quilt_admin_apps
-from djanquiltdb.utils import (
-    get_mapping_class,
-    get_shard_class,
-    public_schema_alias_for_reading,
-)
+from djanquiltdb.contrib.quilt_admin.utils import find_switchable_mapping, find_switchable_shard
+from djanquiltdb.utils import get_mapping_class
 
 
 def _coerce_value(raw_value, field):
@@ -54,12 +51,10 @@ class SwitchShardView(View):
                     field = mapping_class._meta.get_field(mapping_field)
                     mapping_value = _coerce_value(raw_value, field)
 
-                    mapping_obj = (
-                        mapping_class.objects.using(public_schema_alias_for_reading(mapping_class))
-                        .select_related('shard')
-                        .filter(**{mapping_field: mapping_value})
-                        .first()
-                    )
+                    # find_switchable_mapping() raises PermissionDenied for a mapping that switchable_mappings() does
+                    # not return, for example for a crafted POST, or for a shard switcher page that was rendered before
+                    # the user lost access.
+                    mapping_obj = find_switchable_mapping(request, mapping_class, mapping_field, mapping_value)
                     if not mapping_obj:
                         messages.error(request, 'Selected mapping value does not exist.')
                     else:
@@ -80,14 +75,17 @@ class SwitchShardView(View):
             shard_id = request.POST.get('shard_id')
             if shard_id:
                 try:
-                    shard_class = get_shard_class()
-                    shard = shard_class.objects.using(public_schema_alias_for_reading(shard_class)).get(id=shard_id)
-                    quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, shard_id)
-                    messages.success(request, f'Switched to shard: {shard.alias}')
+                    # As for mappings, find_switchable_shard() raises PermissionDenied for a shard that
+                    # switchable_shards() does not return.
+                    shard = find_switchable_shard(request, shard_id)
                 except ValueError, TypeError:
                     messages.error(request, 'Selected shard id is invalid.')
-                except shard_class.DoesNotExist:
-                    messages.error(request, 'Selected shard does not exist.')
+                else:
+                    if shard is None:
+                        messages.error(request, 'Selected shard does not exist.')
+                    else:
+                        quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, shard_id)
+                        messages.success(request, f'Switched to shard: {shard.alias}')
             else:
                 # Clear override
                 quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, None)
