@@ -32,6 +32,10 @@ djanquiltdb-plugin-oauth-toolkit
     :target: https://djanquiltdb.readthedocs.io/en/latest/plugins/oauth-toolkit/index.html
     :alt: Documentation
 
+.. image:: https://img.shields.io/codecov/c/github/DjanQuiltDB/djanquiltdb/master?flag=oauth-toolkit
+    :target: https://app.codecov.io/gh/DjanQuiltDB/djanquiltdb
+    :alt: Coverage
+
 .. image:: https://img.shields.io/pypi/l/djanquiltdb-plugin-oauth-toolkit.svg
     :target: https://github.com/DjanQuiltDB/djanquiltdb/blob/master/LICENSE
     :alt: BSD-3-Clause licence

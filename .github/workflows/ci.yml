@@ -18,6 +18,10 @@ jobs:
   test:
     name: ${{ matrix.toxenv }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # The Codecov upload authenticates with a GitHub OIDC token, so the repository needs no Codecov token secret.
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -25,6 +29,8 @@ jobs:
           - toxenv: core-py314-dj60-pg17
             postgres: "17"
             coverageenv: core-coverage
+            codecovflag: core
+            coveragexml: packages/djanquiltdb/tests/coverage.xml
           - toxenv: core-py314-dj60-pg18
             postgres: "18"
             coverageenv: core-coverage
@@ -41,6 +47,8 @@ jobs:
           - toxenv: celery-py314-dj60-pg17
             postgres: "17"
             coverageenv: celery-coverage
+            codecovflag: celery
+            coveragexml: packages/djanquiltdb-plugin-celery/tests/coverage.xml
           - toxenv: celery-py314-dj60-pg18
             postgres: "18"
             coverageenv: celery-coverage
@@ -53,6 +61,8 @@ jobs:
           - toxenv: oauth-toolkit-py314-dj60-pg17
             postgres: "17"
             coverageenv: oauth-toolkit-coverage
+            codecovflag: oauth-toolkit
+            coveragexml: packages/djanquiltdb-plugin-oauth-toolkit/tests/coverage.xml
           - toxenv: oauth-toolkit-py314-dj60-pg18
             postgres: "18"
             coverageenv: oauth-toolkit-coverage
@@ -65,6 +75,8 @@ jobs:
           - toxenv: pghistory-py314-dj60-pg17
             postgres: "17"
             coverageenv: pghistory-coverage
+            codecovflag: pghistory
+            coveragexml: packages/djanquiltdb-plugin-pghistory/tests/coverage.xml
           - toxenv: pghistory-py314-dj60-pg18
             postgres: "18"
             coverageenv: pghistory-coverage
@@ -77,6 +89,8 @@ jobs:
           - toxenv: postgres-denormalize-py314-dj60-pg17
             postgres: "17"
             coverageenv: postgres-denormalize-coverage
+            codecovflag: postgres-denormalize
+            coveragexml: packages/djanquiltdb-plugin-postgres-denormalize/tests/coverage.xml
           - toxenv: postgres-denormalize-py314-dj60-pg18
             postgres: "18"
             coverageenv: postgres-denormalize-coverage
@@ -89,6 +103,8 @@ jobs:
           - toxenv: postgres-objects-py314-dj60-pg17
             postgres: "17"
             coverageenv: postgres-objects-coverage
+            codecovflag: postgres-objects
+            coveragexml: packages/djanquiltdb-plugin-postgres-objects/tests/coverage.xml
           - toxenv: postgres-objects-py314-dj60-pg18
             postgres: "18"
             coverageenv: postgres-objects-coverage
@@ -137,6 +153,16 @@ jobs:
       - run: tox -e ${{ matrix.toxenv }}
       - if: matrix.coverageenv
         run: tox -e ${{ matrix.coverageenv }}
+      # Only the dj60-pg17 job of each package uploads, so that each package has one report, and the core report comes
+      # from the job that its gate is measured on. The upload also runs when the coverage env fails its gate, so that the
+      # badge shows the drop. The coverage env writes coverage.xml before it checks the gate.
+      - if: ${{ !cancelled() && matrix.codecovflag }}
+        uses: codecov/codecov-action@v5
+        with:
+          files: ${{ matrix.coveragexml }}
+          flags: ${{ matrix.codecovflag }}
+          use_oidc: true
+          fail_ci_if_error: false
 
   lint:
     name: ruff

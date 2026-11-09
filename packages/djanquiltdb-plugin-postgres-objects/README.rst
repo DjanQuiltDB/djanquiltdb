@@ -32,6 +32,10 @@ djanquiltdb-plugin-postgres-objects
     :target: https://djanquiltdb.readthedocs.io/en/latest/plugins/postgres-objects/index.html
     :alt: Documentation
 
+.. image:: https://img.shields.io/codecov/c/github/DjanQuiltDB/djanquiltdb/master?flag=postgres-objects
+    :target: https://app.codecov.io/gh/DjanQuiltDB/djanquiltdb
+    :alt: Coverage
+
 .. image:: https://img.shields.io/pypi/l/djanquiltdb-plugin-postgres-objects.svg
     :target: https://github.com/DjanQuiltDB/djanquiltdb/blob/master/LICENSE
     :alt: BSD-3-Clause licence

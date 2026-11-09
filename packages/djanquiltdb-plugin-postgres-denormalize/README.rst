@@ -32,6 +32,10 @@ djanquiltdb-plugin-postgres-denormalize
     :target: https://djanquiltdb.readthedocs.io/en/latest/plugins/postgres-denormalize/index.html
     :alt: Documentation
 
+.. image:: https://img.shields.io/codecov/c/github/DjanQuiltDB/djanquiltdb/master?flag=postgres-denormalize
+    :target: https://app.codecov.io/gh/DjanQuiltDB/djanquiltdb
+    :alt: Coverage
+
 .. image:: https://img.shields.io/pypi/l/djanquiltdb-plugin-postgres-denormalize.svg
     :target: https://github.com/DjanQuiltDB/djanquiltdb/blob/master/LICENSE
     :alt: BSD-3-Clause licence

@@ -13,6 +13,10 @@ DjanQuiltDB
     :target: https://djanquiltdb.readthedocs.io/
     :alt: Documentation
 
+.. image:: https://img.shields.io/codecov/c/github/DjanQuiltDB/djanquiltdb/master?flag=core
+    :target: https://app.codecov.io/gh/DjanQuiltDB/djanquiltdb
+    :alt: Coverage
+
 .. image:: https://img.shields.io/pypi/v/djanquiltdb.svg
     :target: https://pypi.org/project/djanquiltdb/
     :alt: djanquiltdb on PyPI

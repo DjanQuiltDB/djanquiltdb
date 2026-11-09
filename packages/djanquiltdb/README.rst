@@ -31,6 +31,10 @@ DjanQuiltDB - Django Database Sharding
     :target: https://djanquiltdb.readthedocs.io/
     :alt: Documentation
 
+.. image:: https://img.shields.io/codecov/c/github/DjanQuiltDB/djanquiltdb/master?flag=core
+    :target: https://app.codecov.io/gh/DjanQuiltDB/djanquiltdb
+    :alt: Coverage
+
 .. image:: https://img.shields.io/pypi/l/djanquiltdb.svg
     :target: https://github.com/DjanQuiltDB/djanquiltdb/blob/master/LICENSE
     :alt: BSD-3-Clause licence

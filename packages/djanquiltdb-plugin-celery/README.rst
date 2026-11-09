@@ -33,6 +33,10 @@ djanquiltdb-plugin-celery
     :target: https://djanquiltdb.readthedocs.io/en/latest/plugins/celery/index.html
     :alt: Documentation
 
+.. image:: https://img.shields.io/codecov/c/github/DjanQuiltDB/djanquiltdb/master?flag=celery
+    :target: https://app.codecov.io/gh/DjanQuiltDB/djanquiltdb
+    :alt: Coverage
+
 .. image:: https://img.shields.io/pypi/l/djanquiltdb-plugin-celery.svg
     :target: https://github.com/DjanQuiltDB/djanquiltdb/blob/master/LICENSE
     :alt: BSD-3-Clause licence
