@@ -9,7 +9,7 @@ DjanQuiltDB
     :target: https://github.com/DjanQuiltDB/djanquiltdb/actions/workflows/ci.yml
     :alt: CI
 
-.. image:: https://readthedocs.org/projects/djanquiltdb/badge/?version=latest
+.. image:: https://img.shields.io/readthedocs/djanquiltdb/latest
     :target: https://djanquiltdb.readthedocs.io/
     :alt: Documentation
 
