@@ -30,6 +30,7 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Framework :: Django",
     "Framework :: Django :: 6.0",
     "Framework :: Django :: 6.1",
@@ -41,7 +42,8 @@ dependencies = [
     # move_data_to_shard copies rows, and answers the system checks for every node, so that the isolation check of
     # django-postgres-denormalize sees the shards.
     "djanquiltdb>=4.3,<5.0",
-    "django-postgres-denormalize>=1.0,<2.0",
+    # 1.1 is the first release that supports Python 3.15.
+    "django-postgres-denormalize>=1.1,<2.0",
 ]
 
 [project.entry-points."djanquiltdb.plugins"]

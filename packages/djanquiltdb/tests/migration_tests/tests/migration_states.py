@@ -258,30 +258,31 @@ class SharedStatesMigrationExecutorInitTestCase(SimpleTestCase):
 
 def fingerprint_function_code(function):
     """
-    Return a hash of the function's syntax tree without its docstring. Comments, formatting and docstrings do not change
-    the hash.
+    Return a hash of the function's source as ast.unparse writes it, without its docstring. Comments, formatting and
+    docstrings do not change the hash. Nor does the Python version, as it would with ast.dump, whose output differs
+    between Python releases.
     """
     definition = ast.parse(textwrap.dedent(inspect.getsource(function))).body[0]
     if ast.get_docstring(definition) is not None:
         definition.body = definition.body[1:]
 
-    return hashlib.sha256(ast.dump(definition).encode()).hexdigest()
+    return hashlib.sha256(ast.unparse(definition).encode()).hexdigest()
 
 
 # Django code that the executors hook into or re-enact, with the fingerprints of the checked versions.
 DJANGO_FINGERPRINTS = {
-    MigrationExecutor.migrate: {'d00c8d8f68b8395b550c2707182565c92b8fa15f725f20a26a2926a0174d4fce'},
-    MigrationExecutor._migrate_all_forwards: {'abbf82312f4f5ce63f0bab8d37c4ba2267f02615989c6820f0fa5437f2e10415'},
-    MigrationExecutor._create_project_state: {'6352aec7416a2a761179e3bf2514ce7d40acff9f1db949870173e246f2132e03'},
-    MigrationExecutor.apply_migration: {'7d504fee872cbaa8c64ef3aa96c93193593885a95bbe4d10e872a9fc7dee3d24'},
-    MigrationExecutor.record_migration: {'576ccff70b39f52736756c28d7cd2f652420b55a279e5fafac06b7167c8187ac'},
-    MigrationExecutor.check_replacements: {'e626ecfca98224e02dceb3a1314c4c611fb41657eba500c6691e70cf14886454'},
-    MigrationExecutor.detect_soft_applied: {'7203fe8a920fa127867cf0f6cbd9199b1024a7df35ef63b1aead70d9ba7a2432'},
-    Migration.mutate_state: {'c39f3252fbb3319cebf79465bfb32411f082f5f23af8825d96c6858fb35ba559'},
-    Migration.apply: {'1ab7e4554e2862e7bd701037fe59ac6143cbc6ee08065d3347c58daa4ca92279'},
-    SeparateDatabaseAndState.state_forwards: {'fedfcae08c84f2a66f3852fc7e735f66647697b28fb8d3523c32cf398410cb1c'},
-    SeparateDatabaseAndState.database_forwards: {'69fb072f089b2592c603ad7656686675de272fdc7fe1d65de724a00455c65e4a'},
-    RunPython.database_forwards: {'e40d99827d2be40a32e427ab8ab3e278b0d2d9c3444f0687dbb5d6212e81d145'},
+    MigrationExecutor.migrate: {'4a11913382608dc3188933470809aaa301b0349037ad9cf6d2f174cd16898953'},
+    MigrationExecutor._migrate_all_forwards: {'44b706ec0a7910fc0c5bfb4f6a0f741a268f0950ed7e153f035a19833206616e'},
+    MigrationExecutor._create_project_state: {'d56032f0ca3028e763c984917ec6ba186c206e4b8b78cc16c11c80255bf9efd6'},
+    MigrationExecutor.apply_migration: {'3c328ebb19e4a89832936b2f0f244b661241278ba6eef9c22cd16717cac5dc43'},
+    MigrationExecutor.record_migration: {'2095e2ff78f37648364582e2c03304b6682a3af7f57d25eef008313316187a31'},
+    MigrationExecutor.check_replacements: {'297078785fb0097fa616a23cd790aedc961c266bb641c396442ca0f453748ee6'},
+    MigrationExecutor.detect_soft_applied: {'6c36ffff559077b9189719c8e716fe4bd8a39e51a70cd43ea2328d09abad482b'},
+    Migration.mutate_state: {'3017d72bd39848e864210a402a1e0560506f4384efd5233742ca69d899006897'},
+    Migration.apply: {'9fcff9debec065ac40d57b9423628e11007ae16bb3d35f06cfbb3244b40f6424'},
+    SeparateDatabaseAndState.state_forwards: {'059304d173110d9557fb6cffe81c905912d367aba2c34213842e46973a12242d'},
+    SeparateDatabaseAndState.database_forwards: {'24d07787d0757a959e36d855a075d1c929d7781d6efbc77ee56789e8765b2fbc'},
+    RunPython.database_forwards: {'e94730fd0161f90298a7d7862360cb4e9dfd887d07c405082b39571035f19410'},
 }
 
 
