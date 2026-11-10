@@ -59,5 +59,5 @@ class Command(SQLFlushCommand):
 
     def handle_schema(self, connection):
         self.stdout.write('SQL on {}\n'.format(connection))
-        self.stdout.write(indent('\n'.join(sql_flush(self.style, connection, only_django=True)), ' ' * 4))
+        self.stdout.write(indent('\n'.join(sql_flush(self.style, connection)), ' ' * 4))
         self.stdout.write('\n')

@@ -1,3 +1,4 @@
+from io import StringIO
 from unittest import mock
 
 from django.core.management import call_command
@@ -112,3 +113,20 @@ class SQLFlushTestCase(ShardingTransactionTestCase):
         self.assertEqual(mock_sql_flush.call_count, 1)
 
         self.stdout.write.assert_has_calls([mock.call('SQL on default|el_chapo\n')])
+
+
+class SQLFlushOutputTestCase(ShardingTransactionTestCase):
+    def test_prints_the_flush_sql_of_a_schema(self):
+        """
+        Case: Call the sqlflush command for a single schema, with Django's own sql_flush producing the SQL.
+        Expected: The output has the TRUNCATE statement for the sharded tables of that schema.
+        """
+        create_template_schema()
+        shard = Shard.objects.create(alias='sinaloa', schema_name='el_chapo', node_name='default', state=State.ACTIVE)
+        stdout = StringIO()
+
+        call_command('sqlflush', database='default', schema_name=shard.schema_name, verbosity=0, stdout=stdout)
+
+        self.assertIn('SQL on default|el_chapo', stdout.getvalue())
+        self.assertIn('TRUNCATE', stdout.getvalue())
+        self.assertIn(Organization._meta.db_table, stdout.getvalue())
