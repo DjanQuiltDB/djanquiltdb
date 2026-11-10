@@ -26,6 +26,22 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - toxenv: core-py312-dj60-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: core-coverage
+          - toxenv: core-py312-dj61-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: core-coverage
+          - toxenv: core-py313-dj60-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: core-coverage
+          - toxenv: core-py313-dj61-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: core-coverage
           - toxenv: core-py314-dj60-pg17
             python: "3.14"
             postgres: "17"
@@ -52,6 +68,18 @@ jobs:
             python: "3.15"
             postgres: "18"
             coverageenv: core-coverage
+          - toxenv: core-pgtrigger-py312-dj60
+            python: "3.12"
+            postgres: "17"
+          - toxenv: core-pgtrigger-py312-dj61
+            python: "3.12"
+            postgres: "17"
+          - toxenv: core-pgtrigger-py313-dj60
+            python: "3.13"
+            postgres: "17"
+          - toxenv: core-pgtrigger-py313-dj61
+            python: "3.13"
+            postgres: "17"
           - toxenv: core-pgtrigger-py314-dj60
             python: "3.14"
             postgres: "17"
@@ -61,6 +89,22 @@ jobs:
           - toxenv: core-pgtrigger-py315-dj61
             python: "3.15"
             postgres: "17"
+          - toxenv: celery-py312-dj60-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: celery-coverage
+          - toxenv: celery-py312-dj61-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: celery-coverage
+          - toxenv: celery-py313-dj60-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: celery-coverage
+          - toxenv: celery-py313-dj61-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: celery-coverage
           - toxenv: celery-py314-dj60-pg17
             python: "3.14"
             postgres: "17"
@@ -87,6 +131,22 @@ jobs:
             python: "3.15"
             postgres: "18"
             coverageenv: celery-coverage
+          - toxenv: oauth-toolkit-py312-dj60-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: oauth-toolkit-coverage
+          - toxenv: oauth-toolkit-py312-dj61-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: oauth-toolkit-coverage
+          - toxenv: oauth-toolkit-py313-dj60-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: oauth-toolkit-coverage
+          - toxenv: oauth-toolkit-py313-dj61-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: oauth-toolkit-coverage
           - toxenv: oauth-toolkit-py314-dj60-pg17
             python: "3.14"
             postgres: "17"
@@ -113,6 +173,22 @@ jobs:
             python: "3.15"
             postgres: "18"
             coverageenv: oauth-toolkit-coverage
+          - toxenv: pghistory-py312-dj60-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: pghistory-coverage
+          - toxenv: pghistory-py312-dj61-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: pghistory-coverage
+          - toxenv: pghistory-py313-dj60-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: pghistory-coverage
+          - toxenv: pghistory-py313-dj61-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: pghistory-coverage
           - toxenv: pghistory-py314-dj60-pg17
             python: "3.14"
             postgres: "17"
@@ -139,6 +215,22 @@ jobs:
             python: "3.15"
             postgres: "18"
             coverageenv: pghistory-coverage
+          - toxenv: postgres-denormalize-py312-dj60-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: postgres-denormalize-coverage
+          - toxenv: postgres-denormalize-py312-dj61-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: postgres-denormalize-coverage
+          - toxenv: postgres-denormalize-py313-dj60-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: postgres-denormalize-coverage
+          - toxenv: postgres-denormalize-py313-dj61-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: postgres-denormalize-coverage
           - toxenv: postgres-denormalize-py314-dj60-pg17
             python: "3.14"
             postgres: "17"
@@ -165,6 +257,22 @@ jobs:
             python: "3.15"
             postgres: "18"
             coverageenv: postgres-denormalize-coverage
+          - toxenv: postgres-objects-py312-dj60-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: postgres-objects-coverage
+          - toxenv: postgres-objects-py312-dj61-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: postgres-objects-coverage
+          - toxenv: postgres-objects-py313-dj60-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: postgres-objects-coverage
+          - toxenv: postgres-objects-py313-dj61-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: postgres-objects-coverage
           - toxenv: postgres-objects-py314-dj60-pg17
             python: "3.14"
             postgres: "17"
@@ -221,8 +329,8 @@ jobs:
       DATABASE_URL2: postgresql://postgres:postgres@localhost:5433/test_db2
     steps:
       - uses: actions/checkout@v5
-      # The coverage envs run on Python 3.14 in every job, so the py315 jobs install it beside 3.15. The version that is
-      # listed last is the one that runs tox.
+      # The coverage envs run on Python 3.14 in every job, so the py312, py313 and py315 jobs install it beside their
+      # own Python. The version that is listed last is the one that runs tox.
       - uses: actions/setup-python@v6
         with:
           python-version: |

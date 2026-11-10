@@ -2,10 +2,11 @@
 
 The repository ships a compose file that starts two PostgreSQL 17 servers and two PostgreSQL 18 servers
 (one pair per tox environment, so mirrored and multi-node cases have a second node) plus a `test`
-container that has Python 3.14, Python 3.15 and tox and bind-mounts the repository at `/app`.
+container that has Python 3.12 to 3.15 and tox and bind-mounts the repository at `/app`.
 
 Every Django minor the packages claim gets a tox environment of its own against each PostgreSQL, so
-`tox` runs each suite once per combination rather than resolving to whichever Django is newest. Python 3.15
+`tox` runs each suite once per combination rather than resolving to whichever Django is newest. Python 3.12
+and 3.13 run on PostgreSQL 18 only, because the Python version does not change how PostgreSQL behaves. Python 3.15
 runs on Django 6.1 only, because Django 6.0 does not support it.
 
 Run everything the way CI would:

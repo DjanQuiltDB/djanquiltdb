@@ -236,7 +236,7 @@ def _id_token_audience(id_token_hint):
     try:
         unverified_token.deserialize(id_token_hint)
         claims = json.loads(unverified_token.objects['payload'].decode('utf-8'))
-    except JWException, ValueError:
+    except (JWException, ValueError):
         return None
 
     audience = claims.get('aud') if isinstance(claims, dict) else None

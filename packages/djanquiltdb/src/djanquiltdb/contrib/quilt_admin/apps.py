@@ -6,7 +6,7 @@ from django.core.exceptions import ImproperlyConfigured
 if TYPE_CHECKING:
     from djanquiltdb.contrib.quilt_admin.shard_selector import BaseAdminShardSelector
 
-ADMIN_SHARD_SELECTOR_CLASS: Optional[BaseAdminShardSelector] = None
+ADMIN_SHARD_SELECTOR_CLASS: Optional['BaseAdminShardSelector'] = None
 
 
 class ShardedAdminAppConfig(AppConfig):

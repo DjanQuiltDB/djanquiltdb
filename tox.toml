@@ -1,38 +1,66 @@
 requires = ["tox>=4.21"]
 env_list = [
+    "core-py312-dj60-pg18",
+    "core-py312-dj61-pg18",
+    "core-py313-dj60-pg18",
+    "core-py313-dj61-pg18",
     "core-py314-dj60-pg17",
     "core-py314-dj60-pg18",
     "core-py314-dj61-pg17",
     "core-py314-dj61-pg18",
     "core-py315-dj61-pg17",
     "core-py315-dj61-pg18",
+    "core-pgtrigger-py312-dj60",
+    "core-pgtrigger-py312-dj61",
+    "core-pgtrigger-py313-dj60",
+    "core-pgtrigger-py313-dj61",
     "core-pgtrigger-py314-dj60",
     "core-pgtrigger-py314-dj61",
     "core-pgtrigger-py315-dj61",
+    "celery-py312-dj60-pg18",
+    "celery-py312-dj61-pg18",
+    "celery-py313-dj60-pg18",
+    "celery-py313-dj61-pg18",
     "celery-py314-dj60-pg17",
     "celery-py314-dj60-pg18",
     "celery-py314-dj61-pg17",
     "celery-py314-dj61-pg18",
     "celery-py315-dj61-pg17",
     "celery-py315-dj61-pg18",
+    "oauth-toolkit-py312-dj60-pg18",
+    "oauth-toolkit-py312-dj61-pg18",
+    "oauth-toolkit-py313-dj60-pg18",
+    "oauth-toolkit-py313-dj61-pg18",
     "oauth-toolkit-py314-dj60-pg17",
     "oauth-toolkit-py314-dj60-pg18",
     "oauth-toolkit-py314-dj61-pg17",
     "oauth-toolkit-py314-dj61-pg18",
     "oauth-toolkit-py315-dj61-pg17",
     "oauth-toolkit-py315-dj61-pg18",
+    "pghistory-py312-dj60-pg18",
+    "pghistory-py312-dj61-pg18",
+    "pghistory-py313-dj60-pg18",
+    "pghistory-py313-dj61-pg18",
     "pghistory-py314-dj60-pg17",
     "pghistory-py314-dj60-pg18",
     "pghistory-py314-dj61-pg17",
     "pghistory-py314-dj61-pg18",
     "pghistory-py315-dj61-pg17",
     "pghistory-py315-dj61-pg18",
+    "postgres-denormalize-py312-dj60-pg18",
+    "postgres-denormalize-py312-dj61-pg18",
+    "postgres-denormalize-py313-dj60-pg18",
+    "postgres-denormalize-py313-dj61-pg18",
     "postgres-denormalize-py314-dj60-pg17",
     "postgres-denormalize-py314-dj60-pg18",
     "postgres-denormalize-py314-dj61-pg17",
     "postgres-denormalize-py314-dj61-pg18",
     "postgres-denormalize-py315-dj61-pg17",
     "postgres-denormalize-py315-dj61-pg18",
+    "postgres-objects-py312-dj60-pg18",
+    "postgres-objects-py312-dj61-pg18",
+    "postgres-objects-py313-dj60-pg18",
+    "postgres-objects-py313-dj61-pg18",
     "postgres-objects-py314-dj60-pg17",
     "postgres-objects-py314-dj60-pg18",
     "postgres-objects-py314-dj61-pg17",
@@ -52,13 +80,124 @@ env_list = [
 # Every env installs the packages it needs as editable path deps, so pip resolves the plugin's djanquiltdb pin
 # against the in-tree checkout and the build backend never writes into the source tree.
 [env_run_base]
-# The py315 environments set their own base_python.
+# The py312, py313 and py315 environments set their own base_python.
 base_python = ["python3.14"]
 skip_install = true
 pass_env = ["DATABASE_URL", "DATABASE_URL2"]
 
 # The pg17/pg18 envs pick the pair of database servers from docker-compose.yml; either URL can still be overridden
 # from the outside.
+#
+# The py312 and py313 environments run on PostgreSQL 18 only. The Python version does not change how PostgreSQL
+# behaves, and the py314 environments cover PostgreSQL 17.
+[env.core-py312-dj60-pg18]
+description = "Run the core test suite against Python 3.12, Django 6.0 and PostgreSQL 18"
+labels = ["core", "test"]
+base_python = ["python3.12"]
+deps = [
+    "Django>=6.0,<6.1",
+    "psycopg[binary]>=3.0.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.dev", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml",
+        "manage.py",
+        "test",
+        "--noinput",
+        # The test modules are named after what they cover rather than test_*, so discovery needs the wider pattern.
+        "--pattern=*.py",
+        # The suites are named rather than discovered from the working directory, so that pgtrigger_tests is left out:
+        # it needs django-pgtrigger, which only the core-pgtrigger environments install. It skips itself on import when
+        # the dependency is missing, but a skipped module cannot be handed to the --parallel workers, so leaving it
+        # undiscovered is what keeps these runs clean. Passing labels as posargs replaces this list, as before.
+        { replace = "posargs", extend = true, default = ["djanquiltdb_tests", "example", "migration_tests"] },
+        "--parallel",
+    ],
+]
+
+[env.core-py312-dj61-pg18]
+description = "Run the core test suite against Python 3.12, Django 6.1 and PostgreSQL 18"
+labels = ["core", "test"]
+base_python = ["python3.12"]
+deps = [
+    "Django>=6.1,<6.2",
+    "psycopg[binary]>=3.0.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.dev", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml",
+        "manage.py",
+        "test",
+        "--noinput",
+        "--pattern=*.py",
+        # Named rather than discovered, for the reason the first core environment above spells out.
+        { replace = "posargs", extend = true, default = ["djanquiltdb_tests", "example", "migration_tests"] },
+        "--parallel",
+    ],
+]
+
+[env.core-py313-dj60-pg18]
+description = "Run the core test suite against Python 3.13, Django 6.0 and PostgreSQL 18"
+labels = ["core", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.0,<6.1",
+    "psycopg[binary]>=3.0.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.dev", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml",
+        "manage.py",
+        "test",
+        "--noinput",
+        "--pattern=*.py",
+        # Named rather than discovered, for the reason the first core environment above spells out.
+        { replace = "posargs", extend = true, default = ["djanquiltdb_tests", "example", "migration_tests"] },
+        "--parallel",
+    ],
+]
+
+[env.core-py313-dj61-pg18]
+description = "Run the core test suite against Python 3.13, Django 6.1 and PostgreSQL 18"
+labels = ["core", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.1,<6.2",
+    "psycopg[binary]>=3.0.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.dev", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb/pyproject.toml",
+        "manage.py",
+        "test",
+        "--noinput",
+        "--pattern=*.py",
+        # Named rather than discovered, for the reason the first core environment above spells out.
+        { replace = "posargs", extend = true, default = ["djanquiltdb_tests", "example", "migration_tests"] },
+        "--parallel",
+    ],
+]
+
 [env.core-py314-dj60-pg17]
 description = "Run the core test suite against Django 6.0 and PostgreSQL 17"
 labels = ["core", "test"]
@@ -77,12 +216,8 @@ commands = [
         "manage.py",
         "test",
         "--noinput",
-        # The test modules are named after what they cover rather than test_*, so discovery needs the wider pattern.
         "--pattern=*.py",
-        # The suites are named rather than discovered from the working directory, so that pgtrigger_tests is left out:
-        # it needs django-pgtrigger, which only the core-pgtrigger environments install. It skips itself on import when
-        # the dependency is missing, but a skipped module cannot be handed to the --parallel workers, so leaving it
-        # undiscovered is what keeps these runs clean. Passing labels as posargs replaces this list, as before.
+        # Named rather than discovered, for the reason the first core environment above spells out.
         { replace = "posargs", extend = true, default = ["djanquiltdb_tests", "example", "migration_tests"] },
         "--parallel",
     ],
@@ -216,9 +351,10 @@ commands = [
     ],
 ]
 
-[env.core-pgtrigger-py314-dj60]
-description = "Run the suites that only run with django-pgtrigger installed, on Django 6.0"
+[env.core-pgtrigger-py312-dj60]
+description = "Run the suites that only run with django-pgtrigger installed, on Python 3.12 and Django 6.0"
 labels = ["core", "test"]
+base_python = ["python3.12"]
 deps = [
     "Django>=6.0,<6.1",
     "psycopg[binary]>=3.0.0",
@@ -231,6 +367,105 @@ change_dir = "{tox_root}/packages/djanquiltdb/tests"
 set_env = { DJANGO_SETTINGS_MODULE = "config.settings.pgtrigger", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
 # Only the two suites that need pgtrigger, so the core suite is not run a third time; the coverage of what they reach
 # is measured by the core environments, so these run without it.
+commands = [
+    [
+        "python",
+        "manage.py",
+        "test",
+        "djanquiltdb_tests.checks",
+        "pgtrigger_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.core-pgtrigger-py312-dj61]
+description = "Run the suites that only run with django-pgtrigger installed, on Python 3.12 and Django 6.1"
+labels = ["core", "test"]
+base_python = ["python3.12"]
+deps = [
+    "Django>=6.1,<6.2",
+    "psycopg[binary]>=3.0.0",
+    "django-pgtrigger>=4.17,<5.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.pgtrigger", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "python",
+        "manage.py",
+        "test",
+        "djanquiltdb_tests.checks",
+        "pgtrigger_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.core-pgtrigger-py313-dj60]
+description = "Run the suites that only run with django-pgtrigger installed, on Python 3.13 and Django 6.0"
+labels = ["core", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.0,<6.1",
+    "psycopg[binary]>=3.0.0",
+    "django-pgtrigger>=4.17,<5.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.pgtrigger", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "python",
+        "manage.py",
+        "test",
+        "djanquiltdb_tests.checks",
+        "pgtrigger_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.core-pgtrigger-py313-dj61]
+description = "Run the suites that only run with django-pgtrigger installed, on Python 3.13 and Django 6.1"
+labels = ["core", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.1,<6.2",
+    "psycopg[binary]>=3.0.0",
+    "django-pgtrigger>=4.17,<5.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.pgtrigger", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
+commands = [
+    [
+        "python",
+        "manage.py",
+        "test",
+        "djanquiltdb_tests.checks",
+        "pgtrigger_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.core-pgtrigger-py314-dj60]
+description = "Run the suites that only run with django-pgtrigger installed, on Django 6.0"
+labels = ["core", "test"]
+deps = [
+    "Django>=6.0,<6.1",
+    "psycopg[binary]>=3.0.0",
+    "django-pgtrigger>=4.17,<5.0",
+    "-e {tox_root}/packages/djanquiltdb[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings.pgtrigger", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres17:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres17-2:5432/test_db2}" }
 commands = [
     [
         "python",
@@ -287,6 +522,110 @@ commands = [
         "test",
         "djanquiltdb_tests.checks",
         "pgtrigger_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.celery-py312-dj60-pg18]
+description = "Run the celery plugin suite against Python 3.12, Django 6.0 and PostgreSQL 18"
+labels = ["celery", "test"]
+base_python = ["python3.12"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "celery>=5.6,<6.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-celery[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-celery/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-celery/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.celery-py312-dj61-pg18]
+description = "Run the celery plugin suite against Python 3.12, Django 6.1 and PostgreSQL 18"
+labels = ["celery", "test"]
+base_python = ["python3.12"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "celery>=5.6,<6.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-celery[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-celery/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-celery/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.celery-py313-dj60-pg18]
+description = "Run the celery plugin suite against Python 3.13, Django 6.0 and PostgreSQL 18"
+labels = ["celery", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "celery>=5.6,<6.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-celery[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-celery/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-celery/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.celery-py313-dj61-pg18]
+description = "Run the celery plugin suite against Python 3.13, Django 6.1 and PostgreSQL 18"
+labels = ["celery", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "celery>=5.6,<6.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-celery[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-celery/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-celery/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
         "--noinput",
         "--pattern=*.py",
         { replace = "posargs", extend = true, default = [] },
@@ -445,6 +784,110 @@ commands = [
     ],
 ]
 
+[env.oauth-toolkit-py312-dj60-pg18]
+description = "Run the oauth-toolkit plugin suite against Python 3.12, Django 6.0 and PostgreSQL 18"
+labels = ["oauth-toolkit", "test"]
+base_python = ["python3.12"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-oauth-toolkit>=3.4,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-oauth-toolkit[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.oauth-toolkit-py312-dj61-pg18]
+description = "Run the oauth-toolkit plugin suite against Python 3.12, Django 6.1 and PostgreSQL 18"
+labels = ["oauth-toolkit", "test"]
+base_python = ["python3.12"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-oauth-toolkit>=3.4,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-oauth-toolkit[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.oauth-toolkit-py313-dj60-pg18]
+description = "Run the oauth-toolkit plugin suite against Python 3.13, Django 6.0 and PostgreSQL 18"
+labels = ["oauth-toolkit", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-oauth-toolkit>=3.4,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-oauth-toolkit[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.oauth-toolkit-py313-dj61-pg18]
+description = "Run the oauth-toolkit plugin suite against Python 3.13, Django 6.1 and PostgreSQL 18"
+labels = ["oauth-toolkit", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-oauth-toolkit>=3.4,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-oauth-toolkit[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-oauth-toolkit/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
 [env.oauth-toolkit-py314-dj60-pg17]
 description = "Run the oauth-toolkit plugin suite against Django 6.0 and PostgreSQL 17"
 labels = ["oauth-toolkit", "test"]
@@ -593,6 +1036,222 @@ commands = [
         "plugin_tests",
         "--noinput",
         "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.pghistory-py312-dj60-pg18]
+description = "Run the pghistory plugin suite against Python 3.12, Django 6.0 and PostgreSQL 18"
+labels = ["pghistory", "test"]
+base_python = ["python3.12"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-pghistory>=3.9.2,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-pghistory[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-pghistory/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    # The suite again, with pghistory's Context table public, and once more with it mirrored. Its sharding mode is
+    # fixed when the test database is migrated, so each takes a run of its own.
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_public_context",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_mirrored_context",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.pghistory-py312-dj61-pg18]
+description = "Run the pghistory plugin suite against Python 3.12, Django 6.1 and PostgreSQL 18"
+labels = ["pghistory", "test"]
+base_python = ["python3.12"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-pghistory>=3.9.2,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-pghistory[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-pghistory/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    # The suite again, with pghistory's Context table public, and once more with it mirrored. Its sharding mode is
+    # fixed when the test database is migrated, so each takes a run of its own.
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_public_context",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_mirrored_context",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.pghistory-py313-dj60-pg18]
+description = "Run the pghistory plugin suite against Python 3.13, Django 6.0 and PostgreSQL 18"
+labels = ["pghistory", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-pghistory>=3.9.2,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-pghistory[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-pghistory/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    # The suite again, with pghistory's Context table public, and once more with it mirrored. Its sharding mode is
+    # fixed when the test database is migrated, so each takes a run of its own.
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_public_context",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_mirrored_context",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.pghistory-py313-dj61-pg18]
+description = "Run the pghistory plugin suite against Python 3.13, Django 6.1 and PostgreSQL 18"
+labels = ["pghistory", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-pghistory>=3.9.2,<4.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-pghistory[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-pghistory/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    # The suite again, with pghistory's Context table public, and once more with it mirrored. Its sharding mode is
+    # fixed when the test database is migrated, so each takes a run of its own.
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_public_context",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+    [
+        "coverage",
+        "run",
+        "--append",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-pghistory/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        "--settings=config.settings_mirrored_context",
         { replace = "posargs", extend = true, default = [] },
     ],
 ]
@@ -919,6 +1578,110 @@ commands = [
 
 # POSTGRES_DENORMALIZE replaces the requirement of django-postgres-denormalize, for example with the path of a checkout
 # that is mounted into the container, to test the plugin against a version that is not on PyPI yet.
+[env.postgres-denormalize-py312-dj60-pg18]
+description = "Run the postgres-denormalize plugin suite against Python 3.12, Django 6.0 and PostgreSQL 18"
+labels = ["postgres-denormalize", "test"]
+base_python = ["python3.12"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "{env:POSTGRES_DENORMALIZE:django-postgres-denormalize>=1.1,<2.0}",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-denormalize[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-denormalize-py312-dj61-pg18]
+description = "Run the postgres-denormalize plugin suite against Python 3.12, Django 6.1 and PostgreSQL 18"
+labels = ["postgres-denormalize", "test"]
+base_python = ["python3.12"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "{env:POSTGRES_DENORMALIZE:django-postgres-denormalize>=1.1,<2.0}",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-denormalize[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-denormalize-py313-dj60-pg18]
+description = "Run the postgres-denormalize plugin suite against Python 3.13, Django 6.0 and PostgreSQL 18"
+labels = ["postgres-denormalize", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "{env:POSTGRES_DENORMALIZE:django-postgres-denormalize>=1.1,<2.0}",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-denormalize[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-denormalize-py313-dj61-pg18]
+description = "Run the postgres-denormalize plugin suite against Python 3.13, Django 6.1 and PostgreSQL 18"
+labels = ["postgres-denormalize", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "{env:POSTGRES_DENORMALIZE:django-postgres-denormalize>=1.1,<2.0}",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-denormalize[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
 [env.postgres-denormalize-py314-dj60-pg17]
 description = "Run the postgres-denormalize plugin suite against Django 6.0 and PostgreSQL 17"
 labels = ["postgres-denormalize", "test"]
@@ -1062,6 +1825,110 @@ commands = [
         "coverage",
         "run",
         "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-denormalize/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-objects-py312-dj60-pg18]
+description = "Run the postgres-objects plugin suite against Python 3.12, Django 6.0 and PostgreSQL 18"
+labels = ["postgres-objects", "test"]
+base_python = ["python3.12"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-postgres-objects>=1.1,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-objects-py312-dj61-pg18]
+description = "Run the postgres-objects plugin suite against Python 3.12, Django 6.1 and PostgreSQL 18"
+labels = ["postgres-objects", "test"]
+base_python = ["python3.12"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-postgres-objects>=1.1,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-objects-py313-dj60-pg18]
+description = "Run the postgres-objects plugin suite against Python 3.13, Django 6.0 and PostgreSQL 18"
+labels = ["postgres-objects", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.0,<6.1",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-postgres-objects>=1.1,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
+        "manage.py",
+        "test",
+        "plugin_tests",
+        "--noinput",
+        "--pattern=*.py",
+        { replace = "posargs", extend = true, default = [] },
+    ],
+]
+
+[env.postgres-objects-py313-dj61-pg18]
+description = "Run the postgres-objects plugin suite against Python 3.13, Django 6.1 and PostgreSQL 18"
+labels = ["postgres-objects", "test"]
+base_python = ["python3.13"]
+deps = [
+    "Django>=6.1,<6.2",
+    "-e {tox_root}/packages/djanquiltdb",
+    "django-postgres-objects>=1.1,<2.0",
+    "-e {tox_root}/packages/djanquiltdb-plugin-postgres-objects[test]",
+]
+change_dir = "{tox_root}/packages/djanquiltdb-plugin-postgres-objects/tests"
+set_env = { DJANGO_SETTINGS_MODULE = "config.settings", PYTHONWARNINGS = "default", DATABASE_URL = "{env:DATABASE_URL:postgresql://postgres:postgres@postgres18:5432/test_db}", DATABASE_URL2 = "{env:DATABASE_URL2:postgresql://postgres:postgres@postgres18-2:5432/test_db2}" }
+commands = [
+    [
+        "coverage",
+        "run",
+        "--rcfile={tox_root}/packages/djanquiltdb-plugin-postgres-objects/pyproject.toml",
         "manage.py",
         "test",
         "plugin_tests",

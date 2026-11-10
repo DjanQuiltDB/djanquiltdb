@@ -948,7 +948,7 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
                         'select pg_terminate_backend(pid) from pg_stat_activity where datname=%s;',
                         [env.connection.settings_dict['NAME']],
                     )
-                except InterfaceError, OperationalError1, OperationalError2:
+                except (InterfaceError, OperationalError1, OperationalError2):
                     # We know this will raise errors.
                     # Disconnecting the connection from a connection does not pass silently.
                     pass

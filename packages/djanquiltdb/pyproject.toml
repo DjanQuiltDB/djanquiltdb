@@ -8,7 +8,7 @@ name = "djanquiltdb"
 dynamic = ["version"]
 description = "Multi-schema, multi-cluster, flexible horizontal database sharding for Django applications."
 readme = "README.rst"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 authors = [
@@ -31,6 +31,8 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: 3.15",
     "Framework :: Django",

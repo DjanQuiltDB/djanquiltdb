@@ -8,7 +8,7 @@ name = "djanquiltdb-plugin-postgres-denormalize"
 dynamic = ["version"]
 description = "Repair helpers for django-postgres-denormalize copies in DjanQuiltDB projects"
 readme = "README.rst"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 authors = [
@@ -29,6 +29,8 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: 3.15",
     "Framework :: Django",
