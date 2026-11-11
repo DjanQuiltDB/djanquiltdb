@@ -2,10 +2,11 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ImproperlyConfigured
 from django.db import DatabaseError
 from django.template import Context, Template
-from django.test import SimpleTestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, override_settings
 
 import djanquiltdb.contrib.quilt_admin as quilt_admin_pkg
 from djanquiltdb.contrib.quilt_admin.apps import ShardedAdminAppConfig
@@ -465,6 +466,22 @@ class ShardSwitcherErrorHandlingTestCase(ShardingTestCase):
                 context = admin_shard_context(_make_admin_request())
 
         self.assertEqual(context['shard_switcher_options'], [])
+
+
+class ShardSwitcherMaintenanceContextTestCase(SimpleTestCase):
+    def test_request_that_the_override_middleware_did_not_process_is_not_in_maintenance(self):
+        """
+        Case: Build the context of a request that no admin override middleware processed, so the request has no
+              maintenance status.
+        Expected: shard_maintenance_mode is False and shard_maintenance_message is None.
+        """
+        request = RequestFactory().get('/not-admin/')
+        request.user = AnonymousUser()
+
+        context = admin_shard_context(request)
+
+        self.assertIs(context['shard_maintenance_mode'], False)
+        self.assertIsNone(context['shard_maintenance_message'])
 
 
 class UseCspNonceContextTests(SimpleTestCase):

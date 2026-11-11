@@ -3,12 +3,15 @@ from unittest import mock
 from django.core.exceptions import PermissionDenied
 from django.db import DatabaseError, OperationalError
 from django.http import HttpResponse
+from django.test import SimpleTestCase, override_settings
 from django.test.client import RequestFactory
 
 from djanquiltdb.contrib.quilt_admin.middleware import (
     MappingValueAdminOverrideMiddleware,
     ShardIdAdminOverrideMiddleware,
     _check_maintenance_status,
+    _is_logout_request,
+    _is_shard_switching_request,
 )
 from djanquiltdb.contrib.quilt_admin.shard_selector import AdminShardSelector
 from djanquiltdb.contrib.quilt_admin.utils import CrossShardMappingUserProxy, CrossShardUserProxy
@@ -52,6 +55,16 @@ class CheckMaintenanceStatusTestCase(ShardingTestCase):
         request = mock.Mock()
 
         self.assertFalse(_check_maintenance_status(request, shard_id=999999))
+        self.assertFalse(request._shard_maintenance_mode)
+
+    def test_a_stale_mapping_value_is_not_maintenance(self):
+        """
+        Case: The session still holds an override for a mapping value that the mapping table no longer has.
+        Expected: The admin keeps working so the stale override can be cleared.
+        """
+        request = mock.Mock()
+
+        self.assertFalse(_check_maintenance_status(request, mapping_value=999999))
         self.assertFalse(request._shard_maintenance_mode)
 
     def test_a_mapping_lookup_error_surfaces(self):
@@ -106,6 +119,50 @@ class CheckMaintenanceStatusTestCase(ShardingTestCase):
             use_shard(node_name='default', schema_name=PUBLIC_SCHEMA_NAME),
         ):
             self.assertTrue(_check_maintenance_status(request, mapping_value=1))
+
+    def test_an_active_mapping_whose_shard_is_in_maintenance_blocks(self):
+        """
+        Case: The session override points at a mapping value whose mapping is active, while the shard of the mapping
+              is in maintenance.
+        Expected: The check reports maintenance and stores the message of a shard in maintenance on the request.
+        """
+        shard = Shard.objects.create(
+            alias='sleepy', schema_name='sleepy_schema', node_name='default', state=State.MAINTENANCE
+        )
+        OrganizationShard.objects.create(organization_id=1, shard=shard, state=State.ACTIVE)
+        request = mock.Mock()
+
+        self.assertTrue(_check_maintenance_status(request, mapping_value=1))
+        self.assertEqual(request._shard_maintenance_message, 'This shard is currently in maintenance mode.')
+
+
+ADMIN_URLCONF = 'djanquiltdb_tests.test_urlconfs.admin_urlconf'
+
+
+@override_settings(ROOT_URLCONF=ADMIN_URLCONF)
+class ShardSwitchingAndLogoutRequestTestCase(SimpleTestCase):
+    def test_request_for_the_shard_switcher_url_is_a_shard_switching_request(self):
+        """
+        Case: A POST to /admin/switch-shard/, with the shard switcher URLs and the admin URLs in the order that the
+              docs give.
+        Expected: The request is a shard-switching request.
+        """
+        self.assertTrue(_is_shard_switching_request(RequestFactory().post('/admin/switch-shard/')))
+
+    def test_request_for_another_admin_url_is_not_a_shard_switching_request(self):
+        """
+        Case: A GET of /admin/, with the shard switcher URLs and the admin URLs in the order that the docs give.
+        Expected: The request is not a shard-switching request.
+        """
+        self.assertFalse(_is_shard_switching_request(RequestFactory().get('/admin/')))
+
+    def test_request_for_the_admin_logout_url_is_a_logout_request(self):
+        """
+        Case: A POST to /admin/logout/, with the shard switcher URLs and the admin URLs in the order that the docs
+              give.
+        Expected: The request is a logout request, because the URL resolves to the logout view of the admin.
+        """
+        self.assertTrue(_is_logout_request(RequestFactory().post('/admin/logout/')))
 
 
 class AdminOverrideUseShardMiddlewareTestCase(ShardingTestCase):
@@ -295,6 +352,7 @@ class MappingValueAdminOverrideSwitchableMappingsTestCase(ShardingTestCase):
         self.assertEqual(connection.schema_name, PUBLIC_SCHEMA_NAME)
         request._messages.add.assert_not_called()
 
+    @override_settings(ROOT_URLCONF=ADMIN_URLCONF)
     def test_shard_switching_request_with_an_override_that_is_not_switchable_goes_on(self):
         """
         Case: MappingValueAdminOverrideMiddleware processes the shard-switching request of a user whose session
@@ -307,9 +365,7 @@ class MappingValueAdminOverrideSwitchableMappingsTestCase(ShardingTestCase):
         user = request.user
         middleware = MappingValueAdminOverrideMiddleware(lambda request: None)
 
-        # The test project has no admin URLs, so the shard-switching URL does not resolve.
-        with mock.patch('djanquiltdb.contrib.quilt_admin.middleware._is_shard_switching_request', return_value=True):
-            self.assertIsNone(self._process_request_with_selector(middleware, request))
+        self.assertIsNone(self._process_request_with_selector(middleware, request))
 
         self.assertIsNone(middleware.get_shard_context_manager(request))
         self.assertIs(request.user, user)
@@ -404,6 +460,43 @@ class MappingValueAdminOverrideSwitchableMappingsTestCase(ShardingTestCase):
         self.assertIs(request.user._user, user)
         middleware.process_response(request, HttpResponse())
 
+    def test_post_with_a_session_override_of_a_mapping_in_maintenance_is_refused(self):
+        """
+        Case: MappingValueAdminOverrideMiddleware processes a POST to a change form whose session overrides the shard
+              with organization 2, whose mapping is in maintenance.
+        Expected: The middleware returns a 503 response that says that the mapping entry is in maintenance and that
+                  changes are not allowed.
+        """
+        OrganizationShard.objects.filter(organization_id=2).update(state=State.MAINTENANCE)
+        request = _build_admin_request_with_session_override(
+            2, method='post', path='/admin/example/organization/5/change/'
+        )
+        middleware = MappingValueAdminOverrideMiddleware(lambda request: None)
+
+        response = self._process_request_with_selector(middleware, request)
+        middleware.process_response(request, response)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(
+            response.content, b'This mapping entry is currently in maintenance mode. Changes are not allowed.'
+        )
+
+    def test_request_outside_the_admin_goes_on_without_the_override(self):
+        """
+        Case: MappingValueAdminOverrideMiddleware processes a request for /orders/, which is outside the admin, whose
+              session overrides the shard with organization 2.
+        Expected: The middleware leaves the request alone: no shard is entered and request.user is the user itself.
+        """
+        request = _build_admin_request_with_session_override(2, path='/orders/')
+        user = request.user
+        middleware = MappingValueAdminOverrideMiddleware(lambda request: None)
+
+        self.assertIsNone(self._process_request_with_selector(middleware, request))
+
+        self.assertIsNone(middleware.get_shard_context_manager(request))
+        self.assertIs(request.user, user)
+        self.assertEqual(connection.schema_name, PUBLIC_SCHEMA_NAME)
+
 
 @override_sharding_setting('MAPPING_MODEL')
 class ShardIdAdminOverrideSwitchableShardsTestCase(ShardingTestCase):
@@ -477,6 +570,7 @@ class ShardIdAdminOverrideSwitchableShardsTestCase(ShardingTestCase):
 
         self.assertEqual(connection.schema_name, PUBLIC_SCHEMA_NAME)
 
+    @override_settings(ROOT_URLCONF=ADMIN_URLCONF)
     def test_shard_switching_request_with_an_override_that_is_not_switchable_goes_on(self):
         """
         Case: ShardIdAdminOverrideMiddleware processes the shard-switching request of a user whose session overrides
@@ -491,9 +585,7 @@ class ShardIdAdminOverrideSwitchableShardsTestCase(ShardingTestCase):
         user = request.user
         middleware = ShardIdAdminOverrideMiddleware(lambda request: None)
 
-        # The test project has no admin URLs, so the shard-switching URL does not resolve.
-        with mock.patch('djanquiltdb.contrib.quilt_admin.middleware._is_shard_switching_request', return_value=True):
-            self.assertIsNone(self._process_request_with_selector(middleware, request))
+        self.assertIsNone(self._process_request_with_selector(middleware, request))
 
         self.assertIsNone(middleware.get_shard_context_manager(request))
         self.assertIs(request.user, user)
@@ -568,3 +660,38 @@ class ShardIdAdminOverrideSwitchableShardsTestCase(ShardingTestCase):
         self.assertIsInstance(request.user, CrossShardUserProxy)
         self.assertIs(request.user._user, user)
         middleware.process_response(request, HttpResponse())
+
+    def test_post_with_a_session_override_of_a_shard_in_maintenance_is_refused(self):
+        """
+        Case: ShardIdAdminOverrideMiddleware processes a POST to a change form whose session overrides the shard with
+              the id of shard_2, which is in maintenance.
+        Expected: The middleware returns a 503 response that says that the shard is in maintenance and that changes
+                  are not allowed.
+        """
+        Shard.objects.filter(id=self.shard_2.id).update(state=State.MAINTENANCE)
+        request = _build_admin_request_with_session_override(
+            self.shard_2.id, method='post', path='/admin/example/organization/5/change/'
+        )
+        middleware = ShardIdAdminOverrideMiddleware(lambda request: None)
+
+        response = self._process_request_with_selector(middleware, request)
+        middleware.process_response(request, response)
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.content, b'This shard is currently in maintenance mode. Changes are not allowed.')
+
+    def test_request_outside_the_admin_goes_on_without_the_override(self):
+        """
+        Case: ShardIdAdminOverrideMiddleware processes a request for /orders/, which is outside the admin, whose
+              session overrides the shard with the id of shard_2.
+        Expected: The middleware leaves the request alone: no shard is entered and request.user is the user itself.
+        """
+        request = _build_admin_request_with_session_override(self.shard_2.id, path='/orders/')
+        user = request.user
+        middleware = ShardIdAdminOverrideMiddleware(lambda request: None)
+
+        self.assertIsNone(self._process_request_with_selector(middleware, request))
+
+        self.assertIsNone(middleware.get_shard_context_manager(request))
+        self.assertIs(request.user, user)
+        self.assertEqual(connection.schema_name, PUBLIC_SCHEMA_NAME)

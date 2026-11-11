@@ -1,3 +1,4 @@
+import copy
 from unittest import mock
 
 from django.test import SimpleTestCase
@@ -52,6 +53,13 @@ class _RecordingUser:
     def name(self):
         self.active_during_name_access = self._recorder.active
         return 'Jon Snow'
+
+
+class _UserWithHtml:
+    """A wrapped user whose class defines __html__, which templates use to render it."""
+
+    def __html__(self):
+        return '<b>Jon Snow</b>'
 
 
 class CrossShardUserProxyTests(SimpleTestCase):
@@ -155,15 +163,29 @@ class CrossShardUserProxyTests(SimpleTestCase):
 
     def test_dunder_access_bypasses_shard_activation(self):
         """
-        Case: Read __class__ of a proxy constructed with a Shard object, and the repr of its wrapped user.
-        Expected: No shard is activated, because the proxy passes dunder attributes straight to the wrapped user, and
-                  _user is an attribute of the proxy itself.
+        Case: Through a proxy constructed with a Shard object, read __html__ of a user whose class defines it, as
+              conditional_escape() does when a template renders the user.
+        Expected: The __html__ of the wrapped user, and no shard is activated, because the proxy passes dunder
+                  attributes straight to the wrapped user.
+        """
+        proxy = CrossShardUserProxy(_UserWithHtml(), self.shard)
+
+        self.assertEqual(proxy.__html__(), '<b>Jon Snow</b>')
+        self.assertEqual(self.recorder.call_count, 0)
+
+    def test_copy_wraps_the_same_user(self):
+        """
+        Case: Copy a proxy constructed with a Shard object with copy.copy().
+        Expected: The copy is a proxy of the same user, and no shard is activated. copy.copy() looks up __setstate__
+                  on the new proxy before it sets _user, and the proxy answers that lookup with AttributeError instead
+                  of reading the user in the home shard.
         """
         proxy = CrossShardUserProxy(self.user, self.shard)
 
-        proxy.__class__
-        repr(proxy._user)
+        proxy_copy = copy.copy(proxy)
 
+        self.assertIsInstance(proxy_copy, CrossShardUserProxy)
+        self.assertIs(proxy_copy._user, self.user)
         self.assertEqual(self.recorder.call_count, 0)
 
     def test_internal_user_attribute_is_not_proxied(self):

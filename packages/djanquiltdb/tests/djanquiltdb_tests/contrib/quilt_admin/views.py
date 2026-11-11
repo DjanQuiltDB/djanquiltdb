@@ -60,6 +60,23 @@ class SwitchShardViewSwitchableMappingsTestCase(ShardingTestCase):
         self.assertEqual(response.status_code, 302)
         self.assertEqual(request.session[EvenOrganizationsShardSelector.override_shard_selector_key], 2)
 
+    def test_switch_to_a_mapping_without_a_shard_names_only_the_mapping_value(self):
+        """
+        Case: Switch to organization 2, whose mapping row has no shard.
+        Expected: The view stores the mapping value as the override, and reports the switch with the mapping value
+                  alone.
+        """
+        request = _build_switch_request({'mapping_value': '2'})
+
+        with mock.patch(
+            'djanquiltdb.contrib.quilt_admin.views.find_switchable_mapping', return_value=mock.Mock(shard=None)
+        ):
+            response = _post_with_shard_selector_class(request, EvenOrganizationsShardSelector)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(request.session[EvenOrganizationsShardSelector.override_shard_selector_key], 2)
+        self.assertEqual(request._messages.add.call_args.args[1], 'Switched to mapping: 2')
+
     def test_switch_to_a_mapping_that_is_not_switchable_is_forbidden(self):
         """
         Case: Switch to organization 1, which has a mapping row that switchable_mappings() of the shard selector class
@@ -120,6 +137,21 @@ class SwitchShardViewSwitchableMappingsTestCase(ShardingTestCase):
         self.assertEqual(request.session, {})
         request._messages.add.assert_called_once()
         self.assertIn('does not exist', request._messages.add.call_args.args[1])
+
+    def test_switch_without_a_mapping_value_clears_the_override(self):
+        """
+        Case: The session overrides the shard with organization 2, and the admin switches with an empty mapping value.
+        Expected: The view removes the override from the session, reports that it cleared the override, and
+                  redirects.
+        """
+        request = _build_switch_request({'mapping_value': ''})
+        request.session[EvenOrganizationsShardSelector.override_shard_selector_key] = 2
+
+        response = _post_with_shard_selector_class(request, EvenOrganizationsShardSelector)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(request.session, {})
+        self.assertEqual(request._messages.add.call_args.args[1], 'Cleared override; using default routing.')
 
 
 @override_sharding_setting('MAPPING_MODEL')
@@ -218,6 +250,22 @@ class SwitchShardViewSwitchableShardsTestCase(ShardingTestCase):
         self.assertEqual(request.session, {})
         request._messages.add.assert_called_once()
         self.assertIn('invalid', request._messages.add.call_args.args[1])
+
+    def test_switch_without_a_shard_id_clears_the_override(self):
+        """
+        Case: Without a mapping model, the session overrides the shard with the id of shard_2, and the admin switches
+              with an empty shard id.
+        Expected: The view removes the override from the session, reports that it cleared the override, and
+                  redirects.
+        """
+        request = _build_switch_request({'shard_id': ''})
+        request.session[EvenAliasShardSelector.override_shard_selector_key] = str(self.shard_2.id)
+
+        response = _post_with_shard_selector_class(request, EvenAliasShardSelector)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(request.session, {})
+        self.assertEqual(request._messages.add.call_args.args[1], 'Cleared override; using default routing.')
 
 
 class SwitchShardViewTestCase(ShardingTestCase):
