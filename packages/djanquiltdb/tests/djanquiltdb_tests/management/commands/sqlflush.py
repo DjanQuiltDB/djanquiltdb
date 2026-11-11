@@ -1,7 +1,7 @@
 from io import StringIO
 from unittest import mock
 
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 
 from djanquiltdb import State
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME
@@ -39,6 +39,13 @@ class SQLFlushTestCase(ShardingTransactionTestCase):
             Organization.objects.create(name='Isodor')
 
         self.stdout = mock.Mock()
+
+    def put_sinaloa_in_maintenance(self):
+        self.shard1.state = State.MAINTENANCE
+        self.shard1.save(update_fields=['state'])
+
+        # The flush after each test does not flush a shard in maintenance.
+        self.addCleanup(Shard.objects.filter(pk=self.shard1.pk).update, state=State.ACTIVE)
 
     def call_command(self, **options):
         call_command('sqlflush', verbosity=0, stdout=self.stdout, **options)
@@ -85,6 +92,43 @@ class SQLFlushTestCase(ShardingTransactionTestCase):
 
         self.assertEqual(mock_sql_flush.call_count, 6)
 
+    def test_a_shard_in_maintenance_is_named_in_the_error_and_the_other_schemas_are_printed(self, mock_sql_flush):
+        """
+        Case: Call the sqlflush command without extra options while shard sinaloa is in maintenance.
+        Expected: CommandError that names sinaloa and says to pass --ignore-maintenance, after the SQL of every other
+                  schema is printed. The SQL of sinaloa is not printed.
+        """
+        self.put_sinaloa_in_maintenance()
+
+        with self.assertRaisesMessage(CommandError, 'Shard sinaloa: it is in maintenance.') as raised:
+            self.call_command()
+
+        self.assertIn('--ignore-maintenance', str(raised.exception))
+        self.assertEqual(mock_sql_flush.call_count, 5)
+        self.stdout.write.assert_has_calls(
+            [
+                mock.call('SQL on other|template\n'),
+                mock.call('SQL on other\n'),
+                mock.call('SQL on default|template\n'),
+                mock.call('SQL on other|pablo_escobar\n'),
+                mock.call('SQL on default\n'),
+            ],
+            any_order=True,
+        )
+        self.assertNotIn(mock.call('SQL on default|el_chapo\n'), self.stdout.write.call_args_list)
+
+    def test_ignore_maintenance_prints_a_shard_in_maintenance(self, mock_sql_flush):
+        """
+        Case: Call the sqlflush command with --ignore-maintenance while shard sinaloa is in maintenance.
+        Expected: The SQL of every schema is printed, sinaloa included.
+        """
+        self.put_sinaloa_in_maintenance()
+
+        self.call_command(ignore_maintenance=True)
+
+        self.assertEqual(mock_sql_flush.call_count, 6)
+        self.stdout.write.assert_has_calls([mock.call('SQL on default|el_chapo\n')])
+
     def test_single_database(self, mock_sql_flush):
         """
         Case: Call the sqlflush command with a single database specified
@@ -130,3 +174,25 @@ class SQLFlushOutputTestCase(ShardingTransactionTestCase):
         self.assertIn('SQL on default|el_chapo', stdout.getvalue())
         self.assertIn('TRUNCATE', stdout.getvalue())
         self.assertIn(Organization._meta.db_table, stdout.getvalue())
+
+    def test_the_statement_for_the_public_schema_cascades_as_in_flush(self):
+        """
+        Case: Call the sqlflush command for every schema of a node, with Django's own sql_flush producing the SQL.
+        Expected: The statement for the public schema has CASCADE, as the one that flush runs. The statements for the
+                  template schema and the shard do not.
+        """
+        create_template_schema()
+        Shard.objects.create(alias='sinaloa', schema_name='el_chapo', node_name='default', state=State.ACTIVE)
+        stdout = StringIO()
+
+        call_command('sqlflush', database='default', verbosity=0, stdout=stdout)
+
+        sql_by_schema = {
+            section.split('\n', 1)[0]: section.split('\n', 1)[1]
+            for section in stdout.getvalue().split('SQL on ')
+            if section
+        }
+        self.assertEqual(set(sql_by_schema), {'default|template', 'default|el_chapo', 'default'})
+        self.assertIn('CASCADE', sql_by_schema['default'])
+        self.assertNotIn('CASCADE', sql_by_schema['default|template'])
+        self.assertNotIn('CASCADE', sql_by_schema['default|el_chapo'])
