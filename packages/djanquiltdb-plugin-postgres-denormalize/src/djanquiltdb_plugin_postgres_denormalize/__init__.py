@@ -8,7 +8,7 @@ from types import SimpleNamespace
 from djanquiltdb_plugin_postgres_denormalize import utils
 from djanquiltdb_plugin_postgres_denormalize.utils import repair_every_shard, repair_shard, sharded_leaves, stale_rows
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 
 def install():
