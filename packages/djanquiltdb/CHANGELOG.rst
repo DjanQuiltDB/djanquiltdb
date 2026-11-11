@@ -1,3 +1,12 @@
+v 4.6.2 (2026-11-11)
+--------------------
+Added:
+ * ``switchable_mappings(request, queryset)`` and ``switchable_shards(request, queryset)`` on the quilt_admin shard
+   selector class, to allow setting permissions for admins on which shards they can access through the Django admin.
+
+Altered:
+ * Fixed quilt_admin shard switcher raising a server error when given a mapping value that is not a number.
+
 v 4.6.1 (2026-11-09)
 --------------------
 Added:
