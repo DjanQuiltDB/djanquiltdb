@@ -51,22 +51,27 @@ class SwitchShardView(View):
                     field = mapping_class._meta.get_field(mapping_field)
                     mapping_value = _coerce_value(raw_value, field)
 
-                    # find_switchable_mapping() raises PermissionDenied for a mapping that switchable_mappings() does
-                    # not return, for example for a crafted POST, or for a shard switcher page that was rendered before
-                    # the user lost access.
-                    mapping_obj = find_switchable_mapping(request, mapping_class, mapping_field, mapping_value)
-                    if not mapping_obj:
-                        messages.error(request, 'Selected mapping value does not exist.')
+                    try:
+                        # find_switchable_mapping() raises PermissionDenied for a mapping that switchable_mappings()
+                        # does not return, for example for a crafted POST, or for a shard switcher page that was
+                        # rendered before the user lost access.
+                        mapping_obj = find_switchable_mapping(request, mapping_class, mapping_field, mapping_value)
+                    except ValueError, TypeError:
+                        # _coerce_value() returns a value that it cannot convert unchanged, and the lookup rejects it.
+                        messages.error(request, 'Selected mapping value is invalid.')
                     else:
-                        quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, mapping_value)
-                        shard = getattr(mapping_obj, 'shard', None)
-                        if shard is not None:
-                            messages.success(
-                                request,
-                                f'Switched to mapping: {mapping_value} (shard: {shard.alias})',
-                            )
+                        if not mapping_obj:
+                            messages.error(request, 'Selected mapping value does not exist.')
                         else:
-                            messages.success(request, f'Switched to mapping: {mapping_value}')
+                            quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, mapping_value)
+                            shard = getattr(mapping_obj, 'shard', None)
+                            if shard is not None:
+                                messages.success(
+                                    request,
+                                    f'Switched to mapping: {mapping_value} (shard: {shard.alias})',
+                                )
+                            else:
+                                messages.success(request, f'Switched to mapping: {mapping_value}')
             else:
                 # Clear override
                 quilt_admin_apps.ADMIN_SHARD_SELECTOR_CLASS.set_override_value(request, None)

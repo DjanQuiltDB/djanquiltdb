@@ -138,6 +138,20 @@ class SwitchShardViewSwitchableMappingsTestCase(ShardingTestCase):
         request._messages.add.assert_called_once()
         self.assertIn('does not exist', request._messages.add.call_args.args[1])
 
+    def test_switch_to_a_mapping_value_that_is_not_a_number_reports_it_is_invalid(self):
+        """
+        Case: Switch to the mapping value "abc", while the mapping field is an integer field.
+        Expected: The view reports that the mapping value is invalid, and stores no override.
+        """
+        request = _build_switch_request({'mapping_value': 'abc'})
+
+        response = _post_with_shard_selector_class(request, EvenOrganizationsShardSelector)
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(request.session, {})
+        request._messages.add.assert_called_once()
+        self.assertEqual(request._messages.add.call_args.args[1], 'Selected mapping value is invalid.')
+
     def test_switch_without_a_mapping_value_clears_the_override(self):
         """
         Case: The session overrides the shard with organization 2, and the admin switches with an empty mapping value.
