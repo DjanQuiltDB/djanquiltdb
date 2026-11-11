@@ -251,6 +251,38 @@ class PostgresBackendTestCase(ShardingTransactionTestCase):
 
                     self.assertEqual(cursor.fetchone()[0], shard.schema_name)
 
+    def test_setting_the_search_path_in_an_aborted_transaction_logs_a_warning(self):
+        """
+        Case: In a shard, a transaction on the node runs a query in the shard, which sets the search_path to the shard,
+              and a second query fails, which aborts the transaction. Then a cursor is opened on the node connection,
+              which needs the search_path set to the public schema.
+        Expected: Setting the search_path fails, a warning is logged, current_search_paths stays the search_path of the
+                  shard, and the next statement on the cursor fails on the aborted transaction.
+        """
+        create_template_schema()
+        shard = Shard.objects.create(alias='one', schema_name='one_schema', node_name='default', state=State.ACTIVE)
+
+        with use_shard(shard) as env:
+            with transaction.atomic(using='default'):
+                env.connection.cursor().execute('SELECT 1')
+
+                with self.assertRaises(DatabaseError):
+                    env.connection.cursor().execute('SELECT 1 / 0')
+
+                with self.assertLogs('djanquiltdb.postgresql_backend.base', level='WARNING') as logs:
+                    node_cursor = connections['default'].cursor()
+
+                self.assertEqual(
+                    [record.getMessage() for record in logs.records],
+                    ['Something went wrong with setting the search path.'],
+                )
+                self.assertEqual(connections['default'].current_search_paths, [shard.schema_name, PUBLIC_SCHEMA_NAME])
+
+                with self.assertRaises(DatabaseError):
+                    node_cursor.execute('SELECT 1')
+
+                transaction.set_rollback(True, using='default')
+
     def test_a_failed_statement_in_a_savepoint_leaves_the_transaction_usable(self):
         """
         Case: In a transaction, a SuperType is created, a statement in an inner atomic() fails with ProgrammingError,
