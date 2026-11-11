@@ -20,7 +20,7 @@ WORKDIR /app
 
 # The image only carries the tooling: the repository is bind-mounted by docker-compose.yml, and tox installs
 # everything from there.
-RUN pip install --upgrade pip "tox>=4.21"
+RUN pip install --upgrade pip "tox>=4.56.1"
 
 # Compose runs the container as the host user, so that what it writes to the mounted checkout is not owned by root.
 # That user has no home directory in the image, so HOME points at /tmp, where pip and virtualenv can keep their caches.

@@ -4,11 +4,14 @@ The repository ships a compose file that starts two PostgreSQL 17 servers and tw
 (one pair per tox environment, so mirrored and multi-node cases have a second node) plus a `test`
 container that has Python 3.12 to 3.15 and tox and bind-mounts the repository at `/app`.
 
-Every Django minor the packages claim gets a tox environment of its own against each PostgreSQL, so
-`tox` runs each suite once per combination rather than resolving to whichever Django is newest. Python 3.12
-and 3.13 run on PostgreSQL 18 only, because the Python version does not change how PostgreSQL behaves. Python 3.15
-runs on Django 6.1 only, because Django 5.2 and 6.0 do not support it. The postgres-denormalize plugin has no
-Django 5.2 environments, because it requires Django 6.0.
+Every Django minor the packages claim gets a tox environment of its own on each Python, so `tox` runs each
+suite once per combination rather than resolving to whichever Django is newest. Each suite runs every combination on
+PostgreSQL 18, and only its newest combination on PostgreSQL 17 as well, because the Python and Django versions do not
+change how PostgreSQL behaves. Python 3.15 runs on Django 6.1 only, because Django 5.2 and 6.0 do not support it. The
+postgres-denormalize plugin has no Django 5.2 environments, because it requires Django 6.0.
+
+The `env_list` of `tox.toml` lists the suites and the combinations, and its `env_run_base` chooses the settings of each
+environment by the factors of the environment name, so a pin is written once for every environment that uses it.
 
 Run everything the way CI would:
 
@@ -26,10 +29,10 @@ docker compose run --rm test tox -m oauth-toolkit
 docker compose run --rm test tox -m pghistory
 docker compose run --rm test tox -m postgres-denormalize
 docker compose run --rm test tox -m postgres-objects
-docker compose run --rm test tox -e core-py314-dj60-pg17
+docker compose run --rm test tox -e core-py315-dj61-pg18
 docker compose run --rm test tox -e core-py315-dj61-pg17
-docker compose run --rm test tox -e core-py314-dj60-pg17 -- djanquiltdb_tests.router
-docker compose run --rm test tox -e postgres-objects-py314-dj60-pg17 -- -k ViewPlacementTestCase
+docker compose run --rm test tox -e core-py315-dj61-pg18 -- djanquiltdb_tests.router
+docker compose run --rm test tox -e postgres-objects-py315-dj61-pg18 -- -k ViewPlacementTestCase
 ```
 
 The plugin and `core-pgtrigger` environments name their suites before the posargs, so a second dotted label cannot
@@ -54,4 +57,6 @@ HOST_UID=$(id -u) HOST_GID=$(id -g) docker compose run --rm test tox
 ```
 
 CI runs these same tox environments, one per job, against a pair of PostgreSQL service containers rather
-than this compose file; `.github/workflows/ci.yml` is the whole of the difference.
+than this compose file; `.github/workflows/ci.yml` is the whole of the difference. Its matrix is not written out:
+`.github/scripts/test_matrix.py` reads the test environments from tox, so a new combination in `tox.toml` gets its CI
+job without a change to the workflow.
