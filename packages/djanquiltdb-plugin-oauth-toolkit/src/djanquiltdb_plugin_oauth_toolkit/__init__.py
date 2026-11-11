@@ -23,7 +23,7 @@ from djanquiltdb_plugin_oauth_toolkit.utils import (
     parse_token,
 )
 
-__version__ = '1.0.0'
+__version__ = '1.1.0'
 
 
 def install():
