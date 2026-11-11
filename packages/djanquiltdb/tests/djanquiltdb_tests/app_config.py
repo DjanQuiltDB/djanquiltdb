@@ -622,6 +622,22 @@ class ConnectionsTestCase(ShardingTestCase):
         self.assertEqual(connection_.shard_options, shard_options)
 
 
+class ConnectionHandlerPatchTestCase(SimpleTestCase):
+    def test_running_ready_again_does_not_patch_the_connection_handler_again(self):
+        """
+        Case: AppConfig.ready() runs again, as it does when a test changes INSTALLED_APPS.
+        Expected: The __getitem__ of the connection handler stays the same function, so a lookup of a connection does
+                  not go through one more wrapper for each run.
+        """
+        from django.db.utils import ConnectionHandler
+
+        getitem = ConnectionHandler.__getitem__
+
+        apps.get_app_config(app_label='djanquiltdb').ready()
+
+        self.assertIs(ConnectionHandler.__getitem__, getitem)
+
+
 class ConnectionTestCase(SimpleTestCase):
     def test(self):
         """

@@ -272,8 +272,15 @@ def _patch_connections():
     import django.db
     from django.db.utils import ConnectionHandler
 
-    setattr(ConnectionHandler, '__getitem__', patch_getitem(ConnectionHandler.__getitem__))
     setattr(django.db, 'connection', connection)
+
+    # AppConfig.ready() can run again, and __getitem__ is wrapped once.
+    if getattr(ConnectionHandler.__getitem__, '_quilt_shard_connection_wrapped', False):
+        return
+
+    getitem = patch_getitem(ConnectionHandler.__getitem__)
+    getitem._quilt_shard_connection_wrapped = True
+    setattr(ConnectionHandler, '__getitem__', getitem)
 
 
 def _patch_transactions():
