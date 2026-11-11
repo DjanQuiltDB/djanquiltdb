@@ -34,12 +34,13 @@ classifiers = [
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: 3.15",
     "Framework :: Django",
+    "Framework :: Django :: 5.2",
     "Framework :: Django :: 6.0",
     "Framework :: Django :: 6.1",
     "Topic :: Database",
 ]
 dependencies = [
-    "django>=6.0,<7.0",
+    "django>=5.2.19,<7.0",
     # 4.6 has djanquiltdb.natural_keys, which has make_the_primary_key_the_natural_key(). 4.5 serves ShardRoutedRevert
     # as djanquiltdb.base.pghistory, where migrations import it from. 4.3 ignored the triggers while move_data_to_shard
     # and purge_shard_data copy and delete rows, so no events are recorded for those rows.

@@ -39,6 +39,7 @@ classifiers = [
     "Topic :: Database",
 ]
 dependencies = [
+    # django-postgres-denormalize minimum is Django 6.0
     "django>=6.0,<7.0",
     # 4.3 serves the plugin's helpers as djanquiltdb.utils.postgres_denormalize, keeps triggers from firing while
     # move_data_to_shard copies rows, and answers the system checks for every node, so that the isolation check of

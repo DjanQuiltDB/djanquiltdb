@@ -71,8 +71,8 @@ class CleanShardingArtifactsMixin:
         """
         Save the names of the schemas that exist at the start of the test.
 
-        Recorded here rather than in setUp, and on the class rather than on the instance, because Django 6.0 calls both
-        this and _fixture_setup as classmethods. A subclass that overrides setUp without calling super() would otherwise
+        Recorded here rather than in setUp, and on the class rather than on the instance, because Django calls both this
+        and _fixture_setup as classmethods. A subclass that overrides setUp without calling super() would otherwise
         leave the teardown below with nothing to compare against, and every schema the test created would survive it
         silently.
         """
@@ -104,7 +104,7 @@ class ResetConnectionTestCaseMixin:
 
     @classmethod
     def _pre_setup(cls):
-        # Django 6.0 calls _pre_setup as a classmethod from setUpClass
+        # Django calls _pre_setup as a classmethod from setUpClass
         # We can't reset connections at class level, so this is a no-op
         # The actual reset happens in setUp() for each test instance
         super()._pre_setup()

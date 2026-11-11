@@ -7,9 +7,9 @@ from pghistory.models import EventQuerySet as BaseEventQuerySet
 
 class EventQueryCompiler(BaseEventQueryCompiler):
     """
-    pghistory's proxy-field compiler, with CTE column names that work on Django 6.
+    pghistory's proxy-field compiler, with CTE column names that match the columns that the outer query selects.
 
-    Django 6 names each column that a ``values()`` call selects after the name that was passed to ``values()``. When a
+    Django names each column that a ``values()`` call selects after the name that was passed to ``values()``. When a
     foreign key is passed by its field name, the CTE has no ``_id`` column, but the outer query selects that column.
     This compiler passes the attname, so the CTE and the outer query use the same column names. The rest of ``_get_cte``
     is the same as in pghistory.

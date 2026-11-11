@@ -1,3 +1,6 @@
+import warnings
+from unittest import skipUnless
+
 from django.contrib.admin import ModelAdmin
 from django.contrib.admin.models import LogEntry
 from django.contrib.admin.sites import AdminSite
@@ -75,6 +78,28 @@ class AdminCrossShardLoggingTestCase(ShardingTransactionTestCase):
             self.assertEqual(entries.first().object_id, str(self.organization.pk))
 
         # ...and must not have leaked into the customer shard.
+        with use_shard(self.customer_shard):
+            self.assertFalse(LogEntry.objects.exists())
+
+    @skipUnless(hasattr(ModelAdmin, 'log_deletion'), 'Django 6.0 and later have no ModelAdmin.log_deletion()')
+    def test_log_deletion_writes_to_home_shard(self):
+        """
+        Case: A proxied admin (switched to the customer shard) logs a deletion with the deprecated log_deletion(), as a
+              delete action of a project can on Django 5.2.
+        Expected: The LogEntry lands in the admin's home shard, not the customer shard.
+        """
+        request = RequestFactory().get('/')
+        request.user = CrossShardUserProxy(self.admin_user, self.home_shard)
+
+        with use_shard(self.customer_shard):
+            with warnings.catch_warnings():
+                # Django 5.2 warns that log_deletion() is deprecated, and the call is what this test is about.
+                warnings.simplefilter('ignore')
+                self.model_admin.log_deletion(request, self.organization, str(self.organization))
+
+        with use_shard(self.home_shard):
+            self.assertEqual(LogEntry.objects.filter(user_id=self.admin_user.pk).count(), 1)
+
         with use_shard(self.customer_shard):
             self.assertFalse(LogEntry.objects.exists())
 

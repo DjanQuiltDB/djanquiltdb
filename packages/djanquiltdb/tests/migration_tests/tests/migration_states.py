@@ -269,14 +269,24 @@ def fingerprint_function_code(function):
     return hashlib.sha256(ast.unparse(definition).encode()).hexdigest()
 
 
-# Django code that the executors hook into or re-enact, with the fingerprints of the checked versions.
+# Django code that the executors hook into or re-enact, with the fingerprints of the checked versions. Where Django 5.2
+# and 6.x differ, the set has one fingerprint for each, 5.2 first.
 DJANGO_FINGERPRINTS = {
     MigrationExecutor.migrate: {'4a11913382608dc3188933470809aaa301b0349037ad9cf6d2f174cd16898953'},
     MigrationExecutor._migrate_all_forwards: {'44b706ec0a7910fc0c5bfb4f6a0f741a268f0950ed7e153f035a19833206616e'},
     MigrationExecutor._create_project_state: {'d56032f0ca3028e763c984917ec6ba186c206e4b8b78cc16c11c80255bf9efd6'},
-    MigrationExecutor.apply_migration: {'3c328ebb19e4a89832936b2f0f244b661241278ba6eef9c22cd16717cac5dc43'},
-    MigrationExecutor.record_migration: {'2095e2ff78f37648364582e2c03304b6682a3af7f57d25eef008313316187a31'},
-    MigrationExecutor.check_replacements: {'297078785fb0097fa616a23cd790aedc961c266bb641c396442ca0f453748ee6'},
+    MigrationExecutor.apply_migration: {
+        'f3c528ee88ab6a717c72bdfa504f01656eb9d371c7f7a2624e869657c6885b36',
+        '3c328ebb19e4a89832936b2f0f244b661241278ba6eef9c22cd16717cac5dc43',
+    },
+    MigrationExecutor.record_migration: {
+        '67eddee4196788b4428a55a2dd9ef4b32b47ece38a4980fd33f83c01a60bb9b5',
+        '2095e2ff78f37648364582e2c03304b6682a3af7f57d25eef008313316187a31',
+    },
+    MigrationExecutor.check_replacements: {
+        '9a81eb3876b61afd3935b2467b1cab3ff570fd8ffe3aa97d3d784e756d5402bd',
+        '297078785fb0097fa616a23cd790aedc961c266bb641c396442ca0f453748ee6',
+    },
     MigrationExecutor.detect_soft_applied: {'6c36ffff559077b9189719c8e716fe4bd8a39e51a70cd43ea2328d09abad482b'},
     Migration.mutate_state: {'3017d72bd39848e864210a402a1e0560506f4384efd5233742ca69d899006897'},
     Migration.apply: {'9fcff9debec065ac40d57b9423628e11007ae16bb3d35f06cfbb3244b40f6424'},
@@ -428,49 +438,54 @@ class SharedStatesMigrationExecutorTestCase(MigrationTestCase):
         self.assertFalse(mock_apply_operations_between_states.called)
         self.assertIn(INITIAL_MIGRATION, self.executor.recorder.applied_migrations())
 
-    def test_record_migration_keeps_applied_set_current(
-        self, mock_apply_operations_between_states, mock_apply_migration
-    ):
+    def test_recording_keeps_the_applied_set_current(self, mock_apply_operations_between_states, mock_apply_migration):
         """
-        Case: Record a migration as applied, then as unapplied.
+        Case: Record a migration as applied, then as unapplied, through the executor's recorder.
         Expected: The loader's applied set follows each change and matches the database. So the executor can be kept for
                   a whole run.
         """
-        self.executor.record_migration(*INITIAL_MIGRATION)
+        self.executor.recorder.record_applied(*INITIAL_MIGRATION)
 
         self.assertIn(INITIAL_MIGRATION, self.executor.recorder.applied_migrations())
         self.assertIn(INITIAL_MIGRATION, self.executor.loader.applied_migrations)
 
-        self.executor.record_migration(*INITIAL_MIGRATION, forward=False)
+        self.executor.recorder.record_unapplied(*INITIAL_MIGRATION)
 
         self.assertNotIn(INITIAL_MIGRATION, self.executor.recorder.applied_migrations())
         self.assertNotIn(INITIAL_MIGRATION, self.executor.loader.applied_migrations)
 
-    def test_record_migration_only_inserts(self, mock_apply_operations_between_states, mock_apply_migration):
+    def test_recording_a_migration_only_inserts(self, mock_apply_operations_between_states, mock_apply_migration):
         """
-        Case: Record a migration as applied, once the migrations table exists.
+        Case: Record a migration as applied through the executor's recorder, once the migrations table exists.
         Expected: One query inserts the row, and there are no other queries. (The command records every migration on
                   every schema.)
         """
         self.executor.recorder.ensure_schema()
 
         with self.assertNumQueries(1):
-            self.executor.record_migration(*INITIAL_MIGRATION)
+            self.executor.recorder.record_applied(*INITIAL_MIGRATION)
 
         self.assertIn(INITIAL_MIGRATION, self.executor.loader.applied_migrations)
 
-    def test_record_migration_with_the_migration_recorded_already(
+    def test_recorder_shares_the_model_of_djangos_recorder(
         self, mock_apply_operations_between_states, mock_apply_migration
     ):
+        """
+        Case: Read the model of the executor's recorder.
+        Expected: It is the model of Django's own MigrationRecorder, not a second model class for the same table.
+        """
+        self.assertIs(self.executor.recorder.Migration, MigrationRecorder.Migration)
+
+    def test_recording_a_migration_recorded_already(self, mock_apply_operations_between_states, mock_apply_migration):
         """
         Case: Record a migration as applied when the migrations table already has two rows for it. (The table allows
               that.)
         Expected: The migration gets a third row and is in the loader's applied set.
         """
-        self.executor.recorder.record_applied(*INITIAL_MIGRATION)
-        self.executor.recorder.record_applied(*INITIAL_MIGRATION)
+        MigrationRecorder(connection).record_applied(*INITIAL_MIGRATION)
+        MigrationRecorder(connection).record_applied(*INITIAL_MIGRATION)
 
-        self.executor.record_migration(*INITIAL_MIGRATION)
+        self.executor.recorder.record_applied(*INITIAL_MIGRATION)
 
         self.assertEqual(
             self.executor.recorder.migration_qs.filter(app=INITIAL_MIGRATION[0], name=INITIAL_MIGRATION[1]).count(), 3
@@ -489,7 +504,7 @@ class SharedStatesMigrationExecutorTestCase(MigrationTestCase):
                   operations.
         """
         MigrationExecutor(connection).migrate([INITIAL_MIGRATION])
-        self.executor.record_migration(*INITIAL_MIGRATION, forward=False)
+        self.executor.recorder.record_unapplied(*INITIAL_MIGRATION)
         mock_mutate_state.reset_mock()
         detected = []
 
@@ -860,8 +875,8 @@ class SharedStatesMigrationExecutorReplacementsTestCase(MigrationTestCase):
         Expected: The squash is recorded as applied, both in the database and in the loader's applied set. So the
                   executor kept for the whole run agrees with the database.
         """
-        self.executor.record_migration(*INITIAL_MIGRATION)
-        self.executor.record_migration(*SECOND_MIGRATION)
+        self.executor.recorder.record_applied(*INITIAL_MIGRATION)
+        self.executor.recorder.record_applied(*SECOND_MIGRATION)
 
         self.executor.check_replacements()
 
@@ -884,12 +899,12 @@ class SharedStatesMigrationExecutorReplacementsTestCase(MigrationTestCase):
             self.executor.check_replacements()
             self.assertEqual(mock_applied_migrations.call_count, 1)
 
-            self.executor.record_migration(*INITIAL_MIGRATION)
+            self.executor.recorder.record_applied(*INITIAL_MIGRATION)
             self.executor.check_replacements()
             self.assertEqual(mock_applied_migrations.call_count, 2)
             self.assertNotIn(SQUASHED_MIGRATION, self.executor.loader.applied_migrations)
 
-            self.executor.record_migration(*SECOND_MIGRATION)
+            self.executor.recorder.record_applied(*SECOND_MIGRATION)
             self.executor.check_replacements()
             self.assertEqual(mock_applied_migrations.call_count, 3)
 
@@ -938,7 +953,7 @@ class SharedStatesMigrationExecutorLoadedFilesTestCase(MigrationTestCase):
         MigrationRecorder(connection).record_applied('migration_tests', '0099_gone')
         executor = SharedStatesMigrationExecutor(connection)
 
-        executor.record_migration(*SECOND_MIGRATION)
+        executor.recorder.record_applied(*SECOND_MIGRATION)
 
         for key in (INITIAL_MIGRATION, ('migration_tests', '0099_gone')):
             with self.subTest(key=key):

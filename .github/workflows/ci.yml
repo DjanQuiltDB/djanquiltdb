@@ -26,6 +26,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - toxenv: core-py312-dj52-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: core-coverage
           - toxenv: core-py312-dj60-pg18
             python: "3.12"
             postgres: "18"
@@ -34,12 +38,24 @@ jobs:
             python: "3.12"
             postgres: "18"
             coverageenv: core-coverage
+          - toxenv: core-py313-dj52-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: core-coverage
           - toxenv: core-py313-dj60-pg18
             python: "3.13"
             postgres: "18"
             coverageenv: core-coverage
           - toxenv: core-py313-dj61-pg18
             python: "3.13"
+            postgres: "18"
+            coverageenv: core-coverage
+          - toxenv: core-py314-dj52-pg17
+            python: "3.14"
+            postgres: "17"
+            coverageenv: core-coverage
+          - toxenv: core-py314-dj52-pg18
+            python: "3.14"
             postgres: "18"
             coverageenv: core-coverage
           - toxenv: core-py314-dj60-pg17
@@ -68,17 +84,26 @@ jobs:
             python: "3.15"
             postgres: "18"
             coverageenv: core-coverage
+          - toxenv: core-pgtrigger-py312-dj52
+            python: "3.12"
+            postgres: "17"
           - toxenv: core-pgtrigger-py312-dj60
             python: "3.12"
             postgres: "17"
           - toxenv: core-pgtrigger-py312-dj61
             python: "3.12"
             postgres: "17"
+          - toxenv: core-pgtrigger-py313-dj52
+            python: "3.13"
+            postgres: "17"
           - toxenv: core-pgtrigger-py313-dj60
             python: "3.13"
             postgres: "17"
           - toxenv: core-pgtrigger-py313-dj61
             python: "3.13"
+            postgres: "17"
+          - toxenv: core-pgtrigger-py314-dj52
+            python: "3.14"
             postgres: "17"
           - toxenv: core-pgtrigger-py314-dj60
             python: "3.14"
@@ -89,6 +114,10 @@ jobs:
           - toxenv: core-pgtrigger-py315-dj61
             python: "3.15"
             postgres: "17"
+          - toxenv: celery-py312-dj52-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: celery-coverage
           - toxenv: celery-py312-dj60-pg18
             python: "3.12"
             postgres: "18"
@@ -97,12 +126,24 @@ jobs:
             python: "3.12"
             postgres: "18"
             coverageenv: celery-coverage
+          - toxenv: celery-py313-dj52-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: celery-coverage
           - toxenv: celery-py313-dj60-pg18
             python: "3.13"
             postgres: "18"
             coverageenv: celery-coverage
           - toxenv: celery-py313-dj61-pg18
             python: "3.13"
+            postgres: "18"
+            coverageenv: celery-coverage
+          - toxenv: celery-py314-dj52-pg17
+            python: "3.14"
+            postgres: "17"
+            coverageenv: celery-coverage
+          - toxenv: celery-py314-dj52-pg18
+            python: "3.14"
             postgres: "18"
             coverageenv: celery-coverage
           - toxenv: celery-py314-dj60-pg17
@@ -131,6 +172,10 @@ jobs:
             python: "3.15"
             postgres: "18"
             coverageenv: celery-coverage
+          - toxenv: oauth-toolkit-py312-dj52-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: oauth-toolkit-coverage
           - toxenv: oauth-toolkit-py312-dj60-pg18
             python: "3.12"
             postgres: "18"
@@ -139,12 +184,24 @@ jobs:
             python: "3.12"
             postgres: "18"
             coverageenv: oauth-toolkit-coverage
+          - toxenv: oauth-toolkit-py313-dj52-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: oauth-toolkit-coverage
           - toxenv: oauth-toolkit-py313-dj60-pg18
             python: "3.13"
             postgres: "18"
             coverageenv: oauth-toolkit-coverage
           - toxenv: oauth-toolkit-py313-dj61-pg18
             python: "3.13"
+            postgres: "18"
+            coverageenv: oauth-toolkit-coverage
+          - toxenv: oauth-toolkit-py314-dj52-pg17
+            python: "3.14"
+            postgres: "17"
+            coverageenv: oauth-toolkit-coverage
+          - toxenv: oauth-toolkit-py314-dj52-pg18
+            python: "3.14"
             postgres: "18"
             coverageenv: oauth-toolkit-coverage
           - toxenv: oauth-toolkit-py314-dj60-pg17
@@ -173,6 +230,10 @@ jobs:
             python: "3.15"
             postgres: "18"
             coverageenv: oauth-toolkit-coverage
+          - toxenv: pghistory-py312-dj52-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: pghistory-coverage
           - toxenv: pghistory-py312-dj60-pg18
             python: "3.12"
             postgres: "18"
@@ -181,12 +242,24 @@ jobs:
             python: "3.12"
             postgres: "18"
             coverageenv: pghistory-coverage
+          - toxenv: pghistory-py313-dj52-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: pghistory-coverage
           - toxenv: pghistory-py313-dj60-pg18
             python: "3.13"
             postgres: "18"
             coverageenv: pghistory-coverage
           - toxenv: pghistory-py313-dj61-pg18
             python: "3.13"
+            postgres: "18"
+            coverageenv: pghistory-coverage
+          - toxenv: pghistory-py314-dj52-pg17
+            python: "3.14"
+            postgres: "17"
+            coverageenv: pghistory-coverage
+          - toxenv: pghistory-py314-dj52-pg18
+            python: "3.14"
             postgres: "18"
             coverageenv: pghistory-coverage
           - toxenv: pghistory-py314-dj60-pg17
@@ -257,6 +330,10 @@ jobs:
             python: "3.15"
             postgres: "18"
             coverageenv: postgres-denormalize-coverage
+          - toxenv: postgres-objects-py312-dj52-pg18
+            python: "3.12"
+            postgres: "18"
+            coverageenv: postgres-objects-coverage
           - toxenv: postgres-objects-py312-dj60-pg18
             python: "3.12"
             postgres: "18"
@@ -265,12 +342,24 @@ jobs:
             python: "3.12"
             postgres: "18"
             coverageenv: postgres-objects-coverage
+          - toxenv: postgres-objects-py313-dj52-pg18
+            python: "3.13"
+            postgres: "18"
+            coverageenv: postgres-objects-coverage
           - toxenv: postgres-objects-py313-dj60-pg18
             python: "3.13"
             postgres: "18"
             coverageenv: postgres-objects-coverage
           - toxenv: postgres-objects-py313-dj61-pg18
             python: "3.13"
+            postgres: "18"
+            coverageenv: postgres-objects-coverage
+          - toxenv: postgres-objects-py314-dj52-pg17
+            python: "3.14"
+            postgres: "17"
+            coverageenv: postgres-objects-coverage
+          - toxenv: postgres-objects-py314-dj52-pg18
+            python: "3.14"
             postgres: "18"
             coverageenv: postgres-objects-coverage
           - toxenv: postgres-objects-py314-dj60-pg17

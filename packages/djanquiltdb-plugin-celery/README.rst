@@ -113,7 +113,7 @@ Requirements
 ------------
 
 * Python 3.12 to 3.15
-* Django 6.0 or 6.1
+* Django 5.2, 6.0 or 6.1
 * PostgreSQL 17 or 18
 * djanquiltdb 4.5.0 or newer 4.x
 * Celery 5.6 or newer 5.x

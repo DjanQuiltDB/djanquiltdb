@@ -360,7 +360,7 @@ def shard_mapping_model(mapping_field, route_to_primary_db=True):  # noqa: C901
                         cls.__name__
                     )
                 )
-            # Django 6.0+ may store choices differently, so compare the actual values
+            # Django normalizes the choices that a field is given, so compare them as lists of values
             field_choices = list(state_field.choices) if state_field.choices else []
             expected_choices = list(STATES)
             if field_choices != expected_choices:

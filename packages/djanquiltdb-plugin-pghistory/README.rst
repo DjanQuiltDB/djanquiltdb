@@ -110,7 +110,7 @@ Requirements
 ------------
 
 * Python 3.12 to 3.15
-* Django 6.0 or 6.1
+* Django 5.2, 6.0 or 6.1
 * PostgreSQL 17 or 18
 * djanquiltdb 4.6.0 or newer 4.x
 * django-pghistory 3.9.2 or newer 3.x
