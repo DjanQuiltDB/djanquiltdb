@@ -148,8 +148,8 @@ Querying
 ========
 
 Event models are queried like any other model in a sharded project. The plugin's bases use a queryset that keeps
-pghistory's proxy fields working on Django 6, where the column aliasing of ``values()`` breaks the proxy-field CTE of
-django-pghistory releases up to at least 3.9.
+pghistory's proxy fields working. Django names each column that ``values()`` selects after the name that was passed to
+``values()``, which breaks the proxy-field CTE of django-pghistory releases up to at least 3.9.
 
 The queryset keeps three gaps of pghistory's CTE, which pghistory 3.9 has too. They only affect a query that selects
 the proxy fields of an event model:

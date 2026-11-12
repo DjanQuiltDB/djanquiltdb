@@ -4,9 +4,10 @@ The task decorators of the plugin. DjanQuiltDB serves this module as ``djanquilt
 ``djanquiltdb.decorators``, so that a call site names the plugin, as in ``@celery.shared_task_for_shard``.
 """
 
-import annotationlib
 import functools
+import importlib
 import inspect
+import sys
 
 from celery import _state as celery_state
 from celery.local import PromiseProxy, Proxy
@@ -25,6 +26,13 @@ WRAPPER_SIGNATURE = inspect.Signature(
         inspect.Parameter('args', inspect.Parameter.VAR_POSITIONAL),
         inspect.Parameter('kwargs', inspect.Parameter.VAR_KEYWORD),
     ]
+)
+
+#: The keyword arguments of ``inspect.signature()`` that give the annotations of a function as strings, so that reading
+#: the signature does not evaluate them. Before Python 3.14, Python evaluates annotations when it defines the function,
+#: and ``inspect.signature()`` has no such keyword argument.
+STRING_ANNOTATION_KEYWORDS = (
+    {'annotation_format': importlib.import_module('annotationlib').Format.STRING} if sys.version_info >= (3, 14) else {}
 )
 
 
@@ -48,7 +56,7 @@ def _signature_of_function(func, bind):
     Returns the signature of ``func`` without the parameter for the task, which ``func`` takes when ``bind`` is True.
     The arguments of each message of the task are checked against this signature.
     """
-    signature = inspect.signature(func, annotation_format=annotationlib.Format.STRING)
+    signature = inspect.signature(func, **STRING_ANNOTATION_KEYWORDS)
     parameters = list(signature.parameters.values())
 
     return signature.replace(parameters=parameters[1:] if bind else parameters)

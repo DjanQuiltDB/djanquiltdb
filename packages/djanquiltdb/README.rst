@@ -178,8 +178,8 @@ setting.
 Requirements
 ============
 
-* Python 3.14
-* Django 6.0 or 6.1
+* Python 3.12 to 3.15
+* Django 5.2, 6.0 or 6.1
 * PostgreSQL 17 or 18
 
 Development

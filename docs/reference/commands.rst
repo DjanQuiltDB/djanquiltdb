@@ -47,7 +47,8 @@ sqlflush
 --------
 
 ``sqlflush`` prints the SQL that ``flush`` would run, for each schema in the same order. It takes the same
-``--database`` and ``--schema-name`` options as ``flush``.
+``--database``, ``--schema-name`` and ``--ignore-maintenance`` options as ``flush``. Like ``flush``, it skips a shard in
+maintenance, prints the SQL of the other schemas, and then exits with an error that names the shards that it skipped.
 
 
 migrate

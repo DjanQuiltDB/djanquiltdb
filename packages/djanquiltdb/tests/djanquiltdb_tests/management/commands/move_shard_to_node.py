@@ -964,22 +964,21 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
         with self.target_shard_options.use():
             self.assertEqual(CakeType.objects.count(), 0)
 
-        # The new CakeType will have an id of 1, since it's the first object on that node.
-        self.assertEqual(self.command.get_mapped_value(CakeType, ('lime',)), 1)
+        copied_id = self.command.get_mapped_value(CakeType, ('lime',))
 
         with self.target_shard_options.use():
             self.assertEqual(CakeType.objects.count(), 1)
-            self.assertEqual(CakeType.objects.get(name='lime').id, 1)
+            self.assertEqual(CakeType.objects.get(name='lime').id, copied_id)
 
         # We have to be a bit indirect at asserting call arguments if model instances are involved.
         mock_check_relations.assert_called_once()
         call_args = mock_check_relations.call_args[0]
         self.assertEqual(call_args[0], CakeType)
         self.assertEqual(call_args[1]._meta.model, CakeType)
-        self.assertEqual(call_args[1].id, 1)
+        self.assertEqual(call_args[1].id, copied_id)
 
         # Our given target_data is a pointer. The dict is to be altered by get_mapped_value.
-        self.assertCountEqual(self.command.target_data, {CakeType: {('lime',): 1}})
+        self.assertEqual(self.command.target_data, {CakeType: {('lime',): copied_id}})
 
     def test_get_mapped_value_missing_disallow_copy_with_relational_key(self):
         """
@@ -1436,8 +1435,7 @@ class MoveShardToNodeTestCase(OverrideMirroredRoutingMixin, ShardingTestCase):
             # Cake object migrated and targeting the SugerType made
             cake = Cake.objects.get(id=cake.id)
             self.assertEqual(cake.id, 1)
-            self.assertEqual(cake.coating_type, coating_type)
-            self.assertEqual(cake.coating_type_id, 1)
+            self.assertEqual(cake.coating_type_id, coating_type_t.id)
             self.assertEqual(cake.coating_type.type_id, 2)
 
     def move_puddings_to_the_target(self):

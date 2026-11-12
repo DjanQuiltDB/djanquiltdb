@@ -144,19 +144,39 @@ def _initialize_sharded_models():
     """
     from_db_functions = {model: model.from_db for model in get_all_sharded_models(include_proxy=True)}
 
+    # Each method and from_db is decorated once, so a decorated one is skipped. A proxy model inherits the decorated
+    # methods of its parent, and AppConfig.ready() can run again.
     for model in get_all_sharded_models(include_proxy=True):
         # The members are listed statically, because a descriptor may raise when it is read through the class (such as
         # django-pghistory's pgh_event_model), and an exception in AppConfig.ready() stops the project from starting.
         # The static listing also skips staticmethods and classmethods, because it returns them as wrapper objects.
         for attr, func in inspect.getmembers_static(model, inspect.isfunction):
             # Decorate every model method, so that each method runs in the shard that the instance belongs to.
-            setattr(model, attr, class_method_use_shard(func))
+            if not _is_decorated_with(func, class_method_use_shard):
+                setattr(model, attr, class_method_use_shard(func))
 
         # Setting the from_db function for a Model that is the parent of a ProxyModel will corrupt the ProxyModels
         # version of the same function. So we have saved the original from_db function at the start, and use that.
-        model.add_to_class('from_db', make_shard_aware_from_db(from_db_functions[model]))
+        from_db = from_db_functions[model]
+        if not _is_decorated_with(getattr(from_db, '__func__', None), shard_aware_from_db):
+            model.add_to_class('from_db', make_shard_aware_from_db(from_db))
 
         _initialize_sharded_model_querysets(model)
+
+
+def _is_decorated_with(func, decorator):
+    """
+    Return whether func is the function that the given decorator returned, as recorded by _add_decorator_reference.
+
+    functools.wraps copies the decorator reference to a function that another decorator stacks on top, so func is the
+    returned function only when it wraps the function that the decorator was given.
+    """
+    decorator_reference = getattr(func, '__decorator__', None)
+    return (
+        isinstance(decorator_reference, tuple)
+        and decorator_reference[0] is decorator
+        and decorator_reference[1].arguments.get('func') is getattr(func, '__wrapped__', None)
+    )
 
 
 def make_shard_aware_from_db(from_db):
@@ -252,8 +272,15 @@ def _patch_connections():
     import django.db
     from django.db.utils import ConnectionHandler
 
-    setattr(ConnectionHandler, '__getitem__', patch_getitem(ConnectionHandler.__getitem__))
     setattr(django.db, 'connection', connection)
+
+    # AppConfig.ready() can run again, and __getitem__ is wrapped once.
+    if getattr(ConnectionHandler.__getitem__, '_quilt_shard_connection_wrapped', False):
+        return
+
+    getitem = patch_getitem(ConnectionHandler.__getitem__)
+    getitem._quilt_shard_connection_wrapped = True
+    setattr(ConnectionHandler, '__getitem__', getitem)
 
 
 def _patch_transactions():

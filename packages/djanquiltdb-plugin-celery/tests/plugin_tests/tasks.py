@@ -1,4 +1,5 @@
-from unittest import mock
+import sys
+from unittest import mock, skipIf
 
 from celery import Task, group, signals
 from django.core.exceptions import ImproperlyConfigured
@@ -779,6 +780,23 @@ class DecoratorOptionsTestCase(PluginTestCase):
             ),
             (2, 3, 30, True),
         )
+
+    @skipIf(
+        sys.version_info < (3, 14), 'Before Python 3.14, Python evaluates an annotation when it defines the function'
+    )
+    def test_a_function_with_an_annotation_that_cannot_be_evaluated_is_decorated(self):
+        """
+        Case: A task is decorated whose function has an annotation that names something that is not defined at runtime,
+              as a name that is only imported under TYPE_CHECKING is.
+        Expected: The task is created, and the signature that the arguments of its messages are checked against has the
+                  parameter of the function.
+        """
+
+        @shared_task_for_shard(name='plugin_tests.tasks.with_an_annotation_that_cannot_be_evaluated')
+        def with_an_annotation_that_cannot_be_evaluated(orders: UndefinedInvoice):  # noqa: F821
+            pass  # pragma: no cover
+
+        self.assertEqual(list(with_an_annotation_that_cannot_be_evaluated.function_signature.parameters), ['orders'])
 
     def test_the_default_retries(self):
         """

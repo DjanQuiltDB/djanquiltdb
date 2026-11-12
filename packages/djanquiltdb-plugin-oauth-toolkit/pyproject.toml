@@ -8,7 +8,7 @@ name = "djanquiltdb-plugin-oauth-toolkit"
 dynamic = ["version"]
 description = "django-oauth-toolkit client ids and tokens that name the shard of a DjanQuiltDB project"
 readme = "README.rst"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 authors = [
@@ -29,15 +29,19 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Framework :: Django",
+    "Framework :: Django :: 5.2",
     "Framework :: Django :: 6.0",
     "Framework :: Django :: 6.1",
     "Topic :: Database",
     "Topic :: Internet :: WWW/HTTP :: Session",
 ]
 dependencies = [
-    "django>=6.0,<7.0",
+    "django>=5.2.19,<7.0",
     # 4.6 serves a plugin's middleware module as djanquiltdb.middleware.<name>, and has QUILT_DB['SHARD_SELECTOR_REGEX'].
     "djanquiltdb>=4.6,<5.0",
     # 3.4 looks up a refresh token by a checksum of the whole token, as it looks up an access token. The middleware

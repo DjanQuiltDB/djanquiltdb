@@ -6,7 +6,7 @@ from django.core.exceptions import ImproperlyConfigured
 if TYPE_CHECKING:
     from djanquiltdb.contrib.quilt_admin.shard_selector import BaseAdminShardSelector
 
-ADMIN_SHARD_SELECTOR_CLASS: Optional[BaseAdminShardSelector] = None
+ADMIN_SHARD_SELECTOR_CLASS: Optional['BaseAdminShardSelector'] = None
 
 
 class ShardedAdminAppConfig(AppConfig):
@@ -51,9 +51,10 @@ class ShardedAdminAppConfig(AppConfig):
 
         from djanquiltdb.contrib.quilt_admin.utils import route_admin_log_to_home_shard
 
-        for name in ('log_addition', 'log_change', 'log_deletions'):
-            method = getattr(ModelAdmin, name)
-            if getattr(method, '_quilt_home_shard_wrapped', False):
+        # Django 5.2 also has the deprecated log_deletion(), which a delete action of a project can still call.
+        for name in ('log_addition', 'log_change', 'log_deletion', 'log_deletions'):
+            method = getattr(ModelAdmin, name, None)
+            if method is None or getattr(method, '_quilt_home_shard_wrapped', False):
                 continue
             wrapped = route_admin_log_to_home_shard(method)
             wrapped._quilt_home_shard_wrapped = True

@@ -879,9 +879,18 @@ class ShardedMigrationPartialSquashTestCase(MigrationTestCase):
 
         self.sina = Shard.objects.create(alias='sina', schema_name='test_sina', node_name='default', state=State.ACTIVE)
 
-        # A replaced migration as target makes Django plan without the squash. It applies 1_auto, 2_auto and 3_auto.
-        with use_shard(self.sina) as env:
-            MigrationExecutor(env.connection).migrate([('migration_tests', '3_auto')])
+        # This applies 1_auto, 2_auto and 3_auto.
+        self.migrate_without_the_squash('3_auto', shard=self.sina)
+
+    def migrate_without_the_squash(self, target, **use_shard_kwargs):
+        """
+        Migrate a schema to a migration that the squash replaces. The loader leaves the squash out of the graph, so
+        Django plans the replaced migrations.
+        """
+        with use_shard(**use_shard_kwargs) as env:
+            executor = MigrationExecutor(env.connection)
+            executor.loader = MigrationLoader(env.connection, replace_migrations=False)
+            executor.migrate([('migration_tests', target)])
 
     def applied_fixture_migrations(self, **use_shard_kwargs):
         """
@@ -902,11 +911,9 @@ class ShardedMigrationPartialSquashTestCase(MigrationTestCase):
                   applied, and do not fail on them.
         """
         for node_name in self.databases:
-            with use_shard(node_name=node_name, schema_name=PUBLIC_SCHEMA_NAME) as env:
-                MigrationExecutor(env.connection).migrate([('migration_tests', '5_auto')])
+            self.migrate_without_the_squash('5_auto', node_name=node_name, schema_name=PUBLIC_SCHEMA_NAME)
         for node_name in self.databases:
-            with use_shard(node_name=node_name, schema_name=get_template_name()) as env:
-                MigrationExecutor(env.connection).migrate([('migration_tests', '5_auto')])
+            self.migrate_without_the_squash('5_auto', node_name=node_name, schema_name=get_template_name())
 
         stderr = StringIO()
         call_command('migrate', 'migration_tests', verbosity=0, stderr=stderr)

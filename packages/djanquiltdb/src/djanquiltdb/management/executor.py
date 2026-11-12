@@ -10,7 +10,7 @@ from django.db.migrations.executor import MigrationExecutor
 from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.recorder import MigrationRecorder
 from django.db.migrations.state import ProjectState
-from django.utils.functional import cached_property
+from django.utils.functional import cached_property, classproperty
 
 ATTRIBUTE_MISSING = object()
 
@@ -405,6 +405,33 @@ class SharedStartingStates:
         self._pending_migration = None
 
 
+class LoaderUpdatingMigrationRecorder(MigrationRecorder):
+    """
+    A MigrationRecorder that tells its executor about every migration it records as applied or unapplied, so that the
+    executor can update its loader's applied migrations to match.
+
+    Django's executor records every migration through its recorder: when applying and unapplying, for each migration a
+    squash replaces, and for a squash that check_replacements finds complete. So does migrate --prune.
+    """
+
+    @classproperty
+    def Migration(cls):
+        # The model of Django's own recorder, rather than a second model class for the same table.
+        return MigrationRecorder.Migration
+
+    def __init__(self, connection, executor):
+        super().__init__(connection)
+        self.executor = executor
+
+    def record_applied(self, app, name):
+        super().record_applied(app, name)
+        self.executor.update_loader_for_recorded_migration((app, name), applied=True)
+
+    def record_unapplied(self, app, name):
+        super().record_unapplied(app, name)
+        self.executor.update_loader_for_recorded_migration((app, name), applied=False)
+
+
 class SharedStatesMigrationExecutor(SharedFilesMigrationExecutor):
     """
     A MigrationExecutor that applies migrations from precomputed project states, shared between the schemas of a run.
@@ -412,6 +439,7 @@ class SharedStatesMigrationExecutor(SharedFilesMigrationExecutor):
 
     def __init__(self, connection, progress_callback=None, loaded_migration_files=None):
         super().__init__(connection, progress_callback, loaded_migration_files=loaded_migration_files)
+        self.recorder = LoaderUpdatingMigrationRecorder(connection, self)
         self.squashed_migrations_checked = False
 
     def apply_from_shared_states(self, migration, shared_operation_states, fake=False, fake_initial=False):
@@ -436,17 +464,14 @@ class SharedStatesMigrationExecutor(SharedFilesMigrationExecutor):
         )
         self.check_replacements()
 
-    def record_migration(self, app_label, name, forward=True):
+    def update_loader_for_recorded_migration(self, key, applied):
         """
-        Record the migration, and update the loader's applied migrations to match.
+        Update the loader's applied migrations for a migration that the recorder just recorded as applied or unapplied.
 
         The executor is kept for the whole run and its loader is not reloaded, so the applied migrations are updated
-        here. The migration from disk is stored as the value, like Django's loader does for squashed migrations. Django
-        also calls this for each migration a squash replaces, and when unapplying.
+        here. The migration from disk is stored as the value, like Django's loader does for squashed migrations.
         """
-        super().record_migration(app_label, name, forward)
-        key = (app_label, name)
-        if forward:
+        if applied:
             self.loader.applied_migrations[key] = self.loader.disk_migrations.get(key)
         else:
             self.loader.applied_migrations.pop(key, None)
@@ -456,8 +481,8 @@ class SharedStatesMigrationExecutor(SharedFilesMigrationExecutor):
 
     def check_replacements(self):
         """
-        Record the squashed migrations whose replaced migrations are all applied, and update the loader's applied
-        migrations to match.
+        Record the squashed migrations whose replaced migrations are all applied. The recorder updates the loader's
+        applied migrations to match.
 
         The command calls this after every migration on every schema, so the database is only queried when something can
         have changed: the first time (a squash can be complete in the database without being recorded), and after
@@ -468,11 +493,6 @@ class SharedStatesMigrationExecutor(SharedFilesMigrationExecutor):
 
         super().check_replacements()
         self.squashed_migrations_checked = True
-
-        applied = self.loader.applied_migrations
-        for key, migration in self.loader.replacements.items():
-            if key not in applied and self.loader.all_replaced_applied(key, applied):
-                applied[key] = migration
 
     def apply_migration_between_states(self, states, migration, fake=False, fake_initial=False):
         """

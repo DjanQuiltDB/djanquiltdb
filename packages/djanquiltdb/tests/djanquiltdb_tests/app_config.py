@@ -1,3 +1,5 @@
+import functools
+import inspect
 import types
 from collections import OrderedDict
 from unittest import mock
@@ -11,7 +13,7 @@ from django.test.utils import isolate_apps
 
 from djanquiltdb import PRIMARY_NODE, ShardingMode, State, single_node_unsharded
 from djanquiltdb.db import connection
-from djanquiltdb.decorators import class_method_use_shard, sharded_model
+from djanquiltdb.decorators import class_method_use_shard, shard_aware_from_db, sharded_model
 from djanquiltdb.models import BaseShard
 from djanquiltdb.options import ShardOptions
 from djanquiltdb.postgresql_backend.base import PUBLIC_SCHEMA_NAME, DatabaseWrapper, ShardDatabaseWrapper
@@ -620,6 +622,22 @@ class ConnectionsTestCase(ShardingTestCase):
         self.assertEqual(connection_.shard_options, shard_options)
 
 
+class ConnectionHandlerPatchTestCase(SimpleTestCase):
+    def test_running_ready_again_does_not_patch_the_connection_handler_again(self):
+        """
+        Case: AppConfig.ready() runs again, as it does when a test changes INSTALLED_APPS.
+        Expected: The __getitem__ of the connection handler stays the same function, so a lookup of a connection does
+                  not go through one more wrapper for each run.
+        """
+        from django.db.utils import ConnectionHandler
+
+        getitem = ConnectionHandler.__getitem__
+
+        apps.get_app_config(app_label='djanquiltdb').ready()
+
+        self.assertIs(ConnectionHandler.__getitem__, getitem)
+
+
 class ConnectionTestCase(SimpleTestCase):
     def test(self):
         """
@@ -690,6 +708,19 @@ class DescriptorRaisingOnClassAccess:
         raise ValueError('this attribute cannot be read through the class')
 
 
+def wrapped_with_functools(func):
+    """
+    A decorator that uses functools.wraps, which copies the attributes of func to the function that it returns.
+    """
+
+    # Only the decoration of the returned function is tested, so the function is never called.
+    @functools.wraps(func)
+    def inner(*args, **kwargs):  # pragma: no cover
+        return func(*args, **kwargs)
+
+    return inner
+
+
 class InitializeShardedModelsTestCase(SimpleTestCase):
     @isolate_apps('djanquiltdb')
     def test_a_class_attribute_that_raises_on_class_access_does_not_stop_initialization(self):
@@ -715,3 +746,118 @@ class InitializeShardedModelsTestCase(SimpleTestCase):
             _initialize_sharded_models()
 
         self.assertIs(Cracker.crumble.__decorator__[0], class_method_use_shard)
+
+    @isolate_apps('djanquiltdb')
+    def test_initializing_again_decorates_each_method_once(self):
+        """
+        Case: The sharded models are initialized twice, as happens when AppConfig.ready() runs again.
+        Expected: The methods and the from_db of the model are decorated once. Each decorator wraps the original
+                  function.
+        """
+        from djanquiltdb.apps import _initialize_sharded_models
+
+        @sharded_model()
+        class Biscuit(models.Model):
+            # Only the decoration of this method is tested, so the method is never called.
+            def crumble(self):  # pragma: no cover
+                return 'crumbled'
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        crumble = Biscuit.crumble
+
+        with mock.patch('djanquiltdb.apps.get_all_sharded_models', return_value=[Biscuit]):
+            _initialize_sharded_models()
+            _initialize_sharded_models()
+
+        self.assertIs(Biscuit.crumble.__decorator__[1].arguments['func'], crumble)
+        from_db_decorator_reference = inspect.getattr_static(Biscuit, 'from_db').__func__.__decorator__
+        self.assertIs(from_db_decorator_reference[0], shard_aware_from_db)
+        self.assertIs(from_db_decorator_reference[1].arguments['func'], models.Model.from_db.__func__)
+
+    @isolate_apps('djanquiltdb')
+    def test_a_proxy_model_keeps_the_decorated_methods_of_its_parent(self):
+        """
+        Case: A sharded model and a proxy of it are initialized.
+        Expected: The proxy model has the decorated methods of its parent, which wrap the original function. The proxy
+                  model does not decorate them a second time.
+        """
+        from djanquiltdb.apps import _initialize_sharded_models
+
+        @sharded_model()
+        class Biscuit(models.Model):
+            # Only the decoration of this method is tested, so the method is never called.
+            def crumble(self):  # pragma: no cover
+                return 'crumbled'
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        class ProxyBiscuit(Biscuit):
+            class Meta:
+                app_label = 'djanquiltdb'
+                proxy = True
+
+        crumble = Biscuit.crumble
+
+        with mock.patch('djanquiltdb.apps.get_all_sharded_models', return_value=[Biscuit, ProxyBiscuit]):
+            _initialize_sharded_models()
+
+        self.assertIs(ProxyBiscuit.crumble, Biscuit.crumble)
+        self.assertIs(Biscuit.crumble.__decorator__[1].arguments['func'], crumble)
+
+    @isolate_apps('djanquiltdb')
+    def test_a_decorator_stacked_on_class_method_use_shard_is_decorated(self):
+        """
+        Case: A method of a sharded model has a decorator that uses functools.wraps stacked on class_method_use_shard,
+              so the function of the stacked decorator has a copy of the decorator reference of the method below it.
+        Expected: The function of the stacked decorator is decorated with class_method_use_shard, so that it runs in
+                  the shard that the instance belongs to.
+        """
+        from djanquiltdb.apps import _initialize_sharded_models
+
+        @sharded_model()
+        class Biscuit(models.Model):
+            # Only the decoration of this method is tested, so the method is never called.
+            @wrapped_with_functools
+            @class_method_use_shard
+            def crumble(self):  # pragma: no cover
+                return 'crumbled'
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        stacked_crumble = Biscuit.crumble
+
+        with mock.patch('djanquiltdb.apps.get_all_sharded_models', return_value=[Biscuit]):
+            _initialize_sharded_models()
+
+        self.assertIs(Biscuit.crumble.__decorator__[0], class_method_use_shard)
+        self.assertIs(Biscuit.crumble.__decorator__[1].arguments['func'], stacked_crumble)
+
+    @isolate_apps('djanquiltdb')
+    def test_a_decorator_stacked_on_a_shard_aware_from_db_is_decorated(self):
+        """
+        Case: The from_db of a sharded model has a decorator that uses functools.wraps stacked on a shard-aware from_db,
+              so the function of the stacked decorator has a copy of the decorator reference of the from_db below it.
+        Expected: The function of the stacked decorator is made shard-aware, so that it runs in the shard that the row
+                  comes from.
+        """
+        from djanquiltdb.apps import _initialize_sharded_models
+
+        stacked_from_db = wrapped_with_functools(shard_aware_from_db(models.Model.from_db.__func__).__func__)
+
+        @sharded_model()
+        class Biscuit(models.Model):
+            from_db = classmethod(stacked_from_db)
+
+            class Meta:
+                app_label = 'djanquiltdb'
+
+        with mock.patch('djanquiltdb.apps.get_all_sharded_models', return_value=[Biscuit]):
+            _initialize_sharded_models()
+
+        from_db_decorator_reference = inspect.getattr_static(Biscuit, 'from_db').__func__.__decorator__
+        self.assertIs(from_db_decorator_reference[0], shard_aware_from_db)
+        self.assertIs(from_db_decorator_reference[1].arguments['func'], stacked_from_db)

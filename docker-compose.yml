@@ -4,6 +4,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: djanquiltdb-test
+    # Run as the host user, so that the files written to the mounted checkout are not owned by root. A plain
+    # `docker compose run` uses 1000, the first user on most Linux systems; DOCKER.md shows how to pass other ids.
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     volumes:
       # Mount the entire project directory for live updates
       - .:/app:z

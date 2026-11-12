@@ -22,7 +22,7 @@ def _coerce_value(raw_value, field):
     try:
         if isinstance(field, (models.AutoField, models.BigAutoField, models.IntegerField, models.BigIntegerField)):
             return int(raw_value)
-    except TypeError, ValueError:
+    except (TypeError, ValueError):
         return raw_value
 
     return raw_value
@@ -56,7 +56,7 @@ class SwitchShardView(View):
                         # does not return, for example for a crafted POST, or for a shard switcher page that was
                         # rendered before the user lost access.
                         mapping_obj = find_switchable_mapping(request, mapping_class, mapping_field, mapping_value)
-                    except ValueError, TypeError:
+                    except (ValueError, TypeError):
                         # _coerce_value() returns a value that it cannot convert unchanged, and the lookup rejects it.
                         messages.error(request, 'Selected mapping value is invalid.')
                     else:
@@ -83,7 +83,7 @@ class SwitchShardView(View):
                     # As for mappings, find_switchable_shard() raises PermissionDenied for a shard that
                     # switchable_shards() does not return.
                     shard = find_switchable_shard(request, shard_id)
-                except ValueError, TypeError:
+                except (ValueError, TypeError):
                     messages.error(request, 'Selected shard id is invalid.')
                 else:
                     if shard is None:

@@ -8,7 +8,7 @@ name = "djanquiltdb"
 dynamic = ["version"]
 description = "Multi-schema, multi-cluster, flexible horizontal database sharding for Django applications."
 readme = "README.rst"
-requires-python = ">=3.14"
+requires-python = ">=3.12"
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 authors = [
@@ -31,15 +31,20 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Framework :: Django",
+    "Framework :: Django :: 5.2",
     "Framework :: Django :: 6.0",
     "Framework :: Django :: 6.1",
     "Topic :: Database",
 ]
 dependencies = [
-    "django>=6.0,<7.0",
-    "psycopg[binary]>=3.0.0",
+    "django>=5.2.19,<7.0",
+    # The oldest psycopg that Django 5.2 accepts.
+    "psycopg[binary]>=3.1.8",
     "progressbar2",
 ]
 

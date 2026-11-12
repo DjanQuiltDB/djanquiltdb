@@ -1,3 +1,19 @@
+v 4.7.0 (2026-11-12)
+--------------------
+Added:
+ * Support for Python 3.12 and 3.13.
+ * Support for Python 3.15 (Django 6.1.3 or later).
+ * Support for Django 5.2 (5.2.19 or later).
+
+Altered:
+ * Fixed the sqlflush command failing on every supported Django version.
+ * Fixed the methods of a proxy of a sharded model being decorated twice, and the methods of every sharded model being
+   decorated again when ``AppConfig.ready()`` runs again.
+ * Fixed the sqlflush command stopping at a shard in maintenance. Like flush, it now skips such a shard, names it in an
+   error after the other schemas, and takes ``--ignore-maintenance``.
+ * Fixed the sqlflush command printing the statement for the public schema without the CASCADE that flush runs it with.
+ * Fixed the connection handler being patched again each time ``AppConfig.ready()`` runs again.
+
 v 4.6.2 (2026-11-11)
 --------------------
 Added:

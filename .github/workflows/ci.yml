@@ -15,8 +15,24 @@ permissions:
   contents: read
 
 jobs:
+  # The test job runs one job per test environment of tox.toml, so the matrix is read from tox rather than written out.
+  matrix:
+    name: matrix
+    runs-on: ubuntu-latest
+    outputs:
+      include: ${{ steps.matrix.outputs.include }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.14'
+      - run: python -m pip install --upgrade pip 'tox>=4.56.1'
+      - id: matrix
+        run: echo "include=$(python .github/scripts/test_matrix.py)" >> "$GITHUB_OUTPUT"
+
   test:
     name: ${{ matrix.toxenv }}
+    needs: matrix
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -25,95 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - toxenv: core-py314-dj60-pg17
-            postgres: "17"
-            coverageenv: core-coverage
-            codecovflag: core
-            coveragexml: packages/djanquiltdb/tests/coverage.xml
-          - toxenv: core-py314-dj60-pg18
-            postgres: "18"
-            coverageenv: core-coverage
-          - toxenv: core-py314-dj61-pg17
-            postgres: "17"
-            coverageenv: core-coverage
-          - toxenv: core-py314-dj61-pg18
-            postgres: "18"
-            coverageenv: core-coverage
-          - toxenv: core-pgtrigger-py314-dj60
-            postgres: "17"
-          - toxenv: core-pgtrigger-py314-dj61
-            postgres: "17"
-          - toxenv: celery-py314-dj60-pg17
-            postgres: "17"
-            coverageenv: celery-coverage
-            codecovflag: celery
-            coveragexml: packages/djanquiltdb-plugin-celery/tests/coverage.xml
-          - toxenv: celery-py314-dj60-pg18
-            postgres: "18"
-            coverageenv: celery-coverage
-          - toxenv: celery-py314-dj61-pg17
-            postgres: "17"
-            coverageenv: celery-coverage
-          - toxenv: celery-py314-dj61-pg18
-            postgres: "18"
-            coverageenv: celery-coverage
-          - toxenv: oauth-toolkit-py314-dj60-pg17
-            postgres: "17"
-            coverageenv: oauth-toolkit-coverage
-            codecovflag: oauth-toolkit
-            coveragexml: packages/djanquiltdb-plugin-oauth-toolkit/tests/coverage.xml
-          - toxenv: oauth-toolkit-py314-dj60-pg18
-            postgres: "18"
-            coverageenv: oauth-toolkit-coverage
-          - toxenv: oauth-toolkit-py314-dj61-pg17
-            postgres: "17"
-            coverageenv: oauth-toolkit-coverage
-          - toxenv: oauth-toolkit-py314-dj61-pg18
-            postgres: "18"
-            coverageenv: oauth-toolkit-coverage
-          - toxenv: pghistory-py314-dj60-pg17
-            postgres: "17"
-            coverageenv: pghistory-coverage
-            codecovflag: pghistory
-            coveragexml: packages/djanquiltdb-plugin-pghistory/tests/coverage.xml
-          - toxenv: pghistory-py314-dj60-pg18
-            postgres: "18"
-            coverageenv: pghistory-coverage
-          - toxenv: pghistory-py314-dj61-pg17
-            postgres: "17"
-            coverageenv: pghistory-coverage
-          - toxenv: pghistory-py314-dj61-pg18
-            postgres: "18"
-            coverageenv: pghistory-coverage
-          - toxenv: postgres-denormalize-py314-dj60-pg17
-            postgres: "17"
-            coverageenv: postgres-denormalize-coverage
-            codecovflag: postgres-denormalize
-            coveragexml: packages/djanquiltdb-plugin-postgres-denormalize/tests/coverage.xml
-          - toxenv: postgres-denormalize-py314-dj60-pg18
-            postgres: "18"
-            coverageenv: postgres-denormalize-coverage
-          - toxenv: postgres-denormalize-py314-dj61-pg17
-            postgres: "17"
-            coverageenv: postgres-denormalize-coverage
-          - toxenv: postgres-denormalize-py314-dj61-pg18
-            postgres: "18"
-            coverageenv: postgres-denormalize-coverage
-          - toxenv: postgres-objects-py314-dj60-pg17
-            postgres: "17"
-            coverageenv: postgres-objects-coverage
-            codecovflag: postgres-objects
-            coveragexml: packages/djanquiltdb-plugin-postgres-objects/tests/coverage.xml
-          - toxenv: postgres-objects-py314-dj60-pg18
-            postgres: "18"
-            coverageenv: postgres-objects-coverage
-          - toxenv: postgres-objects-py314-dj61-pg17
-            postgres: "17"
-            coverageenv: postgres-objects-coverage
-          - toxenv: postgres-objects-py314-dj61-pg18
-            postgres: "18"
-            coverageenv: postgres-objects-coverage
+        include: ${{ fromJSON(needs.matrix.outputs.include) }}
     services:
       postgres:
         image: postgres:${{ matrix.postgres }}
@@ -144,18 +72,23 @@ jobs:
       DATABASE_URL2: postgresql://postgres:postgres@localhost:5433/test_db2
     steps:
       - uses: actions/checkout@v5
+      # The coverage envs run on Python 3.14 in every job, so the py312, py313 and py315 jobs install it beside their
+      # own Python. The version that is listed last is the one that runs tox.
       - uses: actions/setup-python@v6
         with:
-          python-version: '3.14'
+          python-version: |
+            3.14
+            ${{ matrix.python }}
           cache: pip
           cache-dependency-path: packages/*/pyproject.toml
-      - run: python -m pip install --upgrade pip 'tox>=4.21'
+      - run: python -m pip install --upgrade pip 'tox>=4.56.1'
       - run: tox -e ${{ matrix.toxenv }}
       - if: matrix.coverageenv
         run: tox -e ${{ matrix.coverageenv }}
-      # Only the dj60-pg17 job of each package uploads, so that each package has one report, and the core report comes
-      # from the job that its gate is measured on. The upload also runs when the coverage env fails its gate, so that the
-      # badge shows the drop. The coverage env writes coverage.xml before it checks the gate.
+      # Only the py315-dj61-pg18 job of each package uploads (see .github/scripts/test_matrix.py), so that each package
+      # has one report, and the core report comes from the job that its gate is measured on. The upload also runs when
+      # the coverage env fails its gate, so that the badge shows the drop. The coverage env writes coverage.xml before it
+      # checks the gate.
       - if: ${{ !cancelled() && matrix.codecovflag }}
         uses: codecov/codecov-action@v5
         with:
@@ -174,7 +107,7 @@ jobs:
           python-version: '3.14'
           cache: pip
           cache-dependency-path: packages/*/pyproject.toml
-      - run: python -m pip install --upgrade pip 'tox>=4.21'
+      - run: python -m pip install --upgrade pip 'tox>=4.56.1'
       - run: tox -e ruff
 
   pre-commit:
@@ -200,7 +133,7 @@ jobs:
           python-version: '3.14'
           cache: pip
           cache-dependency-path: packages/*/pyproject.toml
-      - run: python -m pip install --upgrade pip 'tox>=4.21'
+      - run: python -m pip install --upgrade pip 'tox>=4.56.1'
       - run: tox -e docs
 
   build:
@@ -213,7 +146,7 @@ jobs:
           python-version: '3.14'
           cache: pip
           cache-dependency-path: packages/*/pyproject.toml
-      - run: python -m pip install --upgrade pip 'tox>=4.21'
+      - run: python -m pip install --upgrade pip 'tox>=4.56.1'
       - run: tox -e core-build,celery-build,oauth-toolkit-build,pghistory-build,postgres-denormalize-build,postgres-objects-build
       - uses: actions/upload-artifact@v4
         with:
